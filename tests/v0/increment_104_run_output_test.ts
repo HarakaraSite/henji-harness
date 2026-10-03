@@ -34,6 +34,17 @@ const recorder = () => {
     state,
     deps: {
       stdinIsTerminal: () => true,
+      resolveDefinition: (rawAgentName: string | undefined) =>
+        Promise.resolve({
+          kind: 'builtin' as const,
+          id: rawAgentName ?? 'default',
+          ref: {
+            schemaVersion: 1 as const,
+            resourceKind: 'agent-definition' as const,
+            resourceId: `builtin/${rawAgentName ?? 'default'}`,
+            revision: { algorithm: 'sha256' as const, digest: '0'.repeat(64) },
+          },
+        }),
       writeStdout: (text: string) => {
         state.stdout += text;
       },
@@ -48,7 +59,7 @@ const emitRun = (
   events: readonly AgentEvent[],
   outcome: LoopOutcome,
 ) =>
-(task: string, _selection: unknown, sink?: (event: AgentEvent) => void) => {
+(task: string, sink?: (event: AgentEvent) => void) => {
   void task;
   for (const event of events) sink?.(event);
   return Promise.resolve({ outcome, requestCount: 1 });

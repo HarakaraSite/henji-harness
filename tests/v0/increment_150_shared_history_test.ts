@@ -1,6 +1,6 @@
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
-import { startCoreServer } from '../../v0/agent/http/server.ts';
+import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';

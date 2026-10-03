@@ -1,10 +1,8 @@
 import { encodedEnvelope } from '../host/encoded_public_frame.ts';
 import type { EncodedDataReply } from '../data/client.ts';
-import {
-  type CoreService,
-  CoreServiceError,
-  type CoreSessionFrameSink,
-} from '../host/core_service.ts';
+import type { CoreService, CoreSessionFrameSink } from '../host/core_service.ts';
+import { CoreServiceError } from '../host/core_service_error.ts';
+import type { CoreReadView } from '../../api/contract.ts';
 import type {
   CatalogReadInput,
   ChatGPTOperation,
@@ -315,8 +313,27 @@ const decodePathId = (value: string): string => {
 const sseFrame = (value: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> =>
   encodedEnvelope('data: ', value, '\n\n');
 
+export interface CoreHttpSubscription {
+  readonly snapshot: Promise<EncodedDataReply>;
+  readonly unsubscribe: () => void;
+}
+
+export type CoreHttpApi =
+  & Omit<
+    Pick<CoreService, import('./api_worker_protocol.ts').ApiOperationName>,
+    'coreRead' | 'subscribeSession'
+  >
+  & {
+    coreRead(): Promise<CoreReadView>;
+    subscribeSession(
+      sessionId: string,
+      sink: CoreSessionFrameSink,
+      subscriptionId: number,
+    ): CoreHttpSubscription;
+  };
+
 const streamSession = async (
-  service: CoreService,
+  service: CoreHttpApi,
   sessionId: string,
   request: Request,
 ): Promise<Response> => {
@@ -324,6 +341,8 @@ const streamSession = async (
   const pending: Uint8Array[] = [];
   let canceled = false;
   let streamClosed = false;
+  const subscriptionId = nextSubscriptionId++;
+  const subscriptionRef: { current?: CoreHttpSubscription } = {};
   const sink: CoreSessionFrameSink = (frame): void => {
     if (frame === undefined) {
       if (streamClosed || canceled) return;
@@ -344,12 +363,29 @@ const streamSession = async (
       } catch {
         canceled = true;
         streamClosed = true;
-        subscription?.unsubscribe();
+        subscriptionRef.current?.unsubscribe();
       }
     }
   };
 
-  const subscription = await service.subscribeSession(sessionId, sink);
+  const subscription = service.subscribeSession(sessionId, sink, subscriptionId);
+  subscriptionRef.current = subscription;
+  if (canceled) subscription.unsubscribe();
+  const unsubscribe = (): void => subscription?.unsubscribe();
+  const abort = (): void => {
+    canceled = true;
+    streamClosed = true;
+    unsubscribe();
+  };
+  request.signal.addEventListener('abort', abort, { once: true });
+  let snapshot: EncodedDataReply;
+  try {
+    snapshot = await subscription.snapshot;
+  } catch (error) {
+    request.signal.removeEventListener('abort', abort);
+    unsubscribe();
+    throw error;
+  }
   const stream = new ReadableStream<Uint8Array>({
     start(value) {
       controller = value;
@@ -358,7 +394,7 @@ const streamSession = async (
           sseFrame(
             encodedEnvelope(
               '{"kind":"session.snapshot","snapshot":',
-              subscription!.snapshot.bytes,
+              snapshot.bytes,
               '}',
             ),
           ),
@@ -376,6 +412,7 @@ const streamSession = async (
       canceled = true;
       streamClosed = true;
       subscription?.unsubscribe();
+      request.signal.removeEventListener('abort', abort);
     },
   });
   if (request.signal.aborted || canceled) {
@@ -390,14 +427,16 @@ const streamSession = async (
   });
 };
 
+let nextSubscriptionId = 1;
+
 interface CoreHandlerLifecycle {
   readonly isAdmissionClosed: () => boolean;
   readonly onShutdownAccepted: () => void;
   readonly scheduleShutdown: () => void;
 }
 
-const handlerFor = (
-  service: CoreService,
+export const createCoreRequestHandler = (
+  service: CoreHttpApi,
   lifecycle: CoreHandlerLifecycle,
 ) =>
 async (request: Request): Promise<Response> => {
@@ -409,7 +448,7 @@ async (request: Request): Promise<Response> => {
     }
     const url = new URL(request.url);
     if (url.pathname === '/api/v1/core' && request.method === 'GET') {
-      return json(service.coreRead());
+      return json(await service.coreRead());
     }
     if (
       url.pathname === '/api/v1/core/shutdown' && request.method === 'POST'
@@ -605,102 +644,4 @@ async (request: Request): Promise<Response> => {
   } catch (error) {
     return errorResponse(error);
   }
-};
-
-interface CoreServerOptions {
-  readonly hostname?: string;
-  readonly port?: number;
-  readonly onServiceClosed?: () => void | Promise<void>;
-}
-
-interface CoreServerHandle {
-  readonly url: string;
-  readonly finished: Promise<void>;
-  readonly shutdown: () => Promise<void>;
-}
-
-/** Start the standalone HTTP API. Shutdown closes SSE readers before awaiting the HTTP server. */
-export const startCoreServer = (
-  service: CoreService,
-  options: CoreServerOptions = {},
-): Promise<CoreServerHandle> => {
-  const hostname = options.hostname ?? '127.0.0.1';
-  const port = options.port ?? 0;
-  let admissionClosed = false;
-  let scheduleShutdown = (): void => {};
-  const pendingHandlers = new Set<Promise<Response>>();
-  const routeHandler = handlerFor(service, {
-    isAdmissionClosed: () => admissionClosed,
-    onShutdownAccepted: () => admissionClosed = true,
-    scheduleShutdown: () => scheduleShutdown(),
-  });
-  const server = Deno.serve(
-    { hostname, port, onListen() {} },
-    (request) => {
-      if (admissionClosed) return routeHandler(request);
-      const url = new URL(request.url);
-      if (
-        url.pathname === '/api/v1/core/shutdown' && request.method === 'POST'
-      ) return routeHandler(request);
-      const pending = routeHandler(request);
-      pendingHandlers.add(pending);
-      void pending.then(
-        () => pendingHandlers.delete(pending),
-        () => pendingHandlers.delete(pending),
-      );
-      return pending;
-    },
-  );
-  const address = server.addr as Deno.NetAddr;
-  const formattedHost = hostname.includes(':') ? `[${hostname}]` : hostname;
-  const url = `http://${formattedHost}:${address.port}`;
-  let shutdownPromise: Promise<void> | undefined;
-  let serviceClosePromise: Promise<void> | undefined;
-  let shutdownScheduled = false;
-  const closeService = (): Promise<void> => {
-    if (serviceClosePromise !== undefined) return serviceClosePromise;
-    admissionClosed = true;
-    service.beginShutdown();
-    serviceClosePromise = (async () => {
-      while (pendingHandlers.size > 0) {
-        await Promise.allSettled([...pendingHandlers]);
-      }
-      await service.close();
-      await options.onServiceClosed?.();
-    })();
-    return serviceClosePromise;
-  };
-  const finished = (async () => {
-    try {
-      await server.finished;
-    } finally {
-      await closeService();
-    }
-  })();
-  const shutdown = (): Promise<void> => {
-    if (shutdownPromise !== undefined) return shutdownPromise;
-    admissionClosed = true;
-    service.beginShutdown();
-    shutdownPromise = (async () => {
-      try {
-        await closeService();
-      } finally {
-        await server.shutdown();
-      }
-      await finished;
-    })();
-    return shutdownPromise;
-  };
-  scheduleShutdown = (): void => {
-    if (shutdownScheduled) return;
-    shutdownScheduled = true;
-    setTimeout(() => {
-      void shutdown().catch(() => {});
-    }, 0);
-  };
-  return Promise.resolve({
-    url,
-    finished,
-    shutdown,
-  });
 };

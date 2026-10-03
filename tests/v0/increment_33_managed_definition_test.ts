@@ -4,10 +4,12 @@ import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import {
   DefinitionStartupError,
+  definitionStartupErrorValue,
   parseDefinitionRevisionSelector,
   resolveDefinitionRef,
   resolveRequestedDefinition,
 } from '../../v0/agent/definitions/definition_selection.ts';
+import { RunWorkerPortError } from '../../v0/agent/cli/run_worker_protocol.ts';
 import {
   importManagedDefinition,
   ManagedDefinitionError,
@@ -485,7 +487,23 @@ Deno.test('Increment 33 resolves before stdin and reports headless Worker evalua
         '--definition-revision',
         `example/missing@sha256:${missingDigest}`,
       ], {
-        dataRoot,
+        resolveDefinition: async (rawAgentName, rawDefinitionRevision) => {
+          try {
+            return await resolveRequestedDefinition(
+              rawAgentName,
+              rawDefinitionRevision,
+              dataRoot,
+            );
+          } catch (error) {
+            if (error instanceof DefinitionStartupError) {
+              throw new RunWorkerPortError({
+                kind: 'definition',
+                value: definitionStartupErrorValue(error),
+              });
+            }
+            throw error;
+          }
+        },
         stdinIsTerminal: () => {
           stdinChecks += 1;
           return false;
@@ -983,6 +1001,7 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
     }
 
     let runStdout = '';
+    let selectedForCli = firstSelection;
     assertEquals(
       await runtimeMain([
         '--task',
@@ -990,10 +1009,17 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
         '--definition-revision',
         `fixture/parent@sha256:${parentSecond.manifest.logicalRef.revision.digest}`,
       ], {
-        dataRoot,
         stdinIsTerminal: () => true,
-        run: (task, selection) =>
-          runHeadlessWorker(task, selection, {
+        resolveDefinition: async (rawAgentName, rawDefinitionRevision) => {
+          selectedForCli = await resolveRequestedDefinition(
+            rawAgentName,
+            rawDefinitionRevision,
+            dataRoot,
+          );
+          return selectedForCli;
+        },
+        run: (task) =>
+          runHeadlessWorker(task, selectedForCli, {
             workspaceRoot,
             stateRoot,
             dataRoot,

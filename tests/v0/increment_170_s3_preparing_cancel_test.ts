@@ -1,6 +1,6 @@
 import { ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
-import { startCoreServer } from '../../v0/agent/http/server.ts';
+import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import type { WorkerHostCommand } from '../../v0/agent/worker/worker_protocol.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';

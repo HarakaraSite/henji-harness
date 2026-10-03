@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-03（Increment 176までの採用範囲と現行sourceを照合）。
+更新日: 2026-10-03（S31の採用範囲をIncrement 179へ移動）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -13,6 +13,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 採用済みのExa検索・download（A17とA6の一部）は[Increment 172](../increments/increment-172.md)、
 共通APIキー登録は[173](../increments/increment-173.md)、B6は[174](../increments/increment-174.md)、
 B7は[175](../increments/increment-175.md)、B8と共通の短い失敗診断は[176](../increments/increment-176.md)を参照する。
+API/CLI adapter分離（S31とrun追加案）は[179](../increments/increment-179.md)を参照する。
 B8の元の実失敗原因は未確定で、再発時の調査方針も176を参照する。
 
 ## 候補一覧
@@ -27,7 +28,6 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| S31 | Surface        | HTTP/SSEをAPI専用Workerへ分離                                                | 利用者が保存した配置案を個別incrementへ採用するとき                                                                    |
 | S32 | Surface        | 入力履歴機能の削除                                                           | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
@@ -44,7 +44,8 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
-| A28 | Agent実行      | Coreの実行状態全件転記・task受付後の重複再投影の削除                         | provider-free測定結果を踏まえ、利用者が最小削除範囲を個別incrementへ採用するとき                                      |
+| A28 | Agent実行      | Coreの実行状態全件転記・task受付後の重複再投影の削除                         | provider-free測定結果を踏まえ、利用者が最小削除範囲を個別incrementへ採用するとき                                       |
+| B9  | 保存履歴       | compiled実行のbuildIdがdevelopment値になる                                   | 履歴の実build attribution修正を個別incrementへ採用するとき                                                             |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -206,19 +207,6 @@ Pi／OpenCode／Henjiの画面表示比較
   単独では採らない。S17を採用するincrementなど、
   frameの実挙動検証が要件に直結するときに限って検討する。 再検討条件:
   S17の採用incrementを計画するとき。
-
-### S31 — HTTP/SSEをAPI専用Workerへ分離（F10）
-
-- 観測: 現行Core mainはHTTP受付・SSE配信を担う。会話state・履歴・公開会話payloadの生成とencodeは、
-  Increment 170で別のData Workerへ移っている。
-- 利用者の方向づけ（2026-10-03）: APIをCoreから分離するか、表示を組み立てるWorkerへ寄せるかの
-  調査を依頼し、HTTP/SSEをAPI専用Workerへ移す案に「これが自然かな」と述べ、案のファイル化を指示した。
-  個別incrementへの採用・実装・正本文書変更の承認とは扱わない。
-- 候補: Coreが所有するAPI専用WorkerへHTTP/SSEを移す。Coreの操作判断と実行制御、既存Data Workerを
-  維持し、第一案では公開revision・snapshot合成・application購読もCoreに残す。
-- 再検討条件: 利用者が配置案を採用するとき、Core操作RPC、購読、起動・終了を具体化する。
-  現行product動作と追加配送の負担を実経路で確認し、性能改善を前提にしない。
-- 詳細: [API Worker分離案](../research/api-worker-separation-design.md)。
 
 ### S32 — 入力履歴機能の削除（未採用、メモのみ）
 
@@ -580,9 +568,9 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### A28 — Coreの冗長な状態更新・実行状態走査の削除（未採用）
 
-- 根拠: 利用者の冗長処理調査とproviderなし測定の指示。1 Core・1 Sessionのtoolなし正常完了100 turnで、
-  状態再投影1,900回、実行状態Mapの走査95,950件を観測した。過去のsettled executionも毎回転記される。
-  task受付後の明示的な再投影は100回すべて公開状態に変更なしだった。
+- 根拠: 利用者の冗長処理調査とproviderなし測定の指示。1 Core・1 Sessionのtoolなし正常完了100
+  turnで、 状態再投影1,900回、実行状態Mapの走査95,950件を観測した。過去のsettled
+  executionも毎回転記される。 task受付後の明示的な再投影は100回すべて公開状態に変更なしだった。
 - 候補: snapshot更新から実行状態Mapの全件転記を外し、実際に追加・変更された実行だけを反映する。
   admit成功後の重複再投影を除く。runtime通知の変更なし更新は一括削除せず、過去の履歴・実dataも削除しない。
 - 未確認: CPU時間・入力遅延、実providerのstream、tool loop、cancel・失敗、HTTP/TUIの測定は未実施。
@@ -870,6 +858,24 @@ Pi／OpenCode／Henjiの画面表示比較
 ## 観測した不具合（未解決の残件）
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
+
+### B9 — compiled実行の保存buildIdがdevelopment値になる
+
+- 観測（2026-10-03、Increment 179のprovider-free受入）: 公式compiled候補と変更前baseline
+  (`1d8d58e`)のmanaged headless実行を、終了後にread-only SQLiteで確認した。
+  両版の保存executionのbuildIdはdevelopment値
+  `c738494fbbf99c577b5c91b957df9f3f0efcfc755442293665f71c8e3bd30179`で、
+  binaryの`--version`にある実buildIdと一致しなかった。
+- 原因のsource経路: `data/client.ts`のData Worker初期化はstateRoot/workspaceRootだけを渡し、
+  `data_bootstrap.ts`はbuild manifestをinstallしていない。`session_authority.ts`が
+  `buildManifest()`の既定development値を取得し、`session_data_owner.ts`がexecution保存へ渡す。
+- 利用者影響: 保存executionのbuildIdから、実際に使用したcompiled buildを区別できない。
+  今回の候補identityはbinary SHA・version・Core readで確認した。
+- 対応候補（未採用）: Data Workerの初期化へ実build manifestを渡してinstallし、
+  新しいexecution保存とreadbackで実buildIdを確認する。既存履歴の書換えは採用していない。
+- 再検討条件: 履歴の実build attribution修正を個別incrementへ採用するとき。
+- 証拠: `.tools/increment-179/acceptance/definition-{baseline,candidate}/`、
+  同受入の`definition_readback.ts`、[Increment 179](../increments/increment-179.md)。
 
 ### B5 — `commit proposal invalid`の具体的な検証不合格理由を特定できない
 

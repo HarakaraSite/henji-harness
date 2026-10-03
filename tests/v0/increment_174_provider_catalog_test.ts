@@ -1,6 +1,6 @@
 import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
-import { startCoreServer } from '../../v0/agent/http/server.ts';
+import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { HenjiApiClient, HenjiApiError } from '../../v0/api/client.ts';
 

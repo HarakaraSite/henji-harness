@@ -1,27 +1,19 @@
-import {
-  DefinitionStartupError,
-  definitionStartupErrorValue,
-  type HostDefinitionSelection,
-  parseDefinitionRevisionSelector,
-  resolveRequestedDefinition,
-} from '../definitions/definition_selection.ts';
-import {
-  type HeadlessWorkerRun,
-  type HeadlessWorkerRunOptions,
-  runHeadlessWorker,
-} from '../worker/worker_headless_runner.ts';
+import { parseDefinitionRevisionSelector } from '../definitions/definition_selector.ts';
+import type { HeadlessWorkerRun } from '../worker/worker_headless_runner.ts';
 import type { AgentEventSink } from '../core/events.ts';
 import {
-  HenjiInstructionError,
-  henjiInstructionErrorValue,
-} from '../instructions/base_instruction.ts';
+  type CliDefinitionSelectionInfo,
+  type CliRunOptions,
+  type DefinitionStartupErrorValue,
+  type HenjiInstructionErrorValue,
+  RunWorkerPortError,
+} from './run_worker_protocol.ts';
 import {
   CliRunEventProjector,
   CliRunStreamRenderer,
   OrderedTextWriter,
   serializeCliRunRecord,
 } from './run_events.ts';
-import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
@@ -54,20 +46,20 @@ class AgentInputError extends Error {
 
 type OutputWriter = (text: string) => void | PromiseLike<void>;
 
-/** Test seams keep channel validation provider-free; production uses the headless Worker route. */
+/** The CLI Worker talks to the Host through this run-only port. */
 interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
+  readonly resolveDefinition?: (
+    rawAgentName: string | undefined,
+    rawDefinitionRevision: string | undefined,
+  ) => Promise<CliDefinitionSelectionInfo>;
   readonly run?: (
     task: string,
-    selection: HostDefinitionSelection,
     eventSink?: AgentEventSink,
-    options?: Pick<HeadlessWorkerRunOptions, 'rootMaxSteps' | 'providerTimeoutMs'>,
+    options?: CliRunOptions,
   ) => Promise<HeadlessWorkerRun>;
-  readonly dataRoot?: string;
-  readonly configRoot?: string;
-  readonly runtimePaths?: () => Readonly<{ dataRoot: string; configRoot: string }>;
   readonly writeStdout?: OutputWriter;
   readonly writeStderr?: OutputWriter;
 }
@@ -251,7 +243,7 @@ const preflightFailureValue = (): Record<string, unknown> =>
     { steps: 0, toolCallCount: 0, toolResultCount: 0, requestCount: 0 },
   );
 
-const definitionFailureValue = (error: DefinitionStartupError): Record<string, unknown> => ({
+const definitionFailureValue = (error: DefinitionStartupErrorValue): Record<string, unknown> => ({
   ok: false,
   outcome: 'contract_failure',
   stopReason: 'contract_failure',
@@ -259,10 +251,10 @@ const definitionFailureValue = (error: DefinitionStartupError): Record<string, u
   toolCallCount: 0,
   toolResultCount: 0,
   requestCount: 0,
-  error: definitionStartupErrorValue(error),
+  error,
 });
 
-const instructionFailureValue = (error: HenjiInstructionError): Record<string, unknown> => ({
+const instructionFailureValue = (error: HenjiInstructionErrorValue): Record<string, unknown> => ({
   ok: false,
   outcome: 'contract_failure',
   stopReason: 'contract_failure',
@@ -270,7 +262,7 @@ const instructionFailureValue = (error: HenjiInstructionError): Record<string, u
   toolCallCount: 0,
   toolResultCount: 0,
   requestCount: 0,
-  error: henjiInstructionErrorValue(error),
+  error,
 });
 
 const line = (value: Record<string, unknown>): string => JSON.stringify(value) + '\n';
@@ -322,26 +314,18 @@ export const main = async (
   try {
     if (modeInvalid) throw invalidInput();
     const parsed = parseTaskArg(args.filter((argument) => !OUTPUT_FLAGS.has(argument)));
-    // Resolve before probing or reading stdin and before any runtime/workspace construction.
-    const defaultRoot = parsed.rawAgentName === undefined &&
-      parsed.rawDefinitionRevision === undefined;
-    const paths = defaultRoot &&
-        (dependencies.dataRoot === undefined || dependencies.configRoot === undefined)
-      ? dependencies.runtimePaths?.() ??
-        (dependencies.run === undefined ? resolveRuntimePaths() : undefined)
-      : undefined;
-    const dataRoot = dependencies.dataRoot ?? paths?.dataRoot;
-    const configRoot = dependencies.configRoot ?? paths?.configRoot;
-    let selection: HostDefinitionSelection;
+    // Resolve on the Host before probing or reading stdin. Only its data-only description crosses
+    // this port; the selected executable Definition stays in the main process.
     try {
-      selection = await resolveRequestedDefinition(
+      if (dependencies.resolveDefinition === undefined) {
+        throw new Error('run Host port unavailable');
+      }
+      await dependencies.resolveDefinition(
         parsed.rawAgentName,
         parsed.rawDefinitionRevision,
-        dataRoot,
-        configRoot,
       );
     } catch (error) {
-      if (error instanceof DefinitionStartupError) throw error;
+      if (error instanceof RunWorkerPortError) throw error;
       throw invalidInput();
     }
     const argvTask = parsed.taskArg;
@@ -382,15 +366,8 @@ export const main = async (
         if (rendered.stderr !== undefined) stderr.enqueue(rendered.stderr);
       }
     };
-    const runner = dependencies.run ??
-      ((input, selected, eventSink, options) =>
-        runHeadlessWorker(input, selected, {
-          dataRoot,
-          configRoot,
-          eventSink,
-          ...options,
-        }));
-    const run = await runner(task, selection, sink, {
+    if (dependencies.run === undefined) throw new Error('run Host port unavailable');
+    const run = await dependencies.run(task, sink, {
       ...(parsed.rootMaxSteps === undefined ? {} : { rootMaxSteps: parsed.rootMaxSteps }),
       ...(parsed.providerTimeoutMs === undefined
         ? {}
@@ -418,13 +395,26 @@ export const main = async (
     }
     return 1;
   } catch (error) {
-    if (error instanceof DefinitionStartupError) {
-      emitError(definitionFailureValue(error));
-      return 1;
-    }
-    if (error instanceof HenjiInstructionError) {
-      emitError(instructionFailureValue(error));
-      return 1;
+    if (error instanceof RunWorkerPortError) {
+      switch (error.data.kind) {
+        case 'definition':
+          emitError(definitionFailureValue(error.data.value));
+          return 1;
+        case 'instruction':
+          emitError(instructionFailureValue(error.data.value));
+          return 1;
+        case 'invalid_definition':
+          emitError(preflightFailureValue());
+          return 1;
+        case 'agent_failure':
+          emitError(failureValue(
+            'contract_failure',
+            'agent_failure',
+            'agent run failed',
+            { steps: 0, toolCallCount: 0, toolResultCount: 0, requestCount: 0 },
+          ));
+          return 1;
+      }
     }
     if (error instanceof AgentInputError) {
       emitError(preflightFailureValue());
@@ -442,5 +432,3 @@ export const main = async (
     await stderr.drain();
   }
 };
-
-if (import.meta.main) Deno.exit(await main());

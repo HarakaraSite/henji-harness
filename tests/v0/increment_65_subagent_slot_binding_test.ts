@@ -237,12 +237,24 @@ Deno.test('Increment 115 headless default selection uses the runtime XDG roots',
     });
     const selected: { kind: string; ref: unknown }[] = [];
     let selectedConfigRoot = configRoot;
+    let selectedForCli: Awaited<ReturnType<typeof resolveRequestedDefinition>> | undefined;
     const dependencies = {
       stdinIsTerminal: () => false,
       readStdin: () => Promise.resolve(new TextEncoder().encode('headless task')),
-      runtimePaths: () => ({ dataRoot, configRoot: selectedConfigRoot }),
-      run: (task: string, selection: { kind: string; ref: unknown }) => {
-        selected.push({ kind: selection.kind, ref: selection.ref });
+      resolveDefinition: async (
+        rawAgentName: string | undefined,
+        rawDefinitionRevision: string | undefined,
+      ) => {
+        selectedForCli = await resolveRequestedDefinition(
+          rawAgentName,
+          rawDefinitionRevision,
+          dataRoot,
+          selectedConfigRoot,
+        );
+        selected.push({ kind: selectedForCli.kind, ref: selectedForCli.ref });
+        return selectedForCli;
+      },
+      run: (task: string) => {
         return Promise.resolve({
           outcome: {
             ok: true as const,

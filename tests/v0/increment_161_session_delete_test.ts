@@ -1,7 +1,7 @@
 import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert';
 import { createApplicationService } from '../../v0/agent/host/application_service.ts';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
-import { startCoreServer } from '../../v0/agent/http/server.ts';
+import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';

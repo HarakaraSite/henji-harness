@@ -85,19 +85,11 @@ import { projectRuntimeDisplayState } from '../runtime/startup_orientation.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { type WorkerSessionOptions } from '../worker/worker_tui_session.ts';
+import { CoreServiceError } from './core_service_error.ts';
 
 const IMPLEMENTED_OPERATIONS: readonly CoreOperationName[] = CORE_OPERATION_NAMES;
 
-export class CoreServiceError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message = code,
-  ) {
-    super(message);
-    this.name = 'CoreServiceError';
-  }
-}
+export { CoreServiceError } from './core_service_error.ts';
 
 export type CoreInitialSession = Readonly<
   | { kind: 'new' | 'continue' | 'none' }

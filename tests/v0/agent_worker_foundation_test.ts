@@ -130,6 +130,17 @@ const successfulHeadlessRun = (task: string) =>
     requestCount: 1,
   });
 
+const cliDefinitionInfo = (id = 'default') => ({
+  kind: 'builtin' as const,
+  id,
+  ref: {
+    schemaVersion: 1 as const,
+    resourceKind: 'agent-definition' as const,
+    resourceId: `builtin/${id}`,
+    revision: { algorithm: 'sha256' as const, digest: '0'.repeat(64) },
+  },
+});
+
 Deno.test('Slice 1 starts a module Worker and preserves protocol ordering and clone isolation', async () => {
   const capsule = new WorkerCapsule(workerUrl);
   try {
@@ -651,14 +662,19 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
 
 Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', async () => {
   const observed: Array<{ task: string; agent: string }> = [];
+  let resolvedAgent = 'default';
   let stdout = '';
   let stderr = '';
   const argvExit = await runtimeCliMain(
     ['--agent', 'default', '--task', '  plan this  '],
     {
       stdinIsTerminal: () => true,
-      run: (task, selection) => {
-        observed.push({ task, agent: selection.id });
+      resolveDefinition: (rawAgentName) => {
+        resolvedAgent = rawAgentName ?? 'default';
+        return Promise.resolve(cliDefinitionInfo(resolvedAgent));
+      },
+      run: (task) => {
+        observed.push({ task, agent: resolvedAgent });
         return successfulHeadlessRun(task);
       },
       writeStdout: (text) => {
@@ -679,8 +695,12 @@ Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', 
   const stdinExit = await runtimeCliMain([], {
     stdinIsTerminal: () => false,
     stdin: textStream('  stdin task\n'),
-    run: (task, selection) => {
-      observed.push({ task, agent: selection.id });
+    resolveDefinition: (rawAgentName) => {
+      resolvedAgent = rawAgentName ?? 'default';
+      return Promise.resolve(cliDefinitionInfo(resolvedAgent));
+    },
+    run: (task) => {
+      observed.push({ task, agent: resolvedAgent });
       return successfulHeadlessRun(task);
     },
     writeStdout: (text) => {
@@ -725,7 +745,8 @@ Deno.test('run passes both limits to the headless Worker invocation', async () =
     ['--max-steps', '160', '--provider-timeout-ms', '420000', '--task', 'hi'],
     {
       stdinIsTerminal: () => true,
-      run: (task, _selection, _sink, options) => {
+      resolveDefinition: () => Promise.resolve(cliDefinitionInfo()),
+      run: (task, _sink, options) => {
         observed.push(options);
         return successfulHeadlessRun(task);
       },
@@ -742,6 +763,7 @@ Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () 
   let stderr = '';
   const exit = await runtimeCliMain(['--task', 'bounded task'], {
     stdinIsTerminal: () => true,
+    resolveDefinition: () => Promise.resolve(cliDefinitionInfo()),
     run: (task) =>
       Promise.resolve({
         outcome: {

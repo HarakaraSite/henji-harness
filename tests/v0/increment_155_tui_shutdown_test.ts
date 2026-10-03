@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from 'node:util';
 import { ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
-import { startCoreServer } from '../../v0/agent/http/server.ts';
+import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import { encodeScreenFrame, type ScreenFrame, type TerminalPort } from '../../v0/tui/terminal.ts';

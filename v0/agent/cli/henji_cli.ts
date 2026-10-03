@@ -1,7 +1,7 @@
 import { cliHelp } from './cli_help.ts';
 import { runProcessRunner } from '../runtime/process_runner.ts';
 import { main as tuiMain } from './tui_cli.ts';
-import { main as runMain } from './runtime_cli.ts';
+import { runCliWorker } from './run_worker_client.ts';
 import { main as sessionsMain } from './session_cli.ts';
 import { main as historyMain } from './history_cli.ts';
 import { main as diagnosticsMain } from './failure_diagnostic_cli.ts';
@@ -87,7 +87,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
     await writeStdout(help);
     return 0;
   }
-  if (args[0] === 'run') return await runMain(args.slice(1));
+  if (args[0] === 'run') return await runCliWorker(args.slice(1));
   if (args[0] === 'serve') return await serveMain(args.slice(1));
   if (args[0] === 'core') return await coreMain(args.slice(1));
   if (args[0] === 'tui') return await tuiMain(args.slice(1));

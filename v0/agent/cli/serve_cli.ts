@@ -1,5 +1,5 @@
 import { type CoreInitialSession, createCoreService } from '../host/core_service.ts';
-import { startCoreServer } from '../http/server.ts';
+import { startCoreServer } from '../http/api_worker_client.ts';
 import { parseTuiInvocation } from './session_invocation.ts';
 import { resolveRequestedDefinition } from '../definitions/definition_selection.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';

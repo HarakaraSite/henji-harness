@@ -10,6 +10,8 @@ import { canonicalToolDefinitionRevisionBytes } from '../v0/agent/definitions/ma
 const EXPECTED_DENO = '2.9.7';
 const ROOTS = [
   'v0/agent/cli/henji_cli.ts',
+  'v0/agent/http/api_bootstrap.ts',
+  'v0/agent/cli/run_bootstrap.ts',
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/data/data_bootstrap.ts',
   'v0/agent/worker/worker_builtin_definition.ts',
