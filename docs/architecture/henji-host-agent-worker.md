@@ -8,7 +8,10 @@
 
 この文書は、Henji HostとヘッドレスなDeno Agent Workerの責務、状態、lifetime、commit境界を定める。
 
-現行source照合: commit `ae520777`、Increment 168まで完了（2026-10-01）。利用者の正本同期指示を反映した。
+配置の現行source照合: commit
+`7dc4f501`（2026-10-03）。利用者の「architecture/roadmap反映はやろう」により、 Increment
+179のAPI/CLI Worker分離と、関連するIncrement 170のData Worker配置を反映した。
+それ以外の領域はIncrement 168時点の照合記録を基礎とし、個別incrementの結果も参照する。
 
 複数providerを同一SessionとWorker内で扱うroute、認証profile、model一覧、account binding、provider stateとevidenceの境界は、
 専門設計
@@ -57,9 +60,12 @@
 - Definitionは、provider、model、effort、loop、tools、contextをWorker内の一つの
   `AgentComposition`へ合成する。Definitionを目的別variantの固定集合や閉じたcapability schemaには
   しない。
-- UIは交換可能なHost-side Surfaceである。現行HostはSessionとWorkerを所有する独立Coreと、HTTP/SSEで
-  接続するTUIに分かれる。Agent Workerはheadlessであり、Host / Worker protocolだけで通信する。
-  terminal/draft/viewportはTUI、Session/execution/selection/履歴/read modelはCoreが所有する。
+- UIは交換可能なHost-side Surfaceである。現行Hostは独立Core、Core所有のAPI/Data Worker、HTTP/SSEで
+  接続するTUIに分かれる。Core mainは操作判断・実行制御・採用判断・公開revisionと購読を所有し、 Data
+  Workerはcanonical Session・会話state・履歴と公開会話payloadの生成を所有する。 API
+  WorkerはHTTP/SSE、TUIはterminal/draft/viewportを所有する。非対話`run`ではheadless Hostが
+  CLI/Data/Agent Workerを所有し、CLI Workerが引数・stdio・出力drainを担う。 Agent
+  Workerはheadlessであり、HostへのcontrolとDataへのdata channelで通信する。
 - 自己改訂を支える基盤は、Agent自身による実行・実効構成・履歴の観測と、model選択、generic child起動、
   resourceからのrebuild等の構成操作である。Hostが観測のreadbackと状態適用を所有し、Workerが観測材料を
   選び、意味を解釈して操作を要求する。現在の実装状態はroadmapで分けて管理する。
@@ -125,9 +131,12 @@
 | `HistoryLogicalRecord` | message、tool call/result、短いrequest fact、runtime interpretation、Host decision、attributionの一つのsemantic fact。stable ID、execution内順序、causal ref、semantic content refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたsemantic authorityとして永続化する。 |
 | `HistoryProjection` | authorityから導出するhuman view、search document、flattened request、model working context、summary、later reinterpretation。 | rebuild可能であり、watermark遅延をauthority欠落とみなさない。 |
 | `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続実行が参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
-| `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Worker とは独立して所有・置換される。 |
+| `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Agent Worker generationとは独立して所有・置換される。現行runのCLI adapterはHost所有のCLI Worker内で動く。 |
 | `HenjiHost` | CoreのSession・Worker・process・storage所有と、Host-side Surfaceのterminal／UI-local state・operation変換からなる責務。 | 現行HTTP CoreはTUI detach後も稼働する。Core processのepochはdurable AgentInstance identityではない。 |
-| `Core` | 一つのworkspaceと稼働Session slot、application operations、HTTP/SSE read model、Workerとprocessを所有するHost process。 | 通常起動ごとに作る。ID/URLで再接続し、明示shutdownで終了する。 |
+| `Core` | 一つのworkspaceと稼働Session slot、application operations、公開revision・購読、API/Data/Agent Workerとprocessを所有するHost process。 | 通常起動ごとに作る。ID/URLで再接続し、明示shutdownで終了する。 |
+| `Data Worker` | Host所有のSession data service。canonical model data、会話state、semantic履歴・SQLite、公開会話payloadの生成とencodeを担う。 | Coreまたは独立headless Hostにつき一つ。Agent generationの置換でも正本を維持する。 |
+| `API Worker` | Core mainへの非同期operation portを使うHTTP route・request/response・SSE adapter。 | Coreにつき一つ、同processのDeno Web Worker。Core mainが起動・終了を所有する。 |
+| `CLI Worker` | `henji run`の引数・stdin・text/NDJSON/stream・stdout/stderr・drainを担うadapter。 | run invocationにつき一つ、同processのDeno Web Worker。headless Host mainが起動・終了を所有する。 |
 
 `AgentManifest` と `AgentComposition` を区別するのは意図的である。manifest は、実行可能な
 Definition が合成できるものを制限する仕組みになることなく、読み取り、比較、または revision
@@ -149,23 +158,33 @@ Definition が合成できるものを制限する仕組みになることなく
 
 ## Host / Worker 境界
 
-意図する方向性は次のとおりである。
+現行の配置と所有関係は次のとおりである。
 
 ```text
 TUI / 外部HTTP client（Surface）
-        │ application operation / Session snapshot・update（HTTP/SSE）
+        │ HTTP operation / Session snapshot・update（SSE）
         ▼
-Core（Host） ── data-only protocol ── AgentWorkerGeneration
-   │                                  │ Definition → Composition → turn
-   │ Session・履歴・selection・process    │ provider・tool semantics・context
-   ▼
-workspace共通SQLite（Host-owned semantic authority）
+API Worker ── data-only operation・購読 ── Core main（Host）
+                                            │ control・採用判断・process/child
+                  Data Worker ◀── data ──▶ AgentWorkerGeneration
+                     ▲   │                  Definition → Composition → turn
+     Core mainからcommand│                  provider・tool semantics・context
+                         ▼
+              workspace共通SQLite（Host-owned semantic authority）
+
+henji runのprocess
+CLI Worker ── data-only 選択・実行要求 / event・結果 ── headless Host main
+                                                       ├ Data Worker
+                                                       └ AgentWorkerGeneration
+                                                         ↔ Data直接channel
 ```
 
-`henji run`は独立したheadless Hostから同じWorker経路と共有履歴DBを使い、HTTP Coreへ接続しない。
+API/Data/CLI WorkerはHost側の実行場所であり、Agent Workerとは責務を区別する。
+`henji run`は独立したheadless Hostから同じData/Agent経路と共有履歴DBを使い、HTTP Coreへ接続しない。
 
-この図が示すのは所有関係であり、wire schema ではない。現行sliceでは、`slice1-data-only-v1`と名付けた
-Host–Worker間のdata-only message contractを実装している。ただしprotocol versionのnegotiationはなく、
+この図が示すのは所有関係であり、wire schemaではない。Host–Agentのcontrol contractは
+`slice1-data-only-v1`、Host–DataとAPI/CLI adapterのportはそれぞれの内部message schemaを使う。
+protocol versionのnegotiationはなく、
 現在のmessage schemaを恒久的な契約として固定しない。将来拡張時のmessage、handshake、error互換性、
 version migrationは未設計である。
 
@@ -188,15 +207,63 @@ scopeを使い、Core数を保存先の分割や設定の自動同期へ置き�
 予約follow-upは稼働Coreのpending stateであり、Core再起動後のmailbox復元は提供しない。
 
 `v0/agent/host/core_service.ts`と`application_service.ts`が共通read modelとoperationを提供し、
-`v0/agent/http/server.ts`、`v0/api/`を介してTUIへsnapshot/updateを返す。operation結果の受付とexecutionの
+Dataのencoded会話payloadを小さいcontrol stateと合成する。 `v0/agent/http/api_worker_client.ts`がCore
+mainへのportを接続し、API Worker内の
+`api_bootstrap.ts`・`server.ts`、`v0/api/`を介してTUIへsnapshot/updateを返す。operation結果の受付とexecutionの
 完了は別で、接続が切れた場合も受付済みexecutionは継続する。実装結果と確認は
 [Increment 139〜146](../increments/increment-146.md)および
 [複数Coreの完了結果](../increments/increment-153.md)を参照する。
 
+### Data Workerの状態所有と保存・公開
+
+Data WorkerはSessionごとのcanonical model data、record組立て・検証、admission/terminal transaction、
+semantic履歴、request単位の最新本文stateと共通ConversationStateの唯一のwriterである。 Core
+mainは小さいSession/execution/generation index、実行予約、cancel/steering/follow-up、
+採用許可とprocess/child制御を持つ。会話stateのCore側複製や別の表示用DBは作らない。
+
+Agent–Dataの直接channelでcontext・semantic data・全文proposalを渡し、Core–Agentのcontrol channelでは
+開始・cancel・process/child要求と小さいcorrelation/tokenを渡す。Dataはproposalの最終sequenceまで保存し、
+recordを組み立ててprepare tokenを返す。Core/headless Hostは取消状態とchild/process清算を照合して
+採用を許可し、Dataが対応するtransactionをCOMMITする。保存完了後にだけcommittedとして公開する。
+
+保存factsの初回再生とliveの保存batchは同じnormalizer/applyFactを使う。
+DataはCOMMIT後に会話stateへ一度applyし、変更entityとencoded snapshot/deltaを返す。
+Coreはdata/controlの更新へ単一public revisionを付けて合成し、API Workerへ渡す。
+Dataの保存版と公開cursorは区別し、通常の更新で過去全履歴の再読取・全会話のparse/再encodeを行わない。
+offline `henji history`はread-only DB adapterと同じ更新器で参照する。
+配置・保存と公開の契約は[Increment 170](../increments/increment-170.md)を参照する。
+
+### API/CLI adapterのportとlifetime
+
+API Workerはlisten、route、request decode、response、SSE framing・接続終了を所有する。 Core
+mainがlisten成功のURLを受けてendpoint/readyを公開し、Core epoch/PIDはprocess identityを維持する。
+操作は非同期request/replyで個別にdispatchし、重いreadのreply待ちでcancel等を直列化しない。
+購読identityをsnapshot要求前に登録し、先着update/endを保持してsnapshot→updateの順に渡す。
+HTTP切断は該当購読の解除であり、受付済みexecutionやfollow-upをcancelしない。 単独encoded
+replyは利用を終えたbufferをtransferし、複数購読で共有するupdateはcloneして元bufferを保つ。
+callback、CoreService object、DB handleはWorker境界を渡さず、公開errorもdataで対応させる。
+
+CoreのHTTP shutdown・CLI stop・SIGINT/SIGTERMは共通の終了ownerへ接続する。
+新規受付を止め、稼働executionへcancel、購読へ終了通知を出してSSEを閉じる。
+SSE終了は保存完了の通知ではない。HTTP shutdownはaccepted responseを返す段階をmainへ通知し、 client
+ACKを待たない。API handler/RPCのdrain後、Coreの実行・Data保存とclose、endpoint/所有lockの
+清算を終え、listenerをgraceful shutdownしてAPI Workerとmainを終了する。
+listener/Workerの予期しない終了もCore closeへ接続し、保存をterminateで省略しない。
+
+runではmainがCLI Workerを起動し、CLIが引数を解釈してHostへDefinition選択を要求する。
+Hostはstdin読取前にDefinitionを一度解決して実行可能objectを保持し、CLIへはdata-onlyなref/errorを返す。
+CLIがstdin/`--task`と実行optionを渡し、Hostが同じ選択で`runHeadlessWorker`を実行する。
+同じportのevent→Host清算後result→CLI出力drain後doneの順を維持し、mainがWorkerを終了してexit
+codeを適用する。 CLI Workerは物理stdioを直接扱い、mainにstdio relayを作らない。
+runのprocess宛signalに新しいgraceful保存保証は追加しない。
+実装・受入と追加配送の測定は[Increment 179](../increments/increment-179.md)を参照する。
+
 ### HenjiHost が所有するもの
 
 - Worker generation の起動、停止、監視、置換。
-- 物理terminalとSurface I/Oは接続TUI等のHost-side adapterが所有する。Coreはapplication operationsとread modelを所有する。
+- 物理terminalとSurface I/OはTUI、API Worker、run CLI Worker等のHost-side adapterが所有する。 Core
+  mainはapplication operations・公開revision・購読、Data
+  Workerは会話state・保存・公開会話payloadを所有する。
 - process実行の物理ownerと共通process executor。Worker-local proxyからのdata-only requestを受け、
   commandの制御端末分離、process groupの所有、cancel／forced termination／generation置換／close時の清算を担う。
 - Surface実装のloadと置換の境界。現行SurfaceはactionをCore operationへ変換し、Coreが必要な
@@ -536,9 +603,10 @@ UI を要求してはならない。
 
 Surfaceは、人間のactionをCoreのapplication operationへ変換し、Session snapshotとupdateから会話、
 作業状況、結果を提示するadapterである。現在のTUIはCoreと別processのHTTP/SSE clientであり、
-terminal、draft、cursor、viewport、入力履歴、picker、表示用cacheを所有する。CoreはSession、
-実行受付、selection、Worker lifecycle、semantic履歴とread modelを所有する。UI-local stateをWorker
-protocolやcanonical Session stateへ混入させない。
+terminal、draft、cursor、viewport、入力履歴、picker、表示用cacheを所有する。Core mainは実行受付、
+selection操作、Worker lifecycleと公開revision・購読、Data WorkerはSession・semantic履歴と会話read
+model、 API WorkerはHTTP/SSEを所有する。UI-local stateをAgent Worker protocolやcanonical Session
+stateへ混入させない。
 
 通常の`henji`／`henji tui`は新Core・新Sessionを作る。`--core ID`または`--connect URL`は生存Coreへの
 明示再接続で、`--session ID`は新Coreで保存Sessionを再開する。TUIの`/detach`／Ctrl-Dは接続だけを
@@ -547,9 +615,11 @@ tool processを清算する。Core選択とSession選択は別operationである
 
 非対話`henji run`はHTTP Core discoveryへ合流せず、同じWorker session factory、Definition評価、
 composition、proposal／commit／acknowledgementを使う一turnのheadless Host経路である。canonical
-Sessionは保存しないが、productionではnon-canonical executionとsemantic履歴を共有history DBへ保存する。
-既定はfinal-only stdoutまたはfailure JSON、`--json`はcurated NDJSON、`--stream`はlive assistant textを
-出す。出力はHost-owned projectionであり、provider-private replayや内部protocolをそのまま公開しない。
+Sessionは保存しないが、productionではData Workerがnon-canonical executionとsemantic履歴を共有history
+DBへ保存する。 CLI Workerが入力・出力を扱い、headless Host mainが選択解決・実行・清算を扱う。
+既定はfinal-only stdoutまたはfailure JSON、`--json`はcurated NDJSON、`--stream`はlive assistant
+textを 出す。出力はHost-owned projectionであり、provider-private
+replayや内部protocolをそのまま公開しない。
 
 現在の対話画面はconversation log、複数行editor、三行footerで構成する。
 
@@ -642,11 +712,13 @@ semantic prefixと最新本文を残す。credential値とAuthorizationは記録
 canonical adoptionを禁止する。async childのcollect結果はstop reason、実request count、diagnostic id／code
 などの短い状態を返す。
 
-生成中のassistant本文はexecution・lane・model step・physical requestをkeyとするHost-owned stateであり、
-derived cacheではない。最新eventの本文・観測時刻・Worker sequenceと初回のevent位置を保持する。
-既存journalのflushでstateを置換し、同じrequestのmodel result保存とstate終了を一transactionで行う。
-cancel、failure、forced interruption、restart reconciliationでは、最後の本文のsemantic追記、state終了、
-terminal／outcomeを一transactionで保存する。read-only detailはstateとsemantic履歴を同じsnapshotから読み、
+生成中のassistant本文はexecution・lane・model step・physical requestをkeyとするData
+WorkerのHost-owned stateであり、 derived cacheではない。最新eventの本文・観測時刻・Worker
+sequenceと初回のevent位置を保持する。 既存journalのflushでstateを置換し、同じrequestのmodel
+result保存とstate終了を一transactionで行う。 cancel、failure、forced interruption、restart
+reconciliationでは、最後の本文のsemantic追記、state終了、
+terminal／outcomeを一transactionで保存する。read-only
+detailはstateとsemantic履歴を同じsnapshotから読み、
 生成中本文を確定messageやappend済みoccurrenceとして扱わない。停止本文のreadbackは元の観測位置に並べ、
 `/recall`へは一request一本文を投影する。未完了本文をcanonical conversationへ自動採用しない。
 
@@ -831,12 +903,15 @@ durable Instanceを採用する場合は、次の関係とcanonical domainを追
 1. Host が canonical session state を load し、Worker generation への command を受け入れる。
 2. Worker が snapshot を解釈して composition を実行し、turn 中の output と commit proposal を
    生成する。
-3. Hostは観測済みsemantic deltaのappendと最新本文stateの更新・終了をatomicに保存する。executionのsettlementは
-   未完了本文をsemantic履歴へ引き継ぎ、連続ordinal、count、terminal、mandatory referenceを増分処理する。
-   過去payload全体を再検証しない。
-4. canonical採用時、Hostは適用対象Session revisionとexecutionの成立条件を照合し、terminal／settlement、canonical turn、
-   Session revisionを一transactionで保存する。ordered hash rootを成立条件にしない。
-5. durable canonical adoptionが成功した後にのみ、HostはSurfaceまたは採用済みoutput consumerへturnをcommittedと報告する。
+3. HostのData Workerは観測済みsemantic
+   deltaのappendと最新本文stateの更新・終了をatomicに保存する。executionのsettlementは
+   未完了本文をsemantic履歴へ引き継ぎ、連続ordinal、count、terminal、mandatory
+   referenceを増分処理する。 過去payload全体を再検証しない。
+4. canonical採用時、Core/headless Host mainがDataのprepare
+   tokenとexecutionの成立条件を照合して許可し、 Data Workerがterminal／settlement、canonical
+   turn、Session revisionを一transactionで保存する。 ordered hash rootを成立条件にしない。
+5. durable canonical adoptionが成功した後にのみ、HostはSurfaceまたは採用済みoutput
+   consumerへturnをcommittedと報告する。
 
 ### Effect と commit proposal
 

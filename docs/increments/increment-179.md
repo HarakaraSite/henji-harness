@@ -3,7 +3,7 @@
 更新日: 2026-10-03
 
 ステータス:
-**実装・受入とcommit/push完了。3スライスの検証・独立review、最終gate、承認済み実provider確認3回・保存readbackを完了。常用配置・architecture/roadmap反映は未実施。**
+**実装・受入と実装commit/push完了。3スライスの検証・独立review、最終gate、承認済み実provider確認3回・保存readbackを完了。追加承認されたarchitecture/roadmap反映も完了。常用配置は未実施。**
 
 利用者の「では計画を立ててください 次のインクリメントとします」により、通常利用メモS31の API
 Worker案と、追加された`henji run`のCLI Worker案を179へ採用する。
@@ -290,6 +290,7 @@ candidate、隔離XDGである。
 - roadmapの変更案はF10等の採用範囲と179の実装状態を反映すること。 構想の意味変更は今回必要としない。
 - architecture・roadmapの実編集は、対象・理由・意味上の変更内容を別途提示し、明示承認後に行う。
   179の実装や完了承認で自動的に正本を書き換えない。
+- 利用者の「architecture/roadmap反映はやろう」により、上記反映案の正本変更を追加承認済み。
 
 ## 結果
 
@@ -436,8 +437,8 @@ fileはlocal review時から変更なし。最終gateの再実行は行ってい
 executionの同account/model/effort・各1 physical request・HTTP 200、 semantic本文・Host
 adoption、cancel部分本文と保存結果の対応を確認し、必須finding・記録差なしと結論した。
 親が以上の実経路・保存・独立reviewと既存gate結果から、179の実装・受入完了と判断する。
-通常updateの初回reply先着を強制する確認は未実施として残す。常用配置・
-architecture/roadmapの変更は今回行っていない。
+通常updateの初回reply先着を強制する確認は未実施として残す。実provider受入時点では常用配置・
+architecture/roadmapの変更は行っていない。正本の追加反映は下記を参照する。
 
 ### commit/push
 
@@ -445,3 +446,13 @@ architecture/roadmapの変更は今回行っていない。
 `7dc4f501ea44e450e541fc1f0f84085caa0e6975`へまとめ、`origin/main`へpushした。 既にlocal
 mainへ作成されていた文書commit `4b069557`も同時に送信した。
 push結果の本書・handoffへの記録も同じ承認範囲でcommit/pushする。
+
+### architecture/roadmap反映
+
+利用者の追加承認により、`docs/architecture/henji-host-agent-worker.md`へAPI/CLI Workerの責務、
+data-only port、起動・終了順序と関連する170のData Worker所有を反映した。
+`docs/roadmap.md`のF04/F05/F09〜F13とSurface置換の基盤説明を現行配置へ合わせた。
+F10のWebUI・一般Surface loader/置換は未実装のまま、179のcompiled受入と常用配置未実施を区別した。
+既存build attribution不具合B9は未採用として参照し、解消済みとは扱わない。
+文書の所有・保存・採用・終了経路をsourceと170/179結果へ照合し、文書内linkとdiff checkで確認した。
+runtime sourceの変更・追加provider call・gate再実行は行っていない。
