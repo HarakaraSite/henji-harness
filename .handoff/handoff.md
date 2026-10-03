@@ -4,18 +4,19 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 182](../docs/increments/increment-182.md)は利用者受入済みで完了。
+[Increment 182](../docs/increments/increment-182.md)は利用者受入・commit/push・常用配置まで完了。
 親execution開始時にChatGPTの実効認証登録IDを解決し、model省略childへ継承する。
 181は実装・検証・常用配置と、利用者による再認証後の通常利用確認まで完了済み。
 
 ## 次の一手と承認境界
 
 182のfocused 16件、type/fmt/lint/diff、compiled buildが通過した。
-候補は`.tools/increment-182/henji`。同一provider継承と異なるprovider両方向を実Worker＋localhostで確認済み。
+同一provider継承と異なるprovider両方向を実Worker＋localhostで確認済み。
 承認済みの実provider三フローは六execution・15requestで全て完了。停止DB照合もpassed=true。
 証拠は`.tools/increment-182/real-provider/`。
-利用者の追加指示により182のcommit/push・常用配置を承認済み。clean sourceの公式build、
-受入済みruntimeとの一致確認、配置、隔離起動確認、結果記録のcommit/pushを行う。
+実装commitは`417e2af4`。常用配置版は受入済みruntimeと一致し、隔離Core/TUI起動・DB保存確認も完了。
+配置証拠は`.tools/increment-182/deployment/`。稼働中Coreは維持し、次回Core起動から配置版を使用する。
+次の採用判断を待つ。
 181の§8にある構想・architecture・roadmapの意味変更案は別途承認が必要で、正本へ未反映。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 

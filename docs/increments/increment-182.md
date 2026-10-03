@@ -3,7 +3,7 @@
 更新日: 2026-10-04
 
 ステータス:
-完了（利用者受入済み。実装・ローカル検証・独立review・実provider受入）。commit/push・常用配置は未実施。
+完了（利用者受入済み。実装・ローカル検証・独立review・実provider受入・commit/push・常用配置）。
 
 ## 採用・目的
 
@@ -190,3 +190,28 @@ commit/push・常用配置は未実施で、この完了判断に伴う追加実
 旧binaryを保存して`dist/henji`と`/home/agent/.local/bin/henji`へ配置し、
 隔離HOME/XDGで起動・admission・実build保存を確認する。追加の実provider callは行わない。
 稼働中のCoreは維持し、新規Core起動から配置版を使用する。
+
+### 配置結果（2026-10-04）
+
+実装commit `417e2af44e99406426d1d85e59dd0123fa52ae15`
+（`fix: inherit effective ChatGPT account in child executions`）をorigin/mainへpushした。 このclean
+sourceから公式buildを作成し、配置版のruntime digest
+`7581b7585ba8cf4b3d1a5f9ca1273a4b439a9eb0f627588a166f8f2bb38e8fe9`が実provider受入済み候補と一致した。
+配置版はhenji 0.8.0／Deno 2.9.7、build ID
+`88e696177a224efffc718b101491f4575da913f47baefbf3bf20e3f1cc0cb949`、sourceDirty=false。
+
+旧binaryを`.tools/increment-182/deployment/henji.{dist,local}.previous`へ保存し、staging fileから
+`dist/henji`と`/home/agent/.local/bin/henji`を置換した。両配置先のversionとSHA-256
+`833f6d77e45166a26ceb2fce687b6555dc5e4fd3bab58af1a9a598bbbf916300`が一致した。
+
+配置版を隔離HOME/XDGで起動し、Core/API起動、tmux上のproduction TUI接続、設定ready、 task
+admission、実build manifestの新DB保存とreadbackを確認した。 credentialのない隔離環境でmodel
+request前に失敗させ、追加provider requestは0件。 完全な保存build
+manifestはCoreの実manifestと一致し、source revisionは上記実装commitだった。 TUI detach、Core
+shutdown accepted、exit 0を確認し、検証用Core/tmuxは停止済み。
+
+証拠は`.tools/increment-182/deployment/`の`build.log`、`deployment.json`、`probe.log`、
+`probe-results.json`（passed=true）、TUI captureに保存した。
+実config・認証・旧DB・稼働中常用Coreは変更していない。次回Core起動から配置版を使用する。
+受入済みruntimeと同一のためfull gate・実provider E2Eは繰り返していない。
+配置結果の文書変更も同じ承認範囲でcommit/pushする。binaryのsource revisionは実装commitのままとする。
