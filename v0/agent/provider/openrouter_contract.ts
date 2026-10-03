@@ -1,3 +1,4 @@
+import type { FailureDetails } from '../core/failure_details.ts';
 import type { FailureCode, FailureStage, ParseReason } from '../session/failure_diagnostic.ts';
 import type { OpenRouterExplicitReasoningEffort } from './openrouter_model_catalog.ts';
 import {
@@ -55,6 +56,7 @@ export interface OpenRouterFailureFact {
   readonly field?: string;
   readonly expectedShape?: string;
   readonly actualShape?: string;
+  readonly details?: FailureDetails;
 }
 
 type OpenRouterFailureFactInput =
@@ -107,6 +109,7 @@ export class OpenRouterAgentError extends Error {
         expectedShape: failureFact.expectedShape,
       }),
       ...(failureFact?.actualShape === undefined ? {} : { actualShape: failureFact.actualShape }),
+      ...(failureFact?.details === undefined ? {} : { details: failureFact.details }),
     });
   }
 }

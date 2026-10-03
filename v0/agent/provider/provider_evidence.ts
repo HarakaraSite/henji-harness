@@ -1,3 +1,4 @@
+import { type FailureDetails, validateFailureDetails } from '../core/failure_details.ts';
 import type { LoopOutcome, ModelResult, ToolCall, ToolResultContent } from '../core/contracts.ts';
 import { isAuthProfileId, type ReasoningEffort } from './model_selection.ts';
 import { isJsonValue } from './openrouter_value.ts';
@@ -20,7 +21,7 @@ export interface ProviderEvidenceRequest {
   readonly phase?: ProviderEvidencePhase;
   readonly modelStep: number;
   readonly endpoint: string;
-  readonly method: 'POST';
+  readonly method: string;
   readonly requestMetadata: ProviderEvidenceRequestMetadata;
 }
 
@@ -35,11 +36,8 @@ export interface ProviderEvidenceRequestMetadata {
     | 'context_compaction'
     | 'web_search';
   readonly provider?: string;
-  readonly api?:
-    | 'openrouter-chat-completions'
-    | 'openrouter-responses'
-    | 'openai-chat-completions'
-    | 'openai-responses';
+  /** API identity is data: external service tools can name their own request route. */
+  readonly api?: string;
   readonly modelId?: string;
   readonly effort?: ReasoningEffort;
   readonly authProfile?: string;
@@ -130,7 +128,7 @@ export interface EvidenceRequestMetadataStart {
   readonly phase?: ProviderEvidencePhase;
   readonly modelStep: number;
   readonly endpoint: string;
-  readonly method: 'POST';
+  readonly method: string;
   readonly requestMetadata?: ProviderEvidenceRequestMetadata;
   /** Logical context request ordinal when available. */
   readonly contextRequestOrdinal?: number;
@@ -141,6 +139,7 @@ export interface EvidenceResponseStart {
 }
 
 export interface ProviderRequestFailureFact {
+  readonly details?: FailureDetails;
   readonly stage: string;
   readonly code: string;
   readonly httpStatus?: number;
@@ -227,10 +226,7 @@ const validProviderMetadata = (
       record.origin === 'context_compaction' ||
       record.origin === 'web_search') &&
     (record.provider === undefined || validText(record.provider)) &&
-    (record.api === undefined || record.api === 'openrouter-chat-completions' ||
-      record.api === 'openrouter-responses' ||
-      record.api === 'openai-chat-completions' ||
-      record.api === 'openai-responses') &&
+    (record.api === undefined || validText(record.api)) &&
     (record.modelId === undefined || validText(record.modelId)) &&
     (record.effort === undefined || record.effort === 'auto' ||
       record.effort === 'none' ||
@@ -250,8 +246,10 @@ const validToolResult = (value: unknown): value is ToolResultContent => {
   if (
     !hasExactKeys(value, ['kind', 'callId', 'name', 'text', 'outcome'], [
       'terminal',
+      'failure',
     ])
   ) return false;
+  if (value.failure !== undefined && !validateFailureDetails(value.failure)) return false;
   return value.kind === 'tool_result' && validText(value.callId) &&
     validText(value.name) &&
     typeof value.text === 'string' &&
@@ -386,7 +384,7 @@ const validRequest = (value: unknown): value is ProviderEvidenceRequest => {
     (value.contextRequestOrdinal === undefined ||
       validPositiveInteger(value.contextRequestOrdinal)) &&
     validPositiveInteger(value.modelStep) && validText(value.endpoint) &&
-    value.method === 'POST' &&
+    validText(value.method) &&
     validProviderMetadata(value.requestMetadata);
 };
 const validParserTransition = (
@@ -433,7 +431,9 @@ export const validateProviderEvidenceObservation = (
       hasExactKeys(value.failure, ['stage', 'code'], [
         'httpStatus',
         'parseReason',
+        'details',
       ]) &&
+      (value.failure.details === undefined || validateFailureDetails(value.failure.details)) &&
       typeof value.failure.stage === 'string' &&
       typeof value.failure.code === 'string' &&
       (value.failure.httpStatus === undefined ||

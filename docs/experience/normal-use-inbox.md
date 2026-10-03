@@ -23,12 +23,11 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
-| A6  | Agent実行      | Web searchのsearch/fetch/backend境界                                         | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
+| A6  | Agent実行      | Web searchの取得品質・backend比較                                            | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
 | A14 | Agent実行      | 名前付き子Agent Definitionの専用model指定                                    | reviewerなどを親Sessionとは別のmodelで動かしたいとき                                                                   |
 | A15 | Agent実行      | searchツールコールの実装                                                     | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討                                                       |
-| A17 | Agent実行      | `WebSearchBackend`のExa APIへの置き換え                                      | 利用者指示（2026-09-27、形態確認済み）。採用時に置き換え範囲を決める                                                   |
 | A18 | Agent実行      | bash toolのtimeout説明と引数エラーの具体化                                   | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測                                                   |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
@@ -275,18 +274,15 @@ Pi／OpenCode／Henjiの画面表示比較
 - 正本: [`increment-37.md`](../increments/increment-37.md)が観測した実行証拠と完了判断を保持する。
 - 関連: A11（instructionの与え方）、R3、E3、`v0/agent/tools/bash_tool.ts`、AGENTS.md「実行環境」。
 
-### A6 — Web searchのsearch/fetch/backend境界（F02、F06、将来のF24候補）
+### A6 — Web searchの取得品質・backend比較（F02、F06、将来のF24候補）
 
 - 観測: Increment 7〜9でHenji-owned `web_search`、OpenRouter Sonar backend、groundingと直接URL
-  citationを実装・ production受入済みである。現行は一つのmodel-facing tool内でSonar
-  backendがmodelを使う。
-- 候補: 対象identity/canonical URLを発見する`search`と、指定URLの本文・公開API
-  responseを正確に取得する `fetch`を分ける。取得内容とcitation/provider
-  evidenceの相関、追加stepと経路の明示性を実taskで比較する。 canonical
-  API確定後の一回の`curl`は対象外で、filesystem探索、複数endpoint試行、shell quoting、temporary
-  file、 別commandでの再読込が連なる発見・取得経路が主対象である。
+  citationを実装・ production受入済みである。検索backendの切替要件は個別incrementで扱う。
+- 候補: 取得内容とcitation/provider evidenceの相関、追加stepと経路の明示性を実taskで比較する。
+  filesystem探索、複数endpoint試行、shell quoting、temporary file、別commandでの再読込が
+  連なる発見・取得経路の品質・コストを観測する。
 - backend候補: OpenAI Responses API built-in Web searchとOpenRouter `openrouter:web_search`を一つの
-  `WebSearchBackend`境界へ追加できるか、現行Sonarと比較する。modelに実装名の異なるtoolを無条件に並べない。
+  `WebSearchBackend`境界へ追加できるか、採用時のbackendと比較する。modelに実装名の異なるtoolを無条件に並べない。
   同時公開するなら品質、費用、検索範囲等で選択理由を説明できる別contractにする。
 - 再検討条件: searchとfetchの混在、または現backendの品質/費用/取得範囲が具体的に問題になること。 Web
   search自体をAgent Definitionにするかは、conversation、prompt、model、tool利用を独立所有する必要が
@@ -348,23 +344,6 @@ Pi／OpenCode／Henjiの画面表示比較
   callを実装する。findとgrep（対象探索と本文検索）を兼ね備える一つのtoolに
   するか、分けるかは実装時に検討する。
 - 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
-
-### A17 — `WebSearchBackend`のExa APIへの置き換え
-
-- 利用者指示（2026-09-27）: web searchツールをExaに置き換える。今回は通常利用メモへの記録のみで、
-  採用・実装は行わない。
-- 利用者確認（2026-09-27）: **Exa APIを`WebSearchBackend`へ組む置き換え案**である。Exa
-  MCP経由ではない。 Increment 7で却下したExa MCP／MCP
-  componentとは別の案であり、却下との整合問題はない。
-- 現行境界: `web_search`はIncrement 7〜9でHenji-owned toolとして実装され、Sonar backendがmodelを使う
-  一つのmodel-facing toolである（A6）。backendは`WebSearchBackend`境界で差し替え可能。
-- 候補: Exa APIを`WebSearchBackend`実装として組み、現行Sonar backendを置き換える。model-facingの
-  `web_search` tool
-  contractは変えず、backend境界の中の置き換えとして扱う。credential、費用、検索範囲、
-  A6のsearch/fetch境界との関係、Sonarを残すかExa一本にするかは採用時に決める。
-- 再検討条件: 個別Incrementへ採用するとき。
-- 関連: A6、[`increment-7.md`](../increments/increment-7.md)、
-  [`increment-8.md`](../increments/increment-8.md)、[`increment-9.md`](../increments/increment-9.md)。
 
 ### A18 — bash toolのtimeout説明と引数エラーの具体化
 
@@ -861,17 +840,3 @@ Pi／OpenCode／Henjiの画面表示比較
   [`increment-85.md`](../increments/increment-85.md)、[`increment-94.md`](../increments/increment-94.md)、
   [`increment-97.md`](../increments/increment-97.md)、`v0/agent/worker/worker_host_authority.ts`、
   `v0/agent/worker/worker_host_coordinator.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`。
-
-### B6 — ChatGPT account未登録時にprovider一覧全体を取得できない
-
-- 観測（2026-10-03、Increment 170の隔離HTTP確認中）: ChatGPT accountを登録していない
-  configで`catalog.read(kind=providers)`がHTTP 500となる。Coreの直接呼出しでは
-  `LiveModelCatalogError: credential_unavailable`を確認した。実provider requestは使っていない。
-- 現行経路: Coreは全providerの`defaultEffort`を`Promise.all`で取得し、openai-chatgptだけは
-  `LiveModelCatalog.#catalogRegistrationId`で選択accountがないと例外になる。API-key providerの
-  model選択にも必要なprovider一覧全体が失敗する。該当処理は170の変更前から存在する。
-- 170では未採用・未修正。144のfocused testはAPI-key catalogの対象providerに限定して確認した。
-- 対応候補: 未登録providerも一覧で選択でき、認証が必要な操作で登録へ進めるようにする。
-  provider一覧やmodel選択が通常利用で失敗する、または利用者がこの修正を採用するときに検討する。
-- 関連: `v0/agent/host/core_service.ts`の`catalogRead`、
-  `v0/agent/provider/live_model_catalog.ts`の`defaultEffort`／`#catalogRegistrationId`。

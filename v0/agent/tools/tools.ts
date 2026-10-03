@@ -1,3 +1,4 @@
+import { captureFailureDetails } from '../core/failure_details.ts';
 import type { BashOutputStore } from './bash_output.ts';
 import {
   type ContinuingToolResultContent,
@@ -190,6 +191,7 @@ export class Registry {
           name: call.name,
           text: `${prefix}: ${errorText(error)}`,
           outcome: 'error',
+          failure: captureFailureDetails(error, { operation: 'tool_execute' }),
         },
         terminal: null,
       };

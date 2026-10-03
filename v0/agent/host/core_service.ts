@@ -71,6 +71,10 @@ import {
   createCredentialRegistration,
   CredentialRegistrationError,
 } from '../provider/credential_registration.ts';
+import {
+  builtinCredentialDeclarations,
+  loadCredentialDeclarations,
+} from '../provider/credential_declaration.ts';
 import { credentialFileFor, credentialFilePresenceAt } from '../provider/credential_file.ts';
 import { ChatGPTAuthError, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import { writeDefaultSelection } from '../provider/default_selection.ts';
@@ -299,6 +303,12 @@ export const createCoreService = async (
         await loadProviderDeclarations({ configRoot }),
       )
       : Object.freeze([] as const));
+  const credentialDeclarations = configRoot === undefined
+    ? Object.freeze([] as const)
+    : Object.freeze([
+      ...builtinCredentialDeclarations(),
+      ...await loadCredentialDeclarations({ configRoot }),
+    ]);
   const hostOptions = {
     ...workerOptions,
     ...(configRoot === undefined ? {} : { configRoot }),
@@ -343,6 +353,7 @@ export const createCoreService = async (
   const credentialRegistration = createCredentialRegistration({
     ...(configRoot === undefined ? {} : { configRoot }),
     providerDeclarations,
+    credentialDeclarations,
   });
   const chatgpt = createChatGPTAuthService({
     configRoot: configRoot ?? `${stateRoot}/config`,
@@ -1533,7 +1544,7 @@ export const createCoreService = async (
               'idle',
             );
           }
-          const accepted = owner.tasks.steer(
+          const accepted = await owner.tasks.steer(
             executionId,
             input.text,
             input.commandId,

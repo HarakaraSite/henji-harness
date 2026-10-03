@@ -29,9 +29,11 @@ type ProfileChoice = Extract<
   { kind: 'credentials' }
 >['profiles'][number];
 
-type ChatGPTProfileChoice = ProfileChoice & {
+type CredentialProfileChoice = ProfileChoice & {
   readonly method?: 'api-key' | 'chatgpt';
   readonly label?: string;
+  readonly consumers?: readonly string[];
+  readonly purpose?: string;
 };
 
 type CatalogModal =
@@ -68,7 +70,7 @@ type CatalogModal =
   }
   | {
     readonly kind: 'profiles';
-    readonly entries: readonly ChatGPTProfileChoice[];
+    readonly entries: readonly CredentialProfileChoice[];
     readonly presence: CredentialPresenceReadResult['profiles'];
     readonly selected: number;
     readonly top: number;
@@ -1195,9 +1197,13 @@ export class RemoteCatalogUi {
           const index = modal.top + offset;
           const presence = profilePresence(modal.presence, profile.authProfile);
           const label = profile.label ?? profile.authProfile;
+          const status = presence?.status ?? 'unknown';
+          const description = profile.purpose ?? profile.providers.join(', ');
           const details = profile.method === 'chatgpt'
             ? ''
-            : ` · ${profile.providers.join(', ')} · ${presence?.status ?? 'unknown'}`;
+            : description.length === 0
+            ? ` · ${status}`
+            : ` · ${description} · ${status}`;
           return `${index === modal.selected ? '>' : ' '} ${label}${details}`;
         },
       ),

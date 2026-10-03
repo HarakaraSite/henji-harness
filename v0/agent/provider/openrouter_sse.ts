@@ -1,3 +1,4 @@
+import { captureFailureDetails, type FailureDetails } from '../core/failure_details.ts';
 import type {
   JsonValue,
   ModelGenerateOptions,
@@ -635,6 +636,7 @@ export const readSseResponse = async (
   providerId = 'openrouter-chat',
   modelId = PRODUCTION_PROFILE.model,
   reportThinkingDelta?: ModelGenerateOptions['reportThinkingDelta'],
+  credential?: string,
 ): Promise<ModelResult> => {
   if (!response.body) {
     throw sseResponseError(
@@ -662,7 +664,15 @@ export const readSseResponse = async (
     progressBytes: 0,
     postTerminalUsageSeen: false,
   };
+  let streamEventCount = 0;
+  let lastStreamEvent: string | undefined;
+  let responseId: string | undefined;
+  let completedReceived = false;
+  let originalStreamError: unknown;
+  let apiFailure: unknown;
+  let shapeFailure: FailureDetails | undefined;
   const framer = new SseFramer((payload) => {
+    streamEventCount += 1;
     let parsed: unknown;
     if (payload === '[DONE]') parsed = '[DONE]';
     else {
@@ -671,6 +681,26 @@ export const readSseResponse = async (
       } catch {
         parsed = undefined;
       }
+    }
+    const object = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+    lastStreamEvent = payload === '[DONE]'
+      ? '[DONE]'
+      : typeof object?.object === 'string'
+      ? object.object
+      : 'data';
+    if (typeof object?.id === 'string') responseId = object.id;
+    if (payload === '[DONE]') completedReceived = true;
+    if (object?.error !== undefined && typeof object.error === 'object' && object.error !== null) {
+      const api = object.error as Record<string, unknown>;
+      apiFailure = {
+        name: 'ProviderAPIError',
+        message: api.message,
+        code: api.code,
+        type: api.type,
+        param: api.param,
+      };
     }
     try {
       processSsePayload(
@@ -744,11 +774,13 @@ export const readSseResponse = async (
           ...(expectedShape === undefined ? {} : { expectedShape }),
           ...(actualShape === undefined ? {} : { actualShape }),
         });
+        shapeFailure = { field, expectedShape, actualShape };
       }
       throw error;
     }
   });
   const classifySettledFailure = (error: unknown): Error => {
+    originalStreamError = error;
     if (error instanceof EventDeliveryError) return error;
     if (isTurnCancelled()) return new TurnCancelledError();
     if (isTimedOut()) return providerTimeoutError();
@@ -758,6 +790,7 @@ export const readSseResponse = async (
     return responseStreamError(response.status);
   };
   const settleActiveReaderFailure = async (error: unknown): Promise<never> => {
+    originalStreamError = error;
     let settled = true;
     try {
       await reader.cancel('provider response stream failed');
@@ -808,7 +841,8 @@ export const readSseResponse = async (
       if (framer.done) {
         try {
           await reader.cancel('provider stream complete');
-        } catch (_error) {
+        } catch (error) {
+          originalStreamError = error;
           failure = isTurnCancelled()
             ? new CancellationCleanupError()
             : isTimedOut()
@@ -820,10 +854,13 @@ export const readSseResponse = async (
         break;
       }
     }
+  } catch (error) {
+    failure = error;
   } finally {
     try {
       reader.releaseLock();
-    } catch {
+    } catch (error) {
+      originalStreamError = error;
       failure = failure instanceof EventDeliveryError ||
           failure instanceof CancellationCleanupError ||
           isTurnCancelled()
@@ -833,7 +870,30 @@ export const readSseResponse = async (
         : responseStreamError(response.status);
     }
   }
-  if (failure !== undefined) throw failure;
-  if (result === undefined) throw responseStreamError(response.status);
-  return result;
+  const terminalFailure = failure ??
+    (result === undefined ? responseStreamError(response.status) : undefined);
+  if (terminalFailure instanceof OpenRouterAgentError) {
+    throw new OpenRouterAgentError(
+      terminalFailure.code,
+      terminalFailure.message,
+      terminalFailure.requestCount,
+      terminalFailure.status,
+      {
+        ...terminalFailure.failureFact,
+        details: captureFailureDetails(apiFailure ?? originalStreamError ?? terminalFailure, {
+          operation: 'chat_response_stream',
+          secrets: credential === undefined ? [] : [credential],
+          facts: {
+            streamEventCount,
+            lastStreamEvent,
+            responseId,
+            completedReceived,
+            ...shapeFailure,
+          },
+        }),
+      },
+    );
+  }
+  if (terminalFailure !== undefined) throw terminalFailure;
+  return result!;
 };

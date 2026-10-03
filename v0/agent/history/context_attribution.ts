@@ -1,3 +1,4 @@
+import { validateFailureDetails } from '../core/failure_details.ts';
 import type { JsonValue, ModelRequest, ToolDefinition } from '../core/contracts.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
 import type { DiscoveredSkill } from '../definitions/skills.ts';
@@ -467,8 +468,9 @@ const validToolCall = (value: unknown): boolean =>
 
 const validToolResult = (value: unknown): boolean =>
   exactKeys(value, ['kind', 'callId', 'name', 'text', 'outcome'], [
+    'failure',
     'terminal',
-  ]) &&
+  ]) && (value.failure === undefined || validateFailureDetails(value.failure)) &&
   value.kind === 'tool_result' && validText(value.callId, false) &&
   validText(value.name, false) && validText(value.text) &&
   (value.outcome === 'success' || value.outcome === 'error') &&

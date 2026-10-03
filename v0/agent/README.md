@@ -40,12 +40,22 @@ the Definition revision. The launcher defaults to `openrouter-chat`; the other b
 `openrouter-responses`, `openai-chat`, and `openai-responses`. `--root-provider <provider-id>` uses
 that provider's effective declaration and catalog. Data-only declarations under `providers/*.json`
 can add ids using a binary-owned protocol adapter. The binary bundles only the default Agent
-Definition; named children use installed external Definitions. Sonar `web_search` keeps an
-independent OpenRouter route and credential. The current standalone-era Session record schema v6
-persists provider, API, auth-profile identity, active selection, change history, per-committed-turn
-attribution, and each committed turn's logical built-in Definition ref and build manifest. Previous
-development schemas remain in the old state namespace and are not interpreted by the compiled
-command.
+Definition; named children use installed external Definitions. Exa `web_search` uses an independent
+search API and the `exa-api-key` credential profile. `web_fetch` can save original response bytes
+with `save_to` inside the Session workspace or `/tmp`; existing files produce an error so the agent
+can choose another path. The current standalone-era Session record schema v6 persists provider, API,
+auth-profile identity, active selection, change history, per-committed-turn attribution, and each
+committed turn's logical built-in Definition ref and build manifest. Previous development schemas
+remain in the old state namespace and are not interpreted by the compiled command.
+
+`/login` registers AI provider and external service credentials through the same file writer and
+request-time resolver. Exa registration metadata is bundled; external tools can supply non-secret
+`CredentialDeclarationV1` JSON files under `<configRoot>/credentials/`. The Core reads these at
+startup and groups consumers by `authProfile`, separately from the model catalog. Auxiliary requests
+default to Bearer authentication or can use
+`authentication: { kind: 'header', name: 'X-Subscription-Token' }` for a named key header; only the
+Worker-local dispatcher receives the credential value. See the root README for a declaration
+example.
 
 The installation-wide `instruction:henji-base` slot starts from a minimal built-in core (agent role
 and the credential/Authorization boundary). A user-scoped

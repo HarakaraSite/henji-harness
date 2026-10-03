@@ -153,8 +153,16 @@ Deno.test('Increment 135 enumerates effective declarations and groups shared pro
           authProfile: 'increment135-separate-key',
           providers: ['increment135-separate'],
         },
+        {
+          authProfile: 'exa-api-key',
+          providers: [],
+        },
       ],
     );
+    const providerOnly = targets.find((target) => target.authProfile === 'increment135-shared-key');
+    assert(providerOnly);
+    assertEquals(Object.hasOwn(providerOnly, 'consumers'), false);
+    assertEquals(Object.hasOwn(providerOnly, 'purpose'), false);
     const profiles = targets.map((target) => target.authProfile);
     assertEquals(profiles.length, new Set(profiles).size);
   } finally {

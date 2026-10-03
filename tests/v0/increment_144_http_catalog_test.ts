@@ -118,10 +118,7 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
         );
       },
     );
-    // This API-key catalog scenario has no ChatGPT account registration.
-    const providerDeclarations = builtinProviderDeclarations().filter(
-      (entry) => entry.providerId !== 'openai-chatgpt',
-    ).map((
+    const providerDeclarations = builtinProviderDeclarations().map((
       declaration,
     ) =>
       declaration.providerId === 'openrouter-responses'

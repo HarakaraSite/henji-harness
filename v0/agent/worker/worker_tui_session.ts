@@ -154,7 +154,7 @@ export interface HostActiveSession {
       | 'unavailable';
   };
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle';
-  steerActiveTurn(text: string): 'accepted' | 'idle' | 'already_accepted';
+  steerActiveTurn(text: string): Promise<'accepted' | 'idle' | 'already_accepted'>;
   isAvailable(): boolean;
   selectModel(
     selection: ModelSelection,
@@ -282,8 +282,8 @@ class LazyWorkerSession implements HostActiveSession {
     return this.host?.cancelActiveTurn() ?? 'idle';
   }
 
-  steerActiveTurn(text: string): 'accepted' | 'idle' | 'already_accepted' {
-    return this.host?.steerActiveTurn(text) ?? 'idle';
+  async steerActiveTurn(text: string): Promise<'accepted' | 'idle' | 'already_accepted'> {
+    return await this.host?.steerActiveTurn(text) ?? 'idle';
   }
 
   isAvailable(): boolean {

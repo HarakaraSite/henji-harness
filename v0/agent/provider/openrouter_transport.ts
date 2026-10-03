@@ -1,3 +1,4 @@
+import { captureFailureDetails } from '../core/failure_details.ts';
 import { PRODUCTION_PROFILE } from './provider_profile.ts';
 import type { Model, ModelGenerateOptions, ModelRequest, ModelResult } from '../core/contracts.ts';
 import {
@@ -218,6 +219,7 @@ const withRequestCount = (
       ...(fact.field === undefined ? {} : { field: fact.field }),
       ...(fact.expectedShape === undefined ? {} : { expectedShape: fact.expectedShape }),
       ...(fact.actualShape === undefined ? {} : { actualShape: fact.actualShape }),
+      ...(fact.details === undefined ? {} : { details: fact.details }),
     },
   );
 };
@@ -340,6 +342,9 @@ export class OpenRouterAgentModel implements Model {
     // failure, not a transport failure.
     const requestHeaders = buildChatHeaders(this.profile, credential, this.options.sessionId);
     let requestCount = 0;
+    let operation = 'chat_request';
+    let originalError: unknown;
+    let requestId: string | undefined;
     try {
       let response: Response;
       while (true) {
@@ -355,6 +360,9 @@ export class OpenRouterAgentModel implements Model {
         } as const;
         evidence?.startRequestMetadata(evidenceRequest);
         requestCount += 1;
+        originalError = undefined;
+        requestId = undefined;
+        operation = 'chat_request';
         try {
           response = await this.fetcher(endpoint, {
             method: this.profile.method,
@@ -363,7 +371,8 @@ export class OpenRouterAgentModel implements Model {
             headers: requestHeaders,
             body,
           });
-        } catch {
+        } catch (error) {
+          originalError = error;
           if (turnCancelled) throw new TurnCancelledError();
           if (timedOut) throw providerTimeoutError();
           throw new OpenRouterAgentError(
@@ -374,6 +383,7 @@ export class OpenRouterAgentModel implements Model {
             { stage: 'transport', code: 'transport_error' },
           );
         }
+        requestId = response.headers.get('x-request-id') ?? undefined;
         evidence?.recordResponse({ status: response.status });
         // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
         // during fetch, settle that body before classifying the request outcome.
@@ -394,7 +404,9 @@ export class OpenRouterAgentModel implements Model {
         }
         if (response.ok) break;
 
+        operation = 'chat_error_response';
         const bounded = await readResponseBody(response);
+        originalError = bounded.error;
         if (bounded.cleanupFailed) {
           if (turnCancelled) throw new CancellationCleanupError();
           if (timedOut) throw providerTimeoutError();
@@ -427,6 +439,23 @@ export class OpenRouterAgentModel implements Model {
           }
           continue;
         }
+        if (bounded.kind === 'text') {
+          try {
+            const parsed = JSON.parse(bounded.text);
+            const apiError = parsed?.error;
+            if (typeof apiError === 'object' && apiError !== null) {
+              originalError = {
+                name: 'ProviderAPIError',
+                message: apiError.message,
+                code: apiError.code,
+                type: apiError.type,
+                param: apiError.param,
+              };
+            }
+          } catch {
+            // The HTTP failure remains valid even when its body is not JSON.
+          }
+        }
         throw new OpenRouterAgentError(
           'http_error',
           `provider request failed (${response.status})`,
@@ -435,6 +464,7 @@ export class OpenRouterAgentModel implements Model {
           { stage: 'http', code: 'http_error', httpStatus: response.status },
         );
       }
+      operation = 'chat_response_parse';
       if (this.options.responseMode === 'sse') {
         const contentType = response.headers.get('content-type')?.split(
           ';',
@@ -443,6 +473,7 @@ export class OpenRouterAgentModel implements Model {
           .toLowerCase();
         if (!response.body || contentType !== 'text/event-stream') {
           const bounded = await readResponseBody(response);
+          originalError = bounded.error;
           if (bounded.cleanupFailed) {
             if (turnCancelled) throw new CancellationCleanupError();
             if (timedOut) throw providerTimeoutError();
@@ -480,6 +511,7 @@ export class OpenRouterAgentModel implements Model {
           this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
           this.profile.model,
           generateOptions.reportThinkingDelta,
+          credential,
         );
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut || controller.signal.aborted) {
@@ -495,6 +527,7 @@ export class OpenRouterAgentModel implements Model {
         return streamed;
       }
       const bounded = await readResponseBody(response);
+      originalError = bounded.error;
       if (bounded.cleanupFailed) {
         if (turnCancelled) throw new CancellationCleanupError();
         if (timedOut) throw providerTimeoutError();
@@ -561,7 +594,8 @@ export class OpenRouterAgentModel implements Model {
       let payload: unknown;
       try {
         payload = JSON.parse(bounded.text);
-      } catch {
+      } catch (error) {
+        originalError = error;
         throw new OpenRouterAgentError(
           'response_error',
           'provider response was invalid',
@@ -591,20 +625,58 @@ export class OpenRouterAgentModel implements Model {
           });
         }
         if (error instanceof OpenRouterAgentError) {
-          throw withResponseStatus(error, response.status);
+          const classified = withResponseStatus(error, response.status);
+          throw new OpenRouterAgentError(
+            classified.code,
+            classified.message,
+            classified.requestCount,
+            classified.status,
+            {
+              ...classified.failureFact,
+              ...responseShapeFailure(payload),
+            },
+          );
         }
         throw error;
       }
     } catch (error) {
-      const settled = error instanceof OpenRouterAgentError && requestCount > 0 &&
+      const counted = error instanceof OpenRouterAgentError && requestCount > 0 &&
           (error.requestCount !== requestCount ||
             error.failureFact.retryCount !== Math.max(0, requestCount - 1))
         ? withRequestCount(error, requestCount)
         : error;
+      const settled = counted instanceof OpenRouterAgentError
+        ? new OpenRouterAgentError(
+          counted.code,
+          counted.message,
+          counted.requestCount,
+          counted.status,
+          {
+            ...counted.failureFact,
+            details: captureFailureDetails(originalError ?? counted, {
+              operation,
+              secrets: [credential],
+              facts: {
+                ...(requestId === undefined ? {} : { requestId }),
+                ...(counted.failureFact.field === undefined
+                  ? {}
+                  : { field: counted.failureFact.field }),
+                ...(counted.failureFact.expectedShape === undefined
+                  ? {}
+                  : { expectedShape: counted.failureFact.expectedShape }),
+                ...(counted.failureFact.actualShape === undefined
+                  ? {}
+                  : { actualShape: counted.failureFact.actualShape }),
+              },
+            }),
+          },
+        )
+        : counted;
       if (settled instanceof OpenRouterAgentError && requestCount > 0) {
         evidence?.recordRequestFailure({
           stage: settled.failureFact.stage,
           code: settled.failureFact.code,
+          details: settled.failureFact.details,
           ...(settled.failureFact.httpStatus === undefined ? {} : {
             httpStatus: settled.failureFact.httpStatus,
           }),

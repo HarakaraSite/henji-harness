@@ -1,13 +1,15 @@
 /**
  * The provider-neutral, deliberately small failure diagnostic contract.
  *
- * This module has no host, provider, filesystem, or presentation dependencies.  In particular,
- * there is no field here which can contain a message, path, header, payload, model text, or stack.
+ * Failure-only scalar details are bounded and exclude credential, Authorization, raw payloads,
+ * and stacks. This module has no host, provider, filesystem, or presentation dependencies.
  */
+
+import { type FailureDetails, validateFailureDetails } from '../core/failure_details.ts';
 
 export const MAX_DIAGNOSTIC_REQUESTS = Number.MAX_SAFE_INTEGER;
 export const MAX_DIAGNOSTIC_MODEL_STEP = Number.MAX_SAFE_INTEGER;
-export const MAX_DIAGNOSTIC_BYTES = 1_024;
+export const MAX_DIAGNOSTIC_BYTES = 6_144;
 export const DIAGNOSTIC_RETRY_COUNT = 0 as const;
 
 /** Publicly safe projection of a diagnostic persistence failure. */
@@ -28,6 +30,7 @@ export type FailureStage =
   | 'http'
   | 'response_parse'
   | 'model_result_validation'
+  | 'worker_execution'
   | 'session_commit'
   | 'cancellation_cleanup'
   | 'turn_control'
@@ -43,6 +46,7 @@ export type FailureCode =
   | 'response_error'
   | 'limit_exceeded'
   | 'invalid_model_result'
+  | 'worker_error'
   | 'commit_error'
   | 'cleanup_error'
   | 'turn_cancelled'
@@ -82,6 +86,7 @@ export interface FailureDiagnosticV1 {
   readonly providerRequestCount: number;
   readonly httpStatus?: number;
   readonly parseReason?: ParseReason;
+  readonly details?: FailureDetails;
   readonly occurredAt: string;
   readonly turnNumber: number;
   readonly modelStep: number;
@@ -96,6 +101,7 @@ export interface FailureDiagnosticFact {
   readonly retryCount?: number;
   readonly httpStatus?: number;
   readonly parseReason?: ParseReason;
+  readonly details?: FailureDetails;
   readonly turnNumber: number;
   readonly modelStep: number;
   readonly occurredAt?: string;
@@ -117,6 +123,7 @@ export const projectFailureDiagnosticFact = (
     value.retryCount > value.requestCount
   ) return undefined;
   return {
+    ...(validateFailureDetails(value.details) ? { details: value.details } : {}),
     stage: value.stage as FailureDiagnosticFact['stage'],
     code: value.code as FailureDiagnosticFact['code'],
     providerRequestCount: value.requestCount,
@@ -148,6 +155,7 @@ const STAGES: readonly FailureStage[] = [
   'http',
   'response_parse',
   'model_result_validation',
+  'worker_execution',
   'session_commit',
   'cancellation_cleanup',
   'turn_control',
@@ -163,6 +171,7 @@ const CODES: readonly FailureCode[] = [
   'response_error',
   'limit_exceeded',
   'invalid_model_result',
+  'worker_error',
   'commit_error',
   'cleanup_error',
   'turn_cancelled',
@@ -242,9 +251,11 @@ export const validateFailureDiagnostic = (
     'turnNumber',
     'modelStep',
     'retryCount',
+    ...(Object.hasOwn(record, 'details') ? ['details'] : []),
   ];
   if (
     !ownKeys(record, keys) || record.schemaVersion !== 1 ||
+    (record.details !== undefined && !validateFailureDetails(record.details)) ||
     typeof record.diagnosticId !== 'string' ||
     !UUID_V4.test(record.diagnosticId) ||
     !includes(STAGES, record.stage) || !includes(CODES, record.code) ||
@@ -294,6 +305,8 @@ export const validateFailureDiagnostic = (
         hasReason;
     case 'model_result_validation':
       return code === 'invalid_model_result' && !hasStatus && !hasReason;
+    case 'worker_execution':
+      return code === 'worker_error' && !hasStatus && !hasReason;
     case 'session_commit':
       return code === 'commit_error' && record.modelStep === 0 && !hasStatus &&
         !hasReason;
@@ -329,6 +342,7 @@ export const createFailureDiagnostic = (
     turnNumber: fact.turnNumber,
     modelStep: fact.modelStep,
     retryCount: fact.retryCount ?? DIAGNOSTIC_RETRY_COUNT,
+    ...(fact.details === undefined ? {} : { details: fact.details }),
   };
   if (!validateFailureDiagnostic(diagnostic)) {
     throw new RangeError('invalid failure diagnostic');
@@ -337,7 +351,7 @@ export const createFailureDiagnostic = (
   if (
     new TextEncoder().encode(`${encoded}\n`).byteLength > MAX_DIAGNOSTIC_BYTES
   ) {
-    throw new RangeError('failure diagnostic exceeds 1 KiB');
+    throw new RangeError('failure diagnostic exceeds 6 KiB');
   }
   return freezeDeep(diagnostic);
 };

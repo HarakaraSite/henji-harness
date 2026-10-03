@@ -50,8 +50,32 @@ install -d -m 700 "$henji_config_dir"
 install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
 ```
 
-You can also register credentials from the TUI with `/login`; they are saved to the same
-credential file.
+You can also register provider and service credentials from the TUI with `/login`; they are saved to
+the same credential files. Exa is included in this list for `web_search`.
+
+External tools can add service registration metadata in `$henji_config_dir/credentials/*.json`. For
+example, a Brave tool can declare:
+
+```json
+{
+  "schemaVersion": 1,
+  "authProfile": "brave-api-key",
+  "label": "Brave — API key",
+  "purpose": "Web search",
+  "method": "api-key",
+  "consumers": ["tool:brave_search"]
+}
+```
+
+These declarations contain display metadata, not key values. Restart the Core after changing
+declarations, then use `/login` to save or update the key. Entries sharing an `authProfile` use one
+registration and one credential file. Service entries do not appear in the model provider list.
+
+Tool Definitions use `physicalIo.requestProvider` with the declared `authProfile`. Authentication
+defaults to Bearer; a service such as Brave can set
+`authentication: { kind: 'header', name: 'X-Subscription-Token' }` on its request. The dispatcher
+resolves and inserts the key, so the Definition never receives it. This declaration registers a
+credential; the external tool supplies the service's request behavior.
 
 Start the TUI in the directory you want to work in. Type a prompt and press Enter to send it, and
 use `/help` to see the commands.
@@ -96,8 +120,8 @@ declarations in `providers/*.json` let you add other provider IDs that speak a s
 Each `henji` or `henji tui` invocation starts a fresh Core and Session, even in the same workspace.
 Independent work can proceed in parallel in two terminals, identified by the Core ID and Session ID
 shown on screen. `henji serve` starts a fresh foreground Core without opening a Session unless
-requested. Cores share workspace history, config, and credentials; each Core owns its active Session,
-child Agents, and tools. `henji run` keeps a headless entry separate from HTTP Cores.
+requested. Cores share workspace history, config, and credentials; each Core owns its active
+Session, child Agents, and tools. `henji run` keeps a headless entry separate from HTTP Cores.
 
 ```sh
 henji core list

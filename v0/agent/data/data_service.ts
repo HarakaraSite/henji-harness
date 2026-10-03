@@ -1,3 +1,4 @@
+import { captureFailureDetails } from '../core/failure_details.ts';
 import type { AgentEvent, AgentRequestKey } from '../core/events.ts';
 import type {
   ContextView,
@@ -82,7 +83,12 @@ const serviceError = (error: unknown): DataServiceErrorClass => {
       : error.code === 'unavailable'
       ? 503
       : 500;
-    return new DataServiceErrorClass(status, error.code, error.message);
+    return new DataServiceErrorClass(
+      status,
+      error.code,
+      error.message,
+      captureFailureDetails(error),
+    );
   }
   if (error instanceof SessionStoreError) {
     const status = error.code === 'session_not_found'
@@ -92,12 +98,22 @@ const serviceError = (error: unknown): DataServiceErrorClass => {
       : error.code === 'session_busy'
       ? 409
       : 500;
-    return new DataServiceErrorClass(status, error.code, error.message);
+    return new DataServiceErrorClass(
+      status,
+      error.code,
+      error.message,
+      captureFailureDetails(error),
+    );
   }
   if (error instanceof HistoryStoreError) {
-    return new DataServiceErrorClass(500, error.code, error.message);
+    return new DataServiceErrorClass(500, error.code, error.message, captureFailureDetails(error));
   }
-  return new DataServiceErrorClass(500, 'data_read_failed', errorText(error));
+  return new DataServiceErrorClass(
+    500,
+    'data_read_failed',
+    errorText(error),
+    captureFailureDetails(error),
+  );
 };
 
 const encode = (value: unknown): EncodedDataReply => ({

@@ -3,13 +3,13 @@ import {
   type ExecutableToolDefinition,
   type ToolComponent,
 } from '../worker_agent_api.ts';
-import { createWebSearchTool, OpenRouterSonarWebSearchBackend } from '../tools/web_search.ts';
+import { createWebSearchTool, ExaWebSearchBackend } from '../tools/web_search.ts';
 
 const identity = createAgentResourceIdentity('tool:web_search');
 
 /**
  * Bundled web_search tool Definition. It uses the Worker-local provider request seam for the
- * Sonar route; provider-free compositions supply their own backend binding.
+ * Exa route; provider-free compositions supply their own backend binding.
  */
 const definition: ExecutableToolDefinition = (input) => {
   const requestProvider = input.physicalIo.requestProvider;
@@ -22,7 +22,7 @@ const definition: ExecutableToolDefinition = (input) => {
       if (requestProvider === undefined) {
         throw new Error('web search provider request seam is unavailable');
       }
-      return createWebSearchTool(new OpenRouterSonarWebSearchBackend({ requestProvider }));
+      return createWebSearchTool(new ExaWebSearchBackend({ requestProvider }));
     },
   };
   return component;

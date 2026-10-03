@@ -26,7 +26,7 @@ import {
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
-import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
@@ -1240,26 +1240,23 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
   ]);
 });
 
-Deno.test('Increment 14 keeps OpenRouter web search usable beside an OpenAI root', async () => {
-  const seen: { authorization?: string; model?: string } = {};
+Deno.test('Increment 14 keeps Exa web search usable beside an OpenAI root', async () => {
+  const seen: {
+    authorization?: string;
+    url?: string;
+    body?: Record<string, unknown>;
+  } = {};
   const fetcher: typeof fetch = async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
     seen.authorization = request.headers.get('authorization') ?? undefined;
-    const body = JSON.parse(await request.clone().text());
-    seen.model = body.model;
+    seen.url = request.url;
+    seen.body = JSON.parse(await request.clone().text());
     return new Response(
       JSON.stringify({
-        choices: [{
-          message: {
-            content: 'Deno is a runtime.',
-            annotations: [{
-              type: 'url_citation',
-              url_citation: {
-                title: 'Deno Docs',
-                url: 'https://docs.deno.com/',
-              },
-            }],
-          },
+        results: [{
+          title: 'Deno Docs',
+          url: 'https://docs.deno.com/',
+          text: 'Deno is a runtime.',
         }],
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -1267,19 +1264,31 @@ Deno.test('Increment 14 keeps OpenRouter web search usable beside an OpenAI root
   };
   const physical = createProductionPhysicalIo(undefined, {
     credentialSources: {
-      'openrouter-api-key': () => Promise.resolve('router-secret'),
+      'exa-api-key': () => Promise.resolve('exa-secret'),
       'openai-api-key': () => Promise.resolve('openai-secret'),
     },
     fetcher,
   });
   assert(physical.requestProvider !== undefined);
-  const backend = new OpenRouterSonarWebSearchBackend({
+  const backend = new ExaWebSearchBackend({
     requestProvider: physical.requestProvider,
   });
-  const result = await backend.search('What is Deno?');
-  assertEquals(result.answer, 'Deno is a runtime.');
-  assertEquals(seen.model, 'perplexity/sonar');
-  assertEquals(seen.authorization, 'Bearer router-secret');
+  const result = await backend.search({ query: 'What is Deno?' });
+  assertEquals(result, {
+    results: [{
+      title: 'Deno Docs',
+      url: 'https://docs.deno.com/',
+      text: 'Deno is a runtime.',
+    }],
+  });
+  assertEquals(seen.url, 'https://api.exa.ai/search');
+  assertEquals(seen.body, {
+    type: 'auto',
+    contents: { highlights: true },
+    query: 'What is Deno?',
+    stream: false,
+  });
+  assertEquals(seen.authorization, 'Bearer exa-secret');
 });
 
 Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence and resume', async () => {
@@ -1348,7 +1357,9 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
     prefix: 'henji-increment-113-provider-',
   });
   const stateRoot = `${configRoot}/state`;
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, configRoot, { readOnly: true });
+  const reader = new SqliteHistoryV7ProductionStore(stateRoot, configRoot, {
+    readOnly: true,
+  });
   const builtin = builtinProviderDeclarations().find((item) =>
     item.providerId === 'openrouter-chat'
   );

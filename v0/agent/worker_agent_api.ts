@@ -37,17 +37,20 @@ import type { ProviderRequestFn } from './provider/auxiliary_request.ts';
 import type { AsyncAgentRpc } from './tools/async_agents.ts';
 
 export { type ToolComponent } from './tools/tool_components.ts';
+export type { CredentialDeclarationV1 } from './provider/credential_declaration.ts';
 export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
 export {
   type ProviderHttpRequest,
   type ProviderHttpResponse,
+  type ProviderRequestAuthentication,
   type ProviderRequestFn,
 } from './provider/auxiliary_request.ts';
 export {
   createProviderFreeWebSearchBackend,
-  OpenRouterSonarWebSearchBackend,
-  type OpenRouterSonarWebSearchBackendOptions,
+  ExaWebSearchBackend,
+  type ExaWebSearchBackendOptions,
   type WebSearchBackend,
+  type WebSearchRequest,
   type WebSearchResult,
   type WebSearchSource,
 } from './tools/web_search.ts';

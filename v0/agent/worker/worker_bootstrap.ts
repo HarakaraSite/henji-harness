@@ -1,3 +1,4 @@
+import { captureFailureDetails } from '../core/failure_details.ts';
 import { WorkerProcessExecutor } from './worker_process_executor.ts';
 import {
   type DataValue,
@@ -840,6 +841,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage: 'composition',
             message: error instanceof Error ? error.message : String(error),
+            details: captureFailureDetails(error, { operation: 'worker_composition' }),
           });
           return;
         }
@@ -875,6 +877,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage,
             message,
+            details: captureFailureDetails(error, { operation: `worker_${stage}` }),
           });
           return;
         }
@@ -915,6 +918,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage: 'composition',
             message,
+            details: captureFailureDetails(error, { operation: 'worker_composition' }),
           });
           return;
         }
@@ -951,6 +955,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage: 'composition',
             message: error instanceof Error ? error.message : String(error),
+            details: captureFailureDetails(error, { operation: 'worker_composition' }),
           });
           return;
         }
@@ -995,6 +1000,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage: 'worker_command',
             message: error instanceof Error ? error.message : String(error),
+            details: captureFailureDetails(error, { operation: 'worker_worker_command' }),
           });
           return;
         }
@@ -1063,6 +1069,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           correlation: command.correlation,
           stage: 'turn',
           message: error instanceof Error ? error.message : String(error),
+          details: captureFailureDetails(error, { operation: 'worker_turn' }),
         });
       } finally {
         preparingTurns.delete(preparationKey);
@@ -1070,9 +1077,19 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       }
       return;
     }
-    case 'steer':
-      generation?.steerActiveTurn(command.text);
+    case 'steer': {
+      const result = processContext !== undefined &&
+          sameCorrelation(processContext.correlation, command.correlation)
+        ? generation?.steerActiveTurn(command.text) ?? 'idle'
+        : 'idle';
+      post({
+        kind: 'steering_received',
+        correlation: command.correlation,
+        requestId: command.requestId,
+        result,
+      });
       return;
+    }
     case 'cancel': {
       const observedAt = new Date().toISOString();
       const preparation = preparingTurns.get(
@@ -1190,6 +1207,7 @@ scope.onerror = (event: ErrorEvent): boolean => {
     ...(activeCorrelation === undefined ? {} : { correlation: activeCorrelation }),
     stage: 'uncaught',
     message: event.message || 'uncaught Worker error',
+    details: captureFailureDetails(event.error ?? event.message, { operation: 'worker_uncaught' }),
   });
   return true;
 };

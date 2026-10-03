@@ -121,7 +121,7 @@ export class WorkerHostSession {
     return this.coordinator.cancelActiveTurn();
   }
 
-  steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
+  steerActiveTurn(text: string): Promise<'accepted' | 'already_accepted' | 'idle'> {
     return this.coordinator.steerActiveTurn(text);
   }
 

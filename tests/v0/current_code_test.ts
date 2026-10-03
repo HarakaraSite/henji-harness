@@ -71,9 +71,12 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 };
 
 const providerFreeWebSearchBackend: WebSearchBackend = {
-  search: (query) => ({
-    answer: `search result for ${query}`,
-    sources: [{ title: 'test source', url: 'provider-free://web-search' }],
+  search: ({ query }) => ({
+    results: [{
+      title: 'test source',
+      url: 'provider-free://web-search',
+      highlights: [`search result for ${query}`],
+    }],
   }),
 };
 
@@ -560,10 +563,11 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     'Each bash call starts in the current workspace directory shown in Runtime facts and runs in a fresh shell. For commands targeting that directory, use relative paths and do not cd to the same directory. Change directory within the call only when the command must run from a different directory. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.';
   const bashOutputGuideline =
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
-  const webSearchGuideline =
-    'Choose the task source before exploring. If the user explicitly identifies the current repository, a local file, or a canonical URL or API, use that source first and do not add web search unless it leaves a current or external question unresolved. If current or external information is requested and the target identity or canonical source is not already established, use web_search as the first source-discovery tool; do not inspect the workspace, sibling repositories, handoff files, or try guessed endpoints with bash or curl merely because a software workspace exists. When external sources alone can answer the task, stay on that route. After discovery, obtain fast-changing lists or precise current values from the direct canonical source and disclose retrieval time or conflicts with search results. Put independent read-only retrievals in distinct tool calls in the same model step when their targets are already known; perform result-dependent retrievals and fallbacks sequentially. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: use its inline source links near supported claims in the final answer, never copy provider-local citation markers such as [1], and do not add factual details that the returned material does not support. Say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.';
-  const webFetchGuideline =
-    'Use web_fetch only for a specific URL or public API endpoint that is already known. Do not guess or enumerate endpoints. When the canonical source is not known, use web_search first. Treat the returned body as sourced material, cite the final URL for claims taken from it, and label inference instead of presenting it as verified fact.';
+  const webSearchGuidelines = [
+    'Choose the task source before exploring. If the user explicitly identifies the current repository, a local file, or a canonical URL or API, use that source first and do not add web search unless it leaves a current or external question unresolved. If current or external information is requested and the target identity or canonical source is not already established, use web_search as the first source-discovery tool; do not inspect the workspace, sibling repositories, handoff files, or try guessed endpoints with bash or curl merely because a software workspace exists. When external sources alone can answer the task, stay on that route. After discovery, obtain fast-changing lists or precise current values from the direct canonical source with web_fetch and disclose retrieval time or conflicts with search results. Put independent read-only retrievals in distinct tool calls in the same model step when their targets are already known; perform result-dependent retrievals sequentially. Give a specific query describing the information needed. Treat results[].text and results[].highlights as source material; summary and output are synthesized material. Cite direct source URLs near supported claims, do not copy provider-local citation numbers, and do not add facts unsupported by the returned material. Say when sources do not answer the question and label inference.',
+    'Choose type and contents for the task. Use contents.text for full page text, highlights for relevant excerpts, and outputSchema for synthesized text or structured output. AdditionalQueries apply to deep search modes. Category accepts custom hints; company and people do not support published-date filters or excludeDomains. Dates use ISO 8601 and userLocation is a two-letter country code. Tool results are complete JSON; transport streaming is disabled. Dynamic highlights and verbosity automatically enable the documented Exa beta header.',
+  ];
+  const webFetchGuidelines = createWebFetchTool().promptGuidelines ?? [];
   assert(parent.systemInstruction?.includes(guideline));
   assert(parent.systemInstruction?.includes(bashGuideline));
   assert(parent.systemInstruction?.includes(bashOutputGuideline));
@@ -571,19 +575,23 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assert(reviewer.systemInstruction?.includes(guideline));
   assert(!reviewer.systemInstruction?.includes(bashGuideline));
   assert(!reviewer.systemInstruction?.includes(bashOutputGuideline));
-  assert(parent.systemInstruction?.includes(webSearchGuideline));
-  assert(!reviewer.systemInstruction?.includes(webSearchGuideline));
-  assert(parent.systemInstruction?.includes(webFetchGuideline));
-  assert(!reviewer.systemInstruction?.includes(webFetchGuideline));
+  for (const webSearchGuideline of webSearchGuidelines) {
+    assert(parent.systemInstruction?.includes(webSearchGuideline));
+    assert(!reviewer.systemInstruction?.includes(webSearchGuideline));
+  }
+  for (const webFetchGuideline of webFetchGuidelines) {
+    assert(parent.systemInstruction?.includes(webFetchGuideline));
+    assert(!reviewer.systemInstruction?.includes(webFetchGuideline));
+  }
   for (
     const sourceSelectionBehavior of [
       'use that source first and do not add web search unless it leaves',
       'use web_search as the first source-discovery tool',
       'do not inspect the workspace, sibling repositories, handoff files',
       'When external sources alone can answer the task, stay on that route',
-      'obtain fast-changing lists or precise current values from the direct canonical source',
+      'obtain fast-changing lists or precise current values from the direct canonical source with web_fetch',
       'Put independent read-only retrievals in distinct tool calls in the same model step',
-      'perform result-dependent retrievals and fallbacks sequentially',
+      'perform result-dependent retrievals sequentially',
     ]
   ) {
     assert(parent.systemInstruction?.includes(sourceSelectionBehavior));
@@ -594,8 +602,8 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     { tool: 'bash', text: bashGuideline },
     { tool: 'bash_output', text: bashOutputGuideline },
     { tool: 'read', text: guideline },
-    { tool: 'web_fetch', text: webFetchGuideline },
-    { tool: 'web_search', text: webSearchGuideline },
+    ...webFetchGuidelines.map((text) => ({ tool: 'web_fetch', text })),
+    ...webSearchGuidelines.map((text) => ({ tool: 'web_search', text })),
   ]);
   assertEquals(new Registry([]).promptGuidelines(), []);
   const bashDefinition = parent.registry.definitions().find((tool) => tool.name === 'bash');
@@ -629,7 +637,9 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assertEquals(parent.systemInstruction?.split(guideline).length, 2);
   assertEquals(parent.systemInstruction?.split(bashGuideline).length, 2);
   assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
-  assertEquals(parent.systemInstruction?.split(webSearchGuideline).length, 2);
+  for (const webSearchGuideline of webSearchGuidelines) {
+    assertEquals(parent.systemInstruction?.split(webSearchGuideline).length, 2);
+  }
 });
 
 Deno.test('Definition-provided tool component replaces a declared tool identity', async () => {

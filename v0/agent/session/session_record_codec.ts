@@ -1,3 +1,4 @@
+import { validateFailureDetails } from '../core/failure_details.ts';
 import type { JsonValue, Message } from '../core/contracts.ts';
 import { MAX_REPLAY_MESSAGE_TEXT_BYTES, MAX_REPLAY_PLANNER_RESULT_BYTES } from './replay_value.ts';
 import {
@@ -68,8 +69,16 @@ const validateToolCall = (value: unknown): boolean => {
 const validateToolResult = (value: unknown): boolean => {
   if (typeof value !== 'object' || value === null) return false;
   const result = value as Record<string, unknown>;
-  const common = ownKeys(result, ['kind', 'callId', 'name', 'text', 'outcome']) ||
-    ownKeys(result, ['kind', 'callId', 'name', 'text', 'outcome', 'terminal']);
+  const common = ownKeys(result, [
+    'kind',
+    'callId',
+    'name',
+    'text',
+    'outcome',
+    ...(Object.hasOwn(result, 'terminal') ? ['terminal'] : []),
+    ...(Object.hasOwn(result, 'failure') ? ['failure'] : []),
+  ]);
+  if (result.failure !== undefined && !validateFailureDetails(result.failure)) return false;
   if (
     !common || result.kind !== 'tool_result' || !validString(result.callId) ||
     result.callId.length === 0 || !validString(result.name) ||
@@ -90,7 +99,12 @@ const validateMessage = (value: unknown): value is Message => {
   const message = value as Record<string, unknown>;
   if (message.role === 'user') {
     const content = message.content;
-    return ownKeys(message, ['role', 'content']) &&
+    return ownKeys(message, [
+      'role',
+      'content',
+      ...(Object.hasOwn(message, 'steering') ? ['steering'] : []),
+    ]) &&
+      (!Object.hasOwn(message, 'steering') || message.steering === true) &&
       typeof content === 'object' &&
       content !== null &&
       ownKeys(content, ['kind', 'text']) &&
@@ -192,8 +206,8 @@ export interface CausalTranscriptIndex {
 /**
  * Scan the schema-v1 causal grammar once and retain only message ranges.
  *
- * A user after a nonterminal tool result is the one legal intra-turn steering message. It is
- * deliberately consumed by this parser rather than counted as a new parent turn. The optional
+ * A marked steering user after an assistant answer, or a user after a nonterminal tool result,
+ * continues the current turn once rather than starting a new parent turn. The optional
  * prefix mode is used for a live request draft: a final incomplete turn is ignored, while every
  * completed turn and all earlier validation remain strict.
  */
@@ -209,7 +223,8 @@ const indexCausalTranscript = (
   let turn = 1;
   while (index < transcript.length) {
     const start = index;
-    if (transcript[index].role !== 'user') {
+    const first = transcript[index];
+    if (first.role !== 'user' || first.steering === true) {
       return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
     }
     index += 1;
@@ -222,6 +237,15 @@ const indexCausalTranscript = (
       }
       index += 1;
       if (!Array.isArray(assistant.content)) {
+        const next = transcript[index];
+        if (next?.role === 'user' && next.steering === true) {
+          if (steeringUsed) {
+            return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+          }
+          steeringUsed = true;
+          index += 1;
+          continue;
+        }
         completed = true;
         break;
       }

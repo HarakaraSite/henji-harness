@@ -1,3 +1,4 @@
+import { captureFailureDetails, type FailureDetails } from '../core/failure_details.ts';
 import OpenAI from '@openai/openai';
 import type {
   JsonValue,
@@ -136,6 +137,7 @@ const evidenceFetch = (
   fetcher: typeof fetch,
   selection: ModelSelection,
   options: ModelGenerateOptions,
+  observedResponse: (response: Response) => void,
 ): typeof fetch =>
 async (input, init) => {
   const endpoint = input instanceof Request ? input.url : String(input);
@@ -165,6 +167,7 @@ async (input, init) => {
   } as const;
   evidence?.startRequestMetadata(evidenceRequest);
   const response = await fetcher(input, init);
+  observedResponse(response);
   evidence?.recordResponse({ status: response.status });
   return response;
 };
@@ -335,10 +338,23 @@ class ResponsesApiModel implements Model {
       timedOut = true;
       controller.abort('provider deadline exceeded');
     }, timeoutMs);
+    let responseStatus: number | undefined;
+    let requestId: string | undefined;
+    let responseId: string | undefined;
+    let streamEventCount = 0;
+    let lastStreamEvent: string | undefined;
+    let completedReceived = false;
+    let operation = 'response_request';
+    let reportedError: unknown;
+    let shapeFailure: FailureDetails | undefined;
     const fetcher = evidenceFetch(
       this.options.fetcher ?? fetch,
       this.options.selection,
       generateOptions,
+      (response) => {
+        responseStatus = response.status;
+        requestId = response.headers.get('x-request-id') ?? undefined;
+      },
     );
     const defaultHeaders: Record<string, string> = {
       Authorization: `Bearer ${credential}`,
@@ -391,6 +407,7 @@ class ResponsesApiModel implements Model {
         maxRetries: 0,
         timeout: timeoutMs,
       });
+      operation = 'response_stream';
       let completed: Record<string, unknown> | undefined;
       const completedItems = new Map<number, unknown>();
       let progress = '';
@@ -398,6 +415,10 @@ class ResponsesApiModel implements Model {
       let reasoningSummaryDeltaSeen = false;
       const reasoningEncrypted = new Map<string, string>();
       for await (const event of stream) {
+        streamEventCount += 1;
+        lastStreamEvent = event.type;
+        const eventResponse = (event as { response?: { id?: string } }).response;
+        if (typeof eventResponse?.id === 'string') responseId = eventResponse.id;
         // A continuous stream keeps this loop in microtasks, which starves the macrotask timer
         // above. Check the deadline here too so the request cannot outlive `timeoutMs`.
         if (Date.now() - startedAt >= timeoutMs) {
@@ -460,11 +481,22 @@ class ResponsesApiModel implements Model {
             reasoningEncrypted.set(item.id, item.encrypted_content);
           }
         } else if (event.type === 'response.completed') {
+          completedReceived = true;
           completed = event.response as unknown as Record<string, unknown>;
         } else if (
           event.type === 'response.failed' ||
           event.type === 'response.incomplete'
         ) {
+          const failure = (event as { response?: { error?: unknown } }).response?.error;
+          if (isRecord(failure)) {
+            reportedError = {
+              name: 'ProviderResponseError',
+              message: failure.message,
+              code: failure.code,
+              type: failure.type,
+              param: failure.param,
+            };
+          }
           throw providerError(
             'response_error',
             `${label} response did not complete`,
@@ -472,7 +504,17 @@ class ResponsesApiModel implements Model {
           );
         }
       }
+      operation = 'response_parse';
       if (completed === undefined || !Array.isArray(completed.output)) {
+        shapeFailure = {
+          field: 'response.output',
+          expectedShape: 'array',
+          actualShape: completed === undefined
+            ? 'absent'
+            : completed.output === null
+            ? 'null'
+            : typeof completed.output,
+        };
         generateOptions.providerEvidence?.recordParserTransition({
           kind: 'failure',
           reason: 'unsupported_response_shape',
@@ -520,6 +562,11 @@ class ResponsesApiModel implements Model {
       });
       const calls = toolCalls(output);
       if (calls === undefined) {
+        shapeFailure = {
+          field: 'response.output.function_call',
+          expectedShape: 'function call with call_id, name, arguments',
+          actualShape: 'unsupported item',
+        };
         generateOptions.providerEvidence?.recordParserTransition({
           kind: 'failure',
           reason: 'unsupported_response_shape',
@@ -572,25 +619,75 @@ class ResponsesApiModel implements Model {
     } catch (error) {
       if (cancelled) throw new TurnCancelledError();
       const status = isRecord(error) && typeof error.status === 'number' ? error.status : undefined;
-      const settled = timedOut
+      const providerApiError = reportedError !== undefined ||
+        error instanceof OpenAI.APIError && !(error instanceof OpenAI.APIConnectionError);
+      const parseError = error instanceof SyntaxError && responseStatus !== undefined;
+      const classified = timedOut || error instanceof OpenAI.APIConnectionTimeoutError
         ? providerError('provider_timeout', 'provider deadline exceeded', 1)
+        : providerApiError
+        ? new OpenRouterAgentError(
+          'response_error',
+          `${label} provider reported an API error`,
+          1,
+          status ?? responseStatus,
+          {
+            stage: status === undefined ? 'response_parse' : 'http',
+            code: status === undefined ? 'response_error' : 'http_error',
+            ...(status === undefined ? { parseReason: 'provider_reported_error' as const } : {}),
+            ...((status ?? responseStatus) === undefined
+              ? {}
+              : { httpStatus: status ?? responseStatus }),
+          },
+        )
         : error instanceof OpenRouterAgentError
         ? error
-        : status === undefined
-        ? providerError(
-          'transport_error',
-          `${label} provider transport failed`,
+        : parseError
+        ? new OpenRouterAgentError(
+          'response_error',
+          `${label} response was invalid JSON`,
           1,
+          responseStatus,
+          {
+            stage: 'response_parse',
+            code: 'response_error',
+            httpStatus: responseStatus,
+            parseReason: 'invalid_sse_json',
+          },
         )
-        : providerError(
-          'http_error',
-          `${label} provider request failed`,
-          1,
-          status,
-        );
+        : status === undefined
+        ? providerError('transport_error', `${label} provider transport failed`, 1)
+        : providerError('http_error', `${label} provider request failed`, 1, status);
+      const details = captureFailureDetails(reportedError ?? error, {
+        operation,
+        secrets: [credential, defaultHeaders.Authorization],
+        facts: {
+          ...(requestId === undefined ? {} : { requestId }),
+          ...(responseId === undefined ? {} : { responseId }),
+          streamEventCount,
+          completedReceived,
+          ...(lastStreamEvent === undefined ? {} : { lastStreamEvent }),
+          ...shapeFailure,
+        },
+      });
+      const settled = new OpenRouterAgentError(
+        // An HTTP API rejection keeps the existing HTTP-facing code.
+        classified.failureFact.code === 'http_error' ? 'http_error' : classified.code,
+        classified.message,
+        classified.requestCount,
+        classified.status,
+        {
+          ...classified.failureFact,
+          ...(classified.failureFact.stage === 'response_parse' &&
+              classified.failureFact.httpStatus === undefined && responseStatus !== undefined
+            ? { httpStatus: responseStatus }
+            : {}),
+          details,
+        },
+      );
       generateOptions.providerEvidence?.recordRequestFailure({
         stage: settled.failureFact.stage,
         code: settled.failureFact.code,
+        details,
         ...(settled.failureFact.httpStatus === undefined ? {} : {
           httpStatus: settled.failureFact.httpStatus,
         }),

@@ -42,6 +42,12 @@ Deno.test('Increment 170 real Worker Host reports Data commit failure without ad
     strictEqual(rows.length, 1);
     ok(rows[0].adoption !== 'canonical');
     ok(rows[0].outcome !== 'completed');
+    ok(rows[0].diagnosticId);
+    const diagnostic = await reader.diagnostics.read(rows[0].diagnosticId);
+    strictEqual(diagnostic.code, 'commit_error');
+    strictEqual(diagnostic.details?.operation, 'data_authorize_commit');
+    strictEqual(diagnostic.details?.exceptionType, 'HistoryStoreError');
+    strictEqual(diagnostic.details?.errorCode, 'history_io_failure');
   } finally {
     SqliteHistoryV7ProductionStore.prototype.commitCanonicalTurn = commit;
     await created?.close();

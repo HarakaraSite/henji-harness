@@ -456,7 +456,11 @@ export class LiveModelCatalog {
     registrationId?: string,
   ): Promise<void> {
     const declaration = this.#declaration(provider);
-    const accountId = await this.#catalogRegistrationId(declaration, registrationId);
+    const accountId = declaration.providerId === 'openai-chatgpt'
+      ? registrationId ?? await this.#chatgptAuth.selectedRegistrationId()
+      : undefined;
+    // Session/default selection can be saved before an account catalog exists.
+    if (declaration.providerId === 'openai-chatgpt' && accountId === undefined) return;
     const catalog = await this.#readCatalog(declaration, accountId);
     const model = catalog.models[modelId] ?? {};
     model.defaultEffort = effort;
@@ -470,11 +474,18 @@ export class LiveModelCatalog {
     registrationId?: string,
   ): Promise<ReasoningEffort> {
     const declaration = this.#declaration(provider);
-    const accountId = await this.#catalogRegistrationId(declaration, registrationId);
-    const catalog = await this.#readCatalog(declaration, accountId);
-    return catalog.models[modelId]?.defaultEffort ??
+    const declaredEffort =
       declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId)?.defaultEffort ??
-      'auto';
+        'auto';
+    const accountId = declaration.providerId === 'openai-chatgpt'
+      ? registrationId ?? await this.#chatgptAuth.selectedRegistrationId()
+      : undefined;
+    // Provider discovery is available before sign-in; account settings only exist after it.
+    if (declaration.providerId === 'openai-chatgpt' && accountId === undefined) {
+      return declaredEffort;
+    }
+    const catalog = await this.#readCatalog(declaration, accountId);
+    return catalog.models[modelId]?.defaultEffort ?? declaredEffort;
   }
 
   #declaration(provider: string): ProviderDeclarationV1 {

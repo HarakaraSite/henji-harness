@@ -94,6 +94,7 @@ class DataClient implements DataService {
             response.error.status,
             response.error.code,
             response.error.message,
+            response.error.details,
           ),
         );
       } else pending.resolve(response);

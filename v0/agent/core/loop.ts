@@ -1,3 +1,4 @@
+import { captureFailureDetails } from './failure_details.ts';
 import {
   type AssistantMessage,
   type JsonValue,
@@ -341,6 +342,18 @@ const runAgentTurnInternal = async (
   let toolResultCount = 0;
   let observedTranscriptLength = 0;
 
+  const applySteering = (): boolean => {
+    const text = steering?.consume();
+    if (text === undefined) return false;
+    const message: Message = { role: 'user', content: { kind: 'text', text }, steering: true };
+    transcript.push(message);
+    deliverEvent(sink, { kind: 'steering_message', turn, message });
+    transcriptSources.push(
+      requestMessageSource?.(message, 'steering', transcript.length - 1, steps) ?? [],
+    );
+    return true;
+  };
+
   const terminalRequestCounts = (): RequestCounts => {
     const turn = boundedCount(
       options.turnProviderRequestCount?.() ??
@@ -395,6 +408,10 @@ const runAgentTurnInternal = async (
         stage,
         code,
         lane: 'parent',
+        ...(error === undefined ? {} : {
+          details: observed?.details ?? fallback.details ??
+            captureFailureDetails(error, { operation: stage }),
+        }),
         providerRequestCount: count,
         retryCount: observed?.retryCount ?? 0,
         modelStep: step,
@@ -475,6 +492,7 @@ const runAgentTurnInternal = async (
     return settledOutcome;
   };
   const finishNormal = (outcome: LoopOutcome): LoopOutcome => {
+    steering?.close();
     // A re-entrant cancellation from the final event sink wins over normal settlement.
     if (
       ownsCancellation && cancellation !== undefined &&
@@ -799,7 +817,7 @@ const runAgentTurnInternal = async (
           stage: 'cancellation_cleanup',
           code: 'cleanup_error',
           modelStep: 0,
-        });
+        }, error);
       }
       if (cancellationFrom(error)) {
         return finishCancelled();
@@ -821,6 +839,14 @@ const runAgentTurnInternal = async (
       return finishContractFailure('model contract failure: invalid result', {
         stage: 'model_result_validation',
         code: 'invalid_model_result',
+        details: captureFailureDetails('Model result did not satisfy the current contract', {
+          operation: 'model_result_validation',
+          facts: {
+            field: 'result',
+            expectedShape: 'final or tool_calls model result',
+            actualShape: result === null ? 'null' : Array.isArray(result) ? 'array' : typeof result,
+          },
+        }),
       });
     }
     emitThinking(true, result.providerState);
@@ -854,6 +880,7 @@ const runAgentTurnInternal = async (
         ) ?? [],
       );
       if (signal?.aborted) return finishCancelled();
+      if (applySteering()) continue;
       return finishNormal({
         ok: true,
         task,
@@ -991,7 +1018,11 @@ const runAgentTurnInternal = async (
           throw progressFailure;
         }
         if (isCancellationCleanupError(error)) {
-          return finishContractFailure('cancellation cleanup failed');
+          return finishContractFailure('cancellation cleanup failed', {
+            stage: 'cancellation_cleanup',
+            code: 'cleanup_error',
+            modelStep: 0,
+          }, error);
         }
         if (cancellationFrom(error)) return finishCancelled();
         results.push({
@@ -1000,6 +1031,7 @@ const runAgentTurnInternal = async (
           name: call.name,
           text: `tool execution error: ${errorText(error)}`,
           outcome: 'error',
+          failure: captureFailureDetails(error, { operation: 'tool_dispatch' }),
         });
       } finally {
         progressSettled = true;
@@ -1047,29 +1079,9 @@ const runAgentTurnInternal = async (
         transcript: snapshotMessages(transcript),
       });
     }
-    if (steps >= limit) return finishMaxSteps();
     if (signal?.aborted) return finishCancelled();
-    const steeringText = steering?.consume();
-    if (steeringText !== undefined) {
-      const steeringMessage: Message = {
-        role: 'user',
-        content: { kind: 'text', text: steeringText },
-      };
-      transcript.push(steeringMessage);
-      deliverEvent(sink, {
-        kind: 'steering_message',
-        turn,
-        message: steeringMessage,
-      });
-      transcriptSources.push(
-        requestMessageSource?.(
-          steeringMessage,
-          'steering',
-          transcript.length - 1,
-          steps,
-        ) ?? [],
-      );
-    }
+    applySteering();
+    if (steps >= limit) return finishMaxSteps();
   }
 };
 

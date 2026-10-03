@@ -101,11 +101,11 @@ Deno.test('Increment 170 S3 publishes task reservation before admission receipt'
   strictEqual(tasks.canSteer(), false);
   strictEqual(tasks.canQueueFollowUp(), false);
   strictEqual(
-    tasks.steer(
+    (await tasks.steer(
       reservation.executionId,
       'steer before receipt',
       'command-steer',
-    ).kind,
+    )).kind,
     'rejected',
   );
   deepStrictEqual(
@@ -162,7 +162,7 @@ Deno.test('Increment 170 S3 cancellation during preparation survives a late admi
     'running',
   );
   strictEqual(
-    tasks.steer(executionId, 'steer after cancel', 'command-steer').kind,
+    (await tasks.steer(executionId, 'steer after cancel', 'command-steer')).kind,
     'rejected',
   );
   strictEqual(host.steerCalls, 0);

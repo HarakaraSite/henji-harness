@@ -1,4 +1,7 @@
+import { captureFailureDetails, type FailureDetails } from '../core/failure_details.ts';
+import { createFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import type { AgentEvent } from '../core/events.ts';
+import { validateSteeringText } from '../core/steering.ts';
 import type {
   ApiPosition,
   ContextView,
@@ -584,6 +587,7 @@ export class ExecutionCoordinator {
     reservation: PendingAdmission,
   ): Promise<SmallOutcome> {
     let execution: ActiveExecution | undefined;
+    let operation = 'worker_execution';
     try {
       await this.ensureGeneration();
       const correlation = this.supervisor.correlation(
@@ -667,6 +671,8 @@ export class ExecutionCoordinator {
           execution,
           'interrupted',
           terminal.message,
+          terminal.details ??
+            captureFailureDetails(terminal.message, { operation: `worker_${terminal.stage}` }),
         );
         return outcome;
       }
@@ -698,6 +704,7 @@ export class ExecutionCoordinator {
         this.deliverTerminal(execution, result, false);
         return this.terminalOutcome(result);
       }
+      operation = 'session_commit';
       return await this.settleProposal(execution, terminal, reservation);
     } catch (error) {
       if (execution === undefined) {
@@ -724,6 +731,7 @@ export class ExecutionCoordinator {
         execution,
         'interrupted',
         errorText(error),
+        captureFailureDetails(error, { operation }),
       );
       return outcome;
     } finally {
@@ -854,6 +862,7 @@ export class ExecutionCoordinator {
     execution: ActiveExecution,
     decision: 'cancelled' | 'interrupted',
     reason: string,
+    details?: FailureDetails,
   ): Promise<SmallOutcome> {
     if (execution.terminalPromise !== undefined) {
       return await execution.terminalPromise;
@@ -880,6 +889,24 @@ export class ExecutionCoordinator {
         executionId: execution.executionId,
         decision,
         reason,
+        ...(details === undefined ? {} : {
+          diagnostic: createFailureDiagnostic({
+            stage: details.operation === 'session_commit' ||
+                details.operation === 'data_prepare_proposal' ||
+                details.operation === 'data_authorize_commit'
+              ? 'session_commit'
+              : 'worker_execution',
+            code: details.operation === 'session_commit' ||
+                details.operation === 'data_prepare_proposal' ||
+                details.operation === 'data_authorize_commit'
+              ? 'commit_error'
+              : 'worker_error',
+            turnNumber: execution.turn,
+            modelStep: 0,
+            providerRequestCount: execution.requestCount,
+            details,
+          }),
+        }),
       });
       this.acceptTerminal(result);
       this.deliverTerminal(execution, result, false);
@@ -1236,21 +1263,27 @@ export class ExecutionCoordinator {
     }
   }
 
-  steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
+  async steerActiveTurn(text: string): Promise<'accepted' | 'already_accepted' | 'idle'> {
     const execution = this.activeExecution;
     if (
       execution === undefined || !this.active || !execution.dispatched ||
       this.supervisor.currentCorrelation === undefined || execution.cancelled
     ) return 'idle';
-    if (typeof text !== 'string' || text.trim().length === 0) {
-      throw new RangeError('steering text must not be blank');
-    }
+    const validated = validateSteeringText(text);
+    const requestId = crypto.randomUUID();
     try {
-      this.send({ kind: 'steer', correlation: execution.correlation, text });
-    } catch {
+      this.send({ kind: 'steer', correlation: execution.correlation, requestId, text: validated });
+      const reply = await this.supervisor.messages.wait(
+        (message): message is import('./worker_protocol.ts').WorkerSteeringReceivedMessage =>
+          message.kind === 'steering_received' && message.requestId === requestId &&
+          sameCorrelation(message.correlation, execution.correlation),
+        this.workerResponseTimeoutMs(),
+      );
+      return reply.result;
+    } catch (error) {
       this.supervisor.markUnavailableForReplacement();
+      throw error;
     }
-    return 'accepted';
   }
 
   private async handleAsyncAgentRequest(

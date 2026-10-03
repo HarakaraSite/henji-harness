@@ -1,3 +1,5 @@
+import type { FailureDetails } from '../core/failure_details.ts';
+import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import type {
   ContextView,
   ExecutionReadResult,
@@ -94,6 +96,7 @@ export type DataSealGenerationRequest = Readonly<{
   executionId: string;
   decision: 'cancelled' | 'interrupted';
   reason: string;
+  diagnostic?: FailureDiagnosticV1;
 }>;
 
 export type DataSettleChildExecutionRequest = Readonly<{
@@ -207,6 +210,7 @@ export class DataServiceError extends Error {
     readonly status: number,
     readonly code: string,
     message = code,
+    readonly failureDetails?: FailureDetails,
   ) {
     super(message);
     this.name = 'DataServiceError';
@@ -356,7 +360,7 @@ export type DataWorkerResponse =
   | Readonly<{
     id: number;
     kind: 'error';
-    error: Readonly<{ status: number; code: string; message: string }>;
+    error: Readonly<{ status: number; code: string; message: string; details?: FailureDetails }>;
   }>
   | Readonly<{
     kind: 'session_delta';

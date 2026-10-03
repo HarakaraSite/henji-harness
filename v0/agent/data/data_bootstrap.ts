@@ -1,3 +1,4 @@
+import { captureFailureDetails } from '../core/failure_details.ts';
 import { createDataService } from './data_service.ts';
 import {
   type DataConversationUpdate,
@@ -25,7 +26,7 @@ const asDataError = (error: unknown): DataServiceError =>
     error instanceof Error ? error.message : String(error),
   );
 
-const replyError = (id: number, error: unknown): void => {
+const replyError = (id: number, error: unknown, operation: string): void => {
   const dataError = asDataError(error);
   scope.postMessage({
     id,
@@ -34,6 +35,7 @@ const replyError = (id: number, error: unknown): void => {
       status: dataError.status,
       code: dataError.code,
       message: dataError.message,
+      details: captureFailureDetails(error, { operation: `data_${operation}` }),
     },
   });
 };
@@ -292,7 +294,7 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
         return;
     }
   } catch (error) {
-    replyError(request.id, error);
+    replyError(request.id, error, request.kind);
   }
 };
 

@@ -139,17 +139,18 @@ Deno.test('Increment 39 preserves a real active-reader cleanup failure', async (
 });
 
 Deno.test('Increment 39 treats bounded body read rejection as terminally settled', async () => {
+  const readError = new DOMException('The operation was aborted.', 'AbortError');
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.error(
-        new DOMException('The operation was aborted.', 'AbortError'),
-      );
+      controller.error(readError);
     },
   });
-  assertEquals(await readResponseBody(new Response(body)), {
+  const result = await readResponseBody(new Response(body));
+  assertEquals({ kind: result.kind, cleanupFailed: result.cleanupFailed }, {
     kind: 'stream_error',
     cleanupFailed: false,
   });
+  assert(result.error === readError);
 });
 
 class CleanupFailureCapsule implements WorkerHostCapsule {

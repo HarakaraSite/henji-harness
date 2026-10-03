@@ -15,15 +15,19 @@ interface WireResponseToolCall {
 }
 
 export type ResponseBodyResult =
-  | {
-    readonly kind: 'text';
-    readonly text: string;
-    readonly cleanupFailed: boolean;
-  }
-  | { readonly kind: 'limit_exceeded'; readonly cleanupFailed: boolean }
-  | { readonly kind: 'stream_error'; readonly cleanupFailed: boolean }
-  | { readonly kind: 'invalid_utf8'; readonly cleanupFailed: boolean }
-  | { readonly kind: 'missing'; readonly cleanupFailed: false };
+  // Original exception stays local to the adapter; its failure boundary saves bounded facts only.
+  & { readonly error?: unknown }
+  & (
+    | {
+      readonly kind: 'text';
+      readonly text: string;
+      readonly cleanupFailed: boolean;
+    }
+    | { readonly kind: 'limit_exceeded'; readonly cleanupFailed: boolean }
+    | { readonly kind: 'stream_error'; readonly cleanupFailed: boolean }
+    | { readonly kind: 'invalid_utf8'; readonly cleanupFailed: boolean }
+    | { readonly kind: 'missing'; readonly cleanupFailed: false }
+  );
 
 /** Read one bounded response while retaining proof that the body reader was settled. */
 export const readResponseBody = async (
@@ -33,8 +37,8 @@ export const readResponseBody = async (
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     reader = response.body.getReader();
-  } catch {
-    return { kind: 'stream_error', cleanupFailed: true };
+  } catch (error) {
+    return { kind: 'stream_error', cleanupFailed: true, error };
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -47,10 +51,10 @@ export const readResponseBody = async (
       let item: ReadableStreamReadResult<Uint8Array>;
       try {
         item = await reader.read();
-      } catch {
+      } catch (error) {
         // Read rejection is the terminal errored state. A second cancel would only reject with
         // that stored stream error and falsely report a distinct cleanup failure.
-        result = { kind: 'stream_error', cleanupFailed: false };
+        result = { kind: 'stream_error', cleanupFailed: false, error };
         break;
       }
       if (item.done) {
@@ -66,8 +70,8 @@ export const readResponseBody = async (
             text: new TextDecoder('utf-8', { fatal: true }).decode(body),
             cleanupFailed: false,
           };
-        } catch {
-          result = { kind: 'invalid_utf8', cleanupFailed: false };
+        } catch (error) {
+          result = { kind: 'invalid_utf8', cleanupFailed: false, error };
         }
         break;
       }
@@ -88,8 +92,8 @@ export const readResponseBody = async (
   } finally {
     try {
       reader.releaseLock();
-    } catch {
-      result = { ...result, cleanupFailed: true };
+    } catch (error) {
+      result = { ...result, cleanupFailed: true, error: result.error ?? error };
     }
   }
   return result;
@@ -290,6 +294,7 @@ export const withResponseStatus = (
     ...(fact.field === undefined ? {} : { field: fact.field }),
     ...(fact.expectedShape === undefined ? {} : { expectedShape: fact.expectedShape }),
     ...(fact.actualShape === undefined ? {} : { actualShape: fact.actualShape }),
+    ...(fact.details === undefined ? {} : { details: fact.details }),
   };
   if (fact.stage !== 'response_parse' || fact.httpStatus !== undefined) return error;
   if (fact.parseReason === undefined) {

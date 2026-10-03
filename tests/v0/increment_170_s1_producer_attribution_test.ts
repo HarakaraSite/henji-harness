@@ -20,10 +20,7 @@ import {
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
 import type { Tool } from '../../v0/agent/tools/tools.ts';
-import {
-  createWebSearchTool,
-  OpenRouterSonarWebSearchBackend,
-} from '../../v0/agent/tools/web_search.ts';
+import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import type { ToolComponent } from '../../v0/agent/tools/tool_components.ts';
 import {
   applyHistoryAppendResults,
@@ -170,11 +167,18 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
         applyHistoryAppendResults(state, normalizer, appended);
         if (
           observation.kind === 'runtime_event' &&
-          observation.event.kind === 'model_result' && firstToolDeclaration === undefined
+          observation.event.kind === 'model_result' &&
+          firstToolDeclaration === undefined
         ) {
-          firstToolDeclaration = orderedConversationEntities(state).flatMap((entity) =>
+          firstToolDeclaration = orderedConversationEntities(state).flatMap((
+            entity,
+          ) =>
             entity.kind === 'tool' && entity.declarationIndex !== undefined
-              ? [{ id: entity.id, position: entity.position, requestKey: entity.requestKey }]
+              ? [{
+                id: entity.id,
+                position: entity.position,
+                requestKey: entity.requestKey,
+              }]
               : []
           );
         }
@@ -192,24 +196,17 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
       recorder,
     );
 
-    const backend = new OpenRouterSonarWebSearchBackend({
+    const backend = new ExaWebSearchBackend({
       credential: 'local-test-credential',
       endpoint: 'https://provider.invalid/search',
       fetcher: () =>
         Promise.resolve(
           new Response(
             JSON.stringify({
-              choices: [{
-                message: {
-                  content: 'The marker is blue.',
-                  annotations: [{
-                    type: 'url_citation',
-                    url_citation: {
-                      title: 'Marker reference',
-                      url: 'https://source.invalid/marker',
-                    },
-                  }],
-                },
+              results: [{
+                title: 'Marker reference',
+                url: 'https://source.invalid/marker',
+                text: 'The marker is blue.',
               }],
             }),
             { status: 200 },
@@ -217,8 +214,12 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
         ),
     });
     const declaredSearchTool = createWebSearchTool(backend);
-    const searchIdentity = createAgentResourceIdentity('tool:external_research');
-    const readIdentity = createAgentResourceIdentity('tool:bespoke_marker_reader');
+    const searchIdentity = createAgentResourceIdentity(
+      'tool:external_research',
+    );
+    const readIdentity = createAgentResourceIdentity(
+      'tool:bespoke_marker_reader',
+    );
     const component = (
       identity: typeof searchIdentity,
       materialize: ToolComponent['materialize'],
@@ -319,8 +320,12 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
         maxSteps: 3,
         executionContext: execution,
         eventSink: (event) => {
-          if (event.kind === 'tool_progress') delivered.push(`progress:${event.callId}`);
-          if (event.kind === 'tool_result') delivered.push(`result:${event.result.callId}`);
+          if (event.kind === 'tool_progress') {
+            delivered.push(`progress:${event.callId}`);
+          }
+          if (event.kind === 'tool_result') {
+            delivered.push(`result:${event.result.callId}`);
+          }
         },
       },
     );
@@ -362,7 +367,10 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
     strictEqual(unattributedSearch.requestKey.modelStep, 2);
     strictEqual(unattributedSearch.requestKey.requestOrdinal, undefined);
     strictEqual(unattributedSearch.progress, 'Searching the marker source.');
-    strictEqual(unattributedSearch.result?.text.includes('The marker is blue.'), true);
+    strictEqual(
+      unattributedSearch.result?.text.includes('The marker is blue.'),
+      true,
+    );
     ok(firstToolDeclaration !== undefined);
     strictEqual(firstToolDeclaration.length, 2);
     deepStrictEqual(
@@ -390,23 +398,71 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
     const requestOrigins = physicalStarts.map((event) => {
       const payload = event.payload as {
         readonly observation?: {
-          readonly request?: { readonly requestMetadata?: { readonly origin?: string } };
+          readonly request?: {
+            readonly requestMetadata?: {
+              readonly origin?: string;
+              readonly provider?: string;
+              readonly api?: string;
+              readonly modelId?: string;
+              readonly effort?: string;
+            };
+          };
         };
       };
       return payload.observation?.request?.requestMetadata?.origin;
     });
-    deepStrictEqual(requestOrigins, ['root_model', 'web_search', 'web_search', 'root_model']);
+    deepStrictEqual(requestOrigins, [
+      'root_model',
+      'web_search',
+      'web_search',
+      'root_model',
+    ]);
+    const searchRequests = physicalStarts.slice(1, 3).map((event) => {
+      const payload = event.payload as {
+        readonly observation?: {
+          readonly request?: {
+            readonly requestMetadata?: Record<string, unknown>;
+          };
+        };
+      };
+      return payload.observation?.request?.requestMetadata;
+    });
+    deepStrictEqual(searchRequests.map((metadata) => metadata?.provider), [
+      'exa',
+      'exa',
+    ]);
+    deepStrictEqual(searchRequests.map((metadata) => metadata?.api), [
+      'exa-search',
+      'exa-search',
+    ]);
+    for (const metadata of searchRequests) {
+      strictEqual(metadata?.modelId, undefined);
+      strictEqual(metadata?.effort, undefined);
+    }
     const toolEvents = runtimeEvents.filter((event): event is Extract<
       ProviderEvidenceRuntimeEvent,
       { kind: 'tool_call' | 'tool_progress' | 'tool_result' }
     > =>
-      event.kind === 'tool_call' || event.kind === 'tool_progress' || event.kind === 'tool_result'
+      event.kind === 'tool_call' || event.kind === 'tool_progress' ||
+      event.kind === 'tool_result'
     );
     strictEqual(toolEvents.length, 9);
-    strictEqual(toolEvents.slice(0, 6).every((event) => event.modelStep === 1), true);
-    strictEqual(toolEvents.slice(0, 6).every((event) => event.requestOrdinal === 1), true);
-    strictEqual(toolEvents.slice(6).every((event) => event.modelStep === 2), true);
-    strictEqual(toolEvents.slice(6).every((event) => event.requestOrdinal === undefined), true);
+    strictEqual(
+      toolEvents.slice(0, 6).every((event) => event.modelStep === 1),
+      true,
+    );
+    strictEqual(
+      toolEvents.slice(0, 6).every((event) => event.requestOrdinal === 1),
+      true,
+    );
+    strictEqual(
+      toolEvents.slice(6).every((event) => event.modelStep === 2),
+      true,
+    );
+    strictEqual(
+      toolEvents.slice(6).every((event) => event.requestOrdinal === undefined),
+      true,
+    );
     deepStrictEqual(
       toolEvents.map((event) => event.callIndex),
       [0, 0, 0, 1, 1, 1, 0, 0, 0],

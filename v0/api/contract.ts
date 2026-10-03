@@ -215,6 +215,8 @@ export type CredentialCatalogResult = Readonly<{
       providers: readonly string[];
       method?: 'api-key' | 'chatgpt';
       label?: string;
+      consumers?: readonly string[];
+      purpose?: string;
     }
   >[];
 }>;
@@ -228,6 +230,8 @@ export type CredentialPresenceReadResult = Readonly<{
     authProfile: string;
     providers: readonly string[];
     status: 'present' | 'missing' | 'unknown';
+    consumers?: readonly string[];
+    purpose?: string;
   }>[];
 }>;
 export type CredentialRegisterInput = Readonly<

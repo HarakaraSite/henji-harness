@@ -1,3 +1,4 @@
+import type { FailureDetails } from './failure_details.ts';
 import type {
   FailureDiagnosticDurability,
   FailureDiagnosticPersistenceErrorCode,
@@ -59,6 +60,8 @@ export interface ContinuingToolResultContent {
   readonly name: string;
   readonly text: string;
   readonly outcome: ToolResultOutcome;
+  /** Failure-only metadata; provider request encoders continue to use text only. */
+  readonly failure?: FailureDetails;
 }
 
 export interface TerminalToolResultContent {
@@ -86,6 +89,8 @@ export type ToolExecutionResult =
 export interface UserMessage {
   readonly role: 'user';
   readonly content: TextContent;
+  /** Additional instruction within the current execution, rather than a new parent turn. */
+  readonly steering?: true;
 }
 
 export interface AssistantMessage {

@@ -54,7 +54,7 @@ import {
 } from './startup_orientation.ts';
 import {
   createWebSearchTool,
-  OpenRouterSonarWebSearchBackend,
+  ExaWebSearchBackend,
   type WebSearchBackend,
 } from '../tools/web_search.ts';
 import { createWebFetchTool } from '../tools/web_fetch.ts';
@@ -95,7 +95,7 @@ export interface RuntimeTestSeam {
   readonly skillFileSystem?: SkillFileSystem;
   /** Direct-test-only local mutation hook. */
   readonly workTools?: WorkToolSeams;
-  /** Direct-test-only search backend; production constructs the fixed Sonar backend. */
+  /** Direct-test-only search backend; production constructs the Exa backend. */
   readonly webSearchBackend?: WebSearchBackend;
   /** Direct-test-only materialization counters; production leaves these unset. */
   readonly onModelMaterialized?: (definition: ResolvedAgentDefinition) => void;
@@ -231,7 +231,7 @@ const materializeRegistry = (
       (bindings) => createWebSearchTool(bindings.webSearchBackend ?? webSearchBackend),
     );
   }
-  add('tool:web_fetch', () => createWebFetchTool());
+  add('tool:web_fetch', (bindings) => createWebFetchTool(fetch, { workspace: bindings.workspace }));
   return createDeclaredRegistry(definition.capabilities, {
     workspace,
     skillCatalog,
@@ -359,10 +359,8 @@ export const materializePreparedRuntimeComposition = (
 ): RuntimeComposition => {
   const { definition, seam, fetcher, requestCount } = prepared;
   const webSearchBackend = seam.webSearchBackend ??
-    new OpenRouterSonarWebSearchBackend({
+    new ExaWebSearchBackend({
       fetcher,
-      credential: seam.credential,
-      credentialSource: seam.credentialSource,
     });
   const model = materializeModel(definition, fetcher, seam);
   const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());

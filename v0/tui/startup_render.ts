@@ -180,7 +180,7 @@ export const startupHelpLines = (
   return Object.freeze([
     'Henji help · Esc return',
     'Type / followed by a letter for command suggestions; Tab completes a single match',
-    '/login · register the API credential for a provider auth profile',
+    '/login · register the API credential for a provider or service auth profile',
     '/provider · select the root provider and its default model',
     '/model · search and select the root model',
     '/effort · select effort for the current root model',

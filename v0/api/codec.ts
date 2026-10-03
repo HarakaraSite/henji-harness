@@ -39,6 +39,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isText = (value: unknown): value is string => typeof value === 'string';
+const isOptionalCredentialMetadata = (value: Record<string, unknown>): boolean =>
+  (value.consumers === undefined ||
+    Array.isArray(value.consumers) && value.consumers.every(isText)) &&
+  (value.purpose === undefined || isText(value.purpose));
 const isApiSelection = (value: unknown): value is {
   readonly provider: string;
   readonly modelId: string;
@@ -315,7 +319,8 @@ export const decodeCatalogReadResult = (value: unknown): CatalogReadResult => {
     value.kind === 'credentials' && Array.isArray(value.profiles) &&
     value.profiles.every((item) =>
       isRecord(item) && isText(item.authProfile) &&
-      Array.isArray(item.providers) && item.providers.every(isText)
+      Array.isArray(item.providers) && item.providers.every(isText) &&
+      isOptionalCredentialMetadata(item)
     )
   ) {
     return value as unknown as CatalogReadResult;
@@ -353,7 +358,8 @@ export const decodeCredentialPresenceReadResult = (
     !value.profiles.every((item) =>
       isRecord(item) && isText(item.authProfile) &&
       Array.isArray(item.providers) && item.providers.every(isText) &&
-      ['present', 'missing', 'unknown'].includes(String(item.status))
+      ['present', 'missing', 'unknown'].includes(String(item.status)) &&
+      isOptionalCredentialMetadata(item)
     )
   ) {
     throw new ApiCodecError();

@@ -263,9 +263,10 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
   let taskSubmissions = 0;
   let pathReads = 0;
   let credentialPresenceReads = 0;
-  let registeredValue: unknown;
   let credentialRegistrations = 0;
   let credentialStatus: 'present' | 'missing' | 'unknown' = 'missing';
+  let exaCredentialStatus: 'present' | 'missing' | 'unknown' = 'missing';
+  const registeredCredentials: { authProfile: string; value: string }[] = [];
   let modelReads = 0;
   let releaseModels: (() => void) | undefined;
   const server = Deno.serve(
@@ -339,6 +340,14 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
             kind,
             profiles: [
               { authProfile: 'openai-profile', providers: ['provider-b'] },
+              {
+                authProfile: 'exa-profile',
+                providers: [],
+                consumers: ['tool:web_search'],
+                purpose: 'Web search',
+                method: 'api-key',
+                label: 'Exa — API key',
+              },
               { authProfile: 'router-profile', providers: ['provider-a'] },
             ],
           });
@@ -373,6 +382,11 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
               providers: ['provider-a'],
               status: 'present',
             },
+            {
+              authProfile: 'exa-profile',
+              providers: [],
+              status: exaCredentialStatus,
+            },
           ],
         });
       }
@@ -385,8 +399,9 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
           value: string;
         };
         credentialRegistrations += 1;
-        registeredValue = body.value;
-        credentialStatus = 'present';
+        registeredCredentials.push(body);
+        if (body.authProfile === 'exa-profile') exaCredentialStatus = 'present';
+        else credentialStatus = 'present';
         return Response.json({
           kind: 'registered',
           authProfile: body.authProfile,
@@ -477,7 +492,8 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
     strictEqual(terminal.text().includes(secret), false);
     terminal.pushInput('\r');
     await waitFor(() => terminal.text().includes('Credential saved for openai-profile'));
-    strictEqual(registeredValue, secret);
+    strictEqual(registeredCredentials[0]?.authProfile, 'openai-profile');
+    strictEqual(registeredCredentials[0]?.value, secret);
     strictEqual(credentialPresenceReads, 2);
     strictEqual(terminal.text().includes(secret), false);
 
@@ -490,6 +506,42 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
     terminal.pushInput('\x03/login\r\r');
     await waitFor(() =>
       terminal.text().slice(beforeSecondLogin).includes(
+        'credential registration',
+      )
+    );
+    await waitFor(() =>
+      terminal.text().slice(beforeSecondLogin).includes(
+        'Exa — API key · Web search · missing',
+      )
+    );
+    strictEqual(
+      terminal.text().slice(beforeSecondLogin).includes(
+        'Exa — API key ·  · missing',
+      ),
+      false,
+    );
+    terminal.pushInput('\x1b[B\r');
+    const beforeServiceInput = terminal.text().length;
+    await waitFor(() =>
+      terminal.text().slice(beforeServiceInput).includes(
+        'credential input · exa-profile',
+      )
+    );
+    const exaDummyKey = 'exa-dummy-login-key-144';
+    terminal.pushInput(exaDummyKey);
+    await waitFor(() => terminal.text().includes('*'.repeat(exaDummyKey.length)));
+    strictEqual(terminal.text().includes(exaDummyKey), false);
+    terminal.pushInput('\r');
+    await waitFor(() => terminal.text().includes('Credential saved for exa-profile · present'));
+    strictEqual(registeredCredentials[1]?.authProfile, 'exa-profile');
+    strictEqual(registeredCredentials[1]?.value, exaDummyKey);
+    strictEqual(exaCredentialStatus, 'present');
+    strictEqual(terminal.text().includes(exaDummyKey), false);
+
+    const beforeDetachLogin = terminal.text().length;
+    terminal.pushInput('\x03/login\r\r');
+    await waitFor(() =>
+      terminal.text().slice(beforeDetachLogin).includes(
         'credential registration',
       )
     );
@@ -507,7 +559,7 @@ Deno.test('Increment 144 remote catalog, selection, and masked login', async () 
 
     terminal.pushInput('\x04');
     strictEqual(await run, 0);
-    strictEqual(credentialRegistrations, 1);
+    strictEqual(credentialRegistrations, 2);
     strictEqual(terminal.text().includes(detachedValue), false);
   } finally {
     terminal.pushInput('\x04');

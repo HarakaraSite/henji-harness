@@ -17,11 +17,7 @@ import {
 } from '../../v0/agent/runtime/runtime.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
-import {
-  createWebSearchTool,
-  OPENROUTER_SONAR_SEARCH_MODEL,
-  OpenRouterSonarWebSearchBackend,
-} from '../../v0/agent/tools/web_search.ts';
+import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import {
   createAgentResourceIdentity,
   createDefaultAgentComposition,
@@ -87,7 +83,7 @@ const bundledToolComponents = (
     identity: createAgentResourceIdentity('tool:web_search'),
     materialize: () =>
       createWebSearchTool(
-        new OpenRouterSonarWebSearchBackend({
+        new ExaWebSearchBackend({
           requestProvider: physicalIo.requestProvider!,
         }),
       ),
@@ -153,42 +149,23 @@ const textStream = (): string =>
     })
   }\n\n${usage('main-final', 'stop')}data: [DONE]\n\n`;
 
-const sonarResponse = {
-  id: 'sonar-search',
-  model: OPENROUTER_SONAR_SEARCH_MODEL,
-  choices: [{
-    finish_reason: 'stop',
-    message: {
-      role: 'assistant',
-      content: 'Deno 2.9 added important changes.[2][1]',
-      annotations: [
-        {
-          type: 'url_citation',
-          url_citation: {
-            url: 'https://example.com/secondary',
-            title: 'Secondary source',
-            start_index: 0,
-            end_index: 0,
-          },
-        },
-        {
-          type: 'url_citation',
-          url_citation: {
-            url: 'https://deno.com/blog/v2.9',
-            title: 'Deno 2.9',
-            start_index: 0,
-            end_index: 0,
-          },
-        },
-      ],
+const exaResponse = {
+  requestId: 'exa-search',
+  resolvedSearchType: 'auto',
+  results: [
+    {
+      title: 'Deno 2.9',
+      url: 'https://deno.com/blog/v2.9',
+      text: 'Deno 2.9 added important changes.',
+      highlights: ['Deno 2.9 added important changes.'],
     },
-  }],
-  usage: {
-    prompt_tokens: 5,
-    completion_tokens: 8,
-    total_tokens: 13,
-    cost: 0.005013,
-  },
+    {
+      title: 'Secondary source',
+      url: 'https://example.com/secondary',
+      text: 'Additional Deno 2.9 details.',
+      highlights: ['Additional Deno 2.9 details.'],
+    },
+  ],
 };
 
 const contextFor = (
@@ -220,11 +197,11 @@ Deno.test('non-Worker runtime materializes the injected web_search backend', asy
       open: () => Promise.reject(new Error('no skill fixture')),
     },
     webSearchBackend: {
-      search: (query) => ({
-        answer: `runtime result for ${query}`,
-        sources: [{
+      search: ({ query }) => ({
+        results: [{
           title: 'Runtime source',
           url: 'provider-free://runtime-search',
+          highlights: [`runtime result for ${query}`],
         }],
       }),
     },
@@ -246,19 +223,28 @@ Deno.test('non-Worker runtime materializes the injected web_search backend', asy
   assert(result.content.text.includes('provider-free://runtime-search'));
 });
 
-Deno.test('web_search completes main-Sonar-main with ordered citations and shared evidence', async () => {
+Deno.test('web_search completes main-Exa-main with full results and shared evidence', async () => {
   const counter = createWorkerRequestCounter();
   const requestBodies: Array<Record<string, unknown>> = [];
+  const physicalRequests: Array<{
+    readonly url: string;
+    readonly authorization?: string;
+  }> = [];
   let mainRequests = 0;
-  const fetcher: typeof fetch = (_input, init) => {
+  const fetcher: typeof fetch = (input, init) => {
     const bodyText = init?.body instanceof Uint8Array
       ? new TextDecoder().decode(init.body)
       : String(init?.body);
     const body = JSON.parse(bodyText) as Record<string, unknown>;
     requestBodies.push(body);
-    if (body.model === OPENROUTER_SONAR_SEARCH_MODEL) {
+    physicalRequests.push({
+      url: input instanceof Request ? input.url : String(input),
+      authorization: new Headers(init?.headers).get('authorization') ??
+        undefined,
+    });
+    if (body.model === undefined) {
       return Promise.resolve(
-        new Response(JSON.stringify(sonarResponse), {
+        new Response(JSON.stringify(exaResponse), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
@@ -273,7 +259,10 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
     );
   };
   const physicalIo = createProductionPhysicalIo(counter, {
-    credentialSources: { 'openrouter-api-key': () => 'test-credential' },
+    credentialSources: {
+      'openrouter-api-key': () => 'test-credential',
+      'exa-api-key': () => 'test-exa-credential',
+    },
     fetcher,
   });
   const composition = createDefaultAgentComposition({
@@ -305,57 +294,43 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   assertEquals(outcome.turnProviderRequestCount, 3);
   assertEquals(outcome.runtimeProviderRequestCount, 3);
   assertEquals(counter.count(), 3);
-  assertEquals(execution.snapshot(), { parent: 3, aggregate: 3 });
-  assertEquals(requestBodies.map((body) => body.model), [
-    PRODUCTION_PROFILE.model,
-    OPENROUTER_SONAR_SEARCH_MODEL,
-    PRODUCTION_PROFILE.model,
-  ]);
+  assertEquals(execution.snapshot(), { parent: 2, aggregate: 2 });
+  assertEquals(requestBodies[0].model, PRODUCTION_PROFILE.model);
   assertEquals(requestBodies[1], {
-    model: OPENROUTER_SONAR_SEARCH_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Only answer using facts supported by the search results. If the results do not contain the answer, say so explicitly rather than guessing. If the results are related but do not match the question, state the mismatch before answering. Clearly distinguish verified facts from inference.',
-      },
-      { role: 'user', content: 'Deno 2.9 changes' },
-    ],
+    type: 'auto',
+    contents: { highlights: true },
+    query: 'Deno 2.9 changes',
     stream: false,
-    web_search_options: { search_context_size: 'medium' },
+  });
+  assertEquals(requestBodies[2].model, PRODUCTION_PROFILE.model);
+  assertEquals(physicalRequests[1], {
+    url: 'https://api.exa.ai/search',
+    authorization: 'Bearer test-exa-credential',
   });
 
   const toolMessage = outcome.transcript.find((message) => message.role === 'tool');
   assert(toolMessage?.role === 'tool');
   const resultText = toolMessage.content[0].text;
-  assert(
-    resultText.includes(
-      'Answer:\nDeno 2.9 added important changes. [Deno 2.9](<https://deno.com/blog/v2.9>) [Secondary source](<https://example.com/secondary>)',
-    ),
-  );
-  assert(!resultText.includes('[2][1]'));
-  assert(!/\n\[\d+\] /u.test(resultText));
-  assert(
-    resultText.includes(
-      '- [Secondary source](<https://example.com/secondary>)',
-    ),
-  );
-  assert(resultText.includes('- [Deno 2.9](<https://deno.com/blog/v2.9>)'));
-  const sourceList = resultText.split('\n\nSources:\n')[1];
-  assert(
-    sourceList.indexOf('Secondary source') < sourceList.indexOf('Deno 2.9'),
-  );
+  assertEquals(resultText, JSON.stringify(exaResponse));
   assert(resultText.includes('https://example.com/secondary'));
   assert(resultText.includes('https://deno.com/blog/v2.9'));
 
   const snapshot = evidence.snapshot();
   assertEquals(
-    snapshot.requests.map((record) => record.request.requestMetadata.modelId),
-    [
-      PRODUCTION_PROFILE.model,
-      OPENROUTER_SONAR_SEARCH_MODEL,
-      PRODUCTION_PROFILE.model,
-    ],
+    snapshot.requests[0].request.requestMetadata.modelId,
+    PRODUCTION_PROFILE.model,
+  );
+  assertEquals(snapshot.requests[1].request.requestMetadata.provider, 'exa');
+  assertEquals(snapshot.requests[1].request.requestMetadata.api, 'exa-search');
+  assert(!('modelId' in snapshot.requests[1].request.requestMetadata));
+  assert(!('effort' in snapshot.requests[1].request.requestMetadata));
+  assertEquals(
+    snapshot.requests[2].request.requestMetadata.modelId,
+    PRODUCTION_PROFILE.model,
+  );
+  assertEquals(
+    snapshot.requests.map((record) => record.request.requestMetadata.origin),
+    ['root_model', 'web_search', 'root_model'],
   );
   assertEquals(snapshot.requests.map((record) => record.request.modelStep), [
     1,
@@ -384,6 +359,88 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   assert(!JSON.stringify(snapshot).includes('test-credential'));
 });
 
+Deno.test('web_search forwards Exa search options and preserves an empty result response', async () => {
+  const response = { results: [], output: { answer: 'No matching pages.' } };
+  const evidence = new ProviderEvidenceRecorder(
+    '77777777-7777-4777-8777-777777777778',
+    1,
+    '2026-09-07T00:00:00.000Z',
+  );
+  const execution = contextFor(evidence);
+  evidence.setContextRequestOrdinal(17);
+  let seenUrl: string | undefined;
+  let seenAuthorization: string | undefined;
+  let seenExaBeta: string | undefined;
+  let seenBody: Record<string, unknown> | undefined;
+  const backend = new ExaWebSearchBackend({
+    credential: 'test-credential',
+    fetcher: (input, init) => {
+      seenUrl = input instanceof Request ? input.url : String(input);
+      const headers = new Headers(init?.headers);
+      seenAuthorization = headers.get('authorization') ?? undefined;
+      seenExaBeta = headers.get('Exa-Beta') ?? undefined;
+      const bodyText = init?.body instanceof Uint8Array
+        ? new TextDecoder().decode(init.body)
+        : String(init?.body);
+      seenBody = JSON.parse(bodyText) as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(JSON.stringify(response), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    },
+  });
+  const request = {
+    query: 'Deno runtime research',
+    type: 'deep',
+    includeDomains: ['deno.com/docs'],
+    startPublishedDate: '2026-01-01T00:00:00.000Z',
+    category: 'research paper',
+    additionalQueries: ['Deno runtime architecture'],
+    contents: {
+      text: { maxCharacters: 1200 },
+      highlights: { dynamic: true, verbosity: 'low' },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+    },
+  };
+  const result = await new Registry([createWebSearchTool(backend)]).dispatch({
+    callId: 'exa-search-options',
+    name: 'web_search',
+    arguments: request,
+  }, { modelExecution: execution, modelStep: 1 });
+
+  assertEquals(result.content.outcome, 'success');
+  assertEquals(result.content.text, JSON.stringify(response));
+  assertEquals(seenUrl, 'https://api.exa.ai/search');
+  assertEquals(seenAuthorization, 'Bearer test-credential');
+  assertEquals(seenExaBeta, 'dynamic-highlights-2026-08-28');
+  assertEquals(seenBody, {
+    type: 'deep',
+    contents: {
+      text: { maxCharacters: 1200 },
+      highlights: { dynamic: true, verbosity: 'low' },
+    },
+    query: 'Deno runtime research',
+    includeDomains: ['deno.com/docs'],
+    startPublishedDate: '2026-01-01T00:00:00.000Z',
+    category: 'research paper',
+    additionalQueries: ['Deno runtime architecture'],
+    outputSchema: {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+    },
+    stream: false,
+  });
+  assertEquals(
+    evidence.snapshot().requests[0].request.contextRequestOrdinal,
+    undefined,
+  );
+});
+
 Deno.test('web_search exposes provider response errors with short facts', async () => {
   const cases = [
     {
@@ -399,17 +456,21 @@ Deno.test('web_search exposes provider response errors with short facts', async 
       transitions: ['invalid_json'],
     },
     {
-      raw: JSON.stringify({
-        choices: [{ message: { content: 'answer', annotations: [] } }],
-      }),
+      raw: JSON.stringify({ output: { answer: 'No source results.' } }),
       status: 200,
-      message: 'no answer with URL citations',
-      transitions: ['missing_answer_or_url_citations'],
+      message: 'no results array',
+      transitions: ['missing_results'],
+    },
+    {
+      raw: new Uint8Array([0xc3, 0x28]),
+      status: 200,
+      message: 'not valid UTF-8',
+      transitions: ['invalid_utf8'],
     },
   ] as const;
   for (const [index, item] of cases.entries()) {
     let fetches = 0;
-    const backend = new OpenRouterSonarWebSearchBackend({
+    const backend = new ExaWebSearchBackend({
       credential: 'test-credential',
       fetcher: () => {
         fetches += 1;
@@ -446,7 +507,7 @@ Deno.test('web_search exposes provider response errors with short facts', async 
 
 Deno.test('web_search retains response status when the body is interrupted', async () => {
   let pulls = 0;
-  const backend = new OpenRouterSonarWebSearchBackend({
+  const backend = new ExaWebSearchBackend({
     credential: 'test-credential',
     fetcher: () =>
       Promise.resolve(
@@ -473,7 +534,7 @@ Deno.test('web_search retains response status when the body is interrupted', asy
   );
   let error: unknown;
   try {
-    await backend.search('interrupted response', {
+    await backend.search({ query: 'interrupted response' }, {
       modelExecution: contextFor(evidence),
     });
   } catch (caught) {
@@ -485,17 +546,17 @@ Deno.test('web_search retains response status when the body is interrupted', asy
   assertEquals(Object.keys(response ?? {}), ['status']);
 });
 
-Deno.test('web_search request admission stops before credential resolution and fetch', async () => {
+Deno.test('web_search Exa request does not consume a model request budget', async () => {
   let credentials = 0;
   let fetches = 0;
-  const backend = new OpenRouterSonarWebSearchBackend({
+  const backend = new ExaWebSearchBackend({
     credentialSource: () => {
       credentials += 1;
       return 'test-credential';
     },
     fetcher: () => {
       fetches += 1;
-      return Promise.resolve(new Response(JSON.stringify(sonarResponse)));
+      return Promise.resolve(new Response(JSON.stringify({ results: [] })));
     },
   });
   const execution = new ParentTurnExecutionContext(
@@ -511,10 +572,10 @@ Deno.test('web_search request admission stops before credential resolution and f
     modelExecution: execution,
     modelStep: 1,
   });
-  assertEquals(result.content.outcome, 'error');
-  assert(result.content.text.includes('request budget exhausted'));
-  assertEquals(credentials, 0);
-  assertEquals(fetches, 0);
+  assertEquals(result.content.outcome, 'success');
+  assertEquals(execution.snapshot(), { parent: 1, aggregate: 1 });
+  assertEquals(credentials, 1);
+  assertEquals(fetches, 1);
 });
 
 Deno.test('web_search cancellation aborts the nested fetch and settles the turn as cancelled', async () => {
@@ -524,7 +585,7 @@ Deno.test('web_search cancellation aborts the nested fetch and settles the turn 
     resolveStarted = resolve;
   });
   let fetches = 0;
-  const backend = new OpenRouterSonarWebSearchBackend({
+  const backend = new ExaWebSearchBackend({
     credential: 'test-credential',
     fetcher: (_input, init) => {
       fetches += 1;
@@ -581,6 +642,6 @@ Deno.test('web_search cancellation aborts the nested fetch and settles the turn 
   assertEquals(fetches, 1);
   assertEquals(outcome.toolCallCount, 1);
   assertEquals(outcome.toolResultCount, 0);
-  assertEquals(execution.snapshot(), { parent: 2, aggregate: 2 });
+  assertEquals(execution.snapshot(), { parent: 1, aggregate: 1 });
   assertEquals(evidence.snapshot().requests[0].request.modelStep, 1);
 });

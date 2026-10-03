@@ -11,7 +11,7 @@ const identity = createAgentResourceIdentity('tool:web_fetch');
 const definition: ExecutableToolDefinition = () => {
   const component: ToolComponent = {
     identity,
-    materialize: () => createWebFetchTool(),
+    materialize: (bindings) => createWebFetchTool(fetch, { workspace: bindings.workspace }),
   };
   return component;
 };

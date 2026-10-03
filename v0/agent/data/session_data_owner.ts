@@ -1,3 +1,8 @@
+import {
+  createFailureDiagnostic,
+  type FailureDiagnosticV1,
+} from '../session/failure_diagnostic.ts';
+import { captureFailureDetails } from '../core/failure_details.ts';
 import type { ContextView, ExecutionView } from '../../api/contract.ts';
 import type { LoopOutcome } from '../core/contracts.ts';
 import type {
@@ -1060,6 +1065,7 @@ export class DataSessionOwner {
         return result;
       } catch (error) {
         const caught = error instanceof Error ? error : new Error(String(error));
+        this.#captureCommitFailure(state, caught);
         state.terminalError = caught;
         throw caught;
       }
@@ -1105,6 +1111,7 @@ export class DataSessionOwner {
       return terminal;
     } catch (error) {
       const caught = error instanceof Error ? error : new Error(String(error));
+      this.#captureCommitFailure(state, caught);
       state.terminalError = caught;
       throw caught;
     }
@@ -1166,6 +1173,7 @@ export class DataSessionOwner {
     readonly executionId: string;
     readonly decision: 'cancelled' | 'interrupted';
     readonly reason: string;
+    readonly diagnostic?: FailureDiagnosticV1;
   }): DataSessionTerminalResult {
     this.#assertOpen();
     const state = this.#execution(input.executionId);
@@ -1177,7 +1185,7 @@ export class DataSessionOwner {
     const cut = state.journal.seal();
     state.authorization = false;
     state.sealed = true;
-    const outcome = input.decision === 'cancelled'
+    const baseOutcome = input.decision === 'cancelled'
       ? failedOutcome(
         state.history.task,
         this.authority.transcriptSnapshot(),
@@ -1189,6 +1197,9 @@ export class DataSessionOwner {
         this.authority.transcriptSnapshot(),
         input.reason,
       );
+    const outcome = input.diagnostic === undefined
+      ? baseOutcome
+      : { ...baseOutcome, diagnostic: input.diagnostic };
     const artifactForCapture = this.#artifactCapture(state, outcome, {
       canonical: false,
       manifest: state.input.manifest,
@@ -1199,6 +1210,7 @@ export class DataSessionOwner {
     const capture = this.#writer.settleNonCanonicalExecution({
       ...state.history,
       outcome,
+      ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
       ...(this.#latestContextManifest(state) === undefined
         ? {}
         : { contextManifest: this.#latestContextManifest(state)! }),
@@ -1214,6 +1226,22 @@ export class DataSessionOwner {
     );
     this.#recordTerminal(state, terminal);
     return terminal;
+  }
+
+  #captureCommitFailure(state: DataExecutionState, error: Error): void {
+    try {
+      const diagnostic = createFailureDiagnostic({
+        stage: 'session_commit',
+        code: 'commit_error',
+        providerRequestCount: this.#latestExecutionValue?.requestCount ?? 0,
+        turnNumber: state.history.turn,
+        modelStep: 0,
+        details: captureFailureDetails(error, { operation: 'data_authorize_commit' }),
+      });
+      this.#store.recordExecutionFailureDiagnostic(state.input.executionId, diagnostic);
+    } catch {
+      // A failed diagnostic save cannot replace the original commit error or adopt the turn.
+    }
   }
 
   installCheckpoint(message: WorkerCheckpointProposalMessage): boolean {

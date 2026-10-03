@@ -83,9 +83,12 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 };
 
 const providerFreeWebSearchBackend: WebSearchBackend = {
-  search: (query) => ({
-    answer: 'result for ' + query,
-    sources: [{ title: 'fixture', url: 'provider-free://increment-16' }],
+  search: ({ query }) => ({
+    results: [{
+      title: 'fixture',
+      url: 'provider-free://increment-16',
+      highlights: ['result for ' + query],
+    }],
   }),
 };
 

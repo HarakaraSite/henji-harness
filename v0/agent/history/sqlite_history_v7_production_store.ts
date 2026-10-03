@@ -23,7 +23,10 @@ import {
 import { acquireLock, ensureDirectory, type Lock } from '../session/deno_session_store_io.ts';
 import { withHistorySchemaOpen } from './history_schema_open.ts';
 import { workspaceDigest } from '../session/session_store_paths.ts';
-import { validateFailureDiagnostic } from '../session/failure_diagnostic.ts';
+import {
+  type FailureDiagnosticV1,
+  validateFailureDiagnostic,
+} from '../session/failure_diagnostic.ts';
 import {
   type FailureDiagnosticStore,
   FailureDiagnosticStoreError,
@@ -1534,6 +1537,26 @@ export class SqliteHistoryV7ProductionStore
       ).get(executionId) as Row | undefined;
       if (row === undefined) throw new HistoryStoreError('history_invalid');
       return Number(row.event_count);
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Attach a save failure without changing adoption, settlement, or the canonical transcript. */
+  recordExecutionFailureDiagnostic(executionId: string, diagnostic: FailureDiagnosticV1): void {
+    if (!validateFailureDiagnostic(diagnostic)) {
+      throw new FailureDiagnosticStoreError('diagnostic_invalid');
+    }
+    this.#writeDerivedDocument(
+      'failure_diagnostic',
+      diagnostic.diagnosticId,
+      executionId,
+      diagnostic,
+    );
+    const db = this.#db();
+    try {
+      db.prepare('UPDATE execution_admissions SET diagnostic_id=? WHERE execution_id=?')
+        .run(diagnostic.diagnosticId, executionId);
     } finally {
       db.close();
     }

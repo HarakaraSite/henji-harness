@@ -1,3 +1,4 @@
+import type { FailureDetails } from '../core/failure_details.ts';
 import type { WorkerProcessReply, WorkerProcessRequest } from './worker_process_protocol.ts';
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
@@ -132,6 +133,7 @@ export type WorkerHostCommand =
   | {
     readonly kind: 'steer';
     readonly correlation: WorkerCorrelation;
+    readonly requestId: string;
     readonly text: string;
   }
   | {
@@ -390,6 +392,14 @@ export interface WorkerSteeringAppliedMessage {
   readonly text: string;
 }
 
+/** Receipt of a correlated steering request by the turn's actual input owner. */
+export interface WorkerSteeringReceivedMessage {
+  readonly kind: 'steering_received';
+  readonly correlation: WorkerCorrelation;
+  readonly requestId: string;
+  readonly result: 'accepted' | 'already_accepted' | 'idle';
+}
+
 /** Emitted after runtime turn cleanup has cleared its active execution state. */
 export interface WorkerTurnSettledMessage {
   readonly kind: 'turn_settled';
@@ -410,6 +420,7 @@ export interface WorkerErrorMessage {
   readonly correlation?: WorkerCorrelation;
   readonly stage: WorkerErrorStage;
   readonly message: string;
+  readonly details?: FailureDetails;
 }
 
 /** One data-only async child agent request from the Worker to the Host. */
@@ -439,6 +450,7 @@ export type WorkerToHostMessage =
   | WorkerRequestStartedMessage
   | WorkerChildProgressMessage
   | WorkerSteeringAppliedMessage
+  | WorkerSteeringReceivedMessage
   | WorkerTurnSettledMessage
   | WorkerCancelReceivedMessage
   | WorkerClosedMessage

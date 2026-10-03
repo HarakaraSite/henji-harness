@@ -325,7 +325,7 @@ childDataTest(
       prefix: 'henji-increment-163-catalog-',
     });
     const authorization: (string | null)[] = [];
-    const auth = mockAuth('account-selected');
+    const auth = mockAuth('account-a');
     const fetcher: typeof fetch = (input, init) => {
       const url = new URL(String(input));
       if (url.origin === 'https://models.dev') return Promise.resolve(Response.json({}));
@@ -396,6 +396,16 @@ childDataTest(
         'account-a',
       );
       strictEqual(accountAReadback.models[0].favorite, true);
+      await catalog.remember('openai-chatgpt', 'model-second', 'high', 'account-a');
+      strictEqual(
+        await catalog.defaultEffort('openai-chatgpt', 'model-second', 'account-a'),
+        'high',
+      );
+      strictEqual(await catalog.defaultEffort('openai-chatgpt', 'model-second'), 'high');
+      strictEqual(
+        await catalog.defaultEffort('openai-chatgpt', 'model-second', 'account-b'),
+        'auto',
+      );
       const paths = [...Deno.readDirSync(`${root}/model-catalogs`)].map((entry) => entry.name)
         .sort();
       deepStrictEqual(paths, [

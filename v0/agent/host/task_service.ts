@@ -37,6 +37,7 @@ export class ApplicationTaskService {
   private closing = false;
   private steering: Lane | undefined;
   private steeringAccepted = false;
+  private steeringApplied = false;
   private cancellationRequested = false;
   private queued: MutableFollowUp | undefined;
   private chain: Completion | undefined;
@@ -124,11 +125,11 @@ export class ApplicationTaskService {
     }
   }
 
-  steer(
+  async steer(
     executionId: string,
     text: string,
     commandId: string,
-  ): SteeringAcceptance {
+  ): Promise<SteeringAcceptance> {
     const active = this.active;
     if (
       active === undefined || active.executionId !== executionId ||
@@ -139,24 +140,35 @@ export class ApplicationTaskService {
     if (this.steeringAccepted) {
       return { kind: 'rejected', reason: 'alreadyAccepted' };
     }
-    let result: ReturnType<HostActiveSession['steerActiveTurn']>;
+    this.steeringAccepted = true;
+    this.publish();
+    let result: Awaited<ReturnType<HostActiveSession['steerActiveTurn']>>;
     try {
-      result = this.currentSession().steerActiveTurn(text);
+      result = await this.currentSession().steerActiveTurn(text);
     } catch (error) {
+      if (this.active === active) {
+        this.steeringAccepted = false;
+        this.publish();
+      }
       if (error instanceof RangeError) {
         return { kind: 'rejected', reason: 'invalid' };
       }
       throw error;
     }
     if (result !== 'accepted') {
+      if (this.active === active) {
+        this.steeringAccepted = result === 'already_accepted';
+        this.publish();
+      }
       return {
         kind: 'rejected',
         reason: result === 'already_accepted' ? 'alreadyAccepted' : 'idle',
       };
     }
-    this.steeringAccepted = true;
-    this.steering = { ...active, commandId, text };
-    this.publish();
+    if (this.active === active && !this.steeringApplied) {
+      this.steering = { ...active, commandId, text };
+      this.publish();
+    }
     return { kind: 'accepted' };
   }
   queueFollowUp(
@@ -203,6 +215,7 @@ export class ApplicationTaskService {
       this.active !== undefined &&
       observation.executionId === this.active.executionId
     ) {
+      this.steeringApplied = true;
       this.steering = undefined;
       // The accepted marker stays true until this execution settles.
     }
@@ -229,6 +242,7 @@ export class ApplicationTaskService {
     this.preparing = true;
     this.cancellationRequested = false;
     this.steeringAccepted = false;
+    this.steeringApplied = false;
     this.steering = undefined;
     this.publish();
 
@@ -286,6 +300,7 @@ export class ApplicationTaskService {
       this.active = undefined;
       this.steering = undefined;
       this.steeringAccepted = false;
+      this.steeringApplied = false;
       this.cancellationRequested = false;
       if (this.queued !== undefined) this.discard(this.queued, 'failed');
       this.publish();
@@ -295,6 +310,7 @@ export class ApplicationTaskService {
     this.active = undefined;
     this.steering = undefined;
     this.steeringAccepted = false;
+    this.steeringApplied = false;
     this.cancellationRequested = false;
     const reservation = this.queued;
     if (reservation !== undefined) {

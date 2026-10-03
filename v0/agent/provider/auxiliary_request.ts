@@ -1,3 +1,4 @@
+import { captureFailureDetails } from '../core/failure_details.ts';
 import type { AuthProfileId } from './model_selection.ts';
 import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
 import type { ModelExecutionContext } from '../core/execution_context.ts';
@@ -13,6 +14,11 @@ export interface AuxiliaryProviderEvidence {
   readonly requestMetadata: ProviderEvidenceRequestMetadata;
 }
 
+/** Non-secret HTTP attachment instructions supplied by the tool's request contract. */
+export type ProviderRequestAuthentication =
+  | { readonly kind: 'bearer' }
+  | { readonly kind: 'header'; readonly name: string };
+
 /**
  * Worker-local, credential-resolving provider request seam exposed to tool Definitions.
  * It returns raw response bytes; credential values and Authorization never cross this boundary.
@@ -20,7 +26,9 @@ export interface AuxiliaryProviderEvidence {
 export interface ProviderHttpRequest {
   readonly authProfile: AuthProfileId;
   readonly endpoint: string;
-  readonly method: 'POST';
+  readonly method: string;
+  /** Defaults to Bearer; API-key services can choose their own header without seeing the key. */
+  readonly authentication?: ProviderRequestAuthentication;
   readonly headers?: Readonly<Record<string, string>>;
   /** Request bytes passed to fetch. */
   readonly body?: Uint8Array<ArrayBuffer>;
@@ -73,9 +81,22 @@ export const createProviderRequestDispatcher = (
     const credential = await options.resolveCredential(request.authProfile);
     report?.('credential_resolve_returned');
     if (!credential) {
-      throw new Error('host provider credential is not configured');
+      throw new Error(`credential for ${request.authProfile} is not configured`);
     }
     throwIfCancelled(request.signal);
+
+    let requestHeaders: Headers;
+    try {
+      requestHeaders = new Headers(request.headers);
+      if (request.authentication?.kind === 'header') {
+        requestHeaders.set(request.authentication.name, credential);
+      } else {
+        requestHeaders.set('authorization', `Bearer ${credential}`);
+      }
+    } catch {
+      // A native header validation error can include the supplied credential value.
+      throw new Error('credential request headers could not be constructed');
+    }
 
     const deadline = options.timeoutMs === undefined
       ? undefined
@@ -85,7 +106,6 @@ export const createProviderRequestDispatcher = (
       : deadline === undefined
       ? request.signal
       : AbortSignal.any([request.signal, deadline]);
-    const body = request.body ?? new Uint8Array();
     const evidenceInput = request.evidence;
     const evidence = evidenceInput?.execution.providerEvidence;
     if (evidenceInput !== undefined && evidence !== undefined) {
@@ -102,17 +122,15 @@ export const createProviderRequestDispatcher = (
       evidence.startRequestMetadata(requestStart);
     }
 
+    let operation = 'auxiliary_fetch';
     try {
       report?.('fetch_entered');
       const pendingResponse = fetcher(request.endpoint, {
         method: request.method,
         signal,
         redirect: 'error',
-        headers: {
-          ...(request.headers ?? {}),
-          authorization: `Bearer ${credential}`,
-        },
-        body,
+        headers: requestHeaders,
+        ...(request.body === undefined ? {} : { body: request.body }),
       });
       report?.('fetch_call_returned');
       const response = await pendingResponse;
@@ -122,6 +140,7 @@ export const createProviderRequestDispatcher = (
         headers[name] = value;
       });
       evidence?.recordResponse({ status: response.status });
+      operation = 'auxiliary_body_read';
       report?.('response_body_read_entered');
       const chunks: Uint8Array[] = [];
       let length = 0;
@@ -154,10 +173,18 @@ export const createProviderRequestDispatcher = (
         : deadline?.aborted
         ? 'provider_timeout'
         : 'transport_error';
-      evidence?.recordRequestFailure({ stage: 'transport', code }, evidenceInput?.modelStep);
+      const details = captureFailureDetails(error, { operation, secrets: [credential] });
+      evidence?.recordRequestFailure(
+        { stage: 'transport', code, details },
+        evidenceInput?.modelStep,
+      );
       if (request.signal?.aborted) throw new TurnCancelledError();
-      if (deadline?.aborted) throw new Error('provider deadline exceeded');
-      throw error;
+      if (deadline?.aborted) {
+        throw Object.assign(new Error('provider deadline exceeded'), { failureDetails: details });
+      }
+      throw Object.assign(new Error(details.message ?? 'provider request failed'), {
+        failureDetails: details,
+      });
     }
   };
 };

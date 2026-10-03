@@ -1,10 +1,10 @@
 /**
  * Host-local credential registration for the production TUI.
  *
- * The registration catalog is derived from the effective Provider declarations and the value is
- * written to the same fixed request-time credential file the resolver already reads. This module
- * never returns, logs, or embeds the value in an error; the dedicated dialog is the only input
- * surface and the fixed path is never caller-selected.
+ * The registration catalog combines effective Provider declarations with declared external
+ * credentials. Values are written to the same fixed request-time credential files the resolver
+ * already reads. This module never returns, logs, or embeds a value in an error; the dedicated
+ * dialog is the only input surface and the fixed path is never caller-selected.
  */
 
 import {
@@ -17,13 +17,19 @@ import { type AuthProfileId, isAuthProfileId, type ProviderId } from './model_se
 import { providerIdsForSelection } from './model_catalog.ts';
 import { activeProviderDeclarations, effectiveDeclarationFor } from './provider_runtime.ts';
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
+import {
+  builtinCredentialDeclarations,
+  type CredentialDeclarationV1,
+} from './credential_declaration.ts';
 
-/** One registration row per auth profile; shared profiles register once for every provider. */
+/** One registration row per auth profile, shared by its provider and external-service consumers. */
 export interface CredentialRegistrationTarget {
   readonly authProfile: AuthProfileId;
   readonly providers: readonly ProviderId[];
   readonly method?: 'api-key' | 'chatgpt';
   readonly label?: string;
+  readonly consumers?: readonly string[];
+  readonly purpose?: string;
 }
 
 export interface CredentialRegistration {
@@ -143,9 +149,10 @@ const replaceCredentialFile = async (
   }
 };
 
-/** Group effective Provider declarations into one registration row per auth profile. */
+/** Group provider and external credential declarations into one registration row per auth profile. */
 export const credentialRegistrationTargets = (
   declarations?: readonly ProviderDeclarationV1[],
+  credentialDeclarations: readonly CredentialDeclarationV1[] = builtinCredentialDeclarations(),
 ): readonly CredentialRegistrationTarget[] => {
   const providersByProfile = new Map<AuthProfileId, ProviderId[]>();
   const effective = declarations ?? activeProviderDeclarations();
@@ -161,36 +168,80 @@ export const credentialRegistrationTargets = (
       providersByProfile.set(declaration.authProfile, [provider]);
     } else providers.push(provider);
   }
-  return Object.freeze(
-    [...providersByProfile].map(([authProfile, providers]) =>
-      Object.freeze({
-        authProfile,
-        providers: Object.freeze([...providers]),
-        ...(authProfile === 'openai-chatgpt'
-          ? { method: 'chatgpt' as const, label: 'Sign in with ChatGPT' }
-          : {
-            method: 'api-key' as const,
-            label: authProfile === 'openrouter-api-key'
-              ? 'OpenRouter — API key'
-              : authProfile === 'openai-api-key'
-              ? 'OpenAI — API key'
-              : `${authProfile} — API key`,
-          }),
-      })
-    ),
-  );
+  const grouped = new Map<AuthProfileId, {
+    readonly authProfile: AuthProfileId;
+    readonly providers: ProviderId[];
+    method: 'api-key' | 'chatgpt';
+    label: string;
+    credentialDeclarationSeen?: boolean;
+    consumers?: string[];
+    purposes?: string[];
+  }>();
+  for (const [authProfile, providers] of providersByProfile) {
+    grouped.set(authProfile, {
+      authProfile,
+      providers,
+      ...(authProfile === 'openai-chatgpt'
+        ? { method: 'chatgpt' as const, label: 'Sign in with ChatGPT' }
+        : {
+          method: 'api-key' as const,
+          label: authProfile === 'openrouter-api-key'
+            ? 'OpenRouter — API key'
+            : authProfile === 'openai-api-key'
+            ? 'OpenAI — API key'
+            : `${authProfile} — API key`,
+        }),
+    });
+  }
+  for (const declaration of credentialDeclarations) {
+    let target = grouped.get(declaration.authProfile);
+    if (target === undefined) {
+      target = {
+        authProfile: declaration.authProfile,
+        providers: [],
+        method: declaration.method,
+        label: declaration.label,
+      };
+      grouped.set(declaration.authProfile, target);
+    }
+    target.credentialDeclarationSeen = true;
+    target.consumers ??= [];
+    target.purposes ??= [];
+    for (const consumer of declaration.consumers) {
+      if (!target.consumers.includes(consumer)) target.consumers.push(consumer);
+    }
+    if (!target.purposes.includes(declaration.purpose)) {
+      target.purposes.push(declaration.purpose);
+    }
+  }
+  return Object.freeze([...grouped.values()].map((target) =>
+    Object.freeze({
+      authProfile: target.authProfile,
+      providers: Object.freeze([...target.providers]),
+      method: target.method,
+      label: target.label,
+      ...(target.credentialDeclarationSeen
+        ? {
+          consumers: Object.freeze([...(target.consumers ?? [])]),
+          purpose: (target.purposes ?? []).join(' · '),
+        }
+        : {}),
+    })
+  ));
 };
 
 export interface CredentialRegistrationOptions {
   readonly configRoot?: string;
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
+  readonly credentialDeclarations?: readonly CredentialDeclarationV1[];
 }
 
 export const createCredentialRegistration = (
   options: CredentialRegistrationOptions = {},
 ): CredentialRegistration =>
   Object.freeze({
-    targets: () => credentialRegistrationTargets(options.providerDeclarations),
+    targets: () =>
+      credentialRegistrationTargets(options.providerDeclarations, options.credentialDeclarations),
     save: async (authProfile: AuthProfileId, value: string): Promise<void> => {
       if (!isAuthProfileId(authProfile)) {
         fail('credential_registration_profile_invalid');
