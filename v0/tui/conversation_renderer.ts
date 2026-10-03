@@ -104,6 +104,8 @@ export const projectConversationEntry = (
   return Object.freeze({
     text: `${entry.label} ${entry.text}${guidance}`,
     labelScalarLength: [...entry.label].length,
+    // User rows render as a full-width panel, so every wrapped row carries the user tone.
+    ...(entry.label === 'user>' ? { rowTone: 'user' as const } : {}),
     ...(entry.failureWord === undefined ? labelTone === undefined ? {} : { labelTone } : {
       labelTone: 'failure' as const,
       styledPrefixScalarLength: [...`${entry.label} ${entry.failureWord}`].length,

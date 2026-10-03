@@ -13,13 +13,12 @@ import {
 } from '../presentation/contract.ts';
 import {
   BLINK_SGR,
-  BLUE_SGR,
   BOLD_SGR,
   CYAN_SGR,
   DEFAULT_CURSOR_STYLE,
   DIM_SGR,
   ERASE_LINE,
-  GREEN_SGR,
+  HEADING_SGR,
   MAGENTA_SGR,
   RED_SGR,
   RESET_SCROLL_REGION,
@@ -29,6 +28,8 @@ import {
   staticBytes,
   type TerminalPort,
   type TerminalRendererGate,
+  USER_ROW_BG_SGR,
+  USER_TEXT_SGR,
   YELLOW_SGR,
 } from './terminal.ts';
 import type { EditorSnapshot } from './input.ts';
@@ -59,7 +60,7 @@ import {
 import { markdownAssistantRenderer } from './assistant_layout.ts';
 import { EntryLayoutCache } from './entry_layout_cache.ts';
 import { startupHelpLines } from './startup_render.ts';
-import { encoder, segmentTerminalText } from './terminal_text.ts';
+import { cellWidth, encoder, segmentTerminalText } from './terminal_text.ts';
 
 export interface TuiRendererOptions {
   /** Host-local assistant body renderer; the default lays out markdown readability spans. */
@@ -75,7 +76,7 @@ export interface TuiRendererOptions {
 }
 
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
-  user: BLUE_SGR,
+  user: USER_TEXT_SGR,
   assistant: YELLOW_SGR,
   tool: CYAN_SGR,
   system: MAGENTA_SGR,
@@ -83,7 +84,7 @@ const LABEL_SGR: Record<ConversationLabelTone, string> = {
 };
 
 const SPAN_SGR: Record<AssistantSpanTone, string> = {
-  heading: GREEN_SGR,
+  heading: HEADING_SGR,
   list: CYAN_SGR,
   table: DIM_SGR,
   quote: MAGENTA_SGR,
@@ -98,10 +99,18 @@ const FOOTER_SGR: Record<FooterTone, string> = {
   working: YELLOW_SGR,
 };
 
-const renderLayoutRow = (row: LayoutRow): string => {
+const renderLayoutRow = (row: LayoutRow, columns: number): string => {
   // A whole-row tone covers label, reason and guidance in one color; such rows carry no spans.
-  if (row.rowTone !== undefined && row.text.length > 0) {
-    return `${LABEL_SGR[row.rowTone]}${row.text}${RESET_SGR}`;
+  if (row.rowTone !== undefined) {
+    // User rows are a full-width panel: yellow text on a pale grey band, padded to the frame width.
+    if (row.rowTone === 'user') {
+      const pad = ' '.repeat(Math.max(0, columns - cellWidth(row.text)));
+      return `${USER_TEXT_SGR}${USER_ROW_BG_SGR}${row.text}${pad}${RESET_SGR}`;
+    }
+    if (row.text.length > 0) {
+      return `${LABEL_SGR[row.rowTone]}${row.text}${RESET_SGR}`;
+    }
+    return row.text;
   }
   const ranges: { start: number; length: number; sgr: string }[] = [];
   if (
@@ -283,11 +292,11 @@ export class TuiRenderer implements TerminalRendererGate {
 
   private frameFromLayout(layout: UiLayout): ScreenFrame {
     const rendered = [
-      ...layout.log.map(renderLayoutRow),
+      ...layout.log.map((row) => renderLayoutRow(row, layout.columns)),
       ...layout.beforeInput.map((line) => line.text),
       ...layout.input.map((line) => `> ${line.text}`),
       ...layout.afterInput.map((line) => line.text),
-      ...layout.footer.map(renderLayoutRow),
+      ...layout.footer.map((row) => renderLayoutRow(row, layout.columns)),
     ];
     // Reserve positioning/sync controls. Keep row coordinates fixed when omitting content.
     let available = Math.max(0, MAX_FRAME_BYTES - rendered.length * 32 - 128);

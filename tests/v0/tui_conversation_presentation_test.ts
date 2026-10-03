@@ -240,7 +240,8 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
     layout.allLog.some((row) => row.text.startsWith('system>') && row.labelTone === undefined),
   );
   const frame = renderer.renderFrame(80, 24);
-  assert(frame.includes('\x1b[34muser>\x1b[0m 質問'));
+  const userPanel = `\x1b[38;5;220m\x1b[48;5;238muser> 質問${' '.repeat(70)}\x1b[0m`;
+  assert(frame.includes(userPanel));
   assert(frame.includes('\x1b[33massistant>\x1b[0m 回答'));
   assert(frame.includes('\x1b[36mtool>\x1b[0m bash printf result ✓'));
   assert(frame.includes('system> 履歴を保存しました'));
@@ -685,9 +686,9 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
   );
   assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
   const frame = renderer.renderFrame(80, 24);
-  assert(frame.includes('\x1b[32m# Primary\x1b[0m'));
-  assert(frame.includes('\x1b[32m## Secondary\x1b[0m'));
-  assert(frame.includes('\x1b[32m### Tertiary\x1b[0m'));
+  assert(frame.includes('\x1b[1;38;5;111m# Primary\x1b[0m'));
+  assert(frame.includes('\x1b[1;38;5;111m## Secondary\x1b[0m'));
+  assert(frame.includes('\x1b[1;38;5;111m### Tertiary\x1b[0m'));
   assert(frame.includes('\x1b[36m**bold**\x1b[0m'));
   assert(frame.includes('\x1b[36m***em***\x1b[0m'));
 });
