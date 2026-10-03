@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-03（A28の採用範囲をIncrement 180へ移動）。
+更新日: 2026-10-03（A28をIncrement 180へ移動、S4を`/reload`へ改名、機構の簡素化方針をE6へ分離）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -21,7 +21,7 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 
 | ID  | 領域           | 候補                                                                         | 再検討の主な契機                                                                                                       |
 | --- | -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| S4  | Surface        | `/rebuild`によるAgent context再構築                                          | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る                                               |
+| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                           | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                       |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14採用時                                             |
@@ -30,7 +30,7 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
 | S32 | Surface        | 入力履歴機能の削除                                                           | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
-| A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
+| A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
 | A6  | Agent実行      | Web searchの取得品質・backend比較                                            | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
@@ -54,6 +54,7 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                      | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
 | E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                        | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
 | E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）         | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
+| E6  | 配布・外部化   | Agent設定・tool管理の簡素化とrevisionの履歴利用                               | 利用者がJSON設定と簡易なtool管理への切替を個別incrementへ採用するとき                                                |
 | P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                            | context圧縮を人間が明示的に行いたくなったとき                                                                          |
 | P4  | 参照実装parity | Session export/import                                                        | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
 | P6  | 参照実装parity | model cycling shortcut                                                       | provider横断のmodel切替を頻繁に行うとき                                                                                |
@@ -63,29 +64,21 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 
 ## Surface
 
-### S4 — `/rebuild`によるAgent context再構築（F01、F03、F08、F10、F11、F27）
+### S4 — `/reload`によるinstruction・Agent設定・toolの再読込（F01、F03、F08、F10、F11、F27）
 
-- 観測: Henjiはworkspace instructionとskill catalogをWorker
-  generation開始時にsnapshot化するため、改善した
-  instructionや新しいskillを現在Sessionの後続executionへ適用するには新しいgenerationが必要である。目的は
-  fileを再読込することだけでなく、改訂後のresourceからAgent側の基底設定を再構築することであるため、
-  command候補名を従来の`/reload`から`/rebuild`へ変更した。
-- 利用者判断（2026-09-13）: 少なくとも`AGENTS.md`と個々のnative
-  Skillは、Session内の人間操作から後続execution
-  に対して有効化・無効化できるようにしたい。他resourceを同じ操作対象に含めるかは個別に検討する。過去executionの
-  attributionは変更しない。選択状態をSessionへ永続化するか、操作と`/rebuild`の順序、既定の有効状態は未決である。
-- 候補:
-  人間の`/rebuild`で、対象として定めたresourceから新しい`AgentContextGeneration`を構築し、現Session、
-  canonical
-  conversation、未送信draft、過去executionのattributionを維持したまま後続executionへ適用する。
-  最初の対象では`AGENTS.md`とnative Skillの有効・無効selectionを扱い、Agent
-  Definition、tool、将来componentは 対象kindとして採用するまで含めない。context generationとWorker
-  generationを同じidentityにすることも決めていない。
-- 再検討条件:
-  instruction等を改善した通常利用で、Henji自体を終了せず同じSessionの次taskへ適用したい事例が
-  得られること。個別incrementでは対象resource、selection/activation
-  authority、transitionのcommit/failure semanticsを決める。
-- 関連: A2、R4、E1、
+- 現行の観測（2026-10-03、source照合）: workspace instructionとskill本文はWorker起動時に
+  snapshot化され、toolも起動時に読み込まれる。稼働中Workerへの明示的な再読込操作はない。
+- 利用者方針（2026-10-03、個別incrementへの採用・実装は未実施）: 操作名を`/rebuild`から`/reload`へ変更する。
+  Agent設定・tool管理の簡素化、revisionの扱い、DBへの影響最小化はS4とは別の候補E6で扱う。
+- 候補: 起動時の読込・検証・構成と共通の経路を人間の`/reload`から使い、instruction・Agent設定・toolの
+  現在内容を同じSessionの後続executionへ適用する。canonical conversation、未送信draft、過去executionと
+  そのattributionを維持する。
+- 未決事項: 最初の再読込対象、実行間の適用手順、読込失敗時の扱い、現在のWorkerとの接続を個別incrementで
+  定める。2026-09-13の`AGENTS.md`と個々のnative Skillの有効・無効選択の希望についても、保存scope、
+  既定状態、操作との関係は未確定である。
+- 再検討条件: `/reload`を個別incrementへ採用するとき、または通常利用で同じSessionへ
+  編集内容を反映する必要が出ること。
+- 関連: A2、R4、E1、E6、
   [`terminal-markdown-rendering-comparison.md`](../research/terminal-markdown-rendering-comparison.md)、
   [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
   [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
@@ -221,16 +214,16 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### A2 — Host操作のmodel向けtool化（F02、F06、F10、F27）
 
-- 観測: `/rebuild`や`/sessions`の意味操作は、人間だけでなくAIが作業中に使う価値もある。
+- 観測: `/reload`や`/sessions`の意味操作は、人間だけでなくAIが作業中に使う価値もある。
 - 候補: slash command文字列をmodelに擬似入力させず、Host-owned application serviceへ型付きcommand
-  handlerとtool handlerを接続する。read-onlyな一覧/詳細取得と、Session切替・context rebuildのように
+  handlerとtool handlerを接続する。read-onlyな一覧/詳細取得と、Session切替・reloadのように
   呼出元のcontextを置き換える操作を分ける。後者はtool result前に呼出元を破棄せず、次turn予約、Host
   control event、turn完了後の切替等の順序を定める。
 - 利用者メモ（2026-09-25）:
   Agent自身が`/model`相当のHost操作をtoolで要求する案。model変更は現在のturn中には
   適用せず、次のturnから有効にする。現行の`selectModel`は実行中に`busy`を返すため、単にslash
   commandを toolで呼ぶだけでは成立しない。実際に必要な利用場面はまだ不明で、採用・実装は決めない。
-- 再検討条件: AIがSession列挙・詳細取得・選択、またはcontext rebuildを実taskで必要とすること。
+- 再検討条件: AIがSession列挙・詳細取得・選択、またはreloadを実taskで必要とすること。
   またはAgentが後続turnのmodelを自分で変える必要が実taskで現れること。UIだけに意味があるcommandや
   人間の明示選択が目的のcommandまで一律にtool化しない。
 - 関連: S4。
@@ -648,7 +641,7 @@ Pi／OpenCode／Henjiの画面表示比較
   lineage、複数componentの 合成順/競合規則/Manifest
   attribution、standaloneでの書換可能storeとactivation境界を決める。各executionを
   当時使用したinstruction/context
-  attributionへ結び付け、完全再現ではなく振り返りに必要な内容を残す。 `/rebuild`によるnative
+  attributionへ結び付け、完全再現ではなく振り返りに必要な内容を残す。 `/reload`によるnative
   resourceの再解決と、managed candidateの承認/promotion/binding transitionを同じoperationへ
   まとめるかは、対象kindを採用するincrementで決める。
 - 再検討条件: instructionまたはworkflowをSelf-revisionの対象として選ぶとき。
@@ -781,6 +774,35 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 該当providerを通常利用で使う必要が出るとき。
 - 正本候補: `docs/architecture/multi-provider-routing-and-auth.md`、`docs/roadmap.md` F02／F24。
 - 関連: E1、Increment 101。
+
+### E6 — Agent設定・tool管理の簡素化とrevisionの履歴利用（未採用）
+
+- 観測（2026-10-03、source・常用設定照合）: defaultとgenericは同じfactoryを使い、provider・modelは
+  Session選択・起動時指定で変更できる。外部Agent Definitionは常用設定ではreviewer一つで、その差は
+  instruction、使用tool、子Agent利用の設定であり、独自のAgent構築処理はない。
+  現行のmanaged store・install・binding・Worker loadは内容hashに結び付いたexact revisionを要求する。
+  DBではDefinitionは`definition_json`、toolのrevisionはmanifest・artifactのJSON内に保存されている。
+- 利用者方針（2026-10-03、検討方向の合意。個別incrementへの採用・実装は未実施）:
+  Agent Definitionをinstructionと使用tool等のJSON設定へ簡素化し、共通runtimeで構成する。
+  provider・modelは既存のSession選択・起動時指定を使う。taskに応じた判断はAIが行い、command・path単位の
+  permission制御とその確認機構は採用しない。
+  toolは所定のfolderに配置し、有効化された現在のfileを起動時に読み、実行に必要な形式・contractを検証する。
+  revisionは実装版の識別とDBへの使用版記録として残し、内容hashとの厳密な一致を要求する管理を外す。
+  機能がほぼ同じでもDeno等の実行環境に合わせた内部修正を版で区別でき、同じ内容に別の版名を付けてもよい。
+  install・版管理も簡易にし、過去revisionを選択してloadする機構は外す。
+  DBへの影響は最小限とする。
+- 未決事項: JSON設定の具体項目、fileの配置・有効化・読込経路、install操作の整理範囲、revisionの保存形式と
+  必要なDB読書き・validator変更、既存Sessionの扱いを個別計画で定める。構想・architecture・roadmapへの
+  変更案は別途提示・承認する。
+- S4との関係: E6は設定・tool管理と起動時の読込機構を扱い、S4は同じSessionの後続executionへ現在内容を
+  適用する`/reload`操作を扱う。採用範囲と実装計画は分ける。
+- 再検討条件: 利用者がこの簡素化方針を個別incrementへ採用するとき。
+- 現行経路: `v0/agent/worker_agent_api.ts`、`v0/agent/worker/worker_tui_session.ts`、
+  `v0/agent/definitions/managed_tool_definition_store.ts`、`v0/agent/definitions/tool_binding.ts`、
+  `v0/agent/worker/worker_bootstrap.ts`、`v0/agent/worker/worker_host_children.ts`、
+  `v0/agent/history/sqlite_history_v7_prototype.ts`、`v0/agent/worker/worker_execution_artifact.ts`。
+- 関連: S4、E1、E2、R2、R4。
+- 利用者指示（2026-10-03）: 次に進める対象としてE6を選択した。個別incrementへの採用と具体計画は未実施。
 
 ## 参照実装parity（Pi／Zot調査、未採用）
 

@@ -4,6 +4,10 @@
 
 ## 現在地（2026-10-03）
 
+利用者は次の対象として[通常利用メモE6](../docs/experience/normal-use-inbox.md#e6--agent設定tool管理の簡素化とrevisionの履歴利用未採用)を選択した。
+検討方向を記録済みで、個別incrementへの移動・具体計画・実装は未実施。
+S4は`/reload`へ改名し、E6の機構簡素化とは別の候補として整理済み。
+
 [Increment 177](../docs/increments/increment-177.md)の未使用code・test・export整理、
 `v0:test`整備、JSR収録漏れ修正と、[Increment 178](../docs/increments/increment-178.md)の
 ChatGPT最新2モデル・公式effort固定記載は、local実装・検証、常用配置と配置先確認が完了した。
@@ -26,13 +30,17 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
 
 ## 次の一手
 
-180は利用者承認で完了。次の採用対象は利用者の指示で決める。
-シナリオ・実provider範囲・結果は[基本E2E](../docs/increments/e2e-179-180-2026-10-03.md)を参照する。
+次SessionではE6を個別incrementへ採用して要件・計画を具体化する。
+合意した方向、現行経路、未決事項は通常利用メモE6を参照し、採用時に同項目をincrement文書へ移す。
+構想・architecture・roadmapへの変更案は実装計画と分けて提示する。S4の`/reload`実装は今回の対象へ含めない。
 
 179のarchitecture/roadmap反映の文書commitは180のpushで反映済み。常用配置も180で完了。
 179の詳細は同increment、B8再発時の調査方針は176、未採用候補は通常利用メモを参照する。
 
 ## 承認境界
+
+- 利用者の「じゃあE6を進める セッション作り直したいからコミットして」により、E6への着手と今回の記録の
+  local commitを承認。構想・architecture・roadmapの意味変更は別途明示承認が必要。
 
 - 配置版の基本E2Eシナリオ作成と各シナリオの最小限の実provider実行は追加指示により承認済み。
   実行・保存readbackは完了。対象と結果は基本E2E文書を参照する。product実装修正は今回の検証依頼に含まない。
@@ -58,6 +66,8 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
 
 ## 正本への入口
 
+- [通常利用メモE6](../docs/experience/normal-use-inbox.md#e6--agent設定tool管理の簡素化とrevisionの履歴利用未採用):
+  次に進める機構簡素化の方向・観測・未決事項。個別incrementへ採用するまではこの項目を参照する。
 - [Increment 180](../docs/increments/increment-180.md):
   A28の削除範囲・差分反映計画・受入・承認境界。
 - [Increment 179](../docs/increments/increment-179.md): API/CLI Worker分離の要件・計画・受入。
