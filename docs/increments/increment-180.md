@@ -3,7 +3,7 @@
 更新日: 2026-10-03
 
 ステータス:
-**スライスA・B・Cの実装・test・独立review、最終gate一回、実provider4実行と保存readback、最終限定reviewが完了。local受入成立。利用者の追加指示によりcommit/push・常用配置を開始。**
+**スライスA・B・Cの実装・test・独立review、最終gate一回、実provider4実行と保存readback、最終限定reviewが完了。local受入・commit/push・常用配置と配置先確認が完了。**
 
 利用者の「次はA28をやろうと思う」「では計画を作って」により、
 [Coreの冗長な処理削除案](../research/core-redundant-processing-removal.md)の案1・2を180へ採用する。
@@ -386,3 +386,24 @@ commit/push・常用配置は行っておらず、構想・architecture・roadma
 利用者の「コミットプッシュ配置をしてください」により、180の実装・関連結果記録のcommit/pushと、
 現在sourceの常用配置を追加承認された。実provider受入済みsourceが変わっていないことを確認して進める。
 配置先は既存の`dist/henji`と`/home/agent/.local/bin/henji`。追加の実provider callは行わない。
+
+実装・関連記録をcommit `5fc6c2aa3d784b89952e3962a084eade3443bfc1`へまとめ、`origin/main`へpushした。
+先行するarchitecture/roadmap反映と文書整理の2 local commitも同じpushで反映した。 そのclean
+sourceから公式`henji:compile`でbuildし、`dist/henji`と`/home/agent/.local/bin/henji`へ配置した。
+前の常用binaryを`.tools/increment-180/henji.previous`へ保存し、staging fileから置き換えた。
+
+- version: `0.8.0`、Deno `2.9.7`、sourceは上記実装commit（dirtyなし）。
+- 配置build ID: `d04c91c6f041affbc9fa5ea1e83295c178838f1c6d981920929782b54326e02f`。
+- Runtime digest: `801e9c8a9841304305cbdb623e3d59f7d32c5b08569e10300874c1d1e3cd65c5`。
+  local/live受入済み候補と一致する。build IDの差はcommit/sourceのprovenance更新による。
+- Binary SHA-256と旧binaryの保存情報は`.tools/increment-180/deployment.json`へ保存した。
+  配置先とdistのhashは一致し、配置先`--version`と起動Coreのbuild/sourceも一致した。
+
+配置先binaryを隔離HOME/XDG/workspace/stateで起動し、production Core/API Workerとtmux TUIで
+localhostの1 taskを送信した。回答本文を画面で確認し、completed/canonical・清算完了・idle復帰、
+shutdown accepted/exit0、停止後1 executionの保存readbackを確認した。
+証拠は`acceptance/deployed/`、deployment-build.log、deployment-probe.log、deployment-readback.log。
+追加の実provider callは0回。確認用Core/TUI/providerは停止済み。
+常用Coreや実config・既存DBは変更せず、新しく起動するCoreから179・180を含む配置版が使われる。 最終429
+source/test/configのhashは受入時と一致し、gateを再実行していない。
+完了状態の文書更新も同じ承認範囲でcommit/pushする。記録commit後にbinaryは再buildしない。

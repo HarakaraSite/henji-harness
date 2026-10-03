@@ -20,14 +20,15 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
 通常利用メモA28の全件転記・重複再投影削除を[Increment 180](../docs/increments/increment-180.md)へ採用し、
 スライスA・B・Cの実装・focused確認・独立review、最終gate一回、実provider4実行と停止後readbackを完了した。
 追加gate/live結果の限定reviewも完了し、local受入成立。要件・結果・review・承認境界は180を参照する。
-利用者の追加指示により180のcommit/push・常用配置を開始した。
+実装・関連記録commit `5fc6c2aa3d784b89952e3962a084eade3443bfc1`を`origin/main`へpush済み。
+179・180を含む常用配置と配置先確認も完了した。新しく起動するCoreから配置版が使われる。
 
 ## 次の一手
 
-180の承認済みlocal作業は完了。追加承認されたcommit/push・常用配置と配置先確認を行う。
-詳細・結果は180を参照する。
+180の承認済み作業は完了。次の採用対象は利用者の指示で決める。
+詳細・結果は180、未採用候補は通常利用メモを参照する。
 
-179のarchitecture/roadmap反映の文書commitは完了し、push・常用配置は未実施。
+179のarchitecture/roadmap反映の文書commitは180のpushで反映済み。常用配置も180で完了。
 179の詳細は同increment、B8再発時の調査方針は176、未採用候補は通常利用メモを参照する。
 
 ## 承認境界
@@ -35,7 +36,7 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
 - 180の採用・計画作成と関連記録更新は利用者の「では計画を作って」により承認済み。
   独立reviewと、その指摘の計画修正も追加指示により承認済み・実施済み。
   スライスごとのlocal実装・非破壊的検証・独立reviewと最後の実provider確認は追加指示により承認済み・実施済み。
-  180のcommit/push・常用配置は「コミットプッシュ配置をしてください」で追加承認済み。実利用dataの削除は未承認。
+  180のcommit/push・常用配置は「コミットプッシュ配置をしてください」で追加承認済み・実施済み。実利用dataの削除は未承認。
 - 177・178のlocal変更・検証、常用配置と配置先確認は承認済み・実施済み。
 - 利用者の「コミットプッシュはしよう」で177・178と関連記録のcommit/pushを承認。
   実装のpushは完了した。完了状態の文書更新も同じ送信先へcommit/pushする。
@@ -45,7 +46,7 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
   Worker分離の179への採用と計画作成・計画reviewは実施済み。providerなしの事前確認も実施済み。
   スライスごとのlocal実装・非破壊的検証・独立reviewは承認済み。
   179に記載した実providerの対象・回数・保存先を「はい実施してください」で追加承認済み・実施済み。
-  179の実装・関連記録のcommit/pushは追加承認済み。追加推論・常用配置は未承認。
+  179の実装・関連記録のcommit/pushは追加承認済み。常用配置は180の追加指示で承認済み・実施済み。追加推論は未承認。
   入力履歴削除はメモのみで、個別incrementへの採用・実装は未承認。
 - 構想・architecture・roadmapの意味変更は[AGENTS.md](../AGENTS.md#product正本の変更承認)による別途承認が必要。
   179のAPI/CLI分離と関連する170のData配置のarchitecture/roadmap反映は追加承認済み・実施済み。

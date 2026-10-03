@@ -3,7 +3,8 @@
 更新日: 2026-10-03
 
 ステータス:
-**実装・受入と実装commit/push完了。3スライスの検証・独立review、最終gate、承認済み実provider確認3回・保存readbackを完了。追加承認されたarchitecture/roadmap反映も完了。常用配置は未実施。**
+**実装・受入と実装commit/push完了。3スライスの検証・独立review、最終gate、承認済み実provider確認3回・保存readbackを完了。追加承認されたarchitecture/roadmap反映も完了。常用配置はIncrement
+180で完了。**
 
 利用者の「では計画を立ててください 次のインクリメントとします」により、通常利用メモS31の API
 Worker案と、追加された`henji run`のCLI Worker案を179へ採用する。
@@ -456,3 +457,5 @@ F10のWebUI・一般Surface loader/置換は未実装のまま、179のcompiled�
 既存build attribution不具合B9は未採用として参照し、解消済みとは扱わない。
 文書の所有・保存・採用・終了経路をsourceと170/179結果へ照合し、文書内linkとdiff checkで確認した。
 runtime sourceの変更・追加provider call・gate再実行は行っていない。
+
+180の追加承認による常用配置で179の変更も配置された。build・配置先確認は[Increment 180](increment-180.md#commitpush常用配置)を参照する。
