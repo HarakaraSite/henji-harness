@@ -14,7 +14,7 @@ Self-revision Cycle 1前段として検討しているIncrement 32とIncrement
 未決事項を判断するための検討資料である。
 
 この文書は、承認済みincrementの要件または実装許可ではない。利用者が計画を承認した後、採用内容を
-`docs/increments/increment-32.md`と`docs/increments/increment-33.md`へ分けて正本化する。
+[`docs/history/increments/increment-32.md`](../history/increments/increment-32.md)と[`docs/history/increments/increment-33.md`](../history/increments/increment-33.md)へ分けて正本化する。
 
 その後に確定した利用者判断と追加reviewを反映した現行案は、
 [`increment-32-34-externalization-concept-plan.md`](increment-32-34-externalization-concept-plan.md)にある。

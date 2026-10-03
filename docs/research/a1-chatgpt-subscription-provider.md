@@ -8,7 +8,7 @@
 本書は2026-09-29時点の旧A1の調査記録である。2026-10-01の利用者判断により、現在の対象は
 [Increment 163](../increments/increment-163.md)「Sign in with ChatGPTによるChatGPT契約枠の利用」へ
 置き換え、同日の後続指示で採用した。本書のbackend接続案は現在の実装方針ではない。
-以前の見送り判断と調査は[Increment 17](../increments/increment-17.md)を参照する。
+以前の見送り判断と調査は[Increment 17](../history/increments/increment-17.md)を参照する。
 
 ## 結論と確認範囲
 

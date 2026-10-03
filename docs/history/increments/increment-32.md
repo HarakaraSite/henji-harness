@@ -37,7 +37,7 @@
   compile時に固定され、Workerや非静的dynamic importは`--include`で明示的に組み込める。通常compileは
   runtimeとmodule graphを単一executableへ埋め込む。
 - user-scope Skillの互換locationとprecedenceは、固定snapshot
-  [`_refs/zot/docs/skills.md`](../../_refs/zot/docs/skills.md)のnative/Claude/agent互換順序を根拠にする。
+  [`_refs/zot/docs/skills.md`](../../../_refs/zot/docs/skills.md)のnative/Claude/agent互換順序を根拠にする。
 
 ## Product contract
 

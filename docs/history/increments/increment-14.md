@@ -3,7 +3,7 @@
 ステータス: **実装・offline検証・第三者review・OpenAI production通常利用確認完了**
 
 対応architecture:
-[`docs/architecture/multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)
+[`docs/architecture/multi-provider-routing-and-auth.md`](../../architecture/multi-provider-routing-and-auth.md)
 
 ## 利用者が必要とする動作
 

@@ -52,5 +52,5 @@ answer内の有効な`[n]`を対応するannotationの直接URL linkへtool comp
 ## 現行状態の完了整理（2026-09-27）
 
 当初の親finalの未解決問題は9の直接link正規化へ引き継いだ。B04-Sで最終回答まで成立した。
-根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+根拠は[配置binary・実provider E2E](../../increments/e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
 当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

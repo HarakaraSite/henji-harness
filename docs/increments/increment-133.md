@@ -180,7 +180,7 @@ Workerのfinallyが走ることを清算条件にしない。
 
 現行の`worker_tui_session.ts`の`createNew`は、`openHost(targetHandle)`を先にawaitし、次に
 `currentHost.close()`、最後に切替先bindingの採用を行う。この順序と、準備失敗時に旧Sessionを維持する
-[Increment 35の契約](increment-35.md#3-binding-replacementと表示)を保つ。
+[Increment 35の契約](../history/increments/increment-35.md#3-binding-replacementと表示)を保つ。
 `switchTo`は保存Sessionをlazy bindingとして準備し、旧Sessionのclose後に採用する現行経路へ清算を接続する。
 
 ### 3. 資源の取得と終了を同じ実装境界へ置く

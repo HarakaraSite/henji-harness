@@ -130,7 +130,7 @@ importと再代入されない二変数のconst化を整理した。後者は挙
 初回reviewは三十三fileのhashを照合し、CLI routing・preflight・help、入力履歴、snapshot分離、
 旧consumer／testの対応、task設定、headless factoryの維持を確認した。P2一件を採用した。
 過去ログをPageUpで閲覧中、通常taskが受付成功しても最新へ戻らず、新しい出力が画面外へ残る。
-これは[Increment 3](increment-3.md)のadmitted task時のlatest recovery要件に対する、通常入口切替の
+これは[Increment 3](../history/increments/increment-3.md)のadmitted task時のlatest recovery要件に対する、通常入口切替の
 退行である。拒否・未確認・steering・follow-upではanchorを保持し、通常taskの受付成功時だけlatestへ
 戻す修正を行った。追加findingはなかった。
 

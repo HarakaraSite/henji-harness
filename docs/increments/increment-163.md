@@ -269,7 +269,7 @@ Pi snapshot `b35af04f465d60c2f15d124ed074476b8986deb4`では、通常のOpenAI p
 [provider](../../_refs/pi/packages/ai/src/providers/openai.ts)、
 [Responses実装](../../_refs/pi/packages/ai/src/api/openai-responses.ts)である。
 
-[Increment 17](increment-17.md)と[2026-09-29の旧A1調査](../research/a1-chatgpt-subscription-provider.md)は
+[Increment 17](../history/increments/increment-17.md)と[2026-09-29の旧A1調査](../research/a1-chatgpt-subscription-provider.md)は
 以前の判断・調査として保持する。ChatGPT Codex
 backendへのdirect接続案を本incrementの実装方針にしない。
 

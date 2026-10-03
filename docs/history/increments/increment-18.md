@@ -3,7 +3,7 @@
 ステータス: **完了**
 
 対応architecture:
-[`docs/architecture/henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)
+[`docs/architecture/henji-host-agent-worker.md`](../../architecture/henji-host-agent-worker.md)
 
 ## 利用者が必要とする動作
 

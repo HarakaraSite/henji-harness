@@ -3,7 +3,7 @@
 ステータス: **完了**
 
 対応architecture:
-[`docs/architecture/henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)
+[`docs/architecture/henji-host-agent-worker.md`](../../architecture/henji-host-agent-worker.md)
 
 ## 利用者が必要とする動作
 
@@ -27,7 +27,7 @@
 - current production profileは`max_completion_tokens: 65_536`を送る一方、stream parserはraw responseを1 MiB、
   data eventを4,096件で停止する。実測上、raw上限を外しても同じcompletionが4,096-event上限へ達する可能性が
   高い。
-- 過去の[`fixed-output-limit-expansion.md`](../plans/fixed-output-limit-expansion.md)はraw SSE 1 MiBを暫定維持し、
+- 過去の[`fixed-output-limit-expansion.md`](../../plans/fixed-output-limit-expansion.md)はraw SSE 1 MiBを暫定維持し、
   それがsemantic本文より先に実効上限になり得ることを明記した。将来候補としてaggregate raw-response capを
   持たないincremental SSE処理も記録しており、今回その発生経路がproductionで確認された。
 - `ProviderEvidenceRecorder.appendResponseBytes`はchunk受信ごとに、それまでの全raw bytesを再連結してtextと

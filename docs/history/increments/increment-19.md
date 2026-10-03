@@ -3,7 +3,7 @@
 ステータス: **完了。local実装・gateとproduction目視確認を完了し、2026-09-10に利用者が受け入れた**
 
 対応architecture:
-[`docs/architecture/henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)
+[`docs/architecture/henji-host-agent-worker.md`](../../architecture/henji-host-agent-worker.md)
 
 ## 利用者が必要とする動作
 

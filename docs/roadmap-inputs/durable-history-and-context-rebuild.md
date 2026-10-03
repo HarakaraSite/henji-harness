@@ -295,7 +295,7 @@ rollback、Hostが観測できなかった事象の復元は要求しない。
 反映した。legacy executionの推定linkに関する指摘も当初のmigration案へ反映していたが、その後、利用者が過去Sessionを
 移行・変換しない破壊的cutoverを選んだため、そのmigration固有部分は廃止した。変更後のIncrement 40全計画を独立reviewerが
 再確認した。post-cutover captureのexecution FKと現行payload contractに関するP1 2件を個別計画へ反映し、bounded確認で
-両方の解消と新しいBlocker/P1なしを確認した。詳細は`docs/increments/increment-40.md`を正本とする。
+両方の解消と新しいBlocker/P1なしを確認した。詳細は[`docs/history/increments/increment-40.md`](../history/increments/increment-40.md)を正本とする。
 
 ## 個別increment前に残す判断
 

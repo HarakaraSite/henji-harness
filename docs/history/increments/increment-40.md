@@ -28,7 +28,7 @@
 - architectureはHostをdurable storageとcanonical adoptionのownerとし、canonical conversation、execution状態、
   context attribution、人間向けhistory view、model projectionを分離している。
 - 採用済み全体programは
-  [`roadmap-inputs/durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)で、
+  [`roadmap-inputs/durable-history-and-context-rebuild.md`](../../roadmap-inputs/durable-history-and-context-rebuild.md)で、
   SQLite cutoverをIncrement 40、live journalを41、exact context attributionを42、human history viewを43とする。
 - 現行実装は累積Session transcriptとcompanion recordを別々のJSONへ保存する。成功順序はSession JSON commit、
   evidence/diagnostic保存、Workerへのaccepted acknowledgement、Worker settlement観測、execution artifact保存であり、

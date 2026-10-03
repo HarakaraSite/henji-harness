@@ -3,7 +3,7 @@
 ステータス: **実装・検証・第三者review・production TUI user確認完了**
 
 対応architecture:
-[`docs/architecture/multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)
+[`docs/architecture/multi-provider-routing-and-auth.md`](../../architecture/multi-provider-routing-and-auth.md)
 
 ## 利用者が必要とする動作
 

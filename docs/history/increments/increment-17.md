@@ -3,7 +3,7 @@
 ステータス: **feasibility gate完了、runtime実装は将来incrementへ延期**
 
 対応architecture:
-[`docs/architecture/multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)
+[`docs/architecture/multi-provider-routing-and-auth.md`](../../architecture/multi-provider-routing-and-auth.md)
 
 ## このincrementの結論
 

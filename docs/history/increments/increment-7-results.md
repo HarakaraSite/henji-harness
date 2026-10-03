@@ -92,5 +92,5 @@ increment 8で修正する。確認後のreadbackでは追加provider requestを
 
 当初のgrounding未受入は8・9で修正した後継経路として扱う。B04-SでSonar一回と直接source
 link付きの最終回答を確認した。
-根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+根拠は[配置binary・実provider E2E](../../increments/e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
 当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。
