@@ -3,7 +3,7 @@
 更新日: 2026-10-03
 
 ステータス:
-**実装・受入完了。3スライスの検証・独立review、最終gate、承認済み実provider確認3回・保存readbackを完了。常用配置・commit/push・architecture/roadmap反映は未実施。**
+**実装・受入とcommit/push完了。3スライスの検証・独立review、最終gate、承認済み実provider確認3回・保存readbackを完了。常用配置・architecture/roadmap反映は未実施。**
 
 利用者の「では計画を立ててください 次のインクリメントとします」により、通常利用メモS31の API
 Worker案と、追加された`henji run`のCLI Worker案を179へ採用する。
@@ -436,5 +436,12 @@ fileはlocal review時から変更なし。最終gateの再実行は行ってい
 executionの同account/model/effort・各1 physical request・HTTP 200、 semantic本文・Host
 adoption、cancel部分本文と保存結果の対応を確認し、必須finding・記録差なしと結論した。
 親が以上の実経路・保存・独立reviewと既存gate結果から、179の実装・受入完了と判断する。
-通常updateの初回reply先着を強制する確認は未実施として残す。常用配置・commit/push・
+通常updateの初回reply先着を強制する確認は未実施として残す。常用配置・
 architecture/roadmapの変更は今回行っていない。
+
+### commit/push
+
+利用者の「コミット プッシュしてください」により、実装・関連記録をcommit
+`7dc4f501ea44e450e541fc1f0f84085caa0e6975`へまとめ、`origin/main`へpushした。 既にlocal
+mainへ作成されていた文書commit `4b069557`も同時に送信した。
+push結果の本書・handoffへの記録も同じ承認範囲でcommit/pushする。

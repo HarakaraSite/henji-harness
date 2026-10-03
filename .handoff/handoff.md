@@ -13,7 +13,8 @@ ChatGPT最新2モデル・公式effort固定記載は、local実装・検証、�
 起動中の常用Coreと実configは変更しておらず、新しく起動するCoreから配置版が使われる。
 
 APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/increment-179.md)へ採用し、
-計画の独立reviewを完了し、利用者の指示によりスライスごとのlocal実装・検証・独立reviewを開始した。
+スライスごとの実装・検証・独立review、最終gate、承認済み実provider確認と保存readbackを完了した。
+実装・関連記録commit `7dc4f501ea44e450e541fc1f0f84085caa0e6975`を`origin/main`へpush済み。
 現在の要件・工程・受入・承認境界は179を参照する。
 
 ## 次の一手
@@ -22,7 +23,7 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
 tmux/CLI/readback・同一DB比較・独立reviewを完了した。安定候補のauthoritative gateも成功した。
 179に記載した実provider確認3回も追加承認を得て実施し、停止後の保存readbackを完了した。
 追加結果の限定reviewも必須findingなしで完了し、179の実装・受入結果を確定した。 利用者の「コミット
-プッシュしてください」により、179の実装・関連記録のcommit/pushを進める。
+プッシュしてください」により、179の実装・関連記録のcommit/pushも完了した。
 常用配置・architecture/roadmap反映は別途承認の境界を維持する。
 最新モデルの根拠・実装・確認は178、未使用除去とJSR収録漏れ修正は177を参照する。
 B8の元の原因は引き続き未確定で、実使用で再発した際に
