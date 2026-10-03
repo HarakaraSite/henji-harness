@@ -3,7 +3,7 @@
 更新日: 2026-10-03
 
 ステータス:
-**S1〜S5のlocal実装・検証が完了。通常／批判的reviewの採用指摘、compiled実経路、実provider自然完了／cancel、最終gateが成立。常用配置済み。commit/pushは利用者指示により承認済み。公開と利用者による完了承認は未実施。**
+**S1〜S5のlocal実装・検証が完了。通常／批判的reviewの採用指摘、compiled実経路、実provider自然完了／cancel、最終gateが成立。常用配置・commit/push済み。2026-10-03の利用者による完了承認で完了。公開は未実施。**
 
 ## 目的、採用範囲、根拠
 
@@ -998,7 +998,8 @@ none/headless、HTTP/SSE、準備中cancel、tool関連付け、表示identity/s
 既存baselineとの比較であり、未観測provider variantや長期性能を保証しない。 通常利用メモB6のprovider
 catalog一覧問題は計画外として未修正のまま候補に残している。
 構想・architecture・roadmapの正本は変更していない。必要な反映案は本書の承認境界に留める。
-常用配置・commit/push・release/公開・実data削除は行っていない。利用者によるincrement完了承認は別途である。
+S5検証完了時点では、常用配置・commit/push・release/公開・実data削除は行っていなかった。
+その後の配置・commit/push・完了承認は以下に記録する。
 
 ## 常用配置（2026-10-03）
 
@@ -1017,12 +1018,13 @@ task投入・provider requestは0回。確認用Core・TUIは終了済み。
 記録は`.tools/increment-170/deployment.json`、証拠は`deployment/probe/`。
 
 新しいCore/TUIを通常起動すると適用される。既に起動中の実Core/TUIは再起動しておらず、
-実config・保存Session・credentialは変更していない。commit/push・release/公開は未実施。
+実config・保存Session・credentialは変更していない。配置確認時点ではcommit/push・release/公開は未実施。
 構想・architecture・roadmapの正本は変更していない。
 
-## commit/push承認（2026-10-03）
+## commit/push（2026-10-03）
 
-利用者の「ではまず 170をコミットプッシュ」により、169を含む170までの変更をmainへcommit/pushする。
+利用者の「ではまず 170をコミットプッシュ」により、169を含む170までの変更をcommit
+`503a3f5fac4a1a82f162c9ebadf1d18266368895`へまとめ、origin/mainへpushした。
 171の256色・user背景帯・見出し色とその文書はこのcommitに含めず、作業treeへ保持する。
 170の検証済みruntimeとcommit対象の一致を確認し、既存の最終gate・compiled実経路確認を根拠とする。
 構想・architecture・roadmapの正本は今回変更しない。
@@ -1031,3 +1033,9 @@ commit対象を隔離treeへ展開し、公式buildと同じruntime content-clos
 計算した。`c472627992e4affc3d30d69ccb4a684f76b0284fae44212da6024efe8c065e84`で、
 最終検証・常用配置済み170 binaryのruntime digestと完全一致した。 切り分け後のconversation/retained
 terminal/tool previewのfocused 67件も全てpassした。 171の作業treeのsourceと文書は保持した。
+
+## 完了承認（2026-10-03）
+
+利用者の「170は完了とします」により、Increment 170を完了とする。
+実装・検証・常用配置・commit/pushの実施済み結果を受けた完了承認である。
+構想・architecture・roadmapの反映案は別途承認待ちとし、この完了承認で正本を変更しない。

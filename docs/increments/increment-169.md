@@ -3,7 +3,7 @@
 更新日: 2026-10-03
 
 ステータス:
-**local実装・検証済み。170とともに常用配置済み。commit/pushは170とともに承認済み。完了承認は未実施。**
+**local実装・検証済み。170とともに常用配置済み。commit/pushは170とともに実施済み（`503a3f5f`、origin/main）。完了承認は未実施。**
 
 ## 要件・経路
 
@@ -60,4 +60,4 @@ recall-ansi.txt、recall-context.json、verify_tui.py。build IDは
 
 利用者の「常用配置して」により、169の変更を含む170の検証済みbuild `94fd1fe9…`を常用配置した。
 配置と配置先Core/TUIの確認結果は[Increment 170](increment-170.md#常用配置2026-10-03)を参照する。
-commit/pushは170とともに承認済み。完了承認は未実施。
+commit/pushは170とともに実施済み（`503a3f5f`、origin/main）。完了承認は未実施。
