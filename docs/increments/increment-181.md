@@ -680,3 +680,26 @@ manifestはCoreの実manifestと一致し、TUI detach・Core shutdown accepted�
 
 実config・旧DB・稼働中常用Coreは変更していない。次回Core起動から配置版を使用する。
 検証用Core/tmuxは停止済み。構想・architecture・roadmapの意味変更案はこの配置承認にも含めず、§8に保持する。
+
+### 常用設定の切替漏れと修正（2026-10-04）
+
+配置後の通常利用で、Core `e9f6b2bd`／Session `7b865ed1`が
+`agents.json must contain schemaVersion 1 and agents`によりtaskをrejectし、draftを保持した。
+常用catalogには旧`bindings.agent:reviewer`だけが残っていた。
+隔離配置確認ではこの既存catalogを扱っておらず、常用設定の切替確認が漏れていた。
+
+旧`/home/agent/.config/henji-harness/agents.json`をgit管理外の
+`.tools/increment-181/deployment/config-fix/agents.json.previous`へbackupし、常用catalogを
+`{"schemaVersion":1,"agents":{"reviewer":"agents/reviewer.json"}}`へ更新した。
+rootは同梱defaultを使用する。旧reviewer.tsの指示・tool構成を確認し、同じroleを持つ
+`agents/reviewer.json`をconfig rootへ配置してnamed reviewerを維持した。 旧managed
+source・DB・instruction・provider設定・credentialは変更していない。 converterやcompatibility
+readをproductionへ追加した変更ではなく、今回の常用設定の切替である。
+
+配置済みbinaryの`agent list`・`agent inspect`・`agent inspect --name reviewer`は全てexit 0、
+default/reviewerの`rejections: []`を確認した。
+変更前後のSHAと配置先は同folderの`configuration-change.json`、CLI確認は`readback.json`へ保存した。
+追加provider callは0件で、利用者のtask再送は行っていない。
+現在の失敗済みSessionは`LazyWorkerHostSession.starting`のrejected Promiseを保持するため、
+利用者には`/new`で新Workerを起動してから再送する手順を案内した。Core自体の再起動は不要。
+通常利用の再送結果はまだ未確認であり、CLIの構成確認をtask完了として扱わない。

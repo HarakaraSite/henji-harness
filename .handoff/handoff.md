@@ -8,13 +8,13 @@
 全スライスのtest・独立review、最終gate、実provider E2E、採用P2修正とre-reviewを完了した。 実装commit
 `a9fd01ef`はorigin/mainへpush済み。同commitのclean buildを
 `dist/henji`と`/home/agent/.local/bin/henji`へ配置し、隔離Core/API・tmux
-TUIで起動とbuild保存を確認した。
-実config・旧DB・稼働中常用Coreは変更していない。次回Core起動から181の配置版を使用する。
+TUIで起動とbuild保存を確認した。 配置後の旧catalog拒否を受け、常用agents.jsonとreviewer
+JSONを181形式へ切り替えた。 配置版CLIで構成確認済み。旧DB・稼働中常用Coreは変更していない。
 配置証拠は`.tools/increment-181/deployment/`、実provider証拠は`.tools/e2e-181/2026-10-04/`。
 
 ## 次の一手と承認境界
 
-181の実装・配置は完了し、次の採用判断を待つ。
+181の実装・配置は完了。常用設定修正後、利用者へ`/new`からの再送を案内し、通常利用結果を待つ。
 181の§8にある構想・architecture・roadmapの意味変更案は別途承認が必要で、正本へ未反映。
 旧実データの削除・移行は未承認。181の検証用Sessionだけを削除確認した。
 model省略childの認証登録ID継承不具合は通常利用メモB10の未採用候補。
