@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（E6とbuild保存B9を181へ移動。model省略childの認証登録ID継承をB10として記録）。
+更新日: 2026-10-04（E6とbuild保存B9を181へ移動。B10の認証登録ID継承を182へ採用）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -15,7 +15,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 B7は[175](../increments/increment-175.md)、B8と共通の短い失敗診断は[176](../increments/increment-176.md)を参照する。
 API/CLI adapter分離（S31とrun追加案）は[179](../increments/increment-179.md)、
 Coreの全件転記・重複再投影の削除（A28）は[180](../increments/increment-180.md)、
-Agent設定・tool管理と履歴DBの簡素化（E6）は[181](../increments/increment-181.md)を参照する。
+Agent設定・tool管理と履歴DBの簡素化（E6）は[181](../increments/increment-181.md)、
+model省略childのChatGPT認証登録ID継承（B10）は[182](../increments/increment-182.md)を参照する。
 B8の元の実失敗原因は未確定で、再発時の調査方針も176を参照する。
 
 ## 候補一覧
@@ -840,24 +841,6 @@ Pi／OpenCode／Henjiの画面表示比較
 ## 観測した不具合（未解決の残件）
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
-
-### B10 — model省略のChatGPT子Agentへ認証登録IDが渡らない
-
-- 観測（2026-10-04、181最終E2E）: 親は選択中のChatGPT登録で正常に実行できるが、
-  `spawn_subagent`でmodelを省略したgeneric子は`registrationId:null`を受け取り、
-  `missing_credential`・0 provider request・0 tool callで失敗した。
-- source経路:
-  `worker_host_coordinator.ts`の`childChatGPTRegistrationId()`はmodel選択に明示IDがないとnullを返す。
-  `worker_host_children.ts`はmodel省略時にその親scopeのIDを子のselectionへ設定する。
-  親自身は明示IDがなければhostの選択中登録を使えるため、親子で実効credentialが異なる。
-  この処理は181変更前にも同じである。
-- 利用者影響: 正常な親からmodel指定なしで子を起動しても作業を開始できない。
-  同じprovider/model/effortを明示したspawnでは、開始後cancel/status/collectまで実行できた。
-- 修正候補（未採用）: 親execution開始時に、親の実効選択登録IDを一度解決して子scopeへ渡す。
-  明示nullと未指定は区別する。認証値を履歴へ保存する必要はない。
-- 再検討条件: model省略の親子実行の修正を個別incrementへ採用するとき。
-- 証拠: [181最終E2E](../increments/e2e-181-plan.md)、親`75e94975-d288-41c2-ba20-e1e5f25f99fd`、
-  子`911fea2e-ac7d-4f5d-8fc7-3b5bc1a0c932`。初回のfailed子をcancel成功とは扱っていない。
 
 ### B5 — `commit proposal invalid`の具体的な検証不合格理由を特定できない
 

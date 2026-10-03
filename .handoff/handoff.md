@@ -4,32 +4,31 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 181](../docs/increments/increment-181.md)は実装・検証・commit/push・常用配置完了。
-全スライスのtest・独立review、最終gate、実provider E2E、採用P2修正とre-reviewを完了した。 実装commit
-`a9fd01ef`はorigin/mainへpush済み。同commitのclean buildを
-`dist/henji`と`/home/agent/.local/bin/henji`へ配置し、隔離Core/API・tmux
-TUIで起動とbuild保存を確認した。 配置後の旧catalog拒否を受け、常用agents.jsonとreviewer
-JSONを181形式へ切り替えた。
-配置版CLIで構成確認済み。再認証後、利用者から通常利用の動作確認報告を受けた。
-旧DB・稼働中常用Coreは変更していない。
-配置証拠は`.tools/increment-181/deployment/`、実provider証拠は`.tools/e2e-181/2026-10-04/`。
+[Increment 182](../docs/increments/increment-182.md)は利用者受入済みで完了。
+親execution開始時にChatGPTの実効認証登録IDを解決し、model省略childへ継承する。
+181は実装・検証・常用配置と、利用者による再認証後の通常利用確認まで完了済み。
 
 ## 次の一手と承認境界
 
-181の実装・検証・配置と配置後の復旧確認は完了。次の採用判断を待つ。
+182のfocused 16件、type/fmt/lint/diff、compiled buildが通過した。
+候補は`.tools/increment-182/henji`。同一provider継承と異なるprovider両方向を実Worker＋localhostで確認済み。
+承認済みの実provider三フローは六execution・15requestで全て完了。停止DB照合もpassed=true。
+証拠は`.tools/increment-182/real-provider/`。
+利用者の追加指示により182のcommit/push・常用配置を承認済み。clean sourceの公式build、
+受入済みruntimeとの一致確認、配置、隔離起動確認、結果記録のcommit/pushを行う。
 181の§8にある構想・architecture・roadmapの意味変更案は別途承認が必要で、正本へ未反映。
-旧実データの削除・移行は未承認。181の検証用Sessionだけを削除確認した。
-model省略childの認証登録ID継承不具合は通常利用メモB10の未採用候補。
-S4の`/reload`も別候補として残る。
+旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 182](../docs/increments/increment-182.md): B10の採用要件、実装・確認計画。
 
 - [Increment 181](../docs/increments/increment-181.md):
   合意要件、全スライス結果、完了判定、承認境界。
 - [181具体contract](../docs/increments/increment-181-contract.md): JSON/tool/new DBの契約。
 - [181最終E2E](../docs/increments/e2e-181-plan.md): 操作・実証拠・request集計・最終候補確認。
 - [Increment 180](../docs/increments/increment-180.md): 前回常用配置の結果。
-- [通常利用メモ](../docs/experience/normal-use-inbox.md): B10・S4等の未採用候補。
+- [通常利用メモ](../docs/experience/normal-use-inbox.md): S4等の未採用候補。
 - [構想](../docs/concepts/experience-driven-self-revision.md): 目的と採用境界。
 - [Host/Worker architecture](../docs/architecture/henji-host-agent-worker.md): 責務と状態所有。
 - [roadmap](../docs/roadmap.md): 必要機能と実装状態。

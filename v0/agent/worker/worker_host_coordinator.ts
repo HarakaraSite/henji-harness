@@ -621,12 +621,13 @@ export class ExecutionCoordinator {
       this.activeExecution = execution;
       this.flushPendingControlFacts(reservation);
       this.supervisor.beginTurnStageProbeEpoch();
-      this.children.openParent(
-        execution.executionId,
-        this.childChatGPTRegistrationId(),
-      );
       const completion = reservation.completion!;
       reservation.resolve?.({ executionId: execution.executionId, completion });
+      const chatgptRegistrationId = await this.executionChatGPTRegistrationId();
+      this.children.openParent(
+        execution.executionId,
+        chatgptRegistrationId,
+      );
       this.publishRuntimeState();
 
       if (reservation.cancelled || execution.forced) {
@@ -642,8 +643,8 @@ export class ExecutionCoordinator {
         correlation,
         executionId: execution.executionId,
         task: reservation.task,
-        ...(this.options.chatgptRegistrationId === undefined ? {} : {
-          chatgptRegistrationId: this.options.chatgptRegistrationId,
+        ...(chatgptRegistrationId === undefined ? {} : {
+          chatgptRegistrationId,
         }),
       });
       execution.dispatched = true;
@@ -757,12 +758,16 @@ export class ExecutionCoordinator {
     }
   }
 
-  private childChatGPTRegistrationId(): string | null {
+  private async executionChatGPTRegistrationId(): Promise<string | null | undefined> {
+    const selection = this.descriptorValue.modelSelection;
+    if (selection.provider !== 'openai-chatgpt') return undefined;
     if (this.options.chatgptRegistrationId !== undefined) {
       return this.options.chatgptRegistrationId;
     }
-    const selection = this.descriptorValue.modelSelection;
-    return 'registrationId' in selection ? selection.registrationId ?? null : null;
+    if ('registrationId' in selection && selection.registrationId !== undefined) {
+      return selection.registrationId;
+    }
+    return await this.chatgptAuthService().selectedRegistrationId();
   }
 
   private async settleProposal(
