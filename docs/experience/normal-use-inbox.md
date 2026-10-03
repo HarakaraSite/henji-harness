@@ -44,6 +44,7 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
+| A28 | Agent実行      | Coreの実行状態全件転記・task受付後の重複再投影の削除                         | provider-free測定結果を踏まえ、利用者が最小削除範囲を個別incrementへ採用するとき                                      |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -576,6 +577,21 @@ Pi／OpenCode／Henjiの画面表示比較
   再試行する。途中回答を次のmodel入力へ混ぜない処理、再試行の対象・回数・待ち時間・表示は採用時に
   決める。raw応答の常設保存は候補に含めず、必要な調査時だけ別probeで取得する。
 - 再検討条件: recallでの手動継続が通常利用の負担になる、または利用者が検討の再開を指示するとき。
+
+### A28 — Coreの冗長な状態更新・実行状態走査の削除（未採用）
+
+- 根拠: 利用者の冗長処理調査とproviderなし測定の指示。1 Core・1 Sessionのtoolなし正常完了100 turnで、
+  状態再投影1,900回、実行状態Mapの走査95,950件を観測した。過去のsettled executionも毎回転記される。
+  task受付後の明示的な再投影は100回すべて公開状態に変更なしだった。
+- 候補: snapshot更新から実行状態Mapの全件転記を外し、実際に追加・変更された実行だけを反映する。
+  admit成功後の重複再投影を除く。runtime通知の変更なし更新は一括削除せず、過去の履歴・実dataも削除しない。
+- 未確認: CPU時間・入力遅延、実providerのstream、tool loop、cancel・失敗、HTTP/TUIの測定は未実施。
+  測定件数を他経路へ一般化せず、性能向上や通常利用の遅延解消を保証しない。
+- 実施順序: 利用者と合意し、179へ混ぜず、179の受入・baseline比較完了後に別incrementとして検討する。
+  再測定と利用動作の確認は179後のCore・正式API Worker経路を基準にする。
+- 再検討条件: 179完了後、利用者が削除案を別incrementへ採用すること。受付cursor、状態遷移、実行照会、
+  cancel・steering・follow-upと履歴保存の意味を維持する具体的な反映経路を採用時に確認する。
+- 詳細: [Coreの冗長な処理削除案](../research/core-redundant-processing-removal.md)。
 
 ## F24・自己改訂
 
