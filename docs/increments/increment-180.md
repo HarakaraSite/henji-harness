@@ -3,7 +3,7 @@
 更新日: 2026-10-03
 
 ステータス:
-**スライスA・B・Cの実装・test・独立review、最終gate一回、実provider4実行と保存readback、最終限定reviewが完了。local受入・commit/push・常用配置と配置先確認が完了。**
+**完了（2026-10-03、利用者承認）。実装・test・独立review・最終gate・実provider受入・commit/push・常用配置・追加基本E2Eを完了。**
 
 利用者の「次はA28をやろうと思う」「では計画を作って」により、
 [Coreの冗長な処理削除案](../research/core-redundant-processing-removal.md)の案1・2を180へ採用する。
@@ -407,3 +407,13 @@ shutdown accepted/exit0、停止後1 executionの保存readbackを確認した�
 常用Coreや実config・既存DBは変更せず、新しく起動するCoreから179・180を含む配置版が使われる。 最終429
 source/test/configのhashは受入時と一致し、gateを再実行していない。
 完了状態の文書更新も同じ承認範囲でcommit/pushする。記録commit後にbinaryは再buildしない。
+
+## 完了承認（2026-10-03）
+
+利用者の「インクリメントを完了とします」により、Increment 180を完了とする。
+実装・検証・独立review・実provider受入・commit/push・常用配置と、追加の
+[配置版基本E2E](e2e-179-180-2026-10-03.md)の結果を受けた完了承認である。 追加E2Eは5シナリオ、7
+execution・9 request（すべてHTTP 200）、停止後readbackまで確認した。
+初回probe修正に伴う追加requestと観測の訂正はE2E文書へ保持する。
+完了記録とE2E結果の文書更新も既に承認されたcommit/pushの範囲で反映する。
+構想・architecture・roadmapの正本、runtime source、配置binaryは変更しない。
