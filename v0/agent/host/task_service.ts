@@ -1,6 +1,6 @@
 import type { LoopOutcome } from '../core/contracts.ts';
 import type { HostActiveSession } from '../worker/worker_tui_session.ts';
-import type { ApplicationObservation } from './application_port.ts';
+import type { ApplicationObservation, ExecutionTrackingChange } from './application_port.ts';
 import type { FollowUpRecord, PendingView } from '../../api/contract.ts';
 
 type Completion = Promise<Omit<LoopOutcome, 'transcript'>>;
@@ -10,6 +10,7 @@ interface TaskAdmission {
   readonly untilIdle: Completion;
 }
 interface TaskExecutionState {
+  readonly executionId: string;
   readonly sessionId: string;
   readonly submittedByCommandId: string;
   processSettlement: 'running' | 'complete';
@@ -42,11 +43,12 @@ export class ApplicationTaskService {
   private queued: MutableFollowUp | undefined;
   private chain: Completion | undefined;
   private readonly records = new Map<string, MutableFollowUp>();
-  private readonly executions = new Map<string, TaskExecutionState>();
 
   constructor(
     private readonly currentSession: () => HostActiveSession,
-    private readonly publish: () => void,
+    private readonly publish: (
+      executionChanges?: readonly ExecutionTrackingChange[],
+    ) => void,
   ) {}
 
   isBusy(): boolean {
@@ -67,9 +69,6 @@ export class ApplicationTaskService {
   }
   activeExecutionId(): string | undefined {
     return this.active?.executionId;
-  }
-  executionStates(): ReadonlyMap<string, TaskExecutionState> {
-    return this.executions;
   }
   pendingView(sessionId = this.currentSession().sessionId): PendingView {
     const active = this.active?.sessionId === sessionId ? this.active : undefined;
@@ -230,21 +229,26 @@ export class ApplicationTaskService {
     text: string,
     commandId: string,
     reservation?: MutableFollowUp,
+    precedingChanges: readonly ExecutionTrackingChange[] = [],
   ): Promise<TaskAdmission> {
     const host = this.currentSession();
     const executionId = crypto.randomUUID();
-    this.active = { sessionId: host.sessionId, executionId, commandId, text };
-    this.executions.set(executionId, {
+    const tracked: TaskExecutionState = {
+      executionId,
       sessionId: host.sessionId,
       submittedByCommandId: commandId,
       processSettlement: 'running',
-    });
+    };
+    this.active = { sessionId: host.sessionId, executionId, commandId, text };
     this.preparing = true;
     this.cancellationRequested = false;
     this.steeringAccepted = false;
     this.steeringApplied = false;
     this.steering = undefined;
-    this.publish();
+    this.publish([
+      ...precedingChanges,
+      this.executionChange(tracked),
+    ]);
 
     let admission: Awaited<ReturnType<HostActiveSession['admit']>>;
     try {
@@ -252,7 +256,6 @@ export class ApplicationTaskService {
     } catch (error) {
       if (this.active?.executionId === executionId) this.active = undefined;
       this.preparing = false;
-      this.executions.delete(executionId);
       if (reservation !== undefined) {
         if (this.cancellationRequested) {
           this.discard(reservation, 'cancelled');
@@ -263,7 +266,7 @@ export class ApplicationTaskService {
         }
       }
       this.cancellationRequested = false;
-      this.publish();
+      this.publish([{ kind: 'remove', executionId }]);
       throw error;
     }
 
@@ -276,7 +279,7 @@ export class ApplicationTaskService {
       if (this.queued === reservation) this.queued = undefined;
     }
     const accepted = { ...admission, executionId };
-    const untilIdle = this.settle(accepted);
+    const untilIdle = this.settle(accepted, tracked);
     this.chain = untilIdle;
     void untilIdle.catch(() => {});
     this.publish();
@@ -288,10 +291,21 @@ export class ApplicationTaskService {
     record.reason = reason;
     this.queued = undefined;
   }
+  private executionChange(
+    execution: TaskExecutionState,
+  ): ExecutionTrackingChange {
+    return {
+      kind: 'upsert',
+      executionId: execution.executionId,
+      sessionId: execution.sessionId,
+      submittedByCommandId: execution.submittedByCommandId,
+      processSettlement: execution.processSettlement,
+    };
+  }
   private async settle(
     admission: Awaited<ReturnType<HostActiveSession['admit']>>,
+    tracked: TaskExecutionState,
   ): Promise<Omit<LoopOutcome, 'transcript'>> {
-    const tracked = this.executions.get(admission.executionId)!;
     let outcome: Omit<LoopOutcome, 'transcript'>;
     try {
       outcome = await admission.completion;
@@ -303,7 +317,7 @@ export class ApplicationTaskService {
       this.steeringApplied = false;
       this.cancellationRequested = false;
       if (this.queued !== undefined) this.discard(this.queued, 'failed');
-      this.publish();
+      this.publish([this.executionChange(tracked)]);
       throw error;
     }
     tracked.processSettlement = 'complete';
@@ -326,6 +340,7 @@ export class ApplicationTaskService {
             reservation.text,
             reservation.commandId,
             reservation,
+            [this.executionChange(tracked)],
           );
         } catch {
           // Failed durable admission is retained as startRejected by begin().
@@ -338,7 +353,7 @@ export class ApplicationTaskService {
         this.closing ? 'core_closed' : outcome.stopReason,
       );
     }
-    this.publish();
+    this.publish([this.executionChange(tracked)]);
     return outcome;
   }
 }

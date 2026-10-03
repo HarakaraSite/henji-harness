@@ -1,5 +1,6 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
+import type { ExecutionTrackingChange } from '../../v0/agent/host/application_port.ts';
 import { ApplicationTaskService } from '../../v0/agent/host/task_service.ts';
 import type { HostActiveSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
@@ -66,11 +67,27 @@ class ControlledHost {
   }
 }
 
-const makeTasks = (host: ControlledHost): ApplicationTaskService =>
+const makeTasks = (
+  host: ControlledHost,
+  notifications: ExecutionTrackingChange[][],
+): ApplicationTaskService =>
   new ApplicationTaskService(
     () => host as unknown as HostActiveSession,
-    () => {},
+    (changes = []) => notifications.push([...changes]),
   );
+
+const upsertFor = (
+  notifications: readonly (readonly ExecutionTrackingChange[])[],
+  executionId: string,
+): Extract<ExecutionTrackingChange, { kind: 'upsert' }> | undefined => {
+  for (const changes of [...notifications].reverse()) {
+    const change = changes.find((item) =>
+      item.kind === 'upsert' && item.executionId === executionId
+    );
+    if (change?.kind === 'upsert') return change;
+  }
+  return undefined;
+};
 
 const outcome = (task: string): LoopOutcome => ({
   ok: true,
@@ -86,7 +103,8 @@ const outcome = (task: string): LoopOutcome => ({
 
 Deno.test('Increment 170 S3 publishes task reservation before admission receipt', async () => {
   const host = new ControlledHost();
-  const tasks = makeTasks(host);
+  const notifications: ExecutionTrackingChange[][] = [];
+  const tasks = makeTasks(host, notifications);
   const submitted = tasks.admit('first task', 'command-first');
   const call = host.calls[0];
   ok(call);
@@ -119,7 +137,7 @@ Deno.test('Increment 170 S3 publishes task reservation before admission receipt'
   strictEqual(host.steerCalls, 0);
   strictEqual(tasks.pendingView(host.sessionId).followUp, undefined);
   strictEqual(
-    tasks.executionStates().get(reservation.executionId)?.processSettlement,
+    upsertFor(notifications, reservation.executionId)?.processSettlement,
     'running',
   );
 
@@ -137,7 +155,8 @@ Deno.test('Increment 170 S3 publishes task reservation before admission receipt'
 
 Deno.test('Increment 170 S3 cancellation during preparation survives a late admission receipt', async () => {
   const host = new ControlledHost();
-  const tasks = makeTasks(host);
+  const notifications: ExecutionTrackingChange[][] = [];
+  const tasks = makeTasks(host, notifications);
   const submitted = tasks.admit('cancel while preparing', 'command-cancel');
   const call = host.calls[0];
   ok(call);
@@ -158,11 +177,12 @@ Deno.test('Increment 170 S3 cancellation during preparation survives a late admi
     executionId,
   );
   strictEqual(
-    tasks.executionStates().get(executionId)?.processSettlement,
+    upsertFor(notifications, executionId)?.processSettlement,
     'running',
   );
   strictEqual(
-    (await tasks.steer(executionId, 'steer after cancel', 'command-steer')).kind,
+    (await tasks.steer(executionId, 'steer after cancel', 'command-steer'))
+      .kind,
     'rejected',
   );
   strictEqual(host.steerCalls, 0);
@@ -188,14 +208,15 @@ Deno.test('Increment 170 S3 cancellation during preparation survives a late admi
   });
   await admission.untilIdle;
   strictEqual(
-    tasks.executionStates().get(executionId)?.processSettlement,
+    upsertFor(notifications, executionId)?.processSettlement,
     'complete',
   );
 });
 
 Deno.test('Increment 170 S3 failed admission removes its reservation without an execution state', async () => {
   const host = new ControlledHost();
-  const tasks = makeTasks(host);
+  const notifications: ExecutionTrackingChange[][] = [];
+  const tasks = makeTasks(host, notifications);
   const submitted = tasks.admit('admission fails', 'command-failure');
   const call = host.calls[0];
   ok(call);
@@ -216,12 +237,13 @@ Deno.test('Increment 170 S3 failed admission removes its reservation without an 
   strictEqual(rejected, true);
   strictEqual(tasks.pendingView(host.sessionId).activeTask, undefined);
   strictEqual(tasks.isPreparing(), false);
-  strictEqual(tasks.executionStates().has(executionId), false);
+  deepStrictEqual(notifications.at(-1), [{ kind: 'remove', executionId }]);
 });
 
 Deno.test('Increment 170 S3 queued handoff publishes its child reservation before admission', async () => {
   const host = new ControlledHost();
-  const tasks = makeTasks(host);
+  const notifications: ExecutionTrackingChange[][] = [];
+  const tasks = makeTasks(host, notifications);
   const parentSubmission = tasks.admit('parent task', 'command-parent');
   const parentCall = host.calls[0];
   ok(parentCall);
@@ -251,9 +273,22 @@ Deno.test('Increment 170 S3 queued handoff publishes its child reservation befor
   strictEqual(tasks.canSteer(), false);
   strictEqual(tasks.canQueueFollowUp(), false);
   strictEqual(
-    tasks.executionStates().get(childReservation.executionId)
-      ?.processSettlement,
+    upsertFor(notifications, childReservation.executionId)?.processSettlement,
     'running',
+  );
+  const parentAndChild = notifications.find((changes) =>
+    changes.some((change) =>
+      change.kind === 'upsert' && change.executionId === parentId &&
+      change.processSettlement === 'complete'
+    ) && changes.some((change) =>
+      change.kind === 'upsert' &&
+      change.executionId === childReservation.executionId &&
+      change.processSettlement === 'running'
+    )
+  );
+  ok(
+    parentAndChild,
+    'parent completion and child reservation share one notification',
   );
 
   const childCompletion = deferred<LoopOutcome>();
@@ -273,7 +308,8 @@ Deno.test('Increment 170 S3 queued handoff publishes its child reservation befor
 
 Deno.test('Increment 170 S3 canceled queued admission is discarded without an execution row', async () => {
   const host = new ControlledHost();
-  const tasks = makeTasks(host);
+  const notifications: ExecutionTrackingChange[][] = [];
+  const tasks = makeTasks(host, notifications);
   const parentSubmission = tasks.admit('parent task', 'command-parent');
   const parentCall = host.calls[0];
   ok(parentCall);
@@ -301,7 +337,11 @@ Deno.test('Increment 170 S3 canceled queued admission is discarded without an ex
 
   strictEqual((await parentAdmission.untilIdle).stopReason, 'final');
   strictEqual(tasks.pendingView(host.sessionId).activeTask, undefined);
-  strictEqual(tasks.executionStates().has(childId), false);
+  ok(
+    notifications.some((changes) =>
+      changes.some((change) => change.kind === 'remove' && change.executionId === childId)
+    ),
+  );
   strictEqual(
     tasks.pendingView(host.sessionId).followUps[0]?.status,
     'discarded',
@@ -314,7 +354,8 @@ Deno.test('Increment 170 S3 canceled queued admission is discarded without an ex
 
 Deno.test('Increment 170 S3 canceled queued admission retains a late successful execution id', async () => {
   const host = new ControlledHost();
-  const tasks = makeTasks(host);
+  const notifications: ExecutionTrackingChange[][] = [];
+  const tasks = makeTasks(host, notifications);
   const parentSubmission = tasks.admit('parent task', 'command-parent');
   const parentCall = host.calls[0];
   ok(parentCall);
@@ -350,7 +391,7 @@ Deno.test('Increment 170 S3 canceled queued admission retains a late successful 
   strictEqual(followUp.status, 'discarded');
   strictEqual(followUp.reason, 'cancelled');
   strictEqual(followUp.executionId, childId);
-  strictEqual(tasks.executionStates().has(childId), true);
+  strictEqual(upsertFor(notifications, childId)?.processSettlement, 'running');
 
   childCompletion.resolve({
     ok: false,

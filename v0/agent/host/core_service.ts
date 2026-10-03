@@ -1,5 +1,6 @@
 import { projectApplicationControl } from './api_projection.ts';
 import { type ApplicationService, createApplicationService } from './application_service.ts';
+import type { ExecutionTrackingChange } from './application_port.ts';
 import { createDataClient, DataServiceError, type EncodedDataReply } from '../data/client.ts';
 import type { DataSessionDescriptor } from '../data/session_data_owner.ts';
 import { encodedSessionSnapshot, encodedSessionUpdate } from './encoded_public_frame.ts';
@@ -201,6 +202,7 @@ interface TrackedExecution {
   readonly sessionId: string;
   readonly submittedByCommandId: string;
   processSettlement: 'running' | 'complete';
+  readonly owner: ApplicationService;
 }
 
 const currentSnapshot = (
@@ -541,10 +543,27 @@ export const createCoreService = async (
     return result;
   };
 
-  const refreshSlotSnapshot = (target: CoreSlot): void => {
-    for (const [executionId, state] of target.service.tasks.executionStates()) {
-      executions.set(executionId, state);
+  const applyExecutionChanges = (
+    owner: ApplicationService,
+    changes: readonly ExecutionTrackingChange[],
+  ): void => {
+    for (const change of changes) {
+      if (change.kind === 'remove') {
+        if (executions.get(change.executionId)?.owner === owner) {
+          executions.delete(change.executionId);
+        }
+        continue;
+      }
+      executions.set(change.executionId, {
+        sessionId: change.sessionId,
+        submittedByCommandId: change.submittedByCommandId,
+        processSettlement: change.processSettlement,
+        owner,
+      });
     }
+  };
+
+  const refreshSlotSnapshot = (target: CoreSlot): void => {
     const previous = target.snapshot;
     const projected = currentSnapshot(
       target.service,
@@ -687,7 +706,12 @@ export const createCoreService = async (
     await ensureWatch(sessionId);
     knownServices.set(service.query.currentSession().sessionId, service);
     allServices.add(service);
-    next.unsubscribeObservations = service.subscribe(() => refreshSlotSnapshot(next));
+    next.unsubscribeObservations = service.subscribe((observation) => {
+      if (observation.kind === 'task_state') {
+        applyExecutionChanges(service, observation.executionChanges);
+      }
+      refreshSlotSnapshot(next);
+    });
     return next;
   };
 
@@ -1411,7 +1435,6 @@ export const createCoreService = async (
             refreshSlotSnapshot(active);
             return rejected(input.commandId, target, 'admissionFailed');
           }
-          refreshSlotSnapshot(active);
           return {
             kind: 'accepted',
             commandId: input.commandId,
@@ -1507,7 +1530,10 @@ export const createCoreService = async (
         target,
         async () => {
           const owner = knownServices.get(sessionId);
-          if (owner?.tasks.executionStates().has(executionId) !== true) {
+          const tracked = executions.get(executionId);
+          if (
+            tracked?.sessionId !== sessionId || tracked.owner !== owner
+          ) {
             let found: ExecutionReadResult;
             try {
               found = await executionRead(executionId);
@@ -1576,8 +1602,9 @@ export const createCoreService = async (
         target,
         async () => {
           const owner = knownServices.get(sessionId);
+          const tracked = executions.get(input.afterExecutionId);
           if (
-            owner?.tasks.executionStates().has(input.afterExecutionId) !== true
+            tracked?.sessionId !== sessionId || tracked.owner !== owner
           ) {
             let found: ExecutionReadResult;
             try {

@@ -40,8 +40,23 @@ export interface ApplicationQueryPort {
   currentSession(): ApplicationSessionState;
 }
 
+export type ExecutionTrackingChange = Readonly<
+  | {
+    kind: 'upsert';
+    executionId: string;
+    sessionId: string;
+    submittedByCommandId: string;
+    processSettlement: 'running' | 'complete';
+  }
+  | { kind: 'remove'; executionId: string }
+>;
+
 export type ApplicationObservation =
-  | Readonly<{ kind: 'task_state'; sessionId: string }>
+  | Readonly<{
+    kind: 'task_state';
+    sessionId: string;
+    executionChanges: readonly ExecutionTrackingChange[];
+  }>
   | Readonly<{ kind: 'steering_applied'; executionId: string }>
   | Readonly<{
     kind: 'runtime_state';

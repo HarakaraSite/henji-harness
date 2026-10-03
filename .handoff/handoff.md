@@ -17,23 +17,25 @@ APIと`henji run`のCLI adapter分離を[Increment 179](../docs/increments/incre
 実装・関連記録commit `7dc4f501ea44e450e541fc1f0f84085caa0e6975`を`origin/main`へpush済み。
 現在の要件・工程・受入・承認境界は179を参照する。
 
+通常利用メモA28の全件転記・重複再投影削除を[Increment 180](../docs/increments/increment-180.md)へ採用し、
+スライスA・B・Cの実装・focused確認・独立review、最終gate一回、実provider4実行と停止後readbackを完了した。
+追加gate/live結果の限定reviewも完了し、local受入成立。要件・結果・review・承認境界は180を参照する。
+利用者の追加指示により180のcommit/push・常用配置を開始した。
+
 ## 次の一手
 
-179のスライスA（API）・B（run CLI）の実装・focused確認・独立reviewと、 スライスCのcompiled
-tmux/CLI/readback・同一DB比較・独立reviewを完了した。安定候補のauthoritative gateも成功した。
-179に記載した実provider確認3回も追加承認を得て実施し、停止後の保存readbackを完了した。
-追加結果の限定reviewも必須findingなしで完了し、179の実装・受入結果を確定した。 利用者の「コミット
-プッシュしてください」により、179の実装・関連記録のcommit/pushも完了した。
-利用者の「architecture/roadmap反映はやろう」により、179の反映案を両正本へ反映した。
-正本反映の文書commitは利用者の「コミットして」で承認済み。今回の文書変更のpushは未実施。
-常用配置を進める場合は対象・手順を提示して別途承認を得る。
-最新モデルの根拠・実装・確認は178、未使用除去とJSR収録漏れ修正は177を参照する。
-B8の元の原因は引き続き未確定で、実使用で再発した際に
-拡充した診断と既存semantic履歴から調べる方針は[176](../docs/increments/increment-176.md)を維持する。
-未採用候補の入口は通常利用メモとする。
+180の承認済みlocal作業は完了。追加承認されたcommit/push・常用配置と配置先確認を行う。
+詳細・結果は180を参照する。
+
+179のarchitecture/roadmap反映の文書commitは完了し、push・常用配置は未実施。
+179の詳細は同increment、B8再発時の調査方針は176、未採用候補は通常利用メモを参照する。
 
 ## 承認境界
 
+- 180の採用・計画作成と関連記録更新は利用者の「では計画を作って」により承認済み。
+  独立reviewと、その指摘の計画修正も追加指示により承認済み・実施済み。
+  スライスごとのlocal実装・非破壊的検証・独立reviewと最後の実provider確認は追加指示により承認済み・実施済み。
+  180のcommit/push・常用配置は「コミットプッシュ配置をしてください」で追加承認済み。実利用dataの削除は未承認。
 - 177・178のlocal変更・検証、常用配置と配置先確認は承認済み・実施済み。
 - 利用者の「コミットプッシュはしよう」で177・178と関連記録のcommit/pushを承認。
   実装のpushは完了した。完了状態の文書更新も同じ送信先へcommit/pushする。
@@ -50,6 +52,8 @@ B8の元の原因は引き続き未確定で、実使用で再発した際に
 
 ## 正本への入口
 
+- [Increment 180](../docs/increments/increment-180.md):
+  A28の削除範囲・差分反映計画・受入・承認境界。
 - [Increment 179](../docs/increments/increment-179.md): API/CLI Worker分離の要件・計画・受入。
 - [Increment 178](../docs/increments/increment-178.md):
   ChatGPT最新2モデルの固定候補と公式effort、probe・TUI確認。

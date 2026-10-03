@@ -37,12 +37,16 @@ export const createApplicationService = async (
     ...options,
     applicationObservationSink: publish,
   });
-  const owner = new ApplicationTaskService(runtime.currentSession, () => {
-    publish({
-      kind: 'task_state',
-      sessionId: runtime.currentSession().sessionId,
-    });
-  });
+  const owner = new ApplicationTaskService(
+    runtime.currentSession,
+    (executionChanges = []) => {
+      publish({
+        kind: 'task_state',
+        sessionId: runtime.currentSession().sessionId,
+        executionChanges,
+      });
+    },
+  );
   taskOwner.current = owner;
   return {
     ...runtime,
