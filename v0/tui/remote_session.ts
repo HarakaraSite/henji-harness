@@ -128,27 +128,26 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
     ? value as Record<string, unknown>
     : undefined;
 
-const effectiveDefinitionSelector = (snapshot: SessionSnapshot): {
-  readonly agent?: string;
-  readonly revision?: string;
-} => {
-  const config = snapshot.runtime.effectiveConfig;
-  const definition = record(config?.definition);
-  const resourceId = typeof definition?.resourceId === 'string' ? definition.resourceId : undefined;
-  const revisionRef = record(definition?.revision);
-  const digest = revisionRef?.algorithm === 'sha256' &&
-      typeof revisionRef.digest === 'string'
-    ? revisionRef.digest
-    : undefined;
-  const agent = resourceId?.startsWith('builtin/')
-    ? resourceId.slice('builtin/'.length)
-    : resourceId;
-  const revision = resourceId === undefined || digest === undefined
-    ? undefined
-    : `${resourceId}@sha256:${digest}`;
+const configurationRejectionLines = (value: unknown): string[] => {
+  const configuration = record(value);
+  if (!Array.isArray(configuration?.rejections)) return [];
+  return configuration.rejections.map((entry) => {
+    const rejection = record(entry);
+    return String(rejection?.target ?? 'configuration') + ' ' + String(rejection?.name ?? '') +
+      (typeof rejection?.file === 'string' ? ' (' + rejection.file + ')' : '') + ': ' +
+      String(rejection?.reason ?? 'rejected');
+  });
+};
+
+const effectiveAgentSelector = (
+  snapshot: SessionSnapshot,
+): { agent?: string; file?: string; revision?: string } => {
+  const configuration = record(snapshot.runtime.effectiveConfig?.configuration);
+  const choice = record(configuration?.choice);
   return {
-    ...(agent === undefined ? {} : { agent }),
-    ...(revision === undefined ? {} : { revision }),
+    ...(typeof configuration?.name === 'string' ? { agent: configuration.name } : {}),
+    ...(typeof choice?.file === 'string' ? { file: choice.file } : {}),
+    ...(typeof configuration?.revision === 'string' ? { revision: configuration.revision } : {}),
   };
 };
 
@@ -157,7 +156,7 @@ const activationDifferences = (
   requested: SessionActivation,
 ): readonly string[] => {
   const config = snapshot.runtime.effectiveConfig;
-  const selector = effectiveDefinitionSelector(snapshot);
+  const selector = effectiveAgentSelector(snapshot);
   const differences: string[] = [];
   if (requested.agent !== undefined && requested.agent !== selector.agent) {
     differences.push(
@@ -165,11 +164,11 @@ const activationDifferences = (
         (selector.agent ?? 'not reported'),
     );
   }
-  if (requested.definitionRevision !== undefined) {
-    const active = selector.revision ?? 'not reported';
-    if (requested.definitionRevision !== selector.revision) {
+  if (requested.agentFile !== undefined) {
+    const active = selector.file ?? 'not reported';
+    if (requested.agentFile !== selector.file) {
       differences.push(
-        '--definition-revision requested ' + requested.definitionRevision +
+        '--agent-file requested ' + requested.agentFile +
           ', active ' +
           active,
       );
@@ -452,10 +451,13 @@ const effectiveConfigLines = (snapshot: SessionSnapshot): readonly string[] => {
   ) {
     return ['No active Session configuration is available in this saved view.'];
   }
-  const selector = effectiveDefinitionSelector(snapshot);
+  const selector = effectiveAgentSelector(snapshot);
   return [
     'active Session configuration:',
-    'definition ' + (selector.revision ?? selector.agent ?? 'not reported'),
+    'agent ' + (selector.agent ?? 'not reported') +
+    (selector.revision === undefined ? '' : ' · revision ' + selector.revision),
+    'configuration ' + String(record(config.configuration)?.status ?? 'pending'),
+    ...configurationRejectionLines(config.configuration),
     'max steps ' +
     (config.maxSteps === null ? 'unevaluated' : config.maxSteps) +
     ' · ' + config.maxStepsSource,

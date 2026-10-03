@@ -7,6 +7,11 @@ import type {
   WorkerHostCommand,
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
+import {
+  processProbeCall,
+  processProbeChoice,
+  writeProcessProbeConfiguration,
+} from './helpers/increment_133_process_probe.ts';
 
 const waitFor = async (predicate: () => boolean): Promise<void> => {
   const deadline = Date.now() + 10_000;
@@ -25,16 +30,12 @@ Deno.test('Increment 170 rejected ACK keeps Core busy until correlated Worker id
     stateRoot: `${root}/state`,
     workspaceRoot: root,
   });
-  const definition = {
-    schemaVersion: 1,
-    resourceKind: 'agent-definition',
-    resourceId: 'test/process-probe',
-    revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-  } as const;
+  const configRoot = `${root}/config`;
+  await writeProcessProbeConfiguration(configRoot);
   const descriptor = await data.openSession({
     persistence: 'none',
-    agent: 'default',
-    definition,
+    agent: processProbeChoice.name,
+    agentChoice: processProbeChoice,
   });
   let heldProposal = false;
   let heldTurnSettled = false;
@@ -49,11 +50,9 @@ Deno.test('Increment 170 rejected ACK keeps Core busy until correlated Worker id
       data,
       descriptor,
       workspaceRoot: root,
+      configRoot,
+      agentChoice: processProbeChoice,
       physicalIoMode: 'provider-free',
-      modulePath: new URL(
-        './fixtures/increment_133_process_definition.ts',
-        import.meta.url,
-      ).pathname,
       capsuleFactory: (url): WorkerHostCapsule => {
         const capsule = new WorkerCapsule(url);
         return {
@@ -84,7 +83,7 @@ Deno.test('Increment 170 rejected ACK keeps Core busy until correlated Worker id
       },
     });
 
-    const admission = await session.admit('answer');
+    const admission = await session.admit(processProbeCall('answer'));
     let completionSettled = false;
     void admission.completion.then(
       () => completionSettled = true,
@@ -116,7 +115,7 @@ Deno.test('Increment 170 rejected ACK keeps Core busy until correlated Worker id
     const outcome = await admission.completion;
     strictEqual(outcome.ok, false);
     strictEqual(outcome.stopReason, 'cancelled');
-    const followup = await session.submit('answer');
+    const followup = await session.submit(processProbeCall('answer'));
     strictEqual(followup.ok, true);
   } finally {
     allowTurnSettled = true;

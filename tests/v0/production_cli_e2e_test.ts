@@ -2,8 +2,8 @@ import type { StoredExecutionEvent } from '../../v0/agent/history/history_store_
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import type { StoredWorkerExecutionArtifact } from '../../v0/agent/worker/worker_execution_artifact.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import {
   PRODUCTION_CLI_E2E_CONFIRMATION,
   PRODUCTION_CLI_E2E_TASK,
@@ -34,52 +34,50 @@ const correlation = {
   command: 'turn-1',
 } as const;
 
-const artifact = (): StoredWorkerExecutionArtifact => ({
-  schemaVersion: 2,
-  executionId,
-  createdAt: '2026-09-08T00:00:00.000Z',
-  settledAt: '2026-09-08T00:00:01.000Z',
-  sessionId,
-  turn: 1,
-  agent: 'default',
-  instanceCorrelation: correlation.instanceCorrelation,
-  workerGeneration: correlation.workerGeneration,
-  build: buildManifest(),
-  definition: {
+const artifact = (): StoredWorkerExecutionArtifact => {
+  const configurationId = '44444444-4444-4444-8444-444444444444';
+  return {
     schemaVersion: 1,
-    resourceKind: 'agent-definition',
-    resourceId: 'builtin/default',
-    revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-  },
-  manifest: {
-    role: 'parent',
+    executionId,
+    createdAt: '2026-09-08T00:00:00.000Z',
+    settledAt: '2026-09-08T00:00:01.000Z',
+    sessionId,
+    turn: 1,
+    agent: 'default',
+    instanceCorrelation: correlation.instanceCorrelation,
+    workerGeneration: correlation.workerGeneration,
+    build: buildManifest(),
+    configurationId,
+    configuration: workerConfigurationFixture({ configurationId }),
+    model: ROOT_DEFAULT_MODEL_SELECTION,
     maxSteps: 128,
-    profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
-    resources: [],
-    rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-  },
-  command: { kind: 'turn', correlation, task: PRODUCTION_CLI_E2E_TASK },
-  baseStateRevision: 1,
-  proposedStateRevision: 2,
-  committedStateRevision: 2,
-  protocolTrace: [],
-  storeResult: 'committed',
-  acknowledgement: 'accepted_sent',
-  settlement: 'committed',
-  outcome: {
-    ok: true,
-    outcome: 'final',
-    stopReason: 'final',
-    finalText: nonce,
-    steps: 2,
-    toolCallCount: 1,
-    toolResultCount: 1,
-    turnProviderRequestCount: 2,
-    runtimeProviderRequestCount: 2,
-  },
-  effectCommitRelation: 'not_transactional',
-  automaticReplay: false,
-});
+    command: { kind: 'turn', correlation, task: PRODUCTION_CLI_E2E_TASK },
+    baseStateRevision: 1,
+    proposedStateRevision: 2,
+    committedStateRevision: 2,
+    protocolTrace: [],
+    storeResult: 'committed',
+    acknowledgement: 'accepted_sent',
+    settlement: 'committed',
+    lifecycle: 'settled',
+    normalizedOutcome: 'completed',
+    adoption: 'canonical',
+    contextCapture: 'complete',
+    outcome: {
+      ok: true,
+      outcome: 'final',
+      stopReason: 'final',
+      finalText: nonce,
+      steps: 2,
+      toolCallCount: 1,
+      toolResultCount: 1,
+      turnProviderRequestCount: 2,
+      runtimeProviderRequestCount: 2,
+    },
+    effectCommitRelation: 'not_transactional',
+    automaticReplay: false,
+  };
+};
 
 const stored = (
   kind: StoredExecutionEvent['kind'],

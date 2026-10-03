@@ -1,6 +1,5 @@
 export {
   CONTEXT_CHECKPOINT_SCHEMA_VERSION,
-  type DefinitionRevisionRef,
   isSessionId,
   isSessionTitle,
   MAX_CONTEXT_CHECKPOINT_FILE_BYTES,
@@ -14,7 +13,7 @@ export {
   type SessionMetadata,
   type SessionModelChange,
   type SessionRecord,
-  type SessionRecordV6,
+  type SessionRecordV1,
   SessionStoreError,
   type SessionTurnExecutionAttribution,
   type SessionTurnModelAttribution,
@@ -36,7 +35,7 @@ export {
   parseCausalTranscript,
   validateSemanticContextCheckpoint,
   validateSessionRecord,
-  validateSessionRecordV6,
+  validateStoredSessionRecord,
 } from './session_record_codec.ts';
 export {
   launcherStateRoot,

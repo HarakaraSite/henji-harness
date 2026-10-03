@@ -103,6 +103,7 @@ export const createHistoryProbe = async (root: string) => {
     stateRoot: `${root}/state/henji-harness/v1`,
     dataRoot: `${root}/data/henji-harness`,
     physicalIoMode: 'production' as const,
+    agentChoice: {},
     providerDeclarations: builtinProviderDeclarations().map((entry) =>
       entry.providerId === 'openrouter-responses'
         ? { ...entry, endpoint: `http://127.0.0.1:${provider.addr.port}/v1` }
@@ -116,7 +117,6 @@ export const createHistoryProbe = async (root: string) => {
     commandId: crypto.randomUUID(),
     selection: { kind: 'new' },
     activation: {
-      agent: 'default',
       rootProvider: 'openrouter-responses',
       maxSteps: 3,
       providerTimeoutMs: 30_000,

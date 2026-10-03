@@ -13,12 +13,11 @@ import type {
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
+import type { ConfigurationRejection } from '../configuration/agent_configuration.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
-import type {
-  DefinitionRevisionRef,
-  HenjiInstructionRevisionRef,
-  ToolDefinitionRevisionRef,
-} from '../definitions/managed_resource_ref.ts';
+import type { WorkerConfigurationSnapshot } from './worker_configuration.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
+import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type {
   AsyncAgentProgress,
   AsyncAgentRequest,
@@ -35,17 +34,10 @@ import type {
 
 export const WORKER_PROTOCOL_VERSION = 'slice1-data-only-v2';
 
-/** One declared async child agent: catalog name plus its exact Definition revision. */
+/** One declared async child agent: catalog name plus the choice resolved by a new Worker. */
 export interface WorkerAsyncAgentCatalogEntry {
   readonly name: string;
-  readonly ref: DefinitionRevisionRef;
-}
-
-/** One Host/Worker-resolved tool Definition: exact ref plus its process-local load descriptor. */
-export interface WorkerToolDefinitionLoadRequest {
-  readonly toolIdentity: string;
-  readonly ref: ToolDefinitionRevisionRef;
-  readonly module: WorkerDefinitionLoadRequest;
+  readonly choice: AgentConfigurationChoice;
 }
 
 export type DataValue =
@@ -64,28 +56,6 @@ export interface WorkerCorrelation {
   readonly command: string;
 }
 
-export interface WorkerModuleRevisionRequest {
-  readonly canonicalSpecifier: string;
-  readonly entrySha256: string;
-  readonly sourceBytes: number;
-}
-
-export interface WorkerManagedClosureFileRequest {
-  readonly relativePath: string;
-  readonly canonicalSpecifier: string;
-  readonly sha256: string;
-  readonly sourceBytes: number;
-}
-
-/** Process-local physical input. Logical Definition identity remains a separate Host concern. */
-export type WorkerDefinitionLoadRequest =
-  | WorkerModuleRevisionRequest
-  | {
-    readonly kind: 'managed';
-    readonly entry: WorkerModuleRevisionRequest;
-    readonly files: readonly WorkerManagedClosureFileRequest[];
-  };
-
 export type WorkerHostCommand =
   | WorkerProcessReply
   | {
@@ -93,13 +63,13 @@ export type WorkerHostCommand =
     readonly correlation: WorkerCorrelation;
     /** Direct Agent-to-Data port transferred by the Core control owner. */
     readonly dataPort?: MessagePort;
-    readonly module?: WorkerDefinitionLoadRequest;
+    readonly agentChoice: AgentConfigurationChoice;
     /** User config root shared by the Host and Worker credential resolvers. */
-    readonly configRoot?: string;
-    readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
+    readonly configRoot: string;
+    /** Defaults to true for root Workers; child Workers disable recursive child tools. */
+    readonly enableAsyncAgents?: boolean;
     /** Spawn-time tool filter (bare tool names) narrowing this generation's declared tools. */
     readonly toolFilter?: readonly string[];
-    readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
     readonly rootMaxSteps?: number;
@@ -204,14 +174,6 @@ export type WorkerRuntimeEvent =
     readonly read: 'allowed' | 'denied';
     readonly environment: 'allowed' | 'denied';
   }
-  | {
-    readonly kind: 'module_pre_read';
-    readonly sourceBytes: number;
-    readonly entrySha256: string;
-  }
-  | { readonly kind: 'module_closure_verified'; readonly fileCount: number }
-  | { readonly kind: 'module_import_start'; readonly specifier: string }
-  | { readonly kind: 'module_imported'; readonly specifier: string }
   | { readonly kind: 'worker_error_observed'; readonly message: string };
 
 export type WorkerEffectObservation = Extract<
@@ -222,24 +184,13 @@ export type WorkerEffectObservation = Extract<
 export interface WorkerReadyMessage {
   readonly kind: 'ready';
   readonly correlation: WorkerCorrelation;
-  readonly module?: {
-    readonly canonicalSpecifier: string;
-    readonly entrySha256: string;
-    readonly sourceBytes: number;
-    readonly defaultExport: 'function';
-    readonly probe?: string;
-  };
+  readonly configuration?: WorkerConfigurationSnapshot;
   readonly manifest?: {
     readonly role: 'parent';
     readonly maxSteps: number;
     readonly profileId: string;
     readonly resources: readonly string[];
     readonly rootModel: ModelSelection;
-    /** Exact tool Definition revisions composed into the root composition. */
-    readonly tools?: readonly {
-      readonly toolIdentity: string;
-      readonly ref: ToolDefinitionRevisionRef;
-    }[];
     readonly baseInstruction?: {
       readonly slot: 'instruction:henji-base';
       readonly selectionSource: 'built-in' | 'external';
@@ -407,10 +358,8 @@ export interface WorkerTurnSettledMessage {
 }
 
 type WorkerErrorStage =
-  | 'module_pre_read'
-  | 'module_import'
-  | 'module_validation'
   | 'composition'
+  | 'configuration'
   | 'turn'
   | 'worker_command'
   | 'uncaught';
@@ -420,6 +369,7 @@ export interface WorkerErrorMessage {
   readonly correlation?: WorkerCorrelation;
   readonly stage: WorkerErrorStage;
   readonly message: string;
+  readonly configurationRejections?: readonly ConfigurationRejection[];
   readonly details?: FailureDetails;
 }
 

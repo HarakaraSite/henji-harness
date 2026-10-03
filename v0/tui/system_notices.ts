@@ -92,6 +92,29 @@ export class RemoteSystemNotices {
     const snapshot = client.snapshot;
     const sessionId = snapshot.session.id;
     const state = this.forSession(sessionId);
+    const configuration = snapshot.runtime.effectiveConfig?.configuration;
+    if (
+      configuration !== null && typeof configuration === 'object' && !Array.isArray(configuration)
+    ) {
+      const facts = configuration as { [key: string]: unknown };
+      if (Array.isArray(facts.rejections)) {
+        for (const value of facts.rejections) {
+          if (value === null || typeof value !== 'object') continue;
+          const rejection = value as Record<string, unknown>;
+          const detail = `${String(rejection.target ?? 'configuration')} ${
+            String(rejection.name ?? '')
+          }${typeof rejection.file === 'string' ? ` (${rejection.file})` : ''}: ${
+            String(rejection.reason ?? 'rejected')
+          }`;
+          this.retain(
+            sessionId,
+            `configuration:${String(facts.configurationId ?? facts.status)}:${detail}`,
+            `CONFIGURATION REJECTED · ${detail}`,
+            'REJECTED',
+          );
+        }
+      }
+    }
     const semanticIds = store.semanticIds();
     const pendingChanged = options.reset === true || state.pending !== snapshot.pending;
     if (options.reset === true || options.structureChanged === true) {

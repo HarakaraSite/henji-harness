@@ -2,7 +2,7 @@ import { FailureDiagnosticStoreError } from '../session/failure_diagnostic_store
 import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import type { StoredExecutionRow } from '../history/history_store_contract.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { HistoryStoreError } from '../history/history_store_contract.ts';
 
 const encoder = new TextEncoder();
@@ -111,8 +111,9 @@ const executionSummary = (execution: StoredExecutionRow) => ({
   agent: execution.agent,
   model: execution.model,
   build: execution.build,
-  definition: execution.definition,
-  ...(execution.manifest === undefined ? {} : { manifest: execution.manifest }),
+  configurationId: execution.configurationId,
+  configuration: execution.configuration,
+  maxSteps: execution.maxSteps,
   ...(execution.instanceCorrelation === undefined ? {} : {
     instanceCorrelation: execution.instanceCorrelation,
   }),
@@ -183,7 +184,7 @@ export const main = async (
       dependencies.workspaceRoot,
     );
     const stateRoot = dependencies.stateRoot ?? resolveStateRoot();
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspace);
+    const history = new SqliteHistoryStore(stateRoot, workspace);
     await history.initialize();
     if (
       command.kind === 'execution_list' || command.kind === 'execution_show' ||

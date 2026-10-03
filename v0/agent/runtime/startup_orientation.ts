@@ -13,7 +13,7 @@ const MAX_WORKSPACE_DISPLAY_BYTES = 96;
 const MAX_DISPLAY_SKILL_NAMES = 5;
 const CREDENTIAL_VERIFICATION_POLICY = 'before_each_provider_request' as const;
 
-type RuntimeDisplayAgentId = 'default' | 'planner' | 'generic';
+type RuntimeDisplayAgentId = string;
 type RuntimeDisplayInstructionSource = 'AGENTS.md' | 'AGENTS.MD' | 'none';
 type RuntimeDisplaySessionMode = 'new' | 'continue' | 'session' | 'none';
 
@@ -188,10 +188,8 @@ const canonicalBytes = (state: RuntimeDisplayState): number =>
 export const projectRuntimeDisplayState = (
   input: RuntimeDisplayProjectionInput,
 ): RuntimeDisplayState => {
-  const agentId: RuntimeDisplayAgentId = input.agentId === 'planner' ? 'planner' : 'default';
-  const trustTools = agentId === 'default'
-    ? Object.freeze(['bash', 'edit', 'write'] as const)
-    : Object.freeze([] as const);
+  const agentId: RuntimeDisplayAgentId = input.agentId;
+  const trustTools = Object.freeze(['bash', 'edit', 'write'] as const);
   const instructions = Object.freeze({
     loaded: input.instructionSource === 'AGENTS.md' || input.instructionSource === 'AGENTS.MD',
     source: instructionSource(input.instructionSource),

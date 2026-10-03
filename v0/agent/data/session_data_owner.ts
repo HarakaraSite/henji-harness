@@ -1,3 +1,5 @@
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
+import type { WorkerConfigurationSnapshot } from '../worker/worker_configuration.ts';
 import {
   createFailureDiagnostic,
   type FailureDiagnosticV1,
@@ -11,10 +13,9 @@ import type {
   HistoryCaptureResult,
   HistoryExecutionInput,
 } from '../history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { indexSessionHistory } from '../session/session_history.ts';
 import {
-  type DefinitionRevisionRef,
   type SemanticContextCheckpointV1,
   type SessionRecord,
   SessionStoreError,
@@ -37,7 +38,6 @@ import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
   WorkerCorrelation,
-  WorkerReadyMessage,
   WorkerTurnFailedMessage,
 } from '../worker/worker_protocol.ts';
 import type { AgentGenerationContextBasis } from './agent_data_contract.ts';
@@ -58,7 +58,7 @@ import { SessionAuthority } from './session_authority.ts';
 import {
   type StoredWorkerExecutionArtifact,
   type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV7,
+  type WorkerExecutionArtifactV1,
   workerExecutionOutcome,
   type WorkerExecutionSettlement,
   type WorkerExecutionStoreResult,
@@ -173,13 +173,13 @@ class DetachedSessionHandle implements MemoryWorkerHandle {
 }
 
 export interface DataSessionOwnerOpenInput {
-  readonly store: SqliteHistoryV7ProductionStore;
+  readonly store: SqliteHistoryStore;
   /** The Data service owns this shared writer and closes it with the store. */
   readonly writer: ConversationWriter;
   readonly workspaceRoot: string;
   readonly persistence: DataSessionPersistence;
   readonly agent: SessionRecord['agent'];
-  readonly definition: DefinitionRevisionRef;
+  readonly agentChoice: AgentConfigurationChoice;
   readonly sessionId?: string;
   readonly initialModelSelection?: ModelSelection;
   /** One per-Session watch, owned for this Session's lifetime. */
@@ -190,7 +190,7 @@ export interface DataSessionDescriptor {
   readonly id: string;
   readonly persistence: 'persistent' | 'none';
   readonly agent: SessionRecord['agent'];
-  readonly definition: DefinitionRevisionRef;
+  readonly agentChoice: AgentConfigurationChoice;
   readonly modelSelection: ModelSelection;
   readonly stateRevision: number;
   readonly nextTurn: number;
@@ -210,7 +210,8 @@ interface DataExecutionAdmissionInput {
   readonly task: string;
   readonly correlation: WorkerCorrelation;
   readonly createdAt?: string;
-  readonly manifest?: NonNullable<WorkerReadyMessage['manifest']>;
+  readonly configuration: WorkerConfigurationSnapshot;
+  readonly maxSteps: number;
   readonly contextSnapshot?: WorkerContextSnapshot;
   readonly recalledContext?: RecalledExecutionContext;
   readonly parentExecutionId?: string;
@@ -456,7 +457,7 @@ export class DataSessionOwner {
   readonly durableCanonicalHistory: boolean;
   readonly #executions = new Map<string, DataExecutionState>();
   readonly #listeners = new Set<DataSessionDeltaListener>();
-  readonly #store: SqliteHistoryV7ProductionStore;
+  readonly #store: SqliteHistoryStore;
   readonly #writer: ConversationWriter;
   #pendingRecall: RecalledExecutionContext | undefined;
   #latestRequest: ContextView['latestRequest'];
@@ -486,7 +487,7 @@ export class DataSessionOwner {
       handle,
       workspaceRoot: options.workspaceRoot,
       agent: options.agent,
-      definition: options.definition,
+      agentChoice: options.agentChoice,
       ...(options.initialModelSelection === undefined
         ? {}
         : { initialModelSelection: options.initialModelSelection }),
@@ -511,7 +512,7 @@ export class DataSessionOwner {
         input.sessionId ?? crypto.randomUUID().toLowerCase(),
       );
     } else if (input.persistence === 'new') {
-      handle = await input.store.allocateWorker(input.agent, input.definition);
+      handle = await input.store.allocateWorker(input.agent, input.agentChoice);
     } else if (input.persistence === 'session') {
       if (input.sessionId === undefined) throw new Error('session id required');
       handle = await input.store.openExistingWorker(input.sessionId);
@@ -542,8 +543,8 @@ export class DataSessionOwner {
     return {
       id: this.sessionId,
       persistence: this.durableCanonicalHistory ? 'persistent' : 'none',
-      agent: this.options.agent,
-      definition: this.authority.definition(),
+      agent: position.agent,
+      agentChoice: this.authority.agentChoice(),
       modelSelection: this.authority.modelSelectionSnapshot(),
       stateRevision: this.authority.projection.stateRevision,
       nextTurn: this.authority.projection.nextTurn,
@@ -821,8 +822,8 @@ export class DataSessionOwner {
       ) return;
       throw error;
     }
-    if (artifact.schemaVersion !== 7 || artifact.outcome === undefined) return;
-    let settlement: WorkerExecutionSettlement = artifact.settlement;
+    if (artifact.schemaVersion !== 1 || artifact.outcome === undefined) return;
+    let settlement: WorkerExecutionArtifactV1['settlement'] = artifact.settlement;
     if (settlement === 'committed_observation_pending') {
       if (
         state.control.acknowledgement === 'delivery_failed' ||
@@ -836,7 +837,7 @@ export class DataSessionOwner {
         state.control.turnEnd?.committed === true
       ) settlement = 'committed';
     }
-    const updated: WorkerExecutionArtifactV7 = {
+    const updated: WorkerExecutionArtifactV1 = {
       ...artifact,
       ...(state.control.acknowledgement === undefined ? {} : {
         acknowledgement: state.control.acknowledgement,
@@ -876,9 +877,11 @@ export class DataSessionOwner {
     ) {
       throw new Error('execution base revision is not current');
     }
+    this.authority.setConfiguredAgent(input.configuration.agent.name);
     const createdAt = input.createdAt ?? new Date().toISOString();
     const admittedRecall = input.recalledContext ?? this.#pendingRecall;
     const history: HistoryExecutionInput = {
+      command: input.correlation.command,
       taskId: input.taskId,
       executionId: input.executionId,
       createdAt,
@@ -887,11 +890,12 @@ export class DataSessionOwner {
       turn: this.authority.projection.nextTurn,
       task: input.task,
       baseStateRevision: input.correlation.baseStateRevision,
-      agent: this.options.agent,
+      agent: input.configuration.agent.name,
       model: this.authority.modelSelectionSnapshot(),
       build: this.authority.build,
-      definition: this.authority.definition(),
-      ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
+      configurationId: input.configuration.configurationId,
+      configuration: input.configuration,
+      maxSteps: input.maxSteps,
       instanceCorrelation: input.correlation.instanceCorrelation,
       workerGeneration: input.correlation.workerGeneration,
       ...(admittedRecall === undefined ? {} : { recalledContext: admittedRecall }),
@@ -1004,7 +1008,10 @@ export class DataSessionOwner {
       state.terminal !== undefined || state.authorization !== undefined ||
       state.sealed === true
     ) throw new Error('execution is already settling');
-    const record = this.authority.proposalRecord(input.message);
+    const record = this.authority.proposalRecord(input.message, {
+      executionId: state.history.executionId,
+      configurationId: state.history.configurationId,
+    });
     if (record === undefined) throw new Error('commit proposal invalid');
     const proposalId = input.proposalId ?? crypto.randomUUID().toLowerCase();
     const token: DataProposalToken = {
@@ -1084,7 +1091,7 @@ export class DataSessionOwner {
         proposedStateRevision: prepared.record.stateRevision,
         canonical: false,
         diagnostic: prepared.message.diagnostic ?? outcome.diagnostic,
-        manifest: state.input.manifest,
+
         storeResult: 'not_attempted',
         acknowledgement: 'not_sent',
         settlement: 'uncommitted',
@@ -1150,7 +1157,7 @@ export class DataSessionOwner {
     const artifactForCapture = this.#artifactCapture(state, outcome, {
       canonical: false,
       diagnostic: input.message.diagnostic ?? outcome.diagnostic,
-      manifest: state.input.manifest,
+
       storeResult: 'not_attempted',
       acknowledgement: 'not_sent',
       settlement: 'uncommitted',
@@ -1202,7 +1209,7 @@ export class DataSessionOwner {
       : { ...baseOutcome, diagnostic: input.diagnostic };
     const artifactForCapture = this.#artifactCapture(state, outcome, {
       canonical: false,
-      manifest: state.input.manifest,
+
       storeResult: 'not_attempted',
       acknowledgement: 'not_sent',
       settlement: 'uncommitted',
@@ -1318,7 +1325,6 @@ export class DataSessionOwner {
       proposedStateRevision: prepared.record.stateRevision,
       canonical: this.durableCanonicalHistory,
       diagnostic: prepared.message.diagnostic ?? outcome.diagnostic,
-      manifest: state.input.manifest,
     });
     const capture = this.durableCanonicalHistory
       ? this.#writer.commitCanonicalTurn({
@@ -1347,7 +1353,7 @@ export class DataSessionOwner {
       this.handle.acceptCommitted!(prepared.record);
     } else this.handle.commit(prepared.record);
     this.authority.applyCommitted(
-      prepared.record as import('../session/session_store.ts').SessionRecordV6,
+      prepared.record as import('../session/session_store.ts').SessionRecordV1,
     );
     return this.#terminalResult(
       state,
@@ -1368,16 +1374,13 @@ export class DataSessionOwner {
       readonly proposedStateRevision?: number;
       readonly canonical: boolean;
       readonly diagnostic?: LoopOutcome['diagnostic'];
-      readonly manifest?: NonNullable<WorkerReadyMessage['manifest']>;
       readonly storeResult?: WorkerExecutionStoreResult;
       readonly acknowledgement?: WorkerExecutionAcknowledgement;
       readonly settlement?: WorkerExecutionSettlement;
     },
   ):
-    | ((capture: HistoryCaptureResult) => WorkerExecutionArtifactV7)
+    | ((capture: HistoryCaptureResult) => WorkerExecutionArtifactV1)
     | undefined {
-    const manifest = fields.manifest;
-    if (manifest === undefined) return undefined;
     return (capture) => {
       const capturedOutcome = {
         ...outcome,
@@ -1392,13 +1395,9 @@ export class DataSessionOwner {
       const contextCapture = capture.contextDurability === 'partial'
         ? 'failed'
         : capture.contextDurability ?? 'none';
-      const storedManifest = structuredClone(
-        manifest,
-      ) as WorkerExecutionArtifactV7['manifest'];
       const eventOutcome = workerExecutionOutcome(capturedOutcome);
-      const artifact: WorkerExecutionArtifactV7 = {
-        schemaVersion: 7,
-        ...(storedManifest.tools === undefined ? {} : { tools: storedManifest.tools }),
+      const artifact: WorkerExecutionArtifactV1 = {
+        schemaVersion: 1,
         contextCapture,
         executionId: state.history.executionId,
         createdAt: state.history.createdAt,
@@ -1411,8 +1410,10 @@ export class DataSessionOwner {
         workerGeneration: state.history.workerGeneration ??
           state.input.correlation.workerGeneration,
         build: state.history.build,
-        definition: state.history.definition,
-        manifest: storedManifest,
+        configurationId: state.history.configurationId,
+        configuration: state.history.configuration,
+        model: state.history.model,
+        maxSteps: state.history.maxSteps,
         command: {
           kind: 'turn',
           correlation: state.input.correlation,
@@ -1568,7 +1569,7 @@ export class DataSessionOwner {
   }
 
   #executionView(
-    latest: ReturnType<SqliteHistoryV7ProductionStore['readExecutionMetadata']>,
+    latest: ReturnType<SqliteHistoryStore['readExecutionMetadata']>,
   ): ExecutionView {
     return {
       executionId: latest.executionId,
@@ -1615,14 +1616,12 @@ export class DataSessionOwner {
     const {
       contextSnapshot: _contextSnapshot,
       recalledContext: _recalledContext,
-      manifest: _manifest,
       ...smallInput
     } = state.input;
     state.input = smallInput;
     const {
       contextSnapshot: _historyContextSnapshot,
       recalledContext: _historyRecalledContext,
-      manifest: _historyManifest,
       ...smallHistory
     } = state.history;
     state.history = smallHistory;

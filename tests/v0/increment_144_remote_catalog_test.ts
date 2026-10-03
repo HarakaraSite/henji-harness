@@ -20,8 +20,8 @@ const build = {
   denoVersion: '2.9.7',
   target: 'x86_64-unknown-linux-gnu',
   embeddedRuntimeSha256: 'b'.repeat(64),
-  supportedAgentDefinitionApiContracts: ['henji-agent-definition-v2'],
-  supportedToolDefinitionApiContracts: ['henji-tool-definition-v1'],
+  agentConfigurationSchemaVersion: 1,
+  supportedToolApiContracts: ['henji-tool/v1'],
 };
 
 let selected: ApiSelection = {

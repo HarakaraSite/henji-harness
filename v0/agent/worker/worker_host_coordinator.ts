@@ -38,7 +38,7 @@ import {
   sameModelSelection,
 } from '../provider/model_selection.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
-import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../worker_agent_api.ts';
 import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
 import { ChildRunRegistry } from './worker_host_children.ts';
 import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
@@ -167,14 +167,16 @@ export class ExecutionCoordinator {
     });
     this.children = new ChildRunRegistry({
       options,
-      catalog: options.asyncAgents ?? [],
+      currentCatalog: () => {
+        const configuration = this.supervisor.currentConfiguration;
+        return configuration?.agent.agents.filter((name) =>
+          !configuration.rejections.some((entry) => entry.target === 'agent' && entry.name === name)
+        ) ?? [];
+      },
       currentModelSelection: () => this.descriptorValue.modelSelection,
       chatgptAuth: {
         selectedRegistrationId: () => this.chatgptAuthService().selectedRegistrationId(),
       },
-      ...(options.resolveAsyncAgentModule === undefined
-        ? {}
-        : { resolveManagedModule: options.resolveAsyncAgentModule }),
     });
     if (this.options.eventSink !== undefined) {
       this.unsubscribeAgentEvents = this.options.data.subscribeAgentEvents(
@@ -220,8 +222,8 @@ export class ExecutionCoordinator {
     this.publishRuntimeState();
   }
 
-  get definition(): DataSessionDescriptor['definition'] {
-    return structuredClone(this.descriptorValue.definition);
+  get agentChoice(): DataSessionDescriptor['agentChoice'] {
+    return structuredClone(this.descriptorValue.agentChoice);
   }
 
   get sessionId(): string {
@@ -240,21 +242,12 @@ export class ExecutionCoordinator {
   }
 
   effectiveConfigSnapshot(): EffectiveRuntimeConfig {
-    const definition = this.descriptorValue.definition;
-    const manifestMaxSteps = this.supervisor.currentManifest?.maxSteps;
-    const builtinMaxSteps = definition.resourceId === 'builtin/default' ||
-        definition.resourceId === 'builtin/generic'
-      ? DEFAULT_AGENT_MAX_STEPS
-      : undefined;
+    const configuration = this.supervisor.currentConfiguration;
     const configuredMaxSteps = this.options.rootMaxSteps;
-    const maxSteps = configuredMaxSteps ?? manifestMaxSteps ??
-      builtinMaxSteps ?? null;
+    const maxSteps = configuredMaxSteps ?? this.supervisor.currentManifest?.maxSteps ??
+      DEFAULT_AGENT_MAX_STEPS;
     const maxStepsSource: EffectiveRuntimeConfig['maxStepsSource'] =
-      configuredMaxSteps !== undefined
-        ? 'activation'
-        : manifestMaxSteps !== undefined || builtinMaxSteps !== undefined
-        ? 'definition'
-        : 'unevaluated';
+      configuredMaxSteps === undefined ? 'default' : 'activation';
     const activation: SessionActivation = {
       ...(this.options.activation ?? {}),
       ...(this.options.rootMaxSteps === undefined ? {} : { maxSteps: this.options.rootMaxSteps }),
@@ -263,14 +256,18 @@ export class ExecutionCoordinator {
         : { providerTimeoutMs: this.options.providerTimeoutMs }),
     };
     return {
-      definition: {
-        schemaVersion: definition.schemaVersion,
-        resourceKind: definition.resourceKind,
-        resourceId: definition.resourceId,
-        revision: {
-          algorithm: definition.revision.algorithm,
-          digest: definition.revision.digest,
-        },
+      configuration: {
+        status: configuration === undefined ? 'pending' : 'ready',
+        choice: { ...this.descriptorValue.agentChoice },
+        name: configuration?.agent.name ?? this.descriptorValue.agent,
+        ...(configuration === undefined ? {} : {
+          configurationId: configuration.configurationId,
+          revision: configuration.agent.revision,
+          source: { ...configuration.source },
+          rejections: structuredClone(
+            configuration.rejections,
+          ) as unknown as import('../../api/contract.ts').ApiJson,
+        }),
       },
       maxSteps,
       maxStepsSource,
@@ -504,7 +501,11 @@ export class ExecutionCoordinator {
   }
 
   currentPosition(): ApiPosition {
-    return structuredClone(this.descriptorValue.currentPosition);
+    return {
+      ...structuredClone(this.descriptorValue.currentPosition),
+      agent: this.supervisor.currentConfiguration?.agent.name ??
+        this.descriptorValue.currentPosition.agent,
+    };
   }
 
   isAvailable(): boolean {

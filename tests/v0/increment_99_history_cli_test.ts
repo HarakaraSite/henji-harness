@@ -1,6 +1,6 @@
 import { renderCanonicalView, renderSessionView } from '../../v0/agent/history/history_view.ts';
 import { parseHistoryArgs } from '../../v0/agent/cli/history_cli.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
@@ -23,16 +23,10 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 };
 
 const sessionId = '99000000-0000-4000-8000-000000000001';
-const definition = {
-  schemaVersion: 1 as const,
-  resourceKind: 'agent-definition' as const,
-  resourceId: 'builtin/default',
-  revision: { algorithm: 'sha256' as const, digest: 'a'.repeat(64) },
-};
 const build = buildManifest();
 
 const record: StoredSessionRecord = {
-  schemaVersion: 6,
+  schemaVersion: 1,
   sessionId,
   workspaceRoot: '/tmp/ws',
   agent: 'default',
@@ -64,11 +58,16 @@ const record: StoredSessionRecord = {
     },
     { role: 'assistant', content: { kind: 'text', text: 'done' } },
   ],
-  definition,
+  agentChoice: {},
   activeModel: ROOT_DEFAULT_MODEL_SELECTION,
   modelChanges: [],
   turnModels: [{ turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION }],
-  turnExecutions: [{ turn: 1, build, definition }],
+  turnExecutions: [{
+    turn: 1,
+    executionId: fixtureExecutionId,
+    build,
+    configurationId: crypto.randomUUID(),
+  }],
 };
 
 Deno.test('Increment 99 session view matches the conversation log shape', () => {
@@ -184,7 +183,7 @@ Deno.test('Increment 99 read-only store does not create history on an empty work
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
   try {
-    const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot, {
+    const store = new SqliteHistoryStore(`${root}/state`, workspaceRoot, {
       readOnly: true,
     });
     let threw = false;

@@ -8,12 +8,11 @@ import {
 } from '../../v0/agent/worker/worker_runtime.ts';
 import { SessionAuthority } from '../../v0/agent/data/session_authority.ts';
 import {
-  type SessionRecordV6,
-  validateSessionRecordV6,
+  type SessionRecordV1,
+  validateStoredSessionRecord,
 } from '../../v0/agent/session/session_store.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -109,7 +108,7 @@ Deno.test('Increment 70 web_fetch marks an exact 1 MiB body as complete', async 
 });
 
 Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive canonical record readback', async () => {
-  const definition = await builtinDefinitionRef('default', buildManifest());
+  const configuration = workerConfigurationFixture();
   for (const extraBytes of [0, 10_000]) {
     const body = 'x'.repeat(MAX_WEB_FETCH_BYTES + extraBytes);
     const tool = createWebFetchTool(fetched(body));
@@ -145,7 +144,6 @@ Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive c
     const handle: WorkerSessionHandle = {
       id: sessionId,
       commit: () => {},
-      rollback: () => {},
       installCheckpoint: () => {},
       rollbackCheckpoint: () => {},
       close: () => Promise.resolve(),
@@ -154,15 +152,18 @@ Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive c
       handle,
       workspaceRoot: Deno.cwd(),
       agent: 'default',
-      definition,
+      agentChoice: {},
     }, undefined);
-    let committed: SessionRecordV6 | undefined;
+    let committed: SessionRecordV1 | undefined;
     const port: WorkerGenerationPort = {
       runtimeEvent: () => undefined,
       effectObservation: () => undefined,
       checkpointProposal: () => Promise.resolve(false),
       commitProposal: (_correlation, proposal) => {
-        committed = authority.proposalRecord(proposal);
+        committed = authority.proposalRecord(proposal, {
+          executionId: crypto.randomUUID(),
+          configurationId: configuration.configurationId,
+        });
         return Promise.resolve(committed !== undefined);
       },
       turnFailed: (_correlation, outcome) => {
@@ -179,7 +180,7 @@ Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive c
     }, 'fetch source');
     assert(committed !== undefined, 'normal web_fetch turn was not accepted');
     assert(modelCalls === 2);
-    assert(validateSessionRecordV6(committed));
+    assert(validateStoredSessionRecord(committed));
     const toolMessage = committed.transcript.find((message) => message.role === 'tool');
     assert(toolMessage?.role === 'tool');
     const result = toolMessage.content[0];

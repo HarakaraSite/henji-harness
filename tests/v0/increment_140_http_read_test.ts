@@ -73,6 +73,7 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     dataRoot,
     physicalIoMode: 'production' as const,
     agent: 'default' as const,
+    agentChoice: {},
     rootMaxSteps: 2,
     initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     providerDeclarations: declarations,
@@ -82,7 +83,12 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
   let server: Awaited<ReturnType<typeof startCoreServer>> | undefined;
   let capsuleStarts = 0;
   try {
-    seeded = await createApplicationService({ ...options, agent: 'generic', persistence: 'new' });
+    seeded = await createApplicationService({
+      ...options,
+      agent: 'generic',
+      agentChoice: { name: 'generic' },
+      persistence: 'new',
+    });
     const genericSessionId = seeded.session.sessionId;
     const genericOutcome = await seeded.session.submit('Save one generic Session result');
     ok(genericOutcome.ok, JSON.stringify(genericOutcome));

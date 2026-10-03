@@ -3,14 +3,10 @@ import { WorkerProcessExecutor } from './worker_process_executor.ts';
 import {
   type DataValue,
   parseWorkerHostCommand,
-  type WorkerAsyncAgentCatalogEntry,
   type WorkerChildProgressMessage,
   type WorkerCorrelation,
-  type WorkerDefinitionLoadRequest,
   type WorkerEffectObservation,
   type WorkerHostCommand,
-  type WorkerManagedClosureFileRequest,
-  type WorkerModuleRevisionRequest,
   type WorkerReadyMessage,
   type WorkerRuntimeEvent,
   type WorkerToHostMessage,
@@ -19,21 +15,17 @@ import type { ProviderEvidenceObservation } from '../provider/provider_evidence.
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type { AsyncAgentRequest, AsyncAgentResponse } from '../tools/async_agents.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
-import {
-  type AgentToolDefinitionModule,
-  type ExecutableAgentDefinition,
-  type ExecutableToolDefinition,
-  finalizeRootAgentComposition,
-  finalizeWorkerToolAttribution,
-  type ToolComponent,
-} from '../worker_agent_api.ts';
+import type { Model } from '../core/contracts.ts';
+import { createConfiguredWorkerComposition } from './worker_configuration.ts';
+import { resolveWorkerConfiguration } from '../configuration/configuration_resolver.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
+import type { ConfigurationRejection } from '../configuration/agent_configuration.ts';
 import { WorkerGeneration, type WorkerGenerationPort } from './worker_runtime.ts';
 import { createProductionPhysicalIo, createWorkerRequestCounter } from './worker_physical_io.ts';
 import { createProviderFreePhysicalIo } from './worker_probe_physical_io.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructions.ts';
 import { discoverSkills } from '../definitions/skills.ts';
-import type { Model } from '../core/contracts.ts';
 import {
   type ModelSelection,
   ROOT_DEFAULT_MODEL_SELECTION,
@@ -44,10 +36,7 @@ import {
   type SelectedHenjiBaseInstruction,
   verifySelectedHenjiBaseInstruction,
 } from '../instructions/base_instruction.ts';
-import {
-  finalizeWorkerInstructionComposition,
-  selectWorkerHenjiBaseInstruction,
-} from '../instructions/worker_core_finalizer.ts';
+import { selectWorkerHenjiBaseInstruction } from '../instructions/worker_core_finalizer.ts';
 import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
 import { recordWorkerStage, type WorkerStageName } from './worker_stage_probe.ts';
 import { TurnCancelledError } from '../core/cancellation.ts';
@@ -216,16 +205,8 @@ const sendRequestCount = (
   });
 };
 
-const withDigestQuery = (specifier: string, digest: string): string =>
-  `${specifier}${specifier.includes('?') ? '&' : '?'}sha256=${digest}`;
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
-
-const moduleProbe = (
-  moduleNamespace: Record<string, unknown>,
-): string | undefined =>
-  typeof moduleNamespace.workerProbe === 'string' ? moduleNamespace.workerProbe : undefined;
 
 const acknowledgementKey = (
   kind: 'commit' | 'checkpoint',
@@ -244,123 +225,6 @@ const sameCorrelation = (
   left.workerGeneration === right.workerGeneration &&
   left.baseStateRevision === right.baseStateRevision &&
   left.command === right.command;
-
-const digestHex = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    bytes.buffer as ArrayBuffer,
-  );
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-};
-
-const loadVerifiedModuleFunction = async (
-  correlation: WorkerCorrelation,
-  request: WorkerDefinitionLoadRequest,
-): Promise<{
-  readonly entrySha256: string;
-  readonly sourceBytes: number;
-  readonly probe?: string;
-  readonly defaultExport: (...args: never[]) => unknown;
-}> => {
-  const entry = 'kind' in request ? request.entry : request;
-  const readAndVerify = async (
-    file: WorkerManagedClosureFileRequest | WorkerModuleRevisionRequest,
-    expectedDigest: string,
-  ): Promise<Uint8Array> => {
-    let source: Uint8Array;
-    try {
-      source = await Deno.readFile(new URL(file.canonicalSpecifier));
-    } catch (error) {
-      throw new Error(
-        `module pre-read failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    const digest = await digestHex(source);
-    if (source.byteLength !== file.sourceBytes || digest !== expectedDigest) {
-      throw new Error(
-        'module pre-read identity did not match the Host revision',
-      );
-    }
-    return source;
-  };
-
-  let source: Uint8Array;
-  try {
-    if ('kind' in request) {
-      for (const file of request.files) await readAndVerify(file, file.sha256);
-      runtimeEvent(correlation, {
-        kind: 'module_closure_verified',
-        fileCount: request.files.length,
-      });
-    }
-    source = await readAndVerify(entry, entry.entrySha256);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      message.startsWith('module pre-read') ? message : `module pre-read failed: ${message}`,
-    );
-  }
-  const digest = await digestHex(source);
-  runtimeEvent(correlation, {
-    kind: 'module_pre_read',
-    sourceBytes: source.byteLength,
-    entrySha256: digest,
-  });
-  if (
-    source.byteLength !== entry.sourceBytes || digest !== entry.entrySha256
-  ) {
-    throw new Error('module pre-read identity did not match the Host revision');
-  }
-
-  runtimeEvent(correlation, {
-    kind: 'module_import_start',
-    specifier: entry.canonicalSpecifier,
-  });
-  let moduleNamespace: Record<string, unknown>;
-  try {
-    moduleNamespace = await import(
-      withDigestQuery(entry.canonicalSpecifier, digest)
-    ) as Record<
-      string,
-      unknown
-    >;
-  } catch (error) {
-    throw new Error(
-      `module import failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (typeof moduleNamespace.default !== 'function') {
-    throw new Error('module default export must be a function');
-  }
-  runtimeEvent(correlation, {
-    kind: 'module_imported',
-    specifier: entry.canonicalSpecifier,
-  });
-  return {
-    entrySha256: digest,
-    sourceBytes: source.byteLength,
-    probe: moduleProbe(moduleNamespace),
-    defaultExport: moduleNamespace.default as (...args: never[]) => unknown,
-  };
-};
-
-const loadVerifiedModule = async (
-  correlation: WorkerCorrelation,
-  request: WorkerDefinitionLoadRequest,
-): Promise<{
-  readonly entrySha256: string;
-  readonly sourceBytes: number;
-  readonly probe?: string;
-  readonly definition?: ExecutableAgentDefinition;
-}> => {
-  const loaded = await loadVerifiedModuleFunction(correlation, request);
-  return {
-    entrySha256: loaded.entrySha256,
-    sourceBytes: loaded.sourceBytes,
-    ...(loaded.probe === undefined ? {} : { probe: loaded.probe }),
-    definition: loaded.defaultExport as ExecutableAgentDefinition,
-  };
-};
 
 const waitForAcknowledgement = (
   kind: 'commit' | 'checkpoint',
@@ -563,11 +427,20 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
   turnSettled: (correlation) => post({ kind: 'turn_settled', correlation }),
 });
 
+class WorkerConfigurationRejectedError extends Error {
+  constructor(
+    readonly rejections: readonly ConfigurationRejection[],
+  ) {
+    super('Worker Agent configuration was rejected');
+    this.name = 'WorkerConfigurationRejectedError';
+  }
+}
+
 const createGeneration = async (
   correlation: WorkerCorrelation,
-  module: Awaited<ReturnType<typeof loadVerifiedModule>>,
+  agentChoice: AgentConfigurationChoice,
   workspaceRoot: string,
-  configRoot: string | undefined,
+  configRoot: string,
   physicalIoMode: 'provider-free' | 'production',
   rootMaxSteps?: number,
   providerTimeoutMs?: number,
@@ -577,14 +450,10 @@ const createGeneration = async (
   initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
-  toolDefinitions: readonly AgentToolDefinitionModule[] = [],
-  asyncAgents: readonly WorkerAsyncAgentCatalogEntry[] = [],
   toolFilter: readonly string[] | undefined = undefined,
   privateStateFromTurn = 1,
+  enableAsyncAgents = true,
 ): Promise<WorkerGeneration> => {
-  if (module.definition === undefined) {
-    throw new Error('Worker Definition is unavailable');
-  }
   const workspace = await resolveWorkspace(workspaceRoot);
   const instructionSnapshot = await discoverAgentInstructionSnapshot(
     workspace.root,
@@ -593,7 +462,7 @@ const createGeneration = async (
   const requestCounter = createWorkerRequestCounter();
   const physicalIo = physicalIoMode === 'production'
     ? createProductionPhysicalIo(requestCounter, {
-      ...(configRoot === undefined ? {} : { configRoot }),
+      configRoot,
       providerTimeoutMs,
       providerDeclarations,
       reportAuxiliaryStage,
@@ -619,53 +488,25 @@ const createGeneration = async (
   const routedPhysicalIo = {
     processExecutor,
     ...physicalIo,
-    asyncAgentRpc,
+    ...(enableAsyncAgents ? { asyncAgentRpc } : {}),
     createModel: (_role: 'parent', _selection?: ModelSelection): Model => rootRouter,
   };
   if (!await verifySelectedHenjiBaseInstruction(baseInstruction)) {
     throw new Error('Worker Henji base instruction is invalid');
   }
   selectWorkerHenjiBaseInstruction(baseInstruction);
-  const toolComponents = toolDefinitions.map((tool) => ({
-    toolIdentity: tool.toolIdentity,
-    ref: tool.ref,
-    component: (tool.definition as ExecutableToolDefinition)({
-      workspace,
-      skillCatalog,
-      physicalIo: routedPhysicalIo,
-    }) as ToolComponent,
-  }));
-  const returnedComposition = module.definition({
+  const selection = await resolveWorkerConfiguration(configRoot, agentChoice);
+  const configured = await createConfiguredWorkerComposition(selection, {
     workspace,
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,
-    asyncAgentNames: Object.freeze(asyncAgents.map((entry) => entry.name)),
     ...(toolFilter === undefined ? {} : { toolFilter: Object.freeze([...toolFilter]) }),
-    ...(toolComponents.length === 0
-      ? {}
-      : { toolDefinitions: toolComponents.map((tool) => tool.component) }),
-  });
-  if (
-    returnedComposition === undefined || typeof returnedComposition !== 'object'
-  ) {
-    throw new Error('Worker Definition did not return a composition');
+  }, rootMaxSteps);
+  if (!configured.ok) {
+    throw new WorkerConfigurationRejectedError(configured.rejections);
   }
-  let composition = finalizeWorkerInstructionComposition(
-    finalizeRootAgentComposition(
-      returnedComposition,
-      rootMaxSteps,
-    ),
-  );
-  if (toolComponents.length > 0) {
-    composition = finalizeWorkerToolAttribution(
-      composition,
-      toolComponents.map((tool) => ({
-        toolIdentity: tool.toolIdentity,
-        ref: tool.ref,
-      })),
-    );
-  }
+  const composition = configured.composition;
   const contextSnapshot: WorkerContextSnapshot = Object.freeze({
     schemaVersion: 1,
     workspaceRoot: workspace.root,
@@ -711,6 +552,7 @@ const createGeneration = async (
     }),
     reportAuxiliaryStage,
     privateStateFromTurn,
+    configured.snapshot,
   );
 };
 
@@ -814,8 +656,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       agentDataClient = command.dataPort === undefined
         ? undefined
         : createAgentDataPortClient(command.dataPort);
-      const startsGeneration = command.module !== undefined &&
-        command.workspaceRoot !== undefined;
+      const startsGeneration = command.workspaceRoot !== undefined;
       if (startsGeneration && agentDataClient === undefined) {
         post({
           kind: 'worker_error',
@@ -830,123 +671,86 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           ReturnType<AgentDataPortClient['generationContext']>
         >
         | undefined;
-      if (startsGeneration) {
-        try {
-          generationBasis = await requireAgentDataClient().generationContext(
-            command.correlation,
-          );
-        } catch (error) {
-          post({
-            kind: 'worker_error',
-            correlation: command.correlation,
-            stage: 'composition',
-            message: error instanceof Error ? error.message : String(error),
-            details: captureFailureDetails(error, { operation: 'worker_composition' }),
-          });
-          return;
-        }
+      if (!startsGeneration) {
+        generation = undefined;
+        post({ kind: 'ready', correlation: command.correlation });
+        return;
       }
-      let module: Awaited<ReturnType<typeof loadVerifiedModule>> | undefined;
-      const loadedTools: AgentToolDefinitionModule[] = [];
-      if (command.module !== undefined) {
-        try {
-          module = await loadVerifiedModule(
-            command.correlation,
-            command.module,
-          );
-          for (const tool of command.toolDefinitions ?? []) {
-            const loaded = await loadVerifiedModuleFunction(
-              command.correlation,
-              tool.module,
-            );
-            loadedTools.push({
-              toolIdentity: tool.toolIdentity,
-              ref: tool.ref,
-              definition: loaded.defaultExport as ExecutableToolDefinition,
-            });
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const stage = message.startsWith('module pre-read')
-            ? 'module_pre_read'
-            : message.startsWith('module import')
-            ? 'module_import'
-            : 'module_validation';
-          post({
-            kind: 'worker_error',
-            correlation: command.correlation,
-            stage,
-            message,
-            details: captureFailureDetails(error, { operation: `worker_${stage}` }),
-          });
-          return;
-        }
+      try {
+        generationBasis = await requireAgentDataClient().generationContext(
+          command.correlation,
+        );
+      } catch (error) {
+        post({
+          kind: 'worker_error',
+          correlation: command.correlation,
+          stage: 'composition',
+          message: error instanceof Error ? error.message : String(error),
+          details: captureFailureDetails(error, {
+            operation: 'worker_composition',
+          }),
+        });
+        return;
       }
-      let workerGeneration: WorkerGeneration | undefined;
-      if (
-        command.module !== undefined && command.workspaceRoot !== undefined &&
-        module !== undefined
-      ) {
-        try {
-          if (generationBasis === undefined) {
-            throw new Error('Agent Data generation context is unavailable');
-          }
-          setActiveProviderDeclarations(command.providerDeclarations ?? []);
-          workerGeneration = await createGeneration(
-            command.correlation,
-            module,
-            command.workspaceRoot,
-            command.configRoot,
-            command.physicalIoMode ?? 'provider-free',
-            command.rootMaxSteps,
-            command.providerTimeoutMs,
-            generationBasis.initialTranscript,
-            generationBasis.nextTurn,
-            generationBasis.checkpoint,
-            generationBasis.modelSelection,
-            command.baseInstruction,
-            command.providerDeclarations ?? [],
-            loadedTools,
-            command.asyncAgents ?? [],
-            command.toolFilter,
-            generationBasis.privateStateFromTurn,
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+      let workerGeneration: WorkerGeneration;
+      try {
+        if (generationBasis === undefined) {
+          throw new Error('Agent Data generation context is unavailable');
+        }
+        setActiveProviderDeclarations(command.providerDeclarations ?? []);
+        workerGeneration = await createGeneration(
+          command.correlation,
+          command.agentChoice,
+          command.workspaceRoot,
+          command.configRoot,
+          command.physicalIoMode ?? 'provider-free',
+          command.rootMaxSteps,
+          command.providerTimeoutMs,
+          generationBasis.initialTranscript,
+          generationBasis.nextTurn,
+          generationBasis.checkpoint,
+          generationBasis.modelSelection,
+          command.baseInstruction,
+          command.providerDeclarations ?? [],
+          command.toolFilter,
+          generationBasis.privateStateFromTurn,
+          command.enableAsyncAgents ?? true,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof WorkerConfigurationRejectedError) {
           post({
             kind: 'worker_error',
             correlation: command.correlation,
-            stage: 'composition',
+            stage: 'configuration',
             message,
-            details: captureFailureDetails(error, { operation: 'worker_composition' }),
+            configurationRejections: structuredClone(error.rejections),
           });
           return;
         }
+        post({
+          kind: 'worker_error',
+          correlation: command.correlation,
+          stage: 'composition',
+          message,
+          details: captureFailureDetails(error, {
+            operation: 'worker_composition',
+          }),
+        });
+        return;
       }
       generation = workerGeneration;
       const credentialAvailability = await workerGeneration
-        ?.rootCredentialAvailability();
+        .rootCredentialAvailability();
       const ready: WorkerReadyMessage = {
         kind: 'ready',
         correlation: command.correlation,
-        ...(command.module === undefined || module === undefined ? {} : {
-          module: {
-            canonicalSpecifier: 'kind' in command.module
-              ? command.module.entry.canonicalSpecifier
-              : command.module.canonicalSpecifier,
-            entrySha256: module.entrySha256,
-            sourceBytes: module.sourceBytes,
-            defaultExport: 'function' as const,
-            ...(module.probe === undefined ? {} : { probe: module.probe }),
-          },
-        }),
-        ...(workerGeneration === undefined ? {} : { manifest: workerGeneration.manifest }),
-        ...(workerGeneration === undefined
-          ? {}
-          : { startupSnapshot: workerGeneration.startupSnapshot }),
+        configuration: workerGeneration.configuration,
+        manifest: workerGeneration.manifest,
+        startupSnapshot: workerGeneration.startupSnapshot,
         ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
       };
-      if (workerGeneration !== undefined && agentDataClient !== undefined) {
+      if (agentDataClient !== undefined) {
         try {
           await agentDataClient.ready(ready);
         } catch (error) {
@@ -955,7 +759,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage: 'composition',
             message: error instanceof Error ? error.message : String(error),
-            details: captureFailureDetails(error, { operation: 'worker_composition' }),
+            details: captureFailureDetails(error, {
+              operation: 'worker_composition',
+            }),
           });
           return;
         }
@@ -990,6 +796,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           await agentDataClient.ready({
             kind: 'ready',
             correlation: command.correlation,
+            configuration: generation.configuration,
             manifest: generation.manifest,
             startupSnapshot: generation.startupSnapshot,
             ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
@@ -1000,7 +807,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             correlation: command.correlation,
             stage: 'worker_command',
             message: error instanceof Error ? error.message : String(error),
-            details: captureFailureDetails(error, { operation: 'worker_worker_command' }),
+            details: captureFailureDetails(error, {
+              operation: 'worker_worker_command',
+            }),
           });
           return;
         }
@@ -1207,7 +1016,9 @@ scope.onerror = (event: ErrorEvent): boolean => {
     ...(activeCorrelation === undefined ? {} : { correlation: activeCorrelation }),
     stage: 'uncaught',
     message: event.message || 'uncaught Worker error',
-    details: captureFailureDetails(event.error ?? event.message, { operation: 'worker_uncaught' }),
+    details: captureFailureDetails(event.error ?? event.message, {
+      operation: 'worker_uncaught',
+    }),
   });
   return true;
 };

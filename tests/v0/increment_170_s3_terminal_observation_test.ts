@@ -1,20 +1,23 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
 import { createDataClient } from '../../v0/agent/data/client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import type {
   WorkerCorrelation,
   WorkerReadyMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import type { WorkerExecutionTraceEntry } from '../../v0/agent/worker/worker_execution_artifact.ts';
 
-const readyFor = (correlation: WorkerCorrelation): WorkerReadyMessage => ({
+const readyFor = (
+  correlation: WorkerCorrelation,
+  configuration: ReturnType<typeof workerConfigurationFixture>,
+): WorkerReadyMessage => ({
   kind: 'ready',
   correlation,
+  configuration,
   manifest: {
     role: 'parent',
     maxSteps: 4,
@@ -27,11 +30,11 @@ const readyFor = (correlation: WorkerCorrelation): WorkerReadyMessage => ({
 const openExecution = async (root: string, suffix: string) => {
   const stateRoot = `${root}/state`;
   const data = await createDataClient({ stateRoot, workspaceRoot: root });
-  const definition = await builtinDefinitionRef('default', buildManifest());
+  const configuration = workerConfigurationFixture();
   const descriptor = await data.openSession({
     persistence: 'new',
     agent: 'default',
-    definition,
+    agentChoice: {},
     initialModelSelection: ROOT_DEFAULT_MODEL_SELECTION,
   });
   const executionId = crypto.randomUUID().toLowerCase();
@@ -45,7 +48,7 @@ const openExecution = async (root: string, suffix: string) => {
   const port = createAgentDataPortClient(
     await data.attachGeneration(descriptor.id, correlation),
   );
-  await port.ready(readyFor(correlation));
+  await port.ready(readyFor(correlation, configuration));
   await data.executionAdmit(descriptor.id, {
     executionId,
     taskId: crypto.randomUUID().toLowerCase(),
@@ -72,7 +75,7 @@ const readSaved = async (
   workspaceRoot: string,
   executionId: string,
 ) => {
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {
     readOnly: true,
   });
   await store.initialize();
@@ -156,7 +159,7 @@ Deno.test('Increment 170 S3 persists a noncanonical failure artifact and late co
   try {
     const saved = await readSaved(run.stateRoot, root, run.executionId);
     strictEqual(saved.row.artifactCapture, 'yes');
-    ok(saved.artifact.schemaVersion === 7);
+    ok(saved.artifact.schemaVersion === 1);
     strictEqual(saved.artifact.storeResult, 'not_attempted');
     strictEqual(saved.artifact.acknowledgement, 'not_sent');
     strictEqual(saved.artifact.settlement, 'uncommitted');
@@ -264,7 +267,7 @@ Deno.test('Increment 170 S3 saves cancelled prefix artifact with sequenced cance
   try {
     const saved = await readSaved(run.stateRoot, root, run.executionId);
     strictEqual(saved.row.artifactCapture, 'yes');
-    ok(saved.artifact.schemaVersion === 7);
+    ok(saved.artifact.schemaVersion === 1);
     strictEqual(saved.artifact.outcome?.stopReason, 'cancelled');
     strictEqual(saved.artifact.settlement, 'uncommitted');
     strictEqual(saved.artifact.adoption, 'non_canonical');

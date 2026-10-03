@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-03（A28をIncrement 180へ移動、S4を`/reload`へ改名、機構の簡素化方針をE6へ分離）。
+更新日: 2026-10-04（E6とbuild保存B9を181へ移動。model省略childの認証登録ID継承をB10として記録）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -14,14 +14,15 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 共通APIキー登録は[173](../increments/increment-173.md)、B6は[174](../increments/increment-174.md)、
 B7は[175](../increments/increment-175.md)、B8と共通の短い失敗診断は[176](../increments/increment-176.md)を参照する。
 API/CLI adapter分離（S31とrun追加案）は[179](../increments/increment-179.md)、
-Coreの全件転記・重複再投影の削除（A28）は[180](../increments/increment-180.md)を参照する。
+Coreの全件転記・重複再投影の削除（A28）は[180](../increments/increment-180.md)、
+Agent設定・tool管理と履歴DBの簡素化（E6）は[181](../increments/increment-181.md)を参照する。
 B8の元の実失敗原因は未確定で、再発時の調査方針も176を参照する。
 
 ## 候補一覧
 
 | ID  | 領域           | 候補                                                                         | 再検討の主な契機                                                                                                       |
 | --- | -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                           | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                       |
+| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                          | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14採用時                                             |
@@ -54,7 +55,6 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                      | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
 | E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                        | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
 | E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）         | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
-| E6  | 配布・外部化   | Agent設定・tool管理の簡素化とrevisionの履歴利用                               | 利用者がJSON設定と簡易なtool管理への切替を個別incrementへ採用するとき                                                |
 | P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                            | context圧縮を人間が明示的に行いたくなったとき                                                                          |
 | P4  | 参照実装parity | Session export/import                                                        | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
 | P6  | 参照実装parity | model cycling shortcut                                                       | provider横断のmodel切替を頻繁に行うとき                                                                                |
@@ -68,17 +68,21 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 
 - 現行の観測（2026-10-03、source照合）: workspace instructionとskill本文はWorker起動時に
   snapshot化され、toolも起動時に読み込まれる。稼働中Workerへの明示的な再読込操作はない。
-- 利用者方針（2026-10-03、個別incrementへの採用・実装は未実施）: 操作名を`/rebuild`から`/reload`へ変更する。
-  Agent設定・tool管理の簡素化、revisionの扱い、DBへの影響最小化はS4とは別の候補E6で扱う。
-- 候補: 起動時の読込・検証・構成と共通の経路を人間の`/reload`から使い、instruction・Agent設定・toolの
-  現在内容を同じSessionの後続executionへ適用する。canonical conversation、未送信draft、過去executionと
-  そのattributionを維持する。
-- 未決事項: 最初の再読込対象、実行間の適用手順、読込失敗時の扱い、現在のWorkerとの接続を個別incrementで
+- 利用者方針（2026-10-03、個別incrementへの採用・実装は未実施）:
+  操作名を`/rebuild`から`/reload`へ変更する。
+  Agent設定・tool管理の簡素化、revisionの扱い、新DBへの整理は
+  [Increment 181](../increments/increment-181.md)で扱い、S4とは別の採用範囲とする。
+- 候補:
+  起動時の読込・検証・構成と共通の経路を人間の`/reload`から使い、instruction・Agent設定・toolの
+  現在内容を同じSessionの後続executionへ適用する。canonical
+  conversation、未送信draft、過去executionと そのattributionを維持する。
+- 未決事項:
+  最初の再読込対象、実行間の適用手順、読込失敗時の扱い、現在のWorkerとの接続を個別incrementで
   定める。2026-09-13の`AGENTS.md`と個々のnative Skillの有効・無効選択の希望についても、保存scope、
   既定状態、操作との関係は未確定である。
 - 再検討条件: `/reload`を個別incrementへ採用するとき、または通常利用で同じSessionへ
   編集内容を反映する必要が出ること。
-- 関連: A2、R4、E1、E6、
+- 関連: A2、R4、E1、[Increment 181](../increments/increment-181.md)、
   [`terminal-markdown-rendering-comparison.md`](../research/terminal-markdown-rendering-comparison.md)、
   [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
   [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
@@ -775,35 +779,6 @@ Pi／OpenCode／Henjiの画面表示比較
 - 正本候補: `docs/architecture/multi-provider-routing-and-auth.md`、`docs/roadmap.md` F02／F24。
 - 関連: E1、Increment 101。
 
-### E6 — Agent設定・tool管理の簡素化とrevisionの履歴利用（未採用）
-
-- 観測（2026-10-03、source・常用設定照合）: defaultとgenericは同じfactoryを使い、provider・modelは
-  Session選択・起動時指定で変更できる。外部Agent Definitionは常用設定ではreviewer一つで、その差は
-  instruction、使用tool、子Agent利用の設定であり、独自のAgent構築処理はない。
-  現行のmanaged store・install・binding・Worker loadは内容hashに結び付いたexact revisionを要求する。
-  DBではDefinitionは`definition_json`、toolのrevisionはmanifest・artifactのJSON内に保存されている。
-- 利用者方針（2026-10-03、検討方向の合意。個別incrementへの採用・実装は未実施）:
-  Agent Definitionをinstructionと使用tool等のJSON設定へ簡素化し、共通runtimeで構成する。
-  provider・modelは既存のSession選択・起動時指定を使う。taskに応じた判断はAIが行い、command・path単位の
-  permission制御とその確認機構は採用しない。
-  toolは所定のfolderに配置し、有効化された現在のfileを起動時に読み、実行に必要な形式・contractを検証する。
-  revisionは実装版の識別とDBへの使用版記録として残し、内容hashとの厳密な一致を要求する管理を外す。
-  機能がほぼ同じでもDeno等の実行環境に合わせた内部修正を版で区別でき、同じ内容に別の版名を付けてもよい。
-  install・版管理も簡易にし、過去revisionを選択してloadする機構は外す。
-  DBへの影響は最小限とする。
-- 未決事項: JSON設定の具体項目、fileの配置・有効化・読込経路、install操作の整理範囲、revisionの保存形式と
-  必要なDB読書き・validator変更、既存Sessionの扱いを個別計画で定める。構想・architecture・roadmapへの
-  変更案は別途提示・承認する。
-- S4との関係: E6は設定・tool管理と起動時の読込機構を扱い、S4は同じSessionの後続executionへ現在内容を
-  適用する`/reload`操作を扱う。採用範囲と実装計画は分ける。
-- 再検討条件: 利用者がこの簡素化方針を個別incrementへ採用するとき。
-- 現行経路: `v0/agent/worker_agent_api.ts`、`v0/agent/worker/worker_tui_session.ts`、
-  `v0/agent/definitions/managed_tool_definition_store.ts`、`v0/agent/definitions/tool_binding.ts`、
-  `v0/agent/worker/worker_bootstrap.ts`、`v0/agent/worker/worker_host_children.ts`、
-  `v0/agent/history/sqlite_history_v7_prototype.ts`、`v0/agent/worker/worker_execution_artifact.ts`。
-- 関連: S4、E1、E2、R2、R4。
-- 利用者指示（2026-10-03）: 次に進める対象としてE6を選択した。個別incrementへの採用と具体計画は未実施。
-
 ## 参照実装parity（Pi／Zot調査、未採用）
 
 - 観測（2026-09-22、snapshot調査）: Pi（`_refs/pi` commit `08dc60bc…`、0.85.1）とZot（`_refs/zot`
@@ -866,23 +841,23 @@ Pi／OpenCode／Henjiの画面表示比較
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
 
-### B9 — compiled実行の保存buildIdがdevelopment値になる
+### B10 — model省略のChatGPT子Agentへ認証登録IDが渡らない
 
-- 観測（2026-10-03、Increment 179のprovider-free受入）: 公式compiled候補と変更前baseline
-  (`1d8d58e`)のmanaged headless実行を、終了後にread-only SQLiteで確認した。
-  両版の保存executionのbuildIdはdevelopment値
-  `c738494fbbf99c577b5c91b957df9f3f0efcfc755442293665f71c8e3bd30179`で、
-  binaryの`--version`にある実buildIdと一致しなかった。
-- 原因のsource経路: `data/client.ts`のData Worker初期化はstateRoot/workspaceRootだけを渡し、
-  `data_bootstrap.ts`はbuild manifestをinstallしていない。`session_authority.ts`が
-  `buildManifest()`の既定development値を取得し、`session_data_owner.ts`がexecution保存へ渡す。
-- 利用者影響: 保存executionのbuildIdから、実際に使用したcompiled buildを区別できない。
-  今回の候補identityはbinary SHA・version・Core readで確認した。
-- 対応候補（未採用）: Data Workerの初期化へ実build manifestを渡してinstallし、
-  新しいexecution保存とreadbackで実buildIdを確認する。既存履歴の書換えは採用していない。
-- 再検討条件: 履歴の実build attribution修正を個別incrementへ採用するとき。
-- 証拠: `.tools/increment-179/acceptance/definition-{baseline,candidate}/`、
-  同受入の`definition_readback.ts`、[Increment 179](../increments/increment-179.md)。
+- 観測（2026-10-04、181最終E2E）: 親は選択中のChatGPT登録で正常に実行できるが、
+  `spawn_subagent`でmodelを省略したgeneric子は`registrationId:null`を受け取り、
+  `missing_credential`・0 provider request・0 tool callで失敗した。
+- source経路:
+  `worker_host_coordinator.ts`の`childChatGPTRegistrationId()`はmodel選択に明示IDがないとnullを返す。
+  `worker_host_children.ts`はmodel省略時にその親scopeのIDを子のselectionへ設定する。
+  親自身は明示IDがなければhostの選択中登録を使えるため、親子で実効credentialが異なる。
+  この処理は181変更前にも同じである。
+- 利用者影響: 正常な親からmodel指定なしで子を起動しても作業を開始できない。
+  同じprovider/model/effortを明示したspawnでは、開始後cancel/status/collectまで実行できた。
+- 修正候補（未採用）: 親execution開始時に、親の実効選択登録IDを一度解決して子scopeへ渡す。
+  明示nullと未指定は区別する。認証値を履歴へ保存する必要はない。
+- 再検討条件: model省略の親子実行の修正を個別incrementへ採用するとき。
+- 証拠: [181最終E2E](../increments/e2e-181-plan.md)、親`75e94975-d288-41c2-ba20-e1e5f25f99fd`、
+  子`911fea2e-ac7d-4f5d-8fc7-3b5bc1a0c932`。初回のfailed子をcancel成功とは扱っていない。
 
 ### B5 — `commit proposal invalid`の具体的な検証不合格理由を特定できない
 

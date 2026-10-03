@@ -1,6 +1,5 @@
 import { ok, strictEqual } from 'node:assert';
-import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 
@@ -8,9 +7,9 @@ Deno.test('Increment 170 headless production Worker closes Data after terminal p
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-headless-' });
   const stateRoot = `${root}/state`;
   const events: AgentEvent[] = [];
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, root, { readOnly: true });
+  const reader = new SqliteHistoryStore(stateRoot, root, { readOnly: true });
   try {
-    const result = await runHeadlessWorker('answer briefly', resolveBuiltinAgent(), {
+    const result = await runHeadlessWorker('answer briefly', {}, {
       workspaceRoot: root,
       stateRoot,
       configRoot: `${root}/config`,

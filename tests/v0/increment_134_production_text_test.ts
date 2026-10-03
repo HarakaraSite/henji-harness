@@ -2,18 +2,20 @@ import { deepStrictEqual, throws } from 'node:assert';
 import { DatabaseSync } from 'node:sqlite';
 import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
 import type { ExecutionEventInput } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 import {
   recalledExecutionProjectionText,
   resolveRecalledExecutionContext,
 } from '../../v0/agent/worker/recalled_execution_context.ts';
-import type { HistoryV7AssistantTextState } from '../../v0/agent/history/history_v7_model.ts';
+import type { HistoryAssistantTextState } from '../../v0/agent/history/history_semantic_model.ts';
 
 const executionId = '13400000-0000-4000-8000-000000000001';
+const configuration = workerConfigurationFixture();
 const input = {
   executionId,
   taskId: '13400000-0000-4000-8000-000000000002',
@@ -25,12 +27,10 @@ const input = {
   agent: 'default' as const,
   model: ROOT_DEFAULT_MODEL_SELECTION,
   build: buildManifest(),
-  definition: {
-    schemaVersion: 1 as const,
-    resourceKind: 'agent-definition' as const,
-    resourceId: 'builtin/default',
-    revision: { algorithm: 'sha256' as const, digest: '1'.repeat(64) },
-  },
+  configuration,
+  configurationId: configuration.configurationId,
+  maxSteps: 128,
+  command: 'text-production-command',
 };
 const observation = (
   event: ProviderEvidenceRuntimeEvent,
@@ -84,10 +84,10 @@ Deno.test('Increment 134 production keeps completed result and only latest cance
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
     await store.beginExecution({ ...input, sessionMode: 'no_session' });
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v7.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
     const db = new DatabaseSync(path, { readOnly: true });
     try {
       store.appendExecutionEvents([
@@ -95,7 +95,7 @@ Deno.test('Increment 134 production keeps completed result and only latest cance
         observation(progress('Hello'), 2),
       ]);
       deepStrictEqual(rowCount(db, 'assistant_text_states'), 1);
-      deepStrictEqual(rowCount(db, 'semantic_occurrences'), 1); // admission only
+      deepStrictEqual(rowCount(db, 'semantic_records'), 1); // admission only
       const saved = JSON.parse(
         String(db.prepare('SELECT event_json FROM assistant_text_states').get()!.event_json),
       );
@@ -116,7 +116,7 @@ Deno.test('Increment 134 production keeps completed result and only latest cance
         }, 4),
       ]);
       deepStrictEqual(rowCount(db, 'assistant_text_states'), 0);
-      deepStrictEqual(rowCount(db, 'semantic_occurrences'), 2);
+      deepStrictEqual(rowCount(db, 'semantic_records'), 2);
       store.appendExecutionEvents([
         observation(progress('Second', 2), 5),
         observation(progress('Second partial', 2), 6),
@@ -131,7 +131,7 @@ Deno.test('Increment 134 production keeps completed result and only latest cance
       const last = store.appendExecutionEvent(observation(progress('Second latest', 2), 7));
       store.settleNonCanonicalExecution({ ...input, outcome: outcome('cancelled') });
       deepStrictEqual(rowCount(db, 'assistant_text_states'), 0);
-      deepStrictEqual(rowCount(db, 'semantic_occurrences'), 5); // admission, result, steer, partial, terminal
+      deepStrictEqual(rowCount(db, 'semantic_records'), 5); // admission, result, steer, partial, terminal
       const events = store.listExecutionEvents(executionId);
       const providerEvents = events.filter((event) => event.kind === 'runtime_event');
       deepStrictEqual(providerEvents.map((event) => event.payload), [
@@ -181,8 +181,8 @@ Deno.test('Increment 134 active detail retains one text snapshot across later mo
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, { readOnly: true });
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const reader = new SqliteHistoryStore(stateRoot, workspaceRoot, { readOnly: true });
   const sessionId = '13400000-0000-4000-8000-000000000003';
   try {
     await store.beginExecution({
@@ -192,7 +192,7 @@ Deno.test('Increment 134 active detail retains one text snapshot across later mo
       sessionMode: 'persistent',
       baseStateRevision: 1,
       sessionRecord: {
-        schemaVersion: 6,
+        schemaVersion: 1,
         sessionId,
         workspaceRoot,
         agent: 'default',
@@ -202,7 +202,7 @@ Deno.test('Increment 134 active detail retains one text snapshot across later mo
         stateRevision: 1,
         nextTurn: 1,
         transcript: [],
-        definition: input.definition,
+        agentChoice: {},
         activeModel: input.model,
         modelChanges: [{
           effectiveFromTurn: 1,
@@ -237,7 +237,7 @@ Deno.test('Increment 134 active detail retains one text snapshot across later mo
       const remaining = Array.from({ [Symbol.iterator]: () => iterator });
       const states = remaining.filter((entry) => entry.kind === 'assistant_text_state');
       deepStrictEqual(states.length, 1);
-      const textState = states[0].value as unknown as HistoryV7AssistantTextState;
+      const textState = states[0].value as unknown as HistoryAssistantTextState;
       deepStrictEqual(
         textState.event.payload,
         observation(progress('detail latest'), 2, sessionId, 1).payload,
@@ -262,7 +262,7 @@ Deno.test('Increment 134 failed settlement retains latest text for restart recon
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {
     fault: () => {
       throw new Error('settlement interrupted');
     },
@@ -273,17 +273,17 @@ Deno.test('Increment 134 failed settlement retains latest text for restart recon
     throws(() =>
       store.settleNonCanonicalExecution({ ...input, outcome: outcome('contract_failure') })
     );
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v7.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
     const db = new DatabaseSync(path, { readOnly: true });
     try {
       deepStrictEqual(rowCount(db, 'assistant_text_states'), 1);
-      deepStrictEqual(rowCount(db, 'semantic_occurrences'), 1);
+      deepStrictEqual(rowCount(db, 'semantic_records'), 1);
       deepStrictEqual(store.readExecution(executionId).lifecycle, 'active');
     } finally {
       db.close();
     }
     store.close();
-    const reopened = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    const reopened = new SqliteHistoryStore(stateRoot, workspaceRoot);
     try {
       await reopened.initialize();
       deepStrictEqual(reopened.readExecution(executionId).outcome, 'interrupted');
@@ -292,11 +292,11 @@ Deno.test('Increment 134 failed settlement retains latest text for restart recon
         events.filter((event) => event.kind === 'runtime_event').map((event) => event.payload),
         [latest.payload],
       );
-      deepStrictEqual(events.at(-1)!.kind, 'execution_reconciled');
+      deepStrictEqual(events.at(-1)!.kind, 'execution_settled');
       const db = new DatabaseSync(path, { readOnly: true });
       try {
         deepStrictEqual(rowCount(db, 'assistant_text_states'), 0);
-        deepStrictEqual(rowCount(db, 'semantic_occurrences'), 3);
+        deepStrictEqual(rowCount(db, 'semantic_records'), 3);
       } finally {
         db.close();
       }

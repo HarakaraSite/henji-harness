@@ -46,7 +46,7 @@ Deno.test('Increment 159 HTTP exposes the stored short failure reason in snapsho
     const opened = await client.sessionOpen({
       commandId: crypto.randomUUID(),
       selection: { kind: 'new' },
-      activation: { agent: 'default', maxSteps: 2, rootProvider: 'openrouter-responses' },
+      activation: { maxSteps: 2, rootProvider: 'openrouter-responses' },
     });
     strictEqual(opened.kind, 'accepted');
     if (opened.kind !== 'accepted') return;

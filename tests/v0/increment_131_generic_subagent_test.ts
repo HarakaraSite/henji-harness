@@ -9,21 +9,11 @@ import {
   createAsyncAgentTools,
 } from '../../v0/agent/tools/async_agents.ts';
 import { ToolInputError } from '../../v0/agent/tools/tools.ts';
-import type { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
-import {
-  bundledToolDefinitionLoadRequests,
-} from '../../v0/agent/worker/worker_definition_revision.ts';
-import { managedChildModule, managedChildRef } from './managed_child_fixture.ts';
+import { writeProbeAgentConfiguration } from './managed_child_fixture.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
-import type { WorkerAsyncAgentCatalogEntry } from '../../v0/agent/worker/worker_protocol.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import {
-  AgentBindingError,
-  readAgentSlotBindings,
-} from '../../v0/agent/definitions/agent_slot_binding.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { resolveWorkerConfiguration } from '../../v0/agent/configuration/configuration_resolver.ts';
 import {
   defaultModelSelectionFor,
   modelCatalogEntryFor,
@@ -59,37 +49,43 @@ const alternateSelection = (): ModelSelection => {
   const entry = modelCatalogEntryFor(current.provider, current.modelId);
   const effort = entry?.efforts.find((candidate) => candidate !== current.effort);
   if (effort !== undefined) {
-    return selectModelFor(current.provider, current.modelId, effort as ReasoningEffort);
+    return selectModelFor(
+      current.provider,
+      current.modelId,
+      effort as ReasoningEffort,
+    );
   }
   throw new Error('no alternate effort in the active model catalog');
 };
 
 const registry = async (
-  history?: SqliteHistoryV7ProductionStore,
+  history?: SqliteHistoryStore,
   currentModel?: () => ModelSelection,
-): Promise<ChildRunRegistry> => {
-  const childRef = managedChildRef();
-  const { registry } = await createChildDataTestRegistry({
+  setupConfiguration: (configRoot: string) => Promise<void> = async (
+    configRoot,
+  ) => {
+    await writeProbeAgentConfiguration(configRoot);
+  },
+): Promise<Awaited<ReturnType<typeof createChildDataTestRegistry>>> => {
+  return await createChildDataTestRegistry({
     options: {
       physicalIoMode: 'provider-free',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
     },
-    catalog: [{ name: 'probe-child', ref: childRef }],
-    resolveManagedModule: managedChildModule,
+    currentCatalog: () => ['probe-child'],
+    setupConfiguration,
     ...(history === undefined ? {} : { store: history }),
     ...(currentModel === undefined ? {} : { currentModelSelection: currentModel }),
   });
-  return registry;
 };
 
 const withStore = async (
   name: string,
-  run: (store: SqliteHistoryV7ProductionStore) => Promise<void>,
+  run: (store: SqliteHistoryStore) => Promise<void>,
 ): Promise<void> => {
   const root = await Deno.makeTempDir({ prefix: `henji-i131-${name}-` });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot);
+  const store = new SqliteHistoryStore(`${root}/state`, workspaceRoot);
   await store.initialize();
   try {
     await run(store);
@@ -104,7 +100,10 @@ const toolInputError = async (fn: () => Promise<unknown>): Promise<string> => {
   try {
     await fn();
   } catch (error) {
-    assert(error instanceof ToolInputError, `expected ToolInputError, got ${error}`);
+    assert(
+      error instanceof ToolInputError,
+      `expected ToolInputError, got ${error}`,
+    );
     return error.message;
   }
   throw new Error('expected ToolInputError');
@@ -125,7 +124,11 @@ childDataTest(
     const result = await spawn.execute({
       agent: 'probe-child',
       task: 'investigate X',
-      model: { provider: 'openrouter-chat', modelId: 'some-model', effort: 'high' },
+      model: {
+        provider: 'openrouter-chat',
+        modelId: 'some-model',
+        effort: 'high',
+      },
       tools: ['read', 'bash'],
     }, { callId: 'c1', signal: undefined });
     assertEquals(JSON.parse(result as string), { ok: true, runId: 'run-1' });
@@ -133,7 +136,11 @@ childDataTest(
       kind: 'spawn',
       agent: 'probe-child',
       task: 'investigate X',
-      model: { provider: 'openrouter-chat', modelId: 'some-model', effort: 'high' },
+      model: {
+        provider: 'openrouter-chat',
+        modelId: 'some-model',
+        effort: 'high',
+      },
       tools: ['read', 'bash'],
     });
 
@@ -173,7 +180,10 @@ childDataTest(
       }, { callId: 'c5', signal: undefined });
       const parsed = JSON.parse(failed as string);
       assertEquals(parsed.ok, false);
-      assert(`${parsed.error}`.includes('model must be an object'), parsed.error);
+      assert(
+        `${parsed.error}`.includes('model must be an object'),
+        parsed.error,
+      );
     }
     assertEquals(requests.length, 1);
   },
@@ -182,8 +192,10 @@ childDataTest(
 childDataTest(
   'Increment 131 rejects a model outside the active catalog without a runId',
   async () => {
-    const children = await registry();
+    const fixture = await registry();
+    const { registry: children } = fixture;
     const parentExecutionId = 'parent-i131-model-value';
+    await fixture.seedParentExecution(parentExecutionId);
     children.openParent(parentExecutionId);
     const spawned = await children.handle(
       {
@@ -205,8 +217,29 @@ childDataTest(
   async () => {
     await withStore('tools', async (store) => {
       const alternate = alternateSelection();
-      const children = await registry(store, currentSelection);
+      const fixture = await registry(
+        store,
+        currentSelection,
+        async (configRoot) => {
+          await writeProbeAgentConfiguration(configRoot, 'probe-child', {
+            name: 'probe-child',
+            revision: 'increment-131-tools',
+            instruction: 'Use available tools for the assigned child task.',
+            tools: [
+              'read',
+              'write',
+              'bash',
+              'bash_output',
+              'web_search',
+              'web_fetch',
+            ],
+            agents: [],
+          });
+        },
+      );
+      const { registry: children } = fixture;
       const parentExecutionId = 'parent-i131-tools';
+      await fixture.seedParentExecution(parentExecutionId);
       children.openParent(parentExecutionId);
       const spawned = await children.handle(
         {
@@ -229,16 +262,22 @@ childDataTest(
         undefined,
         parentExecutionId,
       );
-      assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+      assert(
+        collected.ok && collected.kind === 'collect',
+        JSON.stringify(collected),
+      );
       assertEquals(collected.result.state, 'completed');
 
       const row = store.readExecution(spawned.runId);
-      const resources: readonly string[] = row.manifest?.resources ?? [];
-      assert(resources.includes('tool:read'), JSON.stringify(resources));
-      assert(resources.includes('tool:bash'), JSON.stringify(resources));
-      assert(!resources.includes('tool:write'), JSON.stringify(resources));
-      assert(!resources.includes('tool:web_search'), JSON.stringify(resources));
-      assert(sameModelSelection(row.model, alternate), JSON.stringify(row.model));
+      const tools = row.configuration.tools.map((tool) => tool.name);
+      assert(tools.includes('read'), JSON.stringify(tools));
+      assert(tools.includes('bash'), JSON.stringify(tools));
+      assert(!tools.includes('write'), JSON.stringify(tools));
+      assert(!tools.includes('web_search'), JSON.stringify(tools));
+      assert(
+        sameModelSelection(row.model, alternate),
+        JSON.stringify(row.model),
+      );
     });
   },
 );
@@ -248,8 +287,10 @@ childDataTest(
   async () => {
     await withStore('model-default', async (store) => {
       const current = currentSelection();
-      const children = await registry(store, () => current);
+      const fixture = await registry(store, () => current);
+      const { registry: children } = fixture;
       const parentExecutionId = 'parent-i131-model-default';
+      await fixture.seedParentExecution(parentExecutionId);
       children.openParent(parentExecutionId);
       const spawned = await children.handle(
         {
@@ -266,7 +307,10 @@ childDataTest(
         undefined,
         parentExecutionId,
       );
-      assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+      assert(
+        collected.ok && collected.kind === 'collect',
+        JSON.stringify(collected),
+      );
       const row = store.readExecution(spawned.runId);
       assert(sameModelSelection(row.model, current), JSON.stringify(row.model));
     });
@@ -276,8 +320,10 @@ childDataTest(
 childDataTest(
   'Increment 131 turns tool filter value errors into a failed run with a runId',
   async () => {
-    const children = await registry();
+    const fixture = await registry();
+    const { registry: children } = fixture;
     const parentExecutionId = 'parent-i131-filter-value';
+    await fixture.seedParentExecution(parentExecutionId);
     children.openParent(parentExecutionId);
     for (const tools of [['no-such-tool'], ['skill']]) {
       const spawned = await children.handle(
@@ -296,7 +342,10 @@ childDataTest(
         undefined,
         parentExecutionId,
       );
-      assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+      assert(
+        collected.ok && collected.kind === 'collect',
+        JSON.stringify(collected),
+      );
       assertEquals(collected.result.state, 'failed');
       assert(
         `${collected.result.error}`.includes('tool_filter_invalid'),
@@ -310,17 +359,17 @@ childDataTest(
   'Increment 131 spawns the bundled generic child without install or bind',
   async () => {
     await withStore('generic', async (store) => {
-      const genericRef = await builtinDefinitionRef('generic', buildManifest());
       const alternate = alternateSelection();
-      const { registry: children } = await createChildDataTestRegistry({
+      const fixture = await createChildDataTestRegistry({
         options: {
           physicalIoMode: 'provider-free',
-          toolDefinitions: await bundledToolDefinitionLoadRequests(),
         },
-        catalog: [{ name: 'generic', ref: genericRef }],
+        currentCatalog: () => ['generic'],
         store,
       });
+      const { registry: children } = fixture;
       const parentExecutionId = 'parent-i131-generic';
+      await fixture.seedParentExecution(parentExecutionId);
       children.openParent(parentExecutionId);
       const spawned = await children.handle(
         {
@@ -343,60 +392,70 @@ childDataTest(
         undefined,
         parentExecutionId,
       );
-      assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+      assert(
+        collected.ok && collected.kind === 'collect',
+        JSON.stringify(collected),
+      );
       assertEquals(collected.result.state, 'completed');
 
       const row = store.readExecution(spawned.runId);
-      assertEquals(row.definition.resourceId, 'builtin/generic');
-      assert(sameModelSelection(row.model, alternate), JSON.stringify(row.model));
-      const resources: readonly string[] = row.manifest?.resources ?? [];
-      assert(resources.includes('tool:read'), JSON.stringify(resources));
-      assert(!resources.includes('tool:write'), JSON.stringify(resources));
+      assertEquals(row.configuration.agent.name, 'generic');
       assert(
-        !resources.some((resource) => resource.startsWith('agent:')),
-        JSON.stringify(resources),
+        sameModelSelection(row.model, alternate),
+        JSON.stringify(row.model),
+      );
+      const tools = row.configuration.tools.map((tool) => tool.name);
+      assert(tools.includes('read'), JSON.stringify(tools));
+      assert(!tools.includes('write'), JSON.stringify(tools));
+      assert(
+        row.configuration.instructionComponents.every((component) =>
+          component.identity !== 'instruction:external-agent-role'
+        ),
+        JSON.stringify(row.configuration.instructionComponents),
       );
       assert(
-        !resources.includes('instruction:external-agent-role'),
-        JSON.stringify(resources),
+        row.configuration.source.kind === 'bundled',
+        JSON.stringify(row.configuration.source),
       );
     });
   },
 );
 
 childDataTest(
-  'Increment 131 the Host resolves agent:generic into the parent catalog without bindings',
+  'Increment 131 a bundled root exposes the generic child in its ready configuration',
   async () => {
     const root = await Deno.makeTempDir({ prefix: 'henji-i131-host-' });
-    let startCatalog: readonly WorkerAsyncAgentCatalogEntry[] | undefined;
+    let configuredAgents: readonly string[] | undefined;
     const result = await createWorkerSession({
       workspaceRoot: root,
       stateRoot: `${root}/state`,
       configRoot: `${root}/config`,
       dataRoot: `${root}/data`,
       persistence: 'none',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       capsuleFactory: (url) => {
         const created = new WorkerCapsule(url);
         return {
           send: (command, transfer) => {
-            if (command.kind === 'start') {
-              startCatalog = command.asyncAgents;
-            }
             created.send(command, transfer);
           },
-          subscribe: (listener) => created.subscribe(listener),
+          subscribe: (listener) =>
+            created.subscribe((message) => {
+              if (message.kind === 'ready') {
+                configuredAgents = message.configuration?.agent.agents;
+              }
+              listener(message);
+            }),
           terminate: () => created.terminate(),
         };
       },
     });
     try {
-      assert(startCatalog !== undefined, 'parent start command must carry an async catalog');
-      assertEquals(
-        startCatalog.map((entry) => [entry.name, entry.ref.resourceId]),
-        [['generic', 'builtin/generic']],
+      assert(
+        configuredAgents !== undefined,
+        'Worker ready must carry current Agent config',
       );
+      assertEquals(configuredAgents, ['generic']);
     } finally {
       await result.close();
       await Deno.remove(root, { recursive: true });
@@ -404,27 +463,33 @@ childDataTest(
   },
 );
 
-childDataTest('Increment 131 rejects an agent:generic binding as a reserved slot', async () => {
-  const configRoot = await Deno.makeTempDir({ prefix: 'henji-i131-binding-' });
-  try {
-    await Deno.writeTextFile(
-      `${configRoot}/agents.json`,
-      JSON.stringify({
-        schemaVersion: 1,
-        bindings: {
-          'agent:generic': `builtin/generic@sha256:${'a'.repeat(64)}`,
-        },
-      }),
-    );
+childDataTest(
+  'Increment 131 generic stays bundled when named in the external catalog',
+  async () => {
+    const configRoot = await Deno.makeTempDir({
+      prefix: 'henji-i131-binding-',
+    });
     try {
-      await readAgentSlotBindings(configRoot);
-    } catch (error) {
-      assert(error instanceof AgentBindingError, `${error}`);
-      assertEquals(error.code, 'binding_slot_abolished');
-      return;
+      await Deno.mkdir(`${configRoot}/agents`, { recursive: true });
+      await Deno.writeTextFile(
+        `${configRoot}/agents.json`,
+        JSON.stringify({
+          schemaVersion: 1,
+          agents: { generic: 'agents/generic.json' },
+        }),
+      );
+      const selection = await resolveWorkerConfiguration(configRoot, {
+        name: 'generic',
+      });
+      assertEquals(selection.agent?.configuration.name, 'generic');
+      assertEquals(selection.agent?.source.kind, 'bundled');
+      assert(
+        selection.agents[0]?.rejection?.reason.includes(
+          'generic uses the bundled configuration',
+        ),
+      );
+    } finally {
+      await Deno.remove(configRoot, { recursive: true });
     }
-    throw new Error('expected AgentBindingError');
-  } finally {
-    await Deno.remove(configRoot, { recursive: true });
-  }
-});
+  },
+);

@@ -99,7 +99,7 @@ Deno.test('Increment 170 production HTTP subscribers and live reconnect continue
       stateRoot: `${environment.XDG_STATE_HOME}/henji-harness/v1`,
       dataRoot: `${environment.XDG_DATA_HOME}/henji-harness`,
       physicalIoMode: 'production',
-      agent: 'default',
+
       rootMaxSteps: 2,
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
       providerDeclarations: declarations,

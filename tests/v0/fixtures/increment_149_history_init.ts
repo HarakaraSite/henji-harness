@@ -1,12 +1,10 @@
 import { readSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { builtinDefinitionRef } from '../../../v0/agent/definitions/managed_resource_ref.ts';
 import { createCoreService } from '../../../v0/agent/host/core_service.ts';
-import { SqliteHistoryV7Store } from '../../../v0/agent/history/sqlite_history_v7_store.ts';
+import { SqliteHistoryCore } from '../../../v0/agent/history/sqlite_history_core.ts';
 import { withHistorySchemaOpen } from '../../../v0/agent/history/history_schema_open.ts';
-import { SqliteHistoryV7ProductionStore } from '../../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../../v0/agent/history/sqlite_history_store.ts';
 import { defaultModelSelectionFor } from '../../../v0/agent/provider/model_catalog.ts';
-import { buildManifest } from '../../../v0/agent/runtime/build_manifest.ts';
 import type { StoredSessionRecord } from '../../../v0/agent/session/session_store.ts';
 import { sessionPaths } from '../../../v0/agent/session/session_store_paths.ts';
 
@@ -76,7 +74,7 @@ const installDataWorkerSchemaLockProbe = (directoryPath: string): () => void => 
 };
 
 if (mode === 'create-session') {
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   const paths = await sessionPaths(stateRoot, workspaceRoot);
   const restoreOpen = watchSchemaLockAttempt(paths.root, 'writer-lock-attempt');
   try {
@@ -84,12 +82,11 @@ if (mode === 'create-session') {
   } finally {
     restoreOpen();
   }
-  const definition = await builtinDefinitionRef('default', buildManifest());
-  const handle = await store.allocateWorker('default', definition);
+  const handle = await store.allocateWorker('default', {});
   const createdAt = new Date().toISOString();
   const activeModel = defaultModelSelectionFor('openrouter-chat');
   const record: StoredSessionRecord = {
-    schemaVersion: 6,
+    schemaVersion: 1,
     sessionId: handle.id,
     workspaceRoot,
     agent: 'default',
@@ -99,7 +96,7 @@ if (mode === 'create-session') {
     stateRevision: 1,
     nextTurn: 1,
     transcript: [],
-    definition,
+    agentChoice: {},
     activeModel,
     modelChanges: [{ effectiveFromTurn: 1, changedAt: createdAt, selection: activeModel }],
     turnModels: [],
@@ -121,7 +118,7 @@ if (mode === 'create-session') {
 
 if (mode === 'prepare-schema-barrier') {
   const paths = await sessionPaths(stateRoot, workspaceRoot);
-  const databasePath = `${paths.root}/history-v7.sqlite3`;
+  const databasePath = `${paths.root}/history.sqlite3`;
   await Deno.mkdir(paths.root, { recursive: true, mode: 0o700 });
   await withHistorySchemaOpen(paths.root, () => {
     const db = new DatabaseSync(databasePath);
@@ -135,7 +132,7 @@ if (mode === 'prepare-schema-barrier') {
     } finally {
       db.close();
     }
-    const store = new SqliteHistoryV7Store(databasePath);
+    const store = new SqliteHistoryCore(databasePath);
     store.close();
   });
   emit('schema-ready');

@@ -2,11 +2,11 @@ import { deepStrictEqual, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store.ts';
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const fixture = async () => {
@@ -86,7 +86,7 @@ Deno.test('Increment 150 two process Sessions submit and save separate canonical
       return JSON.parse(chunks.map(decode).join('')) as { sessionId: string };
     }));
     strictEqual(outputs[0].sessionId === outputs[1].sessionId, false);
-    const store = new SqliteHistoryV7ProductionStore(f.state, f.workspace, { readOnly: true });
+    const store = new SqliteHistoryStore(f.state, f.workspace, { readOnly: true });
     try {
       await store.initialize();
       for (const [index, saved] of outputs.entries()) {
@@ -117,30 +117,31 @@ Deno.test('Increment 150 two process Sessions submit and save separate canonical
     await Deno.remove(f.root, { recursive: true });
   }
 });
-const admission = (id: string, correlation = id) => ({
-  executionId: id,
-  taskId: crypto.randomUUID(),
-  createdAt: new Date().toISOString(),
-  sessionCorrelation: correlation,
-  turn: 1,
-  task: 'recovery ownership',
-  baseStateRevision: 0,
-  agent: 'default' as const,
-  model: ROOT_DEFAULT_MODEL_SELECTION,
-  build: buildManifest(),
-  definition: {
-    schemaVersion: 1 as const,
-    resourceKind: 'agent-definition' as const,
-    resourceId: 'builtin/default',
-    revision: { algorithm: 'sha256' as const, digest: '1'.repeat(64) },
-  },
-  sessionMode: 'no_session' as const,
-});
+const admission = (id: string, correlation = id) => {
+  const configuration = workerConfigurationFixture();
+  return {
+    executionId: id,
+    taskId: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    sessionCorrelation: correlation,
+    turn: 1,
+    task: 'recovery ownership',
+    baseStateRevision: 0,
+    agent: 'default',
+    model: ROOT_DEFAULT_MODEL_SELECTION,
+    build: buildManifest(),
+    configuration,
+    configurationId: configuration.configurationId,
+    maxSteps: 128,
+    command: 'recovery-test',
+    sessionMode: 'no_session' as const,
+  };
+};
 Deno.test('Increment 150 recovery respects live parent/child owners and releases acquired locks', async () => {
   const f = await fixture();
-  const owner = new SqliteHistoryV7ProductionStore(f.state, f.workspace);
-  const observer = new SqliteHistoryV7ProductionStore(f.state, f.workspace);
-  const recovery = new SqliteHistoryV7ProductionStore(f.state, f.workspace);
+  const owner = new SqliteHistoryStore(f.state, f.workspace);
+  const observer = new SqliteHistoryStore(f.state, f.workspace);
+  const recovery = new SqliteHistoryStore(f.state, f.workspace);
   const parent = crypto.randomUUID(), childId = crypto.randomUUID();
   try {
     await owner.beginExecution(admission(parent));
@@ -159,7 +160,7 @@ Deno.test('Increment 150 recovery respects live parent/child owners and releases
     for (const id of [parent, childId]) {
       strictEqual(recovery.readExecution(id).outcome, 'interrupted');
       const file = await Deno.open(
-        `${(await sessionPaths(f.state, f.workspace)).root}/locks-v7/.execution-${id}.lock`,
+        `${(await sessionPaths(f.state, f.workspace)).root}/locks/.execution-${id}.lock`,
         { read: true, write: true },
       );
       try {
@@ -178,14 +179,13 @@ Deno.test('Increment 150 recovery respects live parent/child owners and releases
 });
 Deno.test('Increment 150 early-settled recovery releases the Session lock for explicit resume', async () => {
   const f = await fixture();
-  const owner = new SqliteHistoryV7ProductionStore(f.state, f.workspace);
-  const settler = new SqliteHistoryV7ProductionStore(f.state, f.workspace);
-  const recovery = new SqliteHistoryV7ProductionStore(f.state, f.workspace);
-  const definition = await builtinDefinitionRef('default', buildManifest());
-  const handle = await owner.allocateWorker('default', definition);
+  const owner = new SqliteHistoryStore(f.state, f.workspace);
+  const settler = new SqliteHistoryStore(f.state, f.workspace);
+  const recovery = new SqliteHistoryStore(f.state, f.workspace);
+  const handle = await owner.allocateWorker('default', {});
   const createdAt = new Date().toISOString();
   const record: StoredSessionRecord = {
-    schemaVersion: 6,
+    schemaVersion: 1,
     sessionId: handle.id,
     workspaceRoot: f.workspace,
     agent: 'default',
@@ -195,7 +195,7 @@ Deno.test('Increment 150 early-settled recovery releases the Session lock for ex
     stateRevision: 1,
     nextTurn: 1,
     transcript: [],
-    definition,
+    agentChoice: {},
     activeModel: ROOT_DEFAULT_MODEL_SELECTION,
     modelChanges: [{
       effectiveFromTurn: 1,
@@ -210,7 +210,6 @@ Deno.test('Increment 150 early-settled recovery releases the Session lock for ex
     handle.commit(record);
     await owner.beginExecution({
       ...admission(id, handle.id),
-      definition,
       baseStateRevision: 1,
       canonicalSessionId: handle.id,
       sessionMode: 'persistent',

@@ -4,13 +4,10 @@ import {
   createChildDataTestRegistry,
 } from './helpers/increment_170_child_data.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 
 childDataTest(
   'E6 uncataloged model runs in production children by inheritance and explicit selection',
@@ -64,20 +61,19 @@ childDataTest(
     setActiveProviderDeclarations(declarations);
     const selection = selectModelFor('openrouter-responses', 'new-not-a-favorite');
     strictEqual(selection.effort, 'auto');
-    const history = new SqliteHistoryV7ProductionStore(`${root}/history`, workspaceRoot);
+    const history = new SqliteHistoryStore(`${root}/history`, workspaceRoot);
     await history.initialize();
-    const ref = await builtinDefinitionRef('generic', buildManifest());
-    const { registry } = await createChildDataTestRegistry({
+    const { registry, seedParentExecution } = await createChildDataTestRegistry({
       options: {
         configRoot,
         physicalIoMode: 'production',
         providerDeclarations: declarations,
-        toolDefinitions: await bundledToolDefinitionLoadRequests(),
       },
       currentModelSelection: () => selection,
-      catalog: [{ name: 'generic', ref }],
+      currentCatalog: () => ['generic'],
       store: history,
     });
+    await seedParentExecution('e6-parent');
     registry.openParent('e6-parent');
     try {
       for (

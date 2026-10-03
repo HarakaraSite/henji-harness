@@ -1,6 +1,6 @@
 import { ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import type { WorkerHostCommand } from '../../v0/agent/worker/worker_protocol.ts';
 
@@ -12,7 +12,7 @@ Deno.test('Increment 170 shutdown cancels preparing reservation before joining a
   let startHeld!: () => void;
   const held = new Promise<void>((resolve) => startHeld = resolve);
   const gate = new Promise<void>((resolve) => releaseStart = resolve);
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, root, { readOnly: true });
+  const reader = new SqliteHistoryStore(stateRoot, root, { readOnly: true });
   const core = await createCoreService({
     workspaceRoot: root,
     stateRoot,

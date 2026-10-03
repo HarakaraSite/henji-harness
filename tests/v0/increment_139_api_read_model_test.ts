@@ -120,7 +120,6 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
       commandId: crypto.randomUUID(),
       selection: { kind: 'new' },
       activation: {
-        agent: 'default',
         maxSteps: 3,
         providerTimeoutMs: 5_000,
         rootProvider: 'openrouter-responses',

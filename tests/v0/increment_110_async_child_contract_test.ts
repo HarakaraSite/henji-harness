@@ -1,8 +1,4 @@
-import {
-  installManagedProbeChild,
-  managedChildModule,
-  managedChildRef,
-} from './managed_child_fixture.ts';
+import { writeProbeAgentConfiguration } from './managed_child_fixture.ts';
 import {
   type AsyncAgentRequest,
   type AsyncAgentResponse,
@@ -13,20 +9,11 @@ import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import type { DataService } from '../../v0/agent/data/data_contract.ts';
-import {
-  bundledToolDefinitionLoadRequests,
-  workerBuiltinModulePath,
-} from '../../v0/agent/worker/worker_definition_revision.ts';
-import { readWorkerModuleRevision } from '../../v0/agent/worker/worker_capsule.ts';
-import type {
-  WorkerDefinitionLoadRequest,
-  WorkerToolDefinitionLoadRequest,
-} from '../../v0/agent/worker/worker_protocol.ts';
-import type { DefinitionRevisionRef } from '../../v0/agent/session/session_store.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import type { WorkerHostSessionOptions } from '../../v0/agent/worker/worker_host_contract.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
+import type { WorkerHostCommand } from '../../v0/agent/worker/worker_protocol.ts';
 import type { StoredWorkerExecutionArtifact } from '../../v0/agent/worker/worker_execution_artifact.ts';
 import {
   childDataTest,
@@ -48,13 +35,6 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-const managedRef = (resourceId: string): DefinitionRevisionRef => ({
-  schemaVersion: 1,
-  resourceKind: 'agent-definition',
-  resourceId,
-  revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-});
-
 type RegistryDataOverrides = {
   readonly executionAdmit?: (
     base: DataService['executionAdmit'],
@@ -70,19 +50,24 @@ type RegistryDataOverrides = {
   ) => ReturnType<DataService['sealGeneration']>;
 };
 
+const parentSeeders = new WeakMap<ChildRunRegistry, (executionId: string) => Promise<void>>();
+
+const seedParentExecution = async (
+  registry: ChildRunRegistry,
+  executionId: string,
+): Promise<void> => {
+  const seed = parentSeeders.get(registry);
+  if (seed === undefined) throw new Error('child test parent seeder is unavailable');
+  await seed(executionId);
+};
+
 const registryWithOptions = async (input: {
-  readonly childRef: DefinitionRevisionRef;
   readonly childName?: string;
   readonly dataOverrides?: RegistryDataOverrides;
-  readonly store?: SqliteHistoryV7ProductionStore;
+  readonly store?: SqliteHistoryStore;
   readonly cancelSettlementGraceMs?: number;
-  readonly resolveModule?: (
-    ref: DefinitionRevisionRef,
-  ) => Promise<WorkerDefinitionLoadRequest>;
   readonly capsuleFactory?: WorkerHostSessionOptions['capsuleFactory'];
-  readonly toolDefinitions?: Awaited<
-    ReturnType<typeof bundledToolDefinitionLoadRequests>
-  >;
+  readonly setupConfiguration?: (configRoot: string) => Promise<void>;
 }): Promise<ChildRunRegistry> => {
   const overrides = input.dataOverrides ?? {};
   const transformData = (baseData: DataService): DataService =>
@@ -119,36 +104,33 @@ const registryWithOptions = async (input: {
   const result = await createChildDataTestRegistry({
     options: {
       physicalIoMode: 'provider-free',
-      toolDefinitions: input.toolDefinitions ??
-        await bundledToolDefinitionLoadRequests(),
       ...(input.capsuleFactory === undefined ? {} : { capsuleFactory: input.capsuleFactory }),
       ...(input.cancelSettlementGraceMs === undefined
         ? {}
         : { cancelSettlementGraceMs: input.cancelSettlementGraceMs }),
     },
-    catalog: [{ name: input.childName ?? 'probe-child', ref: input.childRef }],
-    resolveManagedModule: input.resolveModule ?? managedChildModule,
+    currentCatalog: () => [input.childName ?? 'probe-child'],
+    setupConfiguration: input.setupConfiguration ?? (async (configRoot) => {
+      await writeProbeAgentConfiguration(configRoot, input.childName ?? 'probe-child');
+    }),
     ...(input.store === undefined ? {} : { store: input.store }),
     ...(input.dataOverrides === undefined ? {} : { transformData }),
   });
+  parentSeeders.set(result.registry, result.seedParentExecution);
   return result.registry;
 };
 
 const builtinRegistry = async (
   dataOverrides: RegistryDataOverrides = {},
   cancelSettlementGraceMs?: number,
-  resolveModule = managedChildModule,
   childName = 'probe-child',
-  store?: SqliteHistoryV7ProductionStore,
+  store?: SqliteHistoryStore,
 ): Promise<ChildRunRegistry> => {
-  const plannerRef = managedChildRef();
   return await registryWithOptions({
-    childRef: plannerRef,
     dataOverrides,
     childName,
     ...(store === undefined ? {} : { store }),
     ...(cancelSettlementGraceMs === undefined ? {} : { cancelSettlementGraceMs }),
-    resolveModule,
   });
 };
 
@@ -190,62 +172,54 @@ const waitForChannelKind = (
   );
 
 childDataTest(
-  'Increment 110 uses managed planner provenance and exact tool binding',
+  'Increment 110 loads the selected external JSON Tool inside its child Worker',
   async () => {
     const root = await Deno.makeTempDir({
       prefix: 'henji-i110-managed-planner-',
     });
     try {
-      const toolPath = `${root}/bound_read.ts`;
-      await Deno.writeTextFile(
-        toolPath,
-        `export default () => ({
-        identity: 'tool:read',
-        materialize: () => ({
-          name: 'read',
-          description: 'bound read fixture',
-          inputSchema: { type: 'object' },
-          terminal: true,
-          execute: () => ({
-            kind: 'terminate',
-            text: 'BOUND_READ',
-            finalText: 'BOUND_READ',
-            terminalKind: 'json_result',
-          }),
-        }),
-      });\n`,
-      );
-      const exactToolRef = {
-        schemaVersion: 1 as const,
-        resourceKind: 'tool-definition' as const,
-        resourceId: 'test/bound-read',
-        revision: { algorithm: 'sha256' as const, digest: 'b'.repeat(64) },
-      };
-      const toolModule = await readWorkerModuleRevision(toolPath);
-      const toolDefinitions: WorkerToolDefinitionLoadRequest[] = (
-        await bundledToolDefinitionLoadRequests()
-      ).map((request) =>
-        request.toolIdentity === 'tool:read'
-          ? { toolIdentity: 'tool:read', ref: exactToolRef, module: toolModule }
-          : request
-      );
-      const ref = managedRef('test/managed-planner');
-      const definitionModule = await readWorkerModuleRevision(
-        workerBuiltinModulePath('default'),
-      );
-      const resolverRefs: DefinitionRevisionRef[] = [];
       const registry = await registryWithOptions({
-        childRef: ref,
-        toolDefinitions,
-        resolveModule: (
-          requested,
-        ): Promise<WorkerDefinitionLoadRequest> => {
-          resolverRefs.push(structuredClone(requested));
-          return Promise.resolve(definitionModule);
+        setupConfiguration: async (configRoot) => {
+          await writeProbeAgentConfiguration(configRoot, 'probe-child', {
+            name: 'probe-child',
+            revision: 'external-tool-fixture',
+            instruction: 'Use the selected read tool.',
+            tools: ['read'],
+            agents: [],
+          });
+          const folder = `${configRoot}/tools/bound-read`;
+          await Deno.mkdir(folder, { recursive: true });
+          await Deno.writeTextFile(
+            `${configRoot}/tools.json`,
+            JSON.stringify({
+              schemaVersion: 1,
+              tools: { read: 'tools/bound-read' },
+            }),
+          );
+          await Deno.writeTextFile(
+            `${folder}/tool.json`,
+            JSON.stringify({
+              name: 'read',
+              revision: 'external-fixture',
+              apiContract: 'henji-tool/v1',
+              entry: 'index.js',
+            }),
+          );
+          await Deno.writeTextFile(
+            `${folder}/index.js`,
+            `export default () => ({
+              name: 'read',
+              description: 'bound read fixture',
+              inputSchema: { type: 'object' },
+              terminal: true,
+              execute: () => ({ kind: 'terminate', text: 'BOUND_READ', finalText: 'BOUND_READ', terminalKind: 'json_result' }),
+            });\n`,
+          );
         },
       });
       try {
-        const parentExecutionId = 'parent-managed-planner';
+        const parentExecutionId = 'parent-external-tool';
+        await seedParentExecution(registry, parentExecutionId);
         registry.openParent(parentExecutionId);
         const spawned = await registry.handle(
           { kind: 'spawn', agent: 'probe-child', task: 'read bound tool' },
@@ -263,11 +237,6 @@ childDataTest(
           JSON.stringify(collected),
         );
         assertEquals(collected.result.finalText, 'BOUND_READ');
-        assertEquals(
-          collected.result.definitionRef,
-          `${ref.resourceId}@sha256:${ref.revision.digest}`,
-        );
-        assertEquals(resolverRefs, [ref]);
         await registry.cleanupParent(parentExecutionId);
       } finally {
         await registry.cleanupAll();
@@ -286,7 +255,7 @@ childDataTest(
     });
     const workspaceRoot = `${root}/workspace`;
     await Deno.mkdir(workspaceRoot);
-    const history = new SqliteHistoryV7ProductionStore(
+    const history = new SqliteHistoryStore(
       `${root}/state`,
       workspaceRoot,
     );
@@ -294,11 +263,8 @@ childDataTest(
     let markAdmissionStarted!: () => void;
     const admissionStarted = new Promise<void>((resolve) => markAdmissionStarted = resolve);
     const admissionBarrier = new Promise<void>((resolve) => releaseAdmission = resolve);
-    const ref = managedRef('test/admission-barrier');
-    let resolverCalls = 0;
     let turnDispatches = 0;
     const registry = await registryWithOptions({
-      childRef: ref,
       childName: 'researcher',
       store: history,
       cancelSettlementGraceMs: 25,
@@ -324,13 +290,9 @@ childDataTest(
           },
         };
       },
-      resolveModule: async (requested) => {
-        resolverCalls += 1;
-        assertEquals(requested, ref);
-        return await managedChildModule();
-      },
     });
     const parentExecutionId = 'parent-admission-barrier';
+    await seedParentExecution(registry, parentExecutionId);
     registry.openParent(parentExecutionId);
     const spawn = registry.handle(
       { kind: 'spawn', agent: 'researcher', task: 'never start' },
@@ -351,7 +313,6 @@ childDataTest(
       releaseAdmission();
       const [spawned, observation] = await Promise.all([spawn, cleanup]);
       assert(!spawned.ok, 'late admission must not return spawn success');
-      assertEquals(resolverCalls, 1);
       assertEquals(turnDispatches, 0);
       assertEquals(
         observation?.runs.map((run) => [run.state, run.durability]),
@@ -385,6 +346,7 @@ childDataTest(
     });
     try {
       const parentExecutionId = 'parent-settlement-failure';
+      await seedParentExecution(registry, parentExecutionId);
       registry.openParent(parentExecutionId);
       const spawned = await registry.handle(
         {
@@ -424,6 +386,7 @@ childDataTest(
     const registry = await builtinRegistry();
     try {
       const parentExecutionId = 'parent-fence-a';
+      await seedParentExecution(registry, parentExecutionId);
       registry.openParent(parentExecutionId);
       const spawned = await registry.handle(
         { kind: 'spawn', agent: 'probe-child', task: 'parent fenced child' },
@@ -483,59 +446,84 @@ childDataTest(
 );
 
 childDataTest(
-  'Increment 110 settles an admitted child after parent cleanup during managed module resolution',
+  'Increment 110 cancels a child during Worker startup before execution admission',
   async () => {
     const root = await Deno.makeTempDir({
       prefix: 'henji-i110-parent-cleanup-resolution-',
     });
     const workspaceRoot = `${root}/workspace`;
     await Deno.mkdir(workspaceRoot);
-    const history = new SqliteHistoryV7ProductionStore(
+    const history = new SqliteHistoryStore(
       `${root}/state`,
       workspaceRoot,
     );
-    let markResolverStarted!: () => void;
-    const resolverStarted = new Promise<void>((resolve) => markResolverStarted = resolve);
-    let releaseResolver!: () => void;
-    const resolverBarrier = new Promise<void>((resolve) => releaseResolver = resolve);
-    let resolverCalls = 0;
+    let markStartSent!: () => void;
+    const startSent = new Promise<void>((resolve) => markStartSent = resolve);
+    let startCommand: WorkerHostCommand | undefined;
+    let startTransfer: Transferable[] | undefined;
+    let startCapsule: WorkerCapsule | undefined;
+    let released = false;
+    const pending: { command: WorkerHostCommand; transfer?: Transferable[] }[] = [];
     let admissions = 0;
-    let settlements = 0;
-    const registry = await builtinRegistry(
-      {
+    let turnDispatches = 0;
+    const registry = await registryWithOptions({
+      store: history,
+      childName: 'probe-child',
+      cancelSettlementGraceMs: 25,
+      dataOverrides: {
         executionAdmit: async (base, ...args) => {
-          const admitted = await base(...args);
           admissions += 1;
-          return admitted;
-        },
-        sealGeneration: async (base, ...args) => {
-          const settled = await base(...args);
-          settlements += 1;
-          return settled;
+          return await base(...args);
         },
       },
-      25,
-      async () => {
-        resolverCalls += 1;
-        markResolverStarted();
-        await resolverBarrier;
-        return await managedChildModule();
+      capsuleFactory: (url) => {
+        const capsule = new WorkerCapsule(url);
+        startCapsule = capsule;
+        return {
+          send(command, transfer) {
+            if (command.kind === 'start' && !released) {
+              startCommand = command;
+              startTransfer = transfer;
+              markStartSent();
+              return;
+            }
+            if (command.kind === 'turn') turnDispatches += 1;
+            if (!released) {
+              pending.push({ command, ...(transfer === undefined ? {} : { transfer }) });
+              return;
+            }
+            capsule.send(command, transfer);
+          },
+          subscribe(listener) {
+            return capsule.subscribe(listener);
+          },
+          terminate() {
+            capsule.terminate();
+          },
+        };
       },
-      'probe-child',
-      history,
-    );
+    });
+    const releaseStart = () => {
+      if (released) return;
+      released = true;
+      if (startCommand === undefined) throw new Error('child Worker start was not queued');
+      startCapsule!.send(startCommand, startTransfer);
+      for (const entry of pending) startCapsule!.send(entry.command, entry.transfer);
+      pending.length = 0;
+    };
     try {
       const parentExecutionId = 'parent-ref-resolution';
+      await seedParentExecution(registry, parentExecutionId);
       registry.openParent(parentExecutionId);
       const spawn = registry.handle(
         { kind: 'spawn', agent: 'probe-child', task: 'must not start' },
         undefined,
         parentExecutionId,
       );
-      await withTimeout(resolverStarted, 'managed child module resolution');
+      await withTimeout(startSent, 'child Worker start command');
       const cleanup = registry.cleanupParent(parentExecutionId);
       await Promise.resolve();
-      releaseResolver();
+      releaseStart();
       const [response, observation] = await Promise.all([spawn, cleanup]);
       assertEquals(
         observation?.runs.map((run) => [run.state, run.durability]),
@@ -547,23 +535,20 @@ childDataTest(
         ok: false,
         error: 'parent execution settled before child start',
       });
-      assertEquals(resolverCalls, 1);
-      assertEquals(settlements, 1);
+      assertEquals(turnDispatches, 0);
       await history.initialize();
       const rows = history.listExecutions().filter((row) =>
         row.parentExecutionId === parentExecutionId
       );
-      assertEquals(rows.length, 1);
-      assertEquals(rows[0].lifecycle, 'settled');
-      assertEquals(rows[0].outcome, 'cancelled');
-      assertEquals(admissions, 1);
+      assertEquals(rows.length, 0);
+      assertEquals(admissions, 0);
       registry.releaseParent(parentExecutionId);
       assertEquals(
         (Reflect.get(registry, 'runs') as Map<string, unknown>).size,
         0,
       );
     } finally {
-      releaseResolver();
+      if (startCommand !== undefined) releaseStart();
       await closeChildDataTests(history);
       history.close();
       await Deno.remove(root, { recursive: true });
@@ -572,43 +557,40 @@ childDataTest(
 );
 
 childDataTest(
-  'Increment 110 records startup failure as interrupted',
+  'Increment 110 rejects a malformed child Agent before Data execution admission',
   async () => {
     const root = await Deno.makeTempDir({
       prefix: 'henji-i110-startup-failure-',
     });
     const workspaceRoot = `${root}/workspace`;
     await Deno.mkdir(workspaceRoot);
-    const history = new SqliteHistoryV7ProductionStore(
+    const history = new SqliteHistoryStore(
       `${root}/state`,
       workspaceRoot,
     );
-    const ref = managedRef('test/startup-failure');
     const registry = await registryWithOptions({
-      childRef: ref,
       childName: 'researcher',
-      resolveModule: () => Promise.reject(new Error('managed module unavailable')),
       store: history,
+      setupConfiguration: async (configRoot) => {
+        const file = await writeProbeAgentConfiguration(configRoot, 'researcher');
+        await Deno.writeTextFile(file, '{');
+      },
     });
     try {
       const parentExecutionId = 'parent-startup-failure';
+      await seedParentExecution(registry, parentExecutionId);
       registry.openParent(parentExecutionId);
       const spawned = await registry.handle(
         { kind: 'spawn', agent: 'researcher', task: 'cannot start' },
         'startup-call',
         parentExecutionId,
       );
-      assert(
-        !spawned.ok && spawned.error.includes('managed module unavailable'),
-      );
+      assert(!spawned.ok && spawned.error.includes('researcher'));
       await history.initialize();
       const rows = history.listExecutions().filter((row) =>
         row.parentExecutionId === parentExecutionId
       );
-      assertEquals(rows.length, 1);
-      assertEquals(rows[0].lifecycle, 'settled');
-      assertEquals(rows[0].outcome, 'interrupted');
-      assertEquals(rows[0].definition, ref);
+      assertEquals(rows.length, 0);
       await registry.cleanupParent(parentExecutionId);
     } finally {
       await closeChildDataTests(history);
@@ -626,14 +608,13 @@ childDataTest(
     });
     const workspaceRoot = `${root}/workspace`;
     await Deno.mkdir(workspaceRoot);
-    const history = new SqliteHistoryV7ProductionStore(
+    const history = new SqliteHistoryStore(
       `${root}/state`,
       workspaceRoot,
     );
     const registry = await builtinRegistry(
       {},
       25,
-      managedChildModule,
       'probe-child',
       history,
     );
@@ -642,6 +623,7 @@ childDataTest(
     try {
       const started = waitForChannelKind(barrier, 'started');
       const parentExecutionId = 'parent-child-timeout';
+      await seedParentExecution(registry, parentExecutionId);
       registry.openParent(parentExecutionId);
       const spawned = await registry.handle(
         {
@@ -719,7 +701,7 @@ Deno.test('Increment 110 parent cancel releases a pending collect RPC', async ()
   const barrier = new BroadcastChannel(channelName);
   try {
     const started = waitForChannelKind(barrier, 'started');
-    await installManagedProbeChild(`${root}/data`, `${root}/config`);
+    await writeProbeAgentConfiguration(`${root}/config`, 'probe-child');
     const created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
@@ -740,7 +722,7 @@ Deno.test('Increment 110 parent cancel releases a pending collect RPC', async ()
         'pending collect cancellation',
       );
       assertEquals(outcome.stopReason, 'cancelled');
-      const history = new SqliteHistoryV7ProductionStore(
+      const history = new SqliteHistoryStore(
         stateRoot,
         workspaceRoot,
       );
@@ -776,7 +758,7 @@ const runUncollectedBarrierTurn = async (
   const barrier = new BroadcastChannel(channelName);
   try {
     const cancelObserved = waitForChannelKind(barrier, 'cancel_observed');
-    await installManagedProbeChild(`${root}/data`, `${root}/config`);
+    await writeProbeAgentConfiguration(`${root}/config`, 'probe-child');
     const created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
@@ -801,7 +783,7 @@ const runUncollectedBarrierTurn = async (
       barrier.postMessage({ kind: 'release' });
       await created.close();
     }
-    const history = new SqliteHistoryV7ProductionStore(
+    const history = new SqliteHistoryStore(
       stateRoot,
       workspaceRoot,
     );
@@ -825,9 +807,20 @@ Deno.test('Increment 110 records normal uncollected-child cleanup before commit'
     value.outcome?.finalText === 'parent proposal with uncollected child'
   );
   assert(
-    parent !== undefined && parent.schemaVersion === 7 &&
+    parent !== undefined && parent.schemaVersion === 1 &&
       parent.childCleanup !== undefined,
-    'parent artifact must retain child cleanup',
+    `parent artifact must retain child cleanup: ${
+      JSON.stringify(
+        artifacts.map((value) => ({
+          executionId: value.executionId,
+          agent: value.agent,
+          task: value.command.task,
+          finalText: value.outcome?.finalText,
+          childCleanup: value.childCleanup,
+          state: value.normalizedOutcome,
+        })),
+      )
+    }`,
   );
   assertEquals(
     parent.childCleanup.runs.map((run) => [run.state, run.durability]),
@@ -873,12 +866,9 @@ Deno.test('Increment 110 rejects a parent proposal when child terminal commit is
   const channelName = `henji-i110-cleanup-failure-${crypto.randomUUID()}`;
   const barrier = new BroadcastChannel(channelName);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
-  let history: SqliteHistoryV7ProductionStore | undefined;
+  let history: SqliteHistoryStore | undefined;
   try {
-    await installManagedProbeChild(
-      `${harness.root}/data`,
-      `${harness.root}/config`,
-    );
+    await writeProbeAgentConfiguration(`${harness.root}/config`, 'probe-child');
     created = await createWorkerSession({
       workspaceRoot: harness.workspaceRoot,
       stateRoot: harness.stateRoot,
@@ -903,7 +893,7 @@ Deno.test('Increment 110 rejects a parent proposal when child terminal commit is
     assertEquals(outcome.stopReason, 'contract_failure');
     assertEquals(outcome.error, 'child cleanup failed');
     assertEquals(created.session.currentPosition().committedTurn, 0);
-    history = new SqliteHistoryV7ProductionStore(
+    history = new SqliteHistoryStore(
       harness.stateRoot,
       harness.workspaceRoot,
     );
@@ -944,9 +934,11 @@ Deno.test('Increment 110 rejects a parent proposal when child terminal commit is
     const artifacts = await history.executionArtifacts.list();
     const parent = artifacts.find((value) => value.executionId === parentRow.executionId);
     assert(
-      parent !== undefined && parent.schemaVersion === 7 &&
+      parent !== undefined && parent.schemaVersion === 1 &&
         parent.childCleanup !== undefined,
-      'noncanonical parent artifact must retain the child commit failure',
+      `noncanonical parent artifact must retain the child commit failure: ${
+        JSON.stringify(artifacts)
+      }`,
     );
     assertEquals(parent.normalizedOutcome, 'failed');
     assertEquals(parent.adoption, 'non_canonical');

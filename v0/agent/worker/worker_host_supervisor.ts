@@ -1,8 +1,7 @@
 import { WorkerProcessOwner } from './worker_process_owner.ts';
-import { readWorkerModuleRevision, WorkerCapsule } from './worker_capsule.ts';
+import { WorkerCapsule } from './worker_capsule.ts';
 import type {
   WorkerCorrelation,
-  WorkerDefinitionLoadRequest,
   WorkerErrorMessage,
   WorkerReadyMessage,
   WorkerToHostMessage,
@@ -22,19 +21,17 @@ import {
 } from './worker_execution_artifact.ts';
 import type { WorkerHostCapsule, WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { sameCorrelation } from './worker_host_outcome.ts';
-import {
-  isHenjiInstructionRevisionRef,
-  isToolDefinitionRevisionRef,
-  type ToolDefinitionRevisionRef,
-} from '../definitions/managed_resource_ref.ts';
+import { isHenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
+import type { ConfigurationRejection } from '../configuration/agent_configuration.ts';
+import type { WorkerConfigurationSnapshot } from './worker_configuration.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const WORKER_RESPONSE_TIMEOUT_MS = 5_000;
 
 export type WorkerHostStartupErrorCode =
-  | 'module_invalid'
   | 'definition_evaluation_failed'
+  | 'configuration_rejected'
   | 'role_mismatch'
   | 'manifest_invalid';
 
@@ -43,6 +40,7 @@ export class WorkerHostStartupError extends Error {
     readonly code: WorkerHostStartupErrorCode,
     readonly workerStage: WorkerErrorMessage['stage'],
     message: string,
+    readonly configurationRejections?: readonly ConfigurationRejection[],
   ) {
     super(message);
     this.name = 'WorkerHostStartupError';
@@ -114,28 +112,28 @@ const validBaseInstructionManifest = (
     JSON.stringify(value.ref) === JSON.stringify(selected.ref);
 };
 
-const toolAttributionKey = (
-  toolIdentity: string,
-  ref: ToolDefinitionRevisionRef,
-): string => `${toolIdentity}:${ref.resourceId}@sha256:${ref.revision.digest}`;
-
-const validToolManifest = (
-  value: NonNullable<WorkerReadyMessage['manifest']>['tools'],
-  requested:
-    | readonly import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest[]
-    | undefined,
-): boolean => {
-  const expectedKeys = new Set(
-    (requested ?? []).map((tool) => toolAttributionKey(tool.toolIdentity, tool.ref)),
-  );
-  const actual = value ?? [];
-  const actualKeys = actual.map((tool) =>
-    isToolDefinitionRevisionRef(tool.ref)
-      ? toolAttributionKey(tool.toolIdentity, tool.ref)
-      : undefined
-  );
-  return actualKeys.every((key) => key !== undefined && expectedKeys.has(key)) &&
-    new Set(actualKeys).size === actualKeys.length;
+const validConfigurationSnapshot = (
+  value: WorkerReadyMessage['configuration'],
+): value is WorkerConfigurationSnapshot => {
+  if (value === undefined || typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as WorkerConfigurationSnapshot;
+  return candidate.schemaVersion === 1 &&
+    typeof candidate.configurationId === 'string' &&
+    candidate.configurationId.length > 0 &&
+    typeof candidate.agent?.name === 'string' &&
+    candidate.agent.name.length > 0 &&
+    typeof candidate.agent.revision === 'string' &&
+    typeof candidate.agent.instruction === 'string' &&
+    Array.isArray(candidate.agent.tools) &&
+    Array.isArray(candidate.agent.agents) &&
+    (candidate.source?.kind === 'bundled' ||
+      candidate.source?.kind === 'external') &&
+    typeof candidate.systemInstruction === 'string' &&
+    Array.isArray(candidate.instructionComponents) &&
+    Array.isArray(candidate.tools) &&
+    Array.isArray(candidate.rejections);
 };
 
 /**
@@ -158,6 +156,7 @@ export class WorkerSupervisor {
   private generation = crypto.randomUUID().toLowerCase();
   private correlationValue: WorkerCorrelation | undefined;
   private manifest: WorkerReadyMessage['manifest'];
+  private configuration: WorkerConfigurationSnapshot | undefined;
   private startupSnapshot: WorkerReadyMessage['startupSnapshot'];
   private credential: CredentialAvailability | undefined;
   private unavailable = false;
@@ -206,6 +205,10 @@ export class WorkerSupervisor {
 
   get currentManifest(): WorkerReadyMessage['manifest'] {
     return this.manifest;
+  }
+
+  get currentConfiguration(): WorkerConfigurationSnapshot | undefined {
+    return this.configuration;
   }
 
   get currentStartupSnapshot(): WorkerReadyMessage['startupSnapshot'] {
@@ -341,6 +344,7 @@ export class WorkerSupervisor {
       this.bootstrapTrace.length = 0;
       this.traceSequence = 0;
       this.manifest = undefined;
+      this.configuration = undefined;
       this.startupSnapshot = undefined;
       this.credential = undefined;
       this.unavailable = false;
@@ -383,18 +387,6 @@ export class WorkerSupervisor {
   async start(): Promise<void> {
     const projection = this.host.projection();
     const correlation = this.correlation('start');
-    let revision: WorkerDefinitionLoadRequest;
-    if (this.options.loadDescriptor !== undefined) {
-      revision = this.options.loadDescriptor;
-    } else if (this.options.modulePath !== undefined) {
-      revision = await readWorkerModuleRevision(this.options.modulePath);
-    } else {
-      throw new WorkerHostStartupError(
-        'module_invalid',
-        'module_pre_read',
-        'Worker Definition physical descriptor is unavailable',
-      );
-    }
     const readyPromise = this.messages.wait((
       message,
     ): message is WorkerReadyMessage | WorkerErrorMessage =>
@@ -414,19 +406,14 @@ export class WorkerSupervisor {
             kind: 'start',
             correlation,
             dataPort: agentDataPort,
-            module: revision,
-            ...(this.options.configRoot === undefined ? {} : {
-              configRoot: this.options.configRoot,
-            }),
-            ...(this.options.asyncAgents === undefined
+            agentChoice: this.options.agentChoice,
+            configRoot: this.options.configRoot,
+            ...(this.options.enableAsyncAgents === undefined
               ? {}
-              : { asyncAgents: this.options.asyncAgents }),
+              : { enableAsyncAgents: this.options.enableAsyncAgents }),
             ...(this.options.toolFilter === undefined
               ? {}
               : { toolFilter: this.options.toolFilter }),
-            ...(this.options.toolDefinitions === undefined
-              ? {}
-              : { toolDefinitions: this.options.toolDefinitions }),
             workspaceRoot: this.options.workspaceRoot,
             physicalIoMode: this.options.physicalIoMode ?? 'production',
             ...(this.options.rootMaxSteps === undefined
@@ -458,8 +445,16 @@ export class WorkerSupervisor {
       }
       const ready = await readyPromise;
       if (ready.kind === 'worker_error') {
+        if (ready.configurationRejections !== undefined) {
+          throw new WorkerHostStartupError(
+            'configuration_rejected',
+            'configuration',
+            ready.message,
+            structuredClone(ready.configurationRejections),
+          );
+        }
         throw new WorkerHostStartupError(
-          ready.stage === 'module_pre_read' ? 'module_invalid' : 'definition_evaluation_failed',
+          'definition_evaluation_failed',
           ready.stage,
           ready.message,
         );
@@ -470,12 +465,20 @@ export class WorkerSupervisor {
       ) {
         throw new WorkerHostStartupError(
           'role_mismatch',
-          'module_validation',
-          'Worker Definition effective role did not match its declared role',
+          'composition',
+          'Worker effective role did not match the Host root role',
         );
       }
+      const namedChoice = this.options.agentChoice.name;
+      const expectedConfigurationName = namedChoice !== undefined &&
+          namedChoice !== 'default'
+        ? namedChoice
+        : undefined;
       if (
         ready.manifest === undefined ||
+        !validConfigurationSnapshot(ready.configuration) ||
+        (expectedConfigurationName !== undefined &&
+          ready.configuration.agent.name !== expectedConfigurationName) ||
         !sameModelSelection(
           ready.manifest.rootModel,
           projection.modelSelection,
@@ -486,10 +489,8 @@ export class WorkerSupervisor {
           ready.manifest.baseInstruction,
           this.options.baseInstruction,
         ) ||
-        !validToolManifest(
-          ready.manifest.tools,
-          this.options.toolDefinitions,
-        ) ||
+        !Number.isSafeInteger(ready.manifest.maxSteps) ||
+        ready.manifest.maxSteps <= 0 ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
         !validStartupSnapshot(ready.startupSnapshot) ||
@@ -500,11 +501,12 @@ export class WorkerSupervisor {
       ) {
         throw new WorkerHostStartupError(
           'manifest_invalid',
-          'module_validation',
-          'Worker manifest did not match Host selection',
+          'composition',
+          'Worker manifest or configuration did not match Host selection',
         );
       }
       this.manifest = ready.manifest;
+      this.configuration = structuredClone(ready.configuration);
       this.startupSnapshot = {
         ...(ready.startupSnapshot.instructionSource === undefined
           ? {}

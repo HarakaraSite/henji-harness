@@ -1,3 +1,4 @@
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import {
   isCancellationCleanupError,
@@ -17,7 +18,7 @@ import type {
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { AgentDataPortClientImpl } from '../../v0/agent/data/agent_data_client.ts';
 import type {
   WorkerReadyMessage,
@@ -170,6 +171,7 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
       this.data = new AgentDataPortClientImpl(command.dataPort);
       const ready: WorkerReadyMessage = {
         kind: 'ready',
+        configuration: workerConfigurationFixture(),
         correlation: command.correlation,
         manifest: {
           role: 'parent',
@@ -264,14 +266,14 @@ Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-39-worker-',
   });
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let capsule: CleanupFailureCapsule | undefined;
   try {
     created = await createWorkerSession({
       stateRoot,
       persistence: 'new',
-      agent: 'default',
+
       physicalIoMode: 'provider-free',
       capsuleFactory: () => {
         capsule = new CleanupFailureCapsule();

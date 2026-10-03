@@ -1,10 +1,9 @@
-import { parseDefinitionRevisionSelector } from '../definitions/definition_selector.ts';
 import type { HeadlessWorkerRun } from '../worker/worker_headless_runner.ts';
 import type { AgentEventSink } from '../core/events.ts';
 import {
-  type CliDefinitionSelectionInfo,
+  type CliAgentSelectionInfo,
   type CliRunOptions,
-  type DefinitionStartupErrorValue,
+  type ConfigurationStartupErrorValue,
   type HenjiInstructionErrorValue,
   RunWorkerPortError,
 } from './run_worker_protocol.ts';
@@ -51,10 +50,10 @@ interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
-  readonly resolveDefinition?: (
+  readonly resolveAgent?: (
     rawAgentName: string | undefined,
-    rawDefinitionRevision: string | undefined,
-  ) => Promise<CliDefinitionSelectionInfo>;
+    rawAgentFile: string | undefined,
+  ) => Promise<CliAgentSelectionInfo>;
   readonly run?: (
     task: string,
     eventSink?: AgentEventSink,
@@ -77,7 +76,7 @@ const normalizedTask = (text: string): string => {
 interface ParsedRuntimeArgs {
   readonly taskArg: string | undefined;
   readonly rawAgentName: string | undefined;
-  readonly rawDefinitionRevision?: string;
+  readonly rawAgentFile?: string;
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
 }
@@ -86,14 +85,14 @@ interface ParsedRuntimeArgs {
 const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
   let task: string | undefined;
   let rawAgentName: string | undefined;
-  let rawDefinitionRevision: string | undefined;
+  let rawAgentFile: string | undefined;
   let rootMaxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (
       argument !== '--task' && argument !== '--agent' &&
-      argument !== '--definition-revision' && argument !== '--max-steps' &&
+      argument !== '--agent-file' && argument !== '--max-steps' &&
       argument !== '--provider-timeout-ms'
     ) throw invalidInput();
     if (index + 1 >= args.length) throw invalidInput();
@@ -117,22 +116,18 @@ const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
         if (rawAgentName !== undefined) throw invalidInput();
         rawAgentName = args[index + 1];
       } else {
-        if (rawDefinitionRevision !== undefined) throw invalidInput();
-        rawDefinitionRevision = args[index + 1];
-        try {
-          parseDefinitionRevisionSelector(rawDefinitionRevision);
-        } catch {
-          throw invalidInput();
-        }
+        if (rawAgentFile !== undefined) throw invalidInput();
+        rawAgentFile = args[index + 1];
+        if (rawAgentFile.length === 0) throw invalidInput();
       }
     }
     index += 1;
   }
-  if (rawAgentName !== undefined && rawDefinitionRevision !== undefined) throw invalidInput();
+  if (rawAgentName !== undefined && rawAgentFile !== undefined) throw invalidInput();
   return {
     taskArg: task,
     rawAgentName,
-    ...(rawDefinitionRevision === undefined ? {} : { rawDefinitionRevision }),
+    ...(rawAgentFile === undefined ? {} : { rawAgentFile }),
     ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
   };
@@ -243,7 +238,9 @@ const preflightFailureValue = (): Record<string, unknown> =>
     { steps: 0, toolCallCount: 0, toolResultCount: 0, requestCount: 0 },
   );
 
-const definitionFailureValue = (error: DefinitionStartupErrorValue): Record<string, unknown> => ({
+const configurationFailureValue = (
+  error: ConfigurationStartupErrorValue,
+): Record<string, unknown> => ({
   ok: false,
   outcome: 'contract_failure',
   stopReason: 'contract_failure',
@@ -314,15 +311,14 @@ export const main = async (
   try {
     if (modeInvalid) throw invalidInput();
     const parsed = parseTaskArg(args.filter((argument) => !OUTPUT_FLAGS.has(argument)));
-    // Resolve on the Host before probing or reading stdin. Only its data-only description crosses
-    // this port; the selected executable Definition stays in the main process.
+    // Only the current name/file choice crosses the CLI port; the Agent Worker loads settings.
     try {
-      if (dependencies.resolveDefinition === undefined) {
+      if (dependencies.resolveAgent === undefined) {
         throw new Error('run Host port unavailable');
       }
-      await dependencies.resolveDefinition(
+      await dependencies.resolveAgent(
         parsed.rawAgentName,
-        parsed.rawDefinitionRevision,
+        parsed.rawAgentFile,
       );
     } catch (error) {
       if (error instanceof RunWorkerPortError) throw error;
@@ -397,13 +393,13 @@ export const main = async (
   } catch (error) {
     if (error instanceof RunWorkerPortError) {
       switch (error.data.kind) {
-        case 'definition':
-          emitError(definitionFailureValue(error.data.value));
+        case 'configuration':
+          emitError(configurationFailureValue(error.data.value));
           return 1;
         case 'instruction':
           emitError(instructionFailureValue(error.data.value));
           return 1;
-        case 'invalid_definition':
+        case 'invalid_configuration':
           emitError(preflightFailureValue());
           return 1;
         case 'agent_failure':

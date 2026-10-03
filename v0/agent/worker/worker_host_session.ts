@@ -28,8 +28,8 @@ export class WorkerHostSession {
 
   private constructor(private readonly coordinator: ExecutionCoordinator) {}
 
-  get definition(): WorkerHostSessionOptions['descriptor']['definition'] {
-    return this.coordinator.definition;
+  get agentChoice(): WorkerHostSessionOptions['descriptor']['agentChoice'] {
+    return this.coordinator.agentChoice;
   }
 
   get sessionId(): string {

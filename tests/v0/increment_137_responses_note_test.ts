@@ -3,7 +3,7 @@ import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { renderSessionTimeline } from '../../v0/agent/history/history_view.ts';
 
 function assert(value: unknown, message = 'assertion failed'): asserts value {
@@ -131,7 +131,7 @@ Deno.test('Increment 137 Responses notes settle before later thinking and surviv
     const sessionId = created.session.sessionId;
     await created.close();
     created = undefined;
-    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
+    const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {});
     const record = await store.readWorker(sessionId);
     const assistants = record.transcript.filter((entry) => entry.role === 'assistant');
     assertEquals(assistants[0].text, 'I will read the marker.');

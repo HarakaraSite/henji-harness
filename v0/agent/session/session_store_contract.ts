@@ -1,9 +1,7 @@
 import type { Message } from '../core/contracts.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
-import type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
-
-export type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 
 export const SESSION_SCHEMA_VERSION = 1 as const;
 export const MAX_SESSION_FILE_BYTES = 8 * 1024 * 1024;
@@ -11,7 +9,8 @@ export const MAX_VALID_SESSIONS_PER_WORKSPACE = 256;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export const normalizeSessionTitle = (value: string): string =>
-  value.replaceAll('\r\n', ' ').replaceAll('\r', ' ').replaceAll('\n', ' ').trim();
+  value.replaceAll('\r\n', ' ').replaceAll('\r', ' ').replaceAll('\n', ' ')
+    .trim();
 
 export const isSessionTitle = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.trim() === value &&
@@ -20,17 +19,6 @@ export const isSessionTitle = (value: unknown): value is string =>
     const code = character.codePointAt(0)!;
     return code >= 0xd800 && code <= 0xdfff;
   });
-
-export interface SessionRecord {
-  readonly schemaVersion: 1;
-  readonly sessionId: string;
-  readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner' | 'generic';
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly nextTurn: number;
-  readonly transcript: readonly Message[];
-}
 
 export interface SessionModelChange {
   readonly effectiveFromTurn: number;
@@ -43,50 +31,37 @@ export interface SessionTurnModelAttribution {
   readonly selection: ModelSelection;
 }
 
-/** Worker-backed record with an optional human-authored Session title. */
-export interface SessionRecordV5 {
-  readonly schemaVersion: 5;
-  readonly sessionId: string;
-  readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner' | 'generic';
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly title: string | null;
-  readonly stateRevision: number;
-  readonly nextTurn: number;
-  readonly transcript: readonly Message[];
-  readonly definition: DefinitionRevisionRef;
-  readonly activeModel: ModelSelection;
-  readonly modelChanges: readonly SessionModelChange[];
-  readonly turnModels: readonly SessionTurnModelAttribution[];
-}
-
+/** Current per-turn configuration/build attribution. */
 export interface SessionTurnExecutionAttribution {
   readonly turn: number;
+  readonly executionId: string;
   readonly build: BuildManifestV1;
-  readonly definition: DefinitionRevisionRef;
+  readonly configurationId: string;
 }
 
-/** Standalone-era record with machine-independent Definition and build attribution. */
-export interface SessionRecordV6 {
-  readonly schemaVersion: 6;
+/** Current production Session record stored by history.sqlite3. */
+export interface SessionRecordV1 {
+  readonly schemaVersion: 1;
   readonly sessionId: string;
   readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner' | 'generic';
+  /** Name of the effective Agent configuration used to start the Worker. */
+  readonly agent: string;
+  /** Current selection source, not a reference to a historical configuration snapshot. */
+  readonly agentChoice: AgentConfigurationChoice;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly title: string | null;
   readonly stateRevision: number;
   readonly nextTurn: number;
   readonly transcript: readonly Message[];
-  readonly definition: DefinitionRevisionRef;
   readonly activeModel: ModelSelection;
   readonly modelChanges: readonly SessionModelChange[];
   readonly turnModels: readonly SessionTurnModelAttribution[];
   readonly turnExecutions: readonly SessionTurnExecutionAttribution[];
 }
 
-export type StoredSessionRecord = SessionRecordV6;
+export type StoredSessionRecord = SessionRecordV1;
+export type SessionRecord = SessionRecordV1;
 
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {
@@ -105,7 +80,7 @@ export const MAX_CONTEXT_SUMMARY_BYTES = 12_288;
 
 export interface SessionMetadata {
   readonly id: string;
-  readonly agent: SessionRecord['agent'];
+  readonly agent: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly title?: string;
@@ -138,14 +113,13 @@ export interface WorkerSessionHandle {
   commit(record: StoredSessionRecord): void;
   /** SQLite history seam: update the owner-stable in-memory snapshot after an external atomic commit. */
   acceptCommitted?(record: StoredSessionRecord): void;
-  rollback(): void;
   installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
   rollbackCheckpoint(): void;
   close(): Promise<void>;
 }
 
 export interface WorkerSessionMetadata extends SessionMetadata {
-  readonly definition?: DefinitionRevisionRef;
+  readonly agentChoice: AgentConfigurationChoice;
 }
 
 export interface WorkerSessionListResult {
@@ -158,8 +132,8 @@ export interface WorkerSessionStorePort {
   readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined>;
   listWorker(): Promise<WorkerSessionListResult>;
   allocateWorker(
-    agent: SessionRecord['agent'],
-    definition: DefinitionRevisionRef,
+    agent: string,
+    agentChoice: AgentConfigurationChoice,
   ): Promise<WorkerSessionHandle>;
   openExistingWorker(id: string): Promise<WorkerSessionHandle>;
 }

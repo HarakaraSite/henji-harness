@@ -1,4 +1,5 @@
 import { captureFailureDetails } from '../core/failure_details.ts';
+import { installBuildManifest } from '../runtime/build_manifest.ts';
 import { createDataService } from './data_service.ts';
 import {
   type DataConversationUpdate,
@@ -61,6 +62,7 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
       if (service !== undefined) {
         throw new DataServiceError(409, 'data_worker_initialized');
       }
+      installBuildManifest(request.build);
       service = await createDataService({
         stateRoot: request.stateRoot,
         workspaceRoot: request.workspaceRoot,

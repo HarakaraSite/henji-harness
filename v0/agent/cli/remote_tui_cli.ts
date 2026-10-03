@@ -1,4 +1,3 @@
-import { parseDefinitionRevisionSelector } from '../definitions/definition_selector.ts';
 import type { SessionActivation } from '../../api/contract.ts';
 import type { RemoteTuiDependencies, RemoteTuiLaunchTarget } from '../../tui/remote_session.ts';
 import { runRemoteTui } from '../../tui/remote_session.ts';
@@ -41,7 +40,7 @@ export const parseRemoteTuiInvocation = (
   let target: RemoteTuiLaunchTarget = { kind: 'implicit' };
   let targetSeen = false;
   let agent: string | undefined;
-  let definitionRevision: string | undefined;
+  let agentFile: string | undefined;
   let maxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
   let rootProvider: string | undefined;
@@ -90,12 +89,11 @@ export const parseRemoteTuiInvocation = (
       if (agent !== undefined) throw new Error('duplicate --agent');
       agent = valueAfter(args, index, flag);
       index += 2;
-    } else if (flag === '--definition-revision') {
-      if (definitionRevision !== undefined) {
-        throw new Error('duplicate --definition-revision');
+    } else if (flag === '--agent-file') {
+      if (agentFile !== undefined) {
+        throw new Error('duplicate --agent-file');
       }
-      definitionRevision = valueAfter(args, index, flag);
-      parseDefinitionRevisionSelector(definitionRevision);
+      agentFile = valueAfter(args, index, flag);
       index += 2;
     } else if (flag === '--max-steps') {
       if (maxSteps !== undefined) throw new Error('duplicate --max-steps');
@@ -123,7 +121,7 @@ export const parseRemoteTuiInvocation = (
   }
 
   if (
-    (agent !== undefined && definitionRevision !== undefined)
+    (agent !== undefined && agentFile !== undefined)
   ) {
     throw new Error('invalid TUI invocation');
   }
@@ -132,7 +130,7 @@ export const parseRemoteTuiInvocation = (
   }
   const activation: SessionActivation = {
     ...(agent === undefined ? {} : { agent }),
-    ...(definitionRevision === undefined ? {} : { definitionRevision }),
+    ...(agentFile === undefined ? {} : { agentFile }),
     ...(maxSteps === undefined ? {} : { maxSteps }),
     ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
     ...(rootProvider === undefined ? {} : { rootProvider }),

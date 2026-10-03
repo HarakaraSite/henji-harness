@@ -248,6 +248,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
     dataRoot: `${environment.XDG_DATA_HOME}/henji-harness`,
     physicalIoMode: 'production' as const,
     agent: 'default' as const,
+    agentChoice: {},
     rootMaxSteps: 4,
     initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     providerDeclarations: declarations,

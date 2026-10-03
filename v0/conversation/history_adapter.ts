@@ -6,7 +6,7 @@ import type {
   StoredExecutionRow,
   StoredSessionConversationExecution,
 } from '../agent/history/history_store_contract.ts';
-import type { HistoryV7SemanticOccurrence } from '../agent/history/history_v7_model.ts';
+import type { HistorySemanticOccurrence } from '../agent/history/history_semantic_model.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../agent/provider/provider_evidence.ts';
 import {
   applyObservation,
@@ -310,7 +310,7 @@ const eventObservation = (
 };
 
 const occurrenceEvent = (
-  occurrence: HistoryV7SemanticOccurrence,
+  occurrence: HistorySemanticOccurrence,
 ): StoredExecutionEvent | undefined => {
   const event = object(occurrence.payload)?.event;
   if (object(event) === undefined) return undefined;

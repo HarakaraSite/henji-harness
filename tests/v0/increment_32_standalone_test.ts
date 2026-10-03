@@ -1,11 +1,7 @@
-import {
-  builtinDefinitionRef,
-  isDefinitionRevisionRef,
-} from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { discoverSkills, MAX_SKILL_DESCRIPTION_BYTES } from '../../v0/agent/definitions/skills.ts';
+import { resolveWorkerConfiguration } from '../../v0/agent/configuration/configuration_resolver.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
-import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { stagedCompileInputs } from '../../scripts/build_henji.ts';
 import packageConfig from '../../jsr.json' with { type: 'json' };
@@ -77,16 +73,25 @@ Deno.test('Increment 32 resolves binary, workspace, and XDG authorities independ
   );
 });
 
-Deno.test('Increment 32/77 built-in Definition ref is logical and resource-bound', async () => {
-  const manifest = buildManifest();
-  assertEquals(manifest.productVersion, packageConfig.version);
-  const first = await builtinDefinitionRef('default', manifest);
-  const second = await builtinDefinitionRef('default', manifest);
-  assert(isDefinitionRevisionRef(first));
-  assertEquals(first, second);
-  assertEquals(first.resourceId, 'builtin/default');
-  assert(!JSON.stringify(first).includes('file:///'));
-  assert(!JSON.stringify(first).includes(Deno.cwd()));
+Deno.test('Increment 32 uses the bundled JSON Agent and current build contract', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-32-json-agent-' });
+  try {
+    const selection = await resolveWorkerConfiguration(`${root}/config`);
+    const selected = selection.agent;
+    assert(selected !== undefined);
+    assertEquals(selected.source.kind, 'bundled');
+    assertEquals(selected.configuration.name, 'default');
+    assertEquals(selected.configuration.revision, '1');
+    assert(selected.configuration.tools.includes('read'));
+    assertEquals(selected.configuration.agents, ['generic']);
+
+    const manifest = buildManifest();
+    assertEquals(manifest.productVersion, packageConfig.version);
+    assertEquals(manifest.agentConfigurationSchemaVersion, 1);
+    assertEquals(manifest.supportedToolApiContracts, ['henji-tool/v1']);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
 
 const skillText = (name: string, description: string): string =>
@@ -166,16 +171,6 @@ Deno.test('Increment 45 accepts a one KiB native Skill description', async () =>
   }
 });
 
-Deno.test('Increment 32 removes unmanaged Definition invocation', () => {
-  let rejected = false;
-  try {
-    parseTuiInvocation(['--definition', './agent.ts']);
-  } catch {
-    rejected = true;
-  }
-  assert(rejected);
-});
-
 Deno.test('Increment 32 compiles runtime modules from an ephemeral staging tree', () => {
   const checkout = '/work/henji-harness';
   const staging = '/tmp/henji-compile-example/runtime';
@@ -206,6 +201,7 @@ Deno.test('Increment 32 projects the Worker generation startup snapshot', async 
     dataRoot: `${workspace}/data`,
     persistence: 'none',
     agent: 'default',
+    agentChoice: {},
     physicalIoMode: 'provider-free',
   });
   try {

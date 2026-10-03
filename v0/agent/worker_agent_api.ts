@@ -1,44 +1,34 @@
 import type { ProcessExecutor } from './runtime/process_contract.ts';
-import {
-  type AgentDefinitionInput,
-  type AgentDefinitionLimits,
-  defaultAgentDefinition,
-  type ResolvedAgentDefinition,
-} from './definitions/agent_definition.ts';
-import type { AgentEventSink } from './core/events.ts';
 import type { Model } from './core/contracts.ts';
-import { createDeclaredRegistry } from './tools/registries.ts';
-import type { Registry } from './tools/tools.ts';
+import { type AsyncAgentRpc, createAsyncAgentTools } from './tools/async_agents.ts';
+import { type Registry, Registry as ToolRegistry } from './tools/tools.ts';
 import type { SkillCatalog } from './definitions/skills.ts';
 import type { Workspace, WorkToolSeams } from './tools/work_tools.ts';
-import { WORKER_PROTOCOL_VERSION } from './worker/worker_protocol.ts';
 import {
+  type AgentResourceIdentity,
   compareAgentResourceIdentities,
   createAgentResourceIdentity,
   createAgentResourceSelection,
-  validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
-import type { AgentResourceIdentity } from './definitions/resource_identity.ts';
-import { applyDeclaredToolFilter } from './definitions/tool_filter.ts';
-import { resolveBuiltinDefinitionInstruction } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
-import { defineInstructionComponent, type InstructionComponent } from './instructions/component.ts';
-import type {
-  HenjiInstructionRevisionRef,
-  ToolDefinitionRevisionRef,
-} from './definitions/managed_resource_ref.ts';
+import type { InstructionComponent } from './instructions/component.ts';
+import { resolveCommonInstructionComposition } from './instructions/compose.ts';
+import { createBashOutputStore } from './tools/bash_output.ts';
+import type { BashOutputStore } from './tools/bash_output.ts';
 import {
   type ModelSelection,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from './provider/openrouter_model_catalog.ts';
-import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
+import {
+  type AuthProfileId,
+  type CredentialAvailabilityStatus,
+  modelRouteProfileId,
+} from './provider/model_selection.ts';
 import type { ProviderRequestFn } from './provider/auxiliary_request.ts';
-import type { AsyncAgentRpc } from './tools/async_agents.ts';
 
-export { type ToolComponent } from './tools/tool_components.ts';
+export type { ToolComponent } from './tools/tool_components.ts';
 export type { CredentialDeclarationV1 } from './provider/credential_declaration.ts';
-export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
 export {
   type ProviderHttpRequest,
   type ProviderHttpResponse,
@@ -61,8 +51,9 @@ export type {
   ProcessOperation,
   ProcessStatus,
 } from './runtime/process_contract.ts';
-export { WORKER_PROTOCOL_VERSION };
-export type { AgentEventSink };
+
+/** The runtime's default step limit; configuration does not declare executable loop code. */
+export const DEFAULT_AGENT_MAX_STEPS = 128;
 
 /** Worker-local physical construction seam; no value from this interface crosses postMessage. */
 export interface PhysicalIoBindings {
@@ -73,64 +64,49 @@ export interface PhysicalIoBindings {
   ) => Model;
   readonly workTools?: WorkToolSeams;
   readonly webSearchBackend?: WebSearchBackend;
-  /** Credential-resolving provider request seam for tool Definitions; returns raw bytes. */
+  /** Credential-resolving provider request seam used by tool factories. */
   readonly requestProvider?: ProviderRequestFn;
   /** Worker-local metadata probe. It never returns credential material. */
   readonly credentialAvailability?: (
     authProfile: AuthProfileId,
     registrationId?: string | null,
   ) => Promise<CredentialAvailabilityStatus>;
-  /** Worker-local async child agent request seam. */
+  /** Worker-local async child-agent request seam. */
   readonly asyncAgentRpc?: AsyncAgentRpc;
 }
 
-/** Worker-resolved input for one executable tool Definition module. */
-export interface WorkerToolDefinitionInput {
-  readonly workspace: Workspace;
-  readonly skillCatalog: SkillCatalog;
-  readonly physicalIo: PhysicalIoBindings;
-}
-
-/** A tool Definition module evaluates to one tool component for its declared identity. */
-export type ExecutableToolDefinition = (
-  input: WorkerToolDefinitionInput,
-) => ToolComponent;
-
-/** One Host/Worker-resolved tool Definition module for a declared tool identity. */
-export interface AgentToolDefinitionModule {
-  readonly toolIdentity: string;
-  readonly ref: ToolDefinitionRevisionRef;
-  readonly definition: ExecutableToolDefinition;
-}
-
-/** Data and Worker-local factories supplied to an executable Definition. */
-export interface ExecutableAgentDefinitionInput {
+/** Inputs resolved by the Worker for one JSON Agent configuration. */
+export interface WorkerCompositionInput {
   readonly workspace: Workspace;
   readonly agentInstructions?: string;
   readonly skillCatalog: SkillCatalog;
   readonly physicalIo: PhysicalIoBindings;
-  /** Host/Worker-resolved tool Definition components for declared tool identities. */
-  readonly toolDefinitions?: readonly ToolComponent[];
-  /** Host-resolved names of managed async Agents available to this generation. */
-  readonly asyncAgentNames?: readonly string[];
-  /** Spawn-time tool filter (bare tool names) narrowing the declared tool set. */
-  readonly toolFilter?: readonly string[];
+  /** Accepted concrete tool factories selected for this Worker generation. */
+  readonly toolComponents: readonly ToolComponent[];
+  /** Names of configured child Agents available through the async-agent tool. */
+  readonly asyncAgentNames: readonly string[];
 }
 
-export interface AgentCompositionOptions {
-  readonly limits?: Partial<AgentDefinitionLimits>;
-  readonly eventSink?: AgentEventSink;
-  /**
-   * Additional `tool:<name>` identities declared by this Definition, on top of the bundled
-   * default declaration. The Host resolves and supplies matching tool Definition components.
-   */
-  readonly additionalTools?: readonly AgentResourceIdentity[];
-  /** Replace the built-in role text while retaining tool/workspace/skill/runtime composition. */
-  readonly roleInstruction?: string;
-  /** Exact tool declaration for this Definition; omitted uses the bundled default set. */
-  readonly tools?: readonly AgentResourceIdentity[];
-  /** Exact async Agent declaration; omitted uses the available managed catalog. */
-  readonly asyncAgents?: readonly AgentResourceIdentity[];
+export interface WorkerCompositionOptions {
+  /** Role text from the selected JSON Agent configuration. An empty value omits its component. */
+  readonly roleInstruction: string;
+  readonly maxSteps?: number;
+  readonly rootModel?: ModelSelection;
+}
+
+export interface WorkerAgentCapabilities {
+  readonly instructions: readonly AgentResourceIdentity[];
+  readonly skills: readonly AgentResourceIdentity[];
+  readonly tools: readonly AgentResourceIdentity[];
+  readonly asyncAgents: readonly AgentResourceIdentity[];
+}
+
+/** Runtime-only projection retained for resource/history accounting inside a Worker. */
+export interface WorkerAgentResolvedComposition {
+  readonly capabilities: WorkerAgentCapabilities;
+  readonly limits: Readonly<{ readonly maxSteps: number }>;
+  readonly resourceSelection: ReturnType<typeof createAgentResourceSelection>;
+  readonly systemInstruction: string;
 }
 
 export interface WorkerAgentManifest {
@@ -139,275 +115,168 @@ export interface WorkerAgentManifest {
   readonly profileId: string;
   readonly resources: readonly string[];
   readonly rootModel: ModelSelection;
-  /** Exact tool Definition revisions composed into the root composition. */
-  readonly tools?: readonly {
-    readonly toolIdentity: string;
-    readonly ref: ToolDefinitionRevisionRef;
-  }[];
   readonly baseInstruction?: {
     readonly slot: 'instruction:henji-base';
     readonly selectionSource: 'built-in' | 'external';
-    readonly ref: HenjiInstructionRevisionRef;
+    readonly ref: {
+      readonly schemaVersion: 1;
+      readonly resourceKind: 'henji-instruction';
+      readonly resourceId: string;
+      readonly revision: { readonly algorithm: 'sha256'; readonly digest: string };
+    };
     readonly contentDigest: string;
   };
 }
 
+/** Internal runtime composition; it contains no executable Agent Definition or revision refs. */
 export interface WorkerAgentComposition {
   readonly role: 'parent';
   readonly model: Model;
   readonly registry: Registry;
   readonly maxSteps: number;
   readonly systemInstruction?: string;
-  /** Built-in named boundaries; external Definitions remain opaque when omitted. */
   readonly instructionComponents?: readonly InstructionComponent[];
   readonly manifest: WorkerAgentManifest;
-  readonly resolved: ResolvedAgentDefinition;
+  readonly resolved: WorkerAgentResolvedComposition;
 }
 
-export type ExecutableAgentDefinition = (
-  input: ExecutableAgentDefinitionInput,
-) => WorkerAgentComposition;
-
-const assertCoherentRootComposition = (
-  composition: WorkerAgentComposition,
-): void => {
-  const selection = validateAgentResourceSelection(
-    composition.resolved.resourceSelection,
-  );
-  if (
-    !Number.isSafeInteger(composition.maxSteps) || composition.maxSteps <= 0 ||
-    composition.resolved.limits.maxSteps !== composition.maxSteps ||
-    selection.parameters.maxSteps !== composition.maxSteps ||
-    composition.manifest.maxSteps !== composition.maxSteps ||
-    composition.manifest.role !== composition.role
-  ) {
-    throw new Error(
-      'Worker Definition returned an incoherent root composition',
-    );
-  }
+const canonicalIdentities = (
+  values: readonly AgentResourceIdentity[],
+): readonly AgentResourceIdentity[] => {
+  const sorted = [...values].sort(compareAgentResourceIdentities);
+  return Object.freeze(sorted.filter((value, index) => index === 0 || value !== sorted[index - 1]));
 };
 
-/** Apply a Host-requested limit only to the returned root composition. */
-export const finalizeRootAgentComposition = (
-  composition: WorkerAgentComposition,
-  requestedMaxSteps?: number,
-): WorkerAgentComposition => {
-  if (requestedMaxSteps === undefined) {
-    assertCoherentRootComposition(composition);
-    return composition;
-  }
-  if (!Number.isSafeInteger(requestedMaxSteps) || requestedMaxSteps <= 0) {
+const validMaxSteps = (value: number): number => {
+  if (!Number.isSafeInteger(value) || value <= 0) {
     throw new RangeError('maxSteps must be a positive integer');
   }
-  const resolved = Object.freeze({
-    ...composition.resolved,
-    limits: Object.freeze({ maxSteps: requestedMaxSteps }),
-    resourceSelection: createAgentResourceSelection(
-      composition.resolved.resourceSelection.resources.map(String),
-      requestedMaxSteps,
-    ),
-  });
-  const finalized = Object.freeze({
-    ...composition,
-    maxSteps: requestedMaxSteps,
-    manifest: Object.freeze({
-      ...composition.manifest,
-      maxSteps: requestedMaxSteps,
-    }),
-    resolved,
-  });
-  assertCoherentRootComposition(finalized);
-  return finalized;
-};
-
-/**
- * Record the exact tool Definition revisions actually composed into a root composition. Only
- * identities declared by the Definition are attributed; no separate authority is created.
- */
-export const finalizeWorkerToolAttribution = (
-  composition: WorkerAgentComposition,
-  tools: readonly {
-    readonly toolIdentity: string;
-    readonly ref: ToolDefinitionRevisionRef;
-  }[],
-): WorkerAgentComposition => {
-  const declared = new Set(composition.resolved.capabilities.tools.map(String));
-  const attributed = tools.filter((tool) => declared.has(tool.toolIdentity));
-  if (attributed.length === 0) return composition;
-  return Object.freeze({
-    ...composition,
-    manifest: Object.freeze({
-      ...composition.manifest,
-      tools: Object.freeze(attributed.map((tool) =>
-        Object.freeze({
-          toolIdentity: tool.toolIdentity,
-          ref: structuredClone(tool.ref),
-        })
-      )),
-    }),
-  });
+  return value;
 };
 
 const manifestFor = (
-  role: 'parent',
   resources: readonly AgentResourceIdentity[],
   maxSteps: number,
-  profileId: string,
-  rootModel: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+  rootModel: ModelSelection,
 ): WorkerAgentManifest => ({
-  role,
+  role: 'parent',
   maxSteps,
-  profileId,
+  profileId: modelRouteProfileId(rootModel),
   resources: Object.freeze(resources.map(String).sort()),
   rootModel: Object.freeze(structuredClone(rootModel)),
 });
 
-const maxStepsFor = (
-  definition: AgentDefinitionLimits,
-  options: AgentCompositionOptions,
-): number => {
-  const maxSteps = options.limits?.maxSteps ?? definition.maxSteps;
-  if (!Number.isSafeInteger(maxSteps) || maxSteps <= 0) {
-    throw new RangeError('maxSteps must be a positive integer');
+const assertCoherentComposition = (composition: WorkerAgentComposition): void => {
+  if (
+    !Number.isSafeInteger(composition.maxSteps) || composition.maxSteps <= 0 ||
+    composition.resolved.limits.maxSteps !== composition.maxSteps ||
+    composition.resolved.resourceSelection.parameters.maxSteps !== composition.maxSteps ||
+    composition.manifest.maxSteps !== composition.maxSteps ||
+    composition.manifest.role !== composition.role
+  ) {
+    throw new Error('Worker composition is incoherent');
   }
-  return maxSteps;
 };
 
-const definitionInput = (
-  input: ExecutableAgentDefinitionInput,
-): AgentDefinitionInput => ({
-  workspace: input.workspace,
-  agentInstructions: input.agentInstructions,
-  skillCatalog: input.skillCatalog,
-  asyncAgentNames: input.asyncAgentNames,
-});
-
-const instructionFor = (
-  input: ExecutableAgentDefinitionInput,
-  registry: Registry,
-  roleInstruction?: string,
-): {
-  readonly components: readonly InstructionComponent[];
-  readonly systemInstruction: string;
-} => {
-  const builtin = resolveBuiltinDefinitionInstruction(
-    input.workspace.root,
-    input.agentInstructions,
-    input.skillCatalog,
-    registry.promptGuidelines(),
-  );
-  if (roleInstruction === undefined) return builtin;
-  const components = Object.freeze([
-    defineInstructionComponent(
-      'instruction:external-agent-role',
-      roleInstruction,
-    ),
-    ...builtin.components.slice(1),
-  ]);
-  return Object.freeze({
-    components,
-    systemInstruction: components.map((component) => component.text).join(
-      '\n\n',
-    ),
-  });
-};
-
-/**
- * Standard composition used by built-in and external Definitions. The caller chooses to use this
- * factory inside the Worker; Host-side capability IDs are not an external Definition allowlist.
- */
-export const createAgentComposition = (
-  input: ExecutableAgentDefinitionInput,
-  options: AgentCompositionOptions = {},
+/** Apply the runtime limit requested by the Host to one common Worker composition. */
+export const finalizeWorkerComposition = (
+  composition: WorkerAgentComposition,
+  requestedMaxSteps?: number,
 ): WorkerAgentComposition => {
-  const resolved = defaultAgentDefinition(definitionInput(input));
-  const tools = applyDeclaredToolFilter(
-    Object.freeze([
-      ...(options.tools ?? resolved.capabilities.tools),
-      ...(options.additionalTools ?? []),
-    ]),
-    input.toolFilter,
-  );
-  const asyncAgents = options.asyncAgents ?? resolved.capabilities.asyncAgents;
-  const roleInstructions = options.roleInstruction === undefined
-    ? resolved.capabilities.instructions
-    : Object.freeze([
-      createAgentResourceIdentity('instruction:external-agent-role'),
-      ...resolved.capabilities.instructions.slice(1),
-    ]);
-  const capabilities = Object.freeze({
-    ...resolved.capabilities,
-    instructions: Object.freeze([...roleInstructions]),
-    tools: Object.freeze([...tools]),
-    asyncAgents: Object.freeze([...asyncAgents]),
-  });
-  const resourceIdentities = [
-    createAgentResourceIdentity(
-      `model:${resolved.model.provider}:${resolved.model.profile.id}`,
+  if (requestedMaxSteps === undefined) {
+    assertCoherentComposition(composition);
+    return composition;
+  }
+  const maxSteps = validMaxSteps(requestedMaxSteps);
+  const resolved = Object.freeze({
+    ...composition.resolved,
+    limits: Object.freeze({ maxSteps }),
+    resourceSelection: createAgentResourceSelection(
+      composition.resolved.resourceSelection.resources.map(String),
+      maxSteps,
     ),
+  });
+  const finalized = Object.freeze({
+    ...composition,
+    maxSteps,
+    manifest: Object.freeze({ ...composition.manifest, maxSteps }),
+    resolved,
+  });
+  assertCoherentComposition(finalized);
+  return finalized;
+};
+
+/** Build the shared runtime composition directly from the selected JSON configuration. */
+export const createWorkerComposition = (
+  input: WorkerCompositionInput,
+  options: WorkerCompositionOptions,
+): WorkerAgentComposition => {
+  const maxSteps = validMaxSteps(options.maxSteps ?? DEFAULT_AGENT_MAX_STEPS);
+  const rootModel = options.rootModel ?? ROOT_DEFAULT_MODEL_SELECTION;
+  const outputStore: BashOutputStore = input.physicalIo.workTools?.bashOutputStore ??
+    createBashOutputStore();
+  const workTools = Object.freeze({
+    ...input.physicalIo.workTools,
+    bashOutputStore: outputStore,
+  });
+  const bindings = Object.freeze({
+    workspace: input.workspace,
+    processExecutor: input.physicalIo.processExecutor,
+    workTools,
+    bashOutputStore: outputStore,
+    webSearchBackend: input.physicalIo.webSearchBackend,
+  });
+  const concreteTools = input.toolComponents.map((component) => component.materialize(bindings));
+  const asyncNames = Object.freeze([...new Set(input.asyncAgentNames)].sort());
+  const asyncTools = asyncNames.length === 0 || input.physicalIo.asyncAgentRpc === undefined
+    ? []
+    : createAsyncAgentTools(asyncNames, input.physicalIo.asyncAgentRpc);
+  const registry = new ToolRegistry([...concreteTools, ...asyncTools], outputStore);
+  const instruction = resolveCommonInstructionComposition({
+    workspaceRoot: input.workspace.root,
+    toolGuidelines: registry.promptGuidelines(),
+    workspaceInstruction: input.agentInstructions,
+    skillManifest: input.skillCatalog.manifest,
+    roleInstruction: options.roleInstruction,
+  });
+  const instructionResources = instruction.components.map((component) => component.identity);
+  const skills = registry.resolve('skill') === undefined
+    ? []
+    : input.skillCatalog.skills.map((skill) => createAgentResourceIdentity(`skill:${skill.name}`));
+  const tools = registry.definitions().map((definition) =>
+    createAgentResourceIdentity(`tool:${definition.name}`)
+  );
+  const asyncAgents = asyncNames.map((name) => createAgentResourceIdentity(`agent:${name}`));
+  const capabilities: WorkerAgentCapabilities = Object.freeze({
+    instructions: canonicalIdentities(instructionResources),
+    skills: canonicalIdentities(skills),
+    tools: canonicalIdentities(tools),
+    asyncAgents: canonicalIdentities(asyncAgents),
+  });
+  const resources = canonicalIdentities([
+    createAgentResourceIdentity(`model:${rootModel.provider}:${modelRouteProfileId(rootModel)}`),
     ...capabilities.instructions,
     ...capabilities.skills,
     ...capabilities.tools,
     ...capabilities.asyncAgents,
-  ];
-  resourceIdentities.sort(compareAgentResourceIdentities);
-  const uniqueResourceIdentities = resourceIdentities.filter((
-    identity,
-    index,
-  ) =>
-    index === 0 ||
-    compareAgentResourceIdentities(resourceIdentities[index - 1], identity) !==
-      0
-  );
-  const maxSteps = maxStepsFor(resolved.limits, options);
-  const providedToolDefinitions: ToolComponent[] = [
-    ...(input.toolDefinitions ?? []),
-  ];
-  const registry = createDeclaredRegistry(capabilities, {
-    workspace: input.workspace,
-    skillCatalog: input.skillCatalog,
-    workTools: input.physicalIo.workTools,
-    processExecutor: input.physicalIo.processExecutor,
-    webSearchBackend: input.physicalIo.webSearchBackend,
-    ...(input.physicalIo.asyncAgentRpc === undefined
-      ? {}
-      : { asyncAgentRpc: input.physicalIo.asyncAgentRpc }),
-    ...(providedToolDefinitions.length === 0 ? {} : { toolDefinitions: providedToolDefinitions }),
-  });
-  const { systemInstruction, components: instructionComponents } = instructionFor(
-    input,
-    registry,
-    options.roleInstruction,
-  );
-  const effectiveResolved = Object.freeze({
-    ...resolved,
+  ]);
+  const resolved: WorkerAgentResolvedComposition = Object.freeze({
     capabilities,
-    systemInstruction,
     limits: Object.freeze({ maxSteps }),
     resourceSelection: createAgentResourceSelection(
-      uniqueResourceIdentities.map(String),
+      resources.map(String),
       maxSteps,
     ),
+    systemInstruction: instruction.systemInstruction,
   });
   return Object.freeze({
     role: 'parent' as const,
-    model: input.physicalIo.createModel('parent'),
+    model: input.physicalIo.createModel('parent', rootModel),
     registry,
     maxSteps,
-    systemInstruction,
-    instructionComponents,
-    manifest: manifestFor(
-      'parent',
-      effectiveResolved.resourceSelection.resources,
-      maxSteps,
-      resolved.model.profile.id,
-    ),
-    resolved: effectiveResolved,
+    systemInstruction: instruction.systemInstruction,
+    instructionComponents: instruction.components,
+    manifest: manifestFor(resources, maxSteps, rootModel),
+    resolved,
   });
 };
-
-/** Standard bundled fallback; external Definitions can use createAgentComposition. */
-export const createDefaultAgentComposition = (
-  input: ExecutableAgentDefinitionInput,
-  options: AgentCompositionOptions = {},
-): WorkerAgentComposition => createAgentComposition(input, options);

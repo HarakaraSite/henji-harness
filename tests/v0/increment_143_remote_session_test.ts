@@ -24,14 +24,17 @@ const build = {
   denoVersion: '2.9.7',
   target: 'x86_64-unknown-linux-gnu',
   embeddedRuntimeSha256: 'b'.repeat(64),
-  supportedAgentDefinitionApiContracts: ['henji-agent-definition-v2'],
-  supportedToolDefinitionApiContracts: ['henji-tool-definition-v1'],
+  agentConfigurationSchemaVersion: 1,
+  supportedToolApiContracts: ['henji-tool/v1'],
 };
 
 const effectiveConfig = {
-  definition: {
-    resourceId: 'builtin/generic',
-    revision: { algorithm: 'sha256', digest: 'd'.repeat(64) },
+  configuration: {
+    status: 'ready',
+    name: 'generic',
+    choice: { name: 'generic' },
+    revision: '1',
+    configurationId: 'fixture-configuration',
   },
   maxSteps: 4,
   maxStepsSource: 'activation' as const,
@@ -586,10 +589,8 @@ Deno.test('Increment 143 /sessions picker R explicitly resumes the selected save
   }
 });
 
-Deno.test('Increment 143 CLI attach compares activation against the effective managed Definition ref', async () => {
-  const managedResourceId = 'agent:managed-profile';
-  const managedDigest = 'c'.repeat(64);
-  const definitionRevision = `${managedResourceId}@sha256:${managedDigest}`;
+Deno.test('Increment 143 CLI attach compares activation against the effective external Agent file', async () => {
+  const agentFile = '/tmp/managed-profile.json';
   const managedSnapshot: SessionSnapshot = {
     ...activeIdleSnapshot,
     session: {
@@ -604,9 +605,12 @@ Deno.test('Increment 143 CLI attach compares activation against the effective ma
       ...activeIdleSnapshot.runtime,
       effectiveConfig: {
         ...effectiveConfig,
-        definition: {
-          resourceId: managedResourceId,
-          revision: { algorithm: 'sha256', digest: managedDigest },
+        configuration: {
+          status: 'ready',
+          name: 'managed-profile',
+          choice: { file: agentFile },
+          revision: 'same-label',
+          configurationId: 'fixture-configuration',
         },
         // A server-created slot may not include the original CLI selector.
         activation: {},
@@ -657,7 +661,7 @@ Deno.test('Increment 143 CLI attach compares activation against the effective ma
     strictEqual(mismatchTerminal.output.length, 0);
     strictEqual(
       mismatchStderr.includes(
-        `--agent requested default, active ${managedResourceId}`,
+        '--agent requested default, active managed-profile',
       ),
       true,
     );
@@ -666,8 +670,8 @@ Deno.test('Increment 143 CLI attach compares activation against the effective ma
     const matching = parseRemoteTuiInvocation([
       '--connect',
       url,
-      '--definition-revision',
-      definitionRevision,
+      '--agent-file',
+      agentFile,
     ]);
     strictEqual(
       await runRemoteTuiInvocation(matching, {

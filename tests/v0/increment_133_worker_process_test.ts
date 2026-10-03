@@ -1,30 +1,75 @@
 import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
-import { readWorkerModuleRevision } from '../../v0/agent/worker/worker_capsule.ts';
 import { createDataClient } from '../../v0/agent/data/client.ts';
-import type { WorkerToHostMessage } from '../../v0/agent/worker/worker_protocol.ts';
+import type {
+  WorkerReadyMessage,
+  WorkerToHostMessage,
+} from '../../v0/agent/worker/worker_protocol.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
+import {
+  processProbeCall as processCall,
+  processProbeChoice as choice,
+  writeProcessProbeConfiguration,
+} from './helpers/increment_133_process_probe.ts';
 
 const assert = (value: unknown, message = 'assertion failed'): void => {
   if (!value) throw new Error(message);
 };
-const modulePath =
-  new URL('./fixtures/increment_133_process_definition.ts', import.meta.url).pathname;
-const ref = {
-  schemaVersion: 1,
-  resourceKind: 'agent-definition',
-  resourceId: 'test/process-probe',
-  revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-} as const;
-const dataSession = async (root: string) => {
-  const data = await createDataClient({ stateRoot: `${root}/state`, workspaceRoot: root });
+
+const dataSession = async (
+  root: string,
+  observed?: WorkerToHostMessage[],
+  cancelSettlementGraceMs?: number,
+) => {
+  const configRoot = `${root}/config`;
+  await writeProcessProbeConfiguration(configRoot);
+  const data = await createDataClient({
+    stateRoot: `${root}/state`,
+    workspaceRoot: root,
+  });
   const descriptor = await data.openSession({
     persistence: 'none',
-    agent: 'default',
-    definition: ref,
+    agent: choice.name,
+    agentChoice: choice,
   });
-  return { data, descriptor };
+  let ready: WorkerReadyMessage | undefined;
+  const session = await WorkerHostSession.open({
+    data,
+    descriptor,
+    workspaceRoot: root,
+    configRoot,
+    agentChoice: choice,
+    physicalIoMode: 'provider-free',
+    ...(cancelSettlementGraceMs === undefined ? {} : { cancelSettlementGraceMs }),
+    capsuleFactory: (url) => {
+      const capsule = new WorkerCapsule(url);
+      capsule.subscribe((message) => {
+        if (message.kind === 'ready') ready = message;
+        if (message.kind !== 'process_request') observed?.push(message);
+      });
+      return capsule;
+    },
+  });
+  return {
+    data,
+    descriptor,
+    session,
+    configRoot,
+    async seedParentExecution(executionId: string): Promise<void> {
+      if (ready === undefined) {
+        throw new Error('parent Worker did not report ready');
+      }
+      await data.executionAdmit(descriptor.id, {
+        executionId,
+        taskId: executionId,
+        task: 'process probe parent fixture',
+        correlation: ready.correlation,
+        createdAt: new Date().toISOString(),
+      });
+    },
+  };
 };
+
 const pid = async (root: string): Promise<number> => {
   for (let i = 0; i < 300; i++) {
     try {
@@ -37,6 +82,7 @@ const pid = async (root: string): Promise<number> => {
   }
   throw new Error('process did not start');
 };
+
 const alive = async (value: number): Promise<boolean> => {
   const probe = await new Deno.Command('/bin/bash', {
     args: [
@@ -53,23 +99,10 @@ const alive = async (value: number): Promise<boolean> => {
 
 Deno.test('Worker process proxy retains returned background work until Session close', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-host-' });
-  const state = await dataSession(root);
   const observed: WorkerToHostMessage[] = [];
-  const session = await WorkerHostSession.open({
-    ...state,
-    modulePath,
-    workspaceRoot: root,
-    physicalIoMode: 'provider-free',
-    capsuleFactory: (url) => {
-      const capsule = new WorkerCapsule(url);
-      capsule.subscribe((message) => {
-        if (message.kind !== 'process_request') observed.push(message);
-      });
-      return capsule;
-    },
-  });
+  const state = await dataSession(root, observed);
   try {
-    const outcome = await session.submit('background');
+    const outcome = await state.session.submit(processCall('background'));
     assert(outcome.ok, JSON.stringify(outcome));
     const child = await pid(root);
     assert(await alive(child), 'normal return killed background process');
@@ -77,10 +110,10 @@ Deno.test('Worker process proxy retains returned background work until Session c
       !JSON.stringify(observed).includes('raw-process-'),
       'raw output entered semantic messages',
     );
-    await session.close();
+    await state.session.close();
     assert(!await alive(child), 'Session close returned with live process');
   } finally {
-    await session.close();
+    await state.session.close();
     await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
@@ -88,26 +121,22 @@ Deno.test('Worker process proxy retains returned background work until Session c
 
 Deno.test('Host cancellation and replacement await physical cleanup after an uncooperative Worker tool', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-replace-' });
-  const state = await dataSession(root);
-  const session = await WorkerHostSession.open({
-    ...state,
-    modulePath,
-    workspaceRoot: root,
-    physicalIoMode: 'provider-free',
-    cancelSettlementGraceMs: 30,
-  });
+  const state = await dataSession(root, undefined, 30);
   try {
-    const submitted = session.submit('uncooperative');
+    const submitted = state.session.submit(processCall('uncooperative'));
     const command = await pid(root);
     assert(await alive(command));
-    session.cancelActiveTurn();
+    state.session.cancelActiveTurn();
     try {
       await submitted;
     } catch { /* Cancelled outcome may use the existing cancellation error. */ }
     assert(!await alive(command), 'cancel settled before physical cleanup');
-    assert((await session.submit('answer')).ok, 'replacement generation did not start');
+    assert(
+      (await state.session.submit(processCall('answer'))).ok,
+      'replacement generation did not start',
+    );
   } finally {
-    await session.close();
+    await state.session.close();
     await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
@@ -118,34 +147,44 @@ Deno.test('Child collect joins its Supervisor process cleanup before returning c
   const state = await dataSession(root);
   const registry = new ChildRunRegistry({
     options: {
-      ...state,
+      data: state.data,
+      descriptor: state.descriptor,
       workspaceRoot: root,
+      configRoot: state.configRoot,
+      agentChoice: choice,
       physicalIoMode: 'provider-free',
     },
-    catalog: [{ name: 'probe', ref }],
-    resolveManagedModule: () => readWorkerModuleRevision(modulePath),
+    currentCatalog: () => [choice.name],
   });
   const parent = crypto.randomUUID();
+  await state.seedParentExecution(parent);
   registry.openParent(parent);
   try {
     const spawned = await registry.handle(
-      { kind: 'spawn', agent: 'probe', task: 'background' },
+      { kind: 'spawn', agent: choice.name, task: processCall('background') },
       'spawn-call',
       parent,
     );
-    if (!spawned.ok || spawned.kind !== 'spawn') throw new Error(JSON.stringify(spawned));
+    if (!spawned.ok || spawned.kind !== 'spawn') {
+      throw new Error(JSON.stringify(spawned));
+    }
     const result = await registry.handle(
       { kind: 'collect', runId: spawned.runId },
       'collect-call',
       parent,
     );
     assert(
-      result.ok && result.kind === 'collect' && result.result.state === 'completed',
+      result.ok && result.kind === 'collect' &&
+        result.result.state === 'completed',
       JSON.stringify(result),
     );
-    assert(!await alive(await pid(root)), 'collect returned with live child process');
+    assert(
+      !await alive(await pid(root)),
+      'collect returned with live child process',
+    );
   } finally {
     await registry.cleanupAll();
+    await state.session.close();
     await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
@@ -154,29 +193,25 @@ Deno.test('Child collect joins its Supervisor process cleanup before returning c
 Deno.test('Cancelling a running call preserves the same generation’s normally returned background work', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-soft-cancel-' });
   const state = await dataSession(root);
-  const session = await WorkerHostSession.open({
-    ...state,
-    modulePath,
-    workspaceRoot: root,
-    physicalIoMode: 'provider-free',
-    cancelSettlementGraceMs: 2_000,
-  });
   try {
-    assert((await session.submit('background')).ok);
+    assert((await state.session.submit(processCall('background'))).ok);
     const background = await pid(root);
     await Deno.remove(`${root}/pid`);
-    const submitted = session.submit('cancellable');
+    const submitted = state.session.submit(processCall('cancellable'));
     const running = await pid(root);
-    session.cancelActiveTurn();
+    state.session.cancelActiveTurn();
     try {
       await submitted;
     } catch { /* Existing cancellation API. */ }
     assert(!await alive(running), 'running call survived cancellation');
-    assert(await alive(background), 'normal background call was cancelled with a later call');
-    await session.close();
+    assert(
+      await alive(background),
+      'normal background call was cancelled with a later call',
+    );
+    await state.session.close();
     assert(!await alive(background));
   } finally {
-    await session.close();
+    await state.session.close();
     await state.data.close();
     await Deno.remove(root, { recursive: true });
   }

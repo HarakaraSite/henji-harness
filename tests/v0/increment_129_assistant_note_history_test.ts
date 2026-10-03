@@ -11,6 +11,7 @@ import type {
 } from '../../v0/agent/history/history_store_contract.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -83,6 +84,7 @@ const expectedRows: readonly (readonly [string, string])[] = [
   ['assistant>', 'The README and working tree are consistent.'],
 ];
 
+const configuration = workerConfigurationFixture();
 const execution: StoredExecutionRow = {
   executionId: '12900000-0000-4000-8000-000000000001',
   taskId: '12900000-0000-4000-8000-000000000002',
@@ -99,12 +101,9 @@ const execution: StoredExecutionRow = {
   agent: 'default',
   model: ROOT_DEFAULT_MODEL_SELECTION,
   build: buildManifest(),
-  definition: {
-    schemaVersion: 1,
-    resourceKind: 'agent-definition',
-    resourceId: 'builtin/default',
-    revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-  },
+  configurationId: configuration.configurationId,
+  configuration,
+  maxSteps: 128,
   acknowledgement: 'recorded',
   generationAvailability: 'recorded',
   diagnosticCapture: 'recorded',

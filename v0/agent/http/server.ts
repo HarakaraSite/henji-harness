@@ -78,7 +78,7 @@ const readSessionOpenInput = async (
     );
   }
   if (object(value.activation)) {
-    for (const key of ['agent', 'definitionRevision', 'rootProvider']) {
+    for (const key of ['agent', 'agentFile', 'rootProvider']) {
       if (
         value.activation[key] !== undefined &&
         typeof value.activation[key] !== 'string'

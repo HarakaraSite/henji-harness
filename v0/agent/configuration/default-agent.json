@@ -1,0 +1,16 @@
+{
+  "name": "default",
+  "revision": "1",
+  "instruction": "You are the built-in root agent. Complete the user's task end to end and provide the final answer.",
+  "tools": [
+    "read",
+    "write",
+    "edit",
+    "bash",
+    "bash_output",
+    "web_search",
+    "web_fetch",
+    "skill",
+    "submit_json_result"
+  ]
+}

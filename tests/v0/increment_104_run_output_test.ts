@@ -34,17 +34,8 @@ const recorder = () => {
     state,
     deps: {
       stdinIsTerminal: () => true,
-      resolveDefinition: (rawAgentName: string | undefined) =>
-        Promise.resolve({
-          kind: 'builtin' as const,
-          id: rawAgentName ?? 'default',
-          ref: {
-            schemaVersion: 1 as const,
-            resourceKind: 'agent-definition' as const,
-            resourceId: `builtin/${rawAgentName ?? 'default'}`,
-            revision: { algorithm: 'sha256' as const, digest: '0'.repeat(64) },
-          },
-        }),
+      resolveAgent: (rawAgentName: string | undefined) =>
+        Promise.resolve({ choice: rawAgentName === undefined ? {} : { name: rawAgentName } }),
       writeStdout: (text: string) => {
         state.stdout += text;
       },

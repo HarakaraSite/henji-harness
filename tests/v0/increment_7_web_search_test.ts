@@ -12,11 +12,12 @@ import { runAgent } from '../../v0/agent/core/loop.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import { bundledAgentConfiguration } from '../../v0/agent/configuration/agent_configuration.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import {
-  createAgentResourceIdentity,
-  createDefaultAgentComposition,
+  createWorkerComposition,
   type PhysicalIoBindings,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
@@ -222,12 +223,13 @@ Deno.test('web_search completes main-Exa-main with full results and shared evide
     },
     fetcher,
   });
-  const composition = createDefaultAgentComposition({
+  const composition = createWorkerComposition({
     workspace: { root: '/provider-free-web-search' },
     skillCatalog: emptySkillCatalog(),
     physicalIo,
-    toolDefinitions: bundledToolComponents(physicalIo),
-  });
+    toolComponents: bundledToolComponents(physicalIo),
+    asyncAgentNames: [],
+  }, { roleInstruction: bundledAgentConfiguration().configuration.instruction });
   const evidence = new ProviderEvidenceRecorder(
     '77777777-7777-4777-8777-777777777777',
     1,

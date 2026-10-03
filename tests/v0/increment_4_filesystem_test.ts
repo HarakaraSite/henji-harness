@@ -1,14 +1,12 @@
 import { type Message } from '../../v0/agent/core/contracts.ts';
 import { DenoHistoryExporter } from '../../v0/agent/session/history_export.ts';
+import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   createEditTool,
   createReadTool,
   createWriteTool,
   resolveWorkspace,
 } from '../../v0/agent/tools/work_tools.ts';
-import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
-import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
-import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -84,29 +82,11 @@ Deno.test('read keeps small calls exact and returns complete line windows with c
 Deno.test('declared work components preserve write, edit, and read behavior', async () => {
   await withTempWorkspace(async (_stateRoot, workspaceRoot) => {
     const workspace = await resolveWorkspace(workspaceRoot);
-    const registry = createDeclaredRegistry({
-      instructions: [],
-      skills: [],
-      tools: ['tool:write', 'tool:edit', 'tool:read'].map(createAgentResourceIdentity),
-      asyncAgents: [],
-    }, {
-      workspace,
-      skillCatalog: emptySkillCatalog(),
-      toolDefinitions: [
-        {
-          identity: createAgentResourceIdentity('tool:write'),
-          materialize: (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
-        },
-        {
-          identity: createAgentResourceIdentity('tool:edit'),
-          materialize: (bindings) => createEditTool(bindings.workspace, bindings.workTools),
-        },
-        {
-          identity: createAgentResourceIdentity('tool:read'),
-          materialize: (bindings) => createReadTool(bindings.workspace),
-        },
-      ],
-    });
+    const registry = new Registry([
+      createWriteTool(workspace),
+      createEditTool(workspace),
+      createReadTool(workspace),
+    ]);
     const written = await registry.dispatch({
       callId: 'write-component',
       name: 'write',

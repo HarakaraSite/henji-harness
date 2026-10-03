@@ -1,6 +1,6 @@
 import { deepStrictEqual } from 'node:assert';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -128,7 +128,7 @@ Deno.test('Increment 149 two writer processes create and read back separate Sess
     if (firstSession.sessionId === secondSession.sessionId) {
       throw new Error('writer processes allocated the same Session');
     }
-    const reader = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+    const reader = new SqliteHistoryStore(stateRoot, workspaceRoot, {
       readOnly: true,
     });
     try {
@@ -184,7 +184,7 @@ Deno.test('Increment 149 Core waits for a file whose initial schema is not commi
   let released = false;
   try {
     deepStrictEqual(await readLine(writerStdout), 'database-created');
-    const database = await Deno.stat(`${paths.root}/history-v7.sqlite3`);
+    const database = await Deno.stat(`${paths.root}/history.sqlite3`);
     if (!database.isFile) throw new Error('barrier file was not created');
     reader = fixtureCommand(['open-core', stateRoot, workspaceRoot]);
     readerStdout = reader.stdout.getReader();
@@ -246,7 +246,7 @@ Deno.test('Increment 149 read-only store leaves an empty workspace database abse
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   const paths = await sessionPaths(stateRoot, workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {
     readOnly: true,
   });
   try {

@@ -5,7 +5,7 @@ import { readableThinkingFromState } from '../../v0/agent/core/readable_thinking
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { renderSessionTimeline } from '../../v0/agent/history/history_view.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
@@ -243,13 +243,12 @@ Deno.test('Increment 120 reads cancelled thinking in the normal Session view fro
     workspaceRoot,
     stateRoot,
     persistence: 'new',
-    agent: 'default',
     physicalIoMode: 'provider-free',
   });
   const sessionId = created.session.sessionId;
   assert((await created.session.submit('initial turn')).ok);
   await created.close();
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {});
   const record = await store.readWorker(sessionId);
   const executionId = '12000000-0000-4000-8000-000000000001';
   const input = {
@@ -264,7 +263,10 @@ Deno.test('Increment 120 reads cancelled thinking in the normal Session view fro
     agent: 'default' as const,
     model: ROOT_DEFAULT_MODEL_SELECTION,
     build: buildManifest(),
-    definition: record.definition,
+    configuration: store.readExecution(record.turnExecutions.at(-1)!.executionId).configuration,
+    configurationId: record.turnExecutions.at(-1)!.configurationId,
+    maxSteps: 128,
+    command: 'history-thinking-command',
   };
   try {
     await store.beginExecution({ ...input, sessionMode: 'persistent' });

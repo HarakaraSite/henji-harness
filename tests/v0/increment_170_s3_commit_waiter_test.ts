@@ -5,7 +5,7 @@ import type {
   AgentGenerationContextBasis,
 } from '../../v0/agent/data/agent_data_contract.ts';
 import type { Message } from '../../v0/agent/core/contracts.ts';
-import { readWorkerModuleRevision, WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
+import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import type {
   WorkerCancelReceivedMessage,
   WorkerCorrelation,
@@ -21,7 +21,6 @@ import type {
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { SemanticContextCheckpointV1 } from '../../v0/agent/session/session_store_contract.ts';
 import type { RecalledExecutionContext } from '../../v0/agent/worker/recalled_execution_context.ts';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
 
 const workerUrl = new URL(
   '../../v0/agent/worker/worker_bootstrap.ts',
@@ -116,6 +115,7 @@ interface ControlWaiter {
 }
 
 Deno.test('Increment 170 S3 Worker sends generation data through Data while Core owns the commit decision', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i170-commit-waiter-' });
   const capsule = new WorkerCapsule(workerUrl);
   const messages: WorkerToHostMessage[] = [];
   const dataMessages: AgentDataPortRequest[] = [];
@@ -248,22 +248,15 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
   };
 
   try {
-    const module = await readWorkerModuleRevision(
-      new URL(
-        '../../v0/agent/worker/worker_builtin_definition.ts',
-        import.meta.url,
-      )
-        .pathname,
-    );
     const readyPromise = waitForControl(isReadyOrError);
     capsule.send({
       kind: 'start',
       correlation: correlation('start'),
       dataPort: dataChannel.port1,
-      module,
-      workspaceRoot: Deno.cwd(),
+      agentChoice: {},
+      configRoot: `${root}/config`,
+      workspaceRoot: root,
       physicalIoMode: 'provider-free',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
       // These stale Core-owned basis values must not seed the real Worker generation.
       initialTranscript: [{
         role: 'user',
@@ -573,5 +566,6 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
     unsubscribe();
     dataChannel.port2.close();
     capsule.terminate();
+    await Deno.remove(root, { recursive: true });
   }
 });

@@ -1,7 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import type { ExecutionEventInput } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -39,16 +39,16 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let handle: Awaited<ReturnType<typeof store.allocateWorker>> | undefined;
   let writer: ConversationWriter | undefined;
   try {
     await store.initialize();
-    const definition = await builtinDefinitionRef('default', buildManifest());
-    handle = await store.allocateWorker('default', definition);
+    const configuration = workerConfigurationFixture();
+    handle = await store.allocateWorker('default', {});
     const createdAt = '2026-10-02T00:00:00.000Z';
     const record: StoredSessionRecord = {
-      schemaVersion: 6,
+      schemaVersion: 1,
       sessionId: handle.id,
       workspaceRoot,
       agent: 'default',
@@ -58,7 +58,7 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
       stateRevision: 1,
       nextTurn: 1,
       transcript: [],
-      definition,
+      agentChoice: {},
       activeModel: ROOT_DEFAULT_MODEL_SELECTION,
       modelChanges: [{
         effectiveFromTurn: 1,
@@ -104,7 +104,10 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition,
+      configurationId: configuration.configurationId,
+      configuration,
+      maxSteps: 128,
+      command: 'test-command',
     };
     const admission = await writer.beginExecution({
       ...execution,
@@ -386,7 +389,12 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
       nextTurn: 2,
       transcript: canonicalTranscript,
       turnModels: [{ turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION }],
-      turnExecutions: [{ turn: 1, build: buildManifest(), definition }],
+      turnExecutions: [{
+        turn: 1,
+        executionId: nextExecutionId,
+        build: buildManifest(),
+        configurationId: configuration.configurationId,
+      }],
     };
     const canonical = writer.commitCanonicalTurn({
       ...nextInput,
@@ -469,18 +477,18 @@ Deno.test('Increment 170 S3 Data writer notifies each affected Session once for 
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let writer: ConversationWriter | undefined;
   const handles: Awaited<ReturnType<typeof store.allocateWorker>>[] = [];
   try {
     await store.initialize();
-    const definition = await builtinDefinitionRef('default', buildManifest());
+    const configuration = workerConfigurationFixture();
     const createdAt = '2026-10-02T00:00:00.000Z';
     const createSession = async (suffix: string) => {
-      const handle = await store.allocateWorker('default', definition);
+      const handle = await store.allocateWorker('default', {});
       handles.push(handle);
       const record: StoredSessionRecord = {
-        schemaVersion: 6,
+        schemaVersion: 1,
         sessionId: handle.id,
         workspaceRoot,
         agent: 'default',
@@ -490,7 +498,7 @@ Deno.test('Increment 170 S3 Data writer notifies each affected Session once for 
         stateRevision: 1,
         nextTurn: 1,
         transcript: [],
-        definition,
+        agentChoice: {},
         activeModel: ROOT_DEFAULT_MODEL_SELECTION,
         modelChanges: [{
           effectiveFromTurn: 1,
@@ -534,7 +542,10 @@ Deno.test('Increment 170 S3 Data writer notifies each affected Session once for 
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition,
+      configurationId: configuration.configurationId,
+      configuration,
+      maxSteps: 128,
+      command: 'test-command',
     });
     await writer.beginExecution({
       ...makeExecution(first, 1),
@@ -631,7 +642,7 @@ Deno.test('Increment 170 admission keeps a watch registered while SQLite admissi
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-pending-watch-' });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(
+  const store = new SqliteHistoryStore(
     `${root}/state`,
     workspaceRoot,
   );
@@ -650,6 +661,7 @@ Deno.test('Increment 170 admission keeps a watch registered while SQLite admissi
     await store.initialize();
     const sessionId = crypto.randomUUID();
     const executionId = crypto.randomUUID();
+    const configuration = workerConfigurationFixture();
     const input = {
       sessionMode: 'no_session' as const,
       sessionCorrelation: sessionId,
@@ -662,7 +674,10 @@ Deno.test('Increment 170 admission keeps a watch registered while SQLite admissi
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition: await builtinDefinitionRef('default', buildManifest()),
+      configuration,
+      configurationId: configuration.configurationId,
+      maxSteps: 128,
+      command: 'test-command',
     };
     const admission = writer.beginExecution(input);
     await pending;

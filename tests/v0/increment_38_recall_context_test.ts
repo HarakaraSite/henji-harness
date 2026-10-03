@@ -2,16 +2,13 @@ import type { Message, Model, ModelRequest, ModelResult } from '../../v0/agent/c
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { WorkerRecallSelectionError } from '../../v0/agent/worker/worker_host_session.ts';
-import type {
-  WorkerExecutionArtifactV2,
-  WorkerExecutionArtifactV3,
-} from '../../v0/agent/worker/worker_execution_artifact.ts';
+import type { WorkerExecutionArtifactV1 } from '../../v0/agent/worker/worker_execution_artifact.ts';
 import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
 import {
   type RecalledExecutionContextV1,
@@ -134,11 +131,9 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
   );
 });
 
-const sourceArtifact = async (
-  schemaVersion: 2 | 3 = 3,
-): Promise<WorkerExecutionArtifactV2 | WorkerExecutionArtifactV3> => {
-  const definition = await builtinDefinitionRef('default', buildManifest());
-  const base: Omit<WorkerExecutionArtifactV2, 'schemaVersion'> = {
+const sourceArtifact = (): WorkerExecutionArtifactV1 => {
+  const configuration = workerConfigurationFixture();
+  const base: Omit<WorkerExecutionArtifactV1, 'schemaVersion'> = {
     executionId: SOURCE_ID,
     createdAt: '2026-09-12T00:00:00.000Z',
     settledAt: '2026-09-12T00:00:01.000Z',
@@ -148,14 +143,14 @@ const sourceArtifact = async (
     instanceCorrelation: 'recall-test-instance',
     workerGeneration: 'recall-test-generation',
     build: buildManifest(),
-    definition,
-    manifest: {
-      role: 'parent',
-      maxSteps: 8,
-      profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
-      resources: [],
-      rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-    },
+    configuration,
+    configurationId: configuration.configurationId,
+    model: ROOT_DEFAULT_MODEL_SELECTION,
+    maxSteps: 8,
+    lifecycle: 'settled',
+    normalizedOutcome: 'cancelled',
+    adoption: 'non_canonical',
+    contextCapture: 'none',
     command: {
       kind: 'turn',
       correlation: correlation('source-turn'),
@@ -183,7 +178,7 @@ const sourceArtifact = async (
     effectCommitRelation: 'not_transactional',
     automaticReplay: false,
   };
-  return schemaVersion === 2 ? { schemaVersion: 2, ...base } : { schemaVersion: 3, ...base };
+  return { schemaVersion: 1, ...base };
 };
 
 const seedCancelledSource = async (
@@ -206,6 +201,7 @@ const seedCancelledSource = async (
   try {
     await client.ready({
       kind: 'ready',
+      configuration: workerConfigurationFixture(),
       correlation: sourceCorrelation,
       manifest: {
         role: 'parent',
@@ -396,7 +392,7 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
   });
   const workspaceRoot = `${stateRoot}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(
+  const store = new SqliteHistoryStore(
     stateRoot,
     workspaceRoot,
     {},
@@ -415,7 +411,10 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: artifact.build,
-      definition: artifact.definition,
+      configuration: artifact.configuration,
+      configurationId: artifact.configurationId,
+      maxSteps: 8,
+      command: artifact.command.correlation.command,
     };
     await store.beginExecution({ ...input, sessionMode: 'no_session' });
     let sequence = 0;
@@ -692,7 +691,7 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-recall-attribution-',
   });
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd(), {
+  const reader = new SqliteHistoryStore(stateRoot, Deno.cwd(), {
     readOnly: true,
   });
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -701,7 +700,7 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
       stateRoot,
       workspaceRoot: Deno.cwd(),
       persistence: 'none',
-      agent: 'default',
+
       physicalIoMode: 'provider-free',
     });
     const sessionId = created.session.currentPosition().sessionId;
@@ -719,7 +718,7 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
       item.command.task === 'read worker protocol'
     );
     assert(
-      artifact?.schemaVersion === 7,
+      artifact?.schemaVersion === 1,
       JSON.stringify(
         reader.listExecutions().map((row) => ({
           task: row.task,
@@ -765,7 +764,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-recall-selection-',
   });
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd(), {
+  const reader = new SqliteHistoryStore(stateRoot, Deno.cwd(), {
     readOnly: true,
   });
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -774,7 +773,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
       stateRoot,
       workspaceRoot: Deno.cwd(),
       persistence: 'none',
-      agent: 'default',
+
       physicalIoMode: 'provider-free',
     });
     const olderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -799,7 +798,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const firstTarget = (await reader.executionArtifacts.list()).find((
       artifact,
     ) => artifact.command.task === 'use latest source');
-    assert(firstTarget?.schemaVersion === 7);
+    assert(firstTarget?.schemaVersion === 1);
     assertEquals(firstTarget.recall?.sourceExecutionId, latestId);
 
     assertEquals(await created.session.prepareRecall('aaaaaaaa-aaaa'), {
@@ -811,7 +810,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const secondTarget = (await reader.executionArtifacts.list()).find((
       artifact,
     ) => artifact.command.task === 'use explicit source');
-    assert(secondTarget?.schemaVersion === 7);
+    assert(secondTarget?.schemaVersion === 1);
     assertEquals(secondTarget.recall?.sourceExecutionId, olderId);
 
     const third = await created.session.submit('ordinary next task');
@@ -819,7 +818,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const thirdTarget = (await reader.executionArtifacts.list()).find((
       artifact,
     ) => artifact.command.task === 'ordinary next task');
-    assert(thirdTarget?.schemaVersion === 7);
+    assert(thirdTarget?.schemaVersion === 1);
     assertEquals(thirdTarget.recall, undefined);
 
     assertEquals(await created.session.prepareRecall(), {
@@ -832,7 +831,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const clearedTarget = (await reader.executionArtifacts.list()).find((
       artifact,
     ) => artifact.command.task === 'task after recall clear');
-    assert(clearedTarget?.schemaVersion === 7);
+    assert(clearedTarget?.schemaVersion === 1);
     assertEquals(clearedTarget.recall, undefined);
   } finally {
     await created?.close();

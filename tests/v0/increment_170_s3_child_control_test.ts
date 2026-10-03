@@ -1,12 +1,11 @@
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import { createDataService } from '../../v0/agent/data/data_service.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
 import type { StoredExecutionEvent } from '../../v0/agent/history/history_store_contract.ts';
+import type { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
+import { seedDataServiceParentExecution } from './helpers/increment_170_child_data.ts';
 
 const assert: (value: unknown, message?: string) => asserts value = (
   value,
@@ -29,7 +28,9 @@ const controlEvents = (
     event.kind === 'process_cleanup_finished'
   );
 
-const controlPayload = (event: StoredExecutionEvent): Record<string, unknown> => {
+const controlPayload = (
+  event: StoredExecutionEvent,
+): Record<string, unknown> => {
   assert(typeof event.payload === 'object' && event.payload !== null);
   return event.payload as Record<string, unknown>;
 };
@@ -42,11 +43,10 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
   await Deno.mkdir(stateRoot, { recursive: true });
 
   const data = await createDataService({ stateRoot, workspaceRoot });
-  const definition = await builtinDefinitionRef('generic', buildManifest());
   const descriptor = await data.openSession({
     persistence: 'none',
     agent: 'default',
-    definition,
+    agentChoice: {},
     sessionId: `i170-child-control-parent-${crypto.randomUUID()}`,
     initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
   });
@@ -55,12 +55,14 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       data,
       descriptor,
       workspaceRoot,
+      configRoot: `${root}/config`,
+      agentChoice: {},
       physicalIoMode: 'provider-free',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
     },
-    catalog: [{ name: 'generic', ref: definition }],
+    currentCatalog: () => ['generic'],
   });
   const parentExecutionId = 'i170-child-control-parent-execution';
+  let parentSession: WorkerHostSession | undefined;
   let completedRunId: string | undefined;
   let cancelledRunId: string | undefined;
   const channelName = `i170-child-control-${crypto.randomUUID()}`;
@@ -70,14 +72,24 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
     resolveChildStarted = resolve;
   });
   barrier.onmessage = (event: MessageEvent<unknown>) => {
-    const message = event.data as { readonly kind?: unknown; readonly label?: unknown };
+    const message = event.data as {
+      readonly kind?: unknown;
+      readonly label?: unknown;
+    };
     if (message?.kind === 'started' && message.label === 'C') {
       resolveChildStarted();
     }
   };
-  registry.openParent(parentExecutionId);
-
   try {
+    parentSession = await seedDataServiceParentExecution({
+      data,
+      descriptor,
+      workspaceRoot,
+      configRoot: `${root}/config`,
+      agentChoice: {},
+      executionId: parentExecutionId,
+    });
+    registry.openParent(parentExecutionId);
     const spawned = await registry.handle(
       { kind: 'spawn', agent: 'generic', task: 'finish child control run' },
       undefined,
@@ -90,7 +102,10 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       undefined,
       parentExecutionId,
     );
-    assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+    assert(
+      collected.ok && collected.kind === 'collect',
+      JSON.stringify(collected),
+    );
     strictEqual(collected.result.state, 'completed');
     strictEqual(collected.result.finalText, 'worker child result');
 
@@ -103,7 +118,10 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       undefined,
       parentExecutionId,
     );
-    assert(cancelling.ok && cancelling.kind === 'spawn', JSON.stringify(cancelling));
+    assert(
+      cancelling.ok && cancelling.kind === 'spawn',
+      JSON.stringify(cancelling),
+    );
     cancelledRunId = cancelling.runId;
     await childStarted;
 
@@ -112,16 +130,20 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       undefined,
       parentExecutionId,
     );
-    assert(cancelled.ok && cancelled.kind === 'cancel', JSON.stringify(cancelled));
+    assert(
+      cancelled.ok && cancelled.kind === 'cancel',
+      JSON.stringify(cancelled),
+    );
     strictEqual(cancelled.state, 'cancelled');
   } finally {
     barrier.postMessage({ kind: 'release' });
     barrier.close();
     await registry.cleanupAll();
+    await parentSession?.close();
     await data.close();
   }
 
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {
     readOnly: true,
   });
   await store.initialize();
@@ -130,7 +152,9 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
     assert(cancelledRunId !== undefined);
     const completed = controlEvents(store.listExecutionEvents(completedRunId));
     deepStrictEqual(
-      completed.map((event) => [event.kind, controlPayload(event).controlSequence]),
+      completed.map((
+        event,
+      ) => [event.kind, controlPayload(event).controlSequence]),
       [
         ['acknowledgement_requested', 1],
         ['acknowledgement_sent', 2],
@@ -142,7 +166,9 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
 
     const cancelled = controlEvents(store.listExecutionEvents(cancelledRunId));
     deepStrictEqual(
-      cancelled.map((event) => [event.kind, controlPayload(event).controlSequence]),
+      cancelled.map((
+        event,
+      ) => [event.kind, controlPayload(event).controlSequence]),
       [
         ['cancel_requested', 1],
         ['cancel_sent', 2],

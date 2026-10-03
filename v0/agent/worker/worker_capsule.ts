@@ -1,87 +1,10 @@
 import type {
   WorkerCorrelation,
-  WorkerDefinitionLoadRequest,
   WorkerHostCommand,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 
 const encoder = new TextEncoder();
-
-const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    bytes.buffer as ArrayBuffer,
-  );
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-};
-
-const fileSpecifier = (canonicalPath: string): string => {
-  const url = new URL('file:///');
-  url.pathname = canonicalPath;
-  return url.href;
-};
-
-interface WorkerModuleRevision {
-  readonly canonicalSpecifier: string;
-  readonly entrySha256: string;
-  readonly sourceBytes: number;
-}
-
-/** Host-side pre-read and identity capture performed before a Worker imports an entry. */
-export const readWorkerModuleRevision = async (
-  path: string,
-): Promise<WorkerModuleRevision> => {
-  const canonicalPath = await Deno.realPath(path);
-  const source = await Deno.readFile(canonicalPath);
-  return {
-    canonicalSpecifier: fileSpecifier(canonicalPath),
-    entrySha256: await sha256Hex(source),
-    sourceBytes: source.byteLength,
-  };
-};
-
-/** Structural view shared by managed Definition and managed tool Definition revisions. */
-interface ManagedClosureRevisionView {
-  readonly manifest: {
-    readonly entry: string;
-    readonly files: readonly {
-      readonly path: string;
-      readonly sha256: string;
-      readonly byteLength: number;
-    }[];
-  };
-  readonly physicalRoot: string;
-}
-
-/** Build a process-local managed closure descriptor from an already verified exact revision. */
-const managedClosureLoadRequest = (
-  revision: ManagedClosureRevisionView,
-): WorkerDefinitionLoadRequest => {
-  const files = revision.manifest.files.map((file) => ({
-    relativePath: file.path,
-    canonicalSpecifier: fileSpecifier(
-      `${revision.physicalRoot}/files/${file.path}`,
-    ),
-    sha256: file.sha256,
-    sourceBytes: file.byteLength,
-  }));
-  const entry = files.find((file) => file.relativePath === revision.manifest.entry);
-  if (entry === undefined) {
-    throw new Error('Managed Definition entry is absent from its closure');
-  }
-  return Object.freeze({
-    kind: 'managed' as const,
-    entry: Object.freeze({
-      canonicalSpecifier: entry.canonicalSpecifier,
-      entrySha256: entry.sha256,
-      sourceBytes: entry.sourceBytes,
-    }),
-    files: Object.freeze(files.map((file) => Object.freeze(file))),
-  });
-};
-
-export const managedWorkerDefinitionLoadRequest = managedClosureLoadRequest;
-export const managedToolDefinitionLoadRequest = managedClosureLoadRequest;
 
 type WorkerCapsuleStatus =
   | 'starting'

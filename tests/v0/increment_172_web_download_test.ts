@@ -2,9 +2,6 @@ import { TurnCancelledError } from '../../v0/agent/core/cancellation.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from '../../v0/agent/tools/web_fetch.ts';
 import type { Workspace } from '../../v0/agent/tools/work_tool_contract.ts';
-import type { ToolComponentBindings } from '../../v0/agent/tools/tool_components.ts';
-import webFetchDefinition from '../../v0/agent/worker/worker_builtin_web_fetch_tool.ts';
-import type { WorkerToolDefinitionInput } from '../../v0/agent/worker_agent_api.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -124,17 +121,7 @@ Deno.test('Increment 172 bundled web_fetch saves binary bytes from a loopback HT
       }),
   );
   try {
-    const definitionInput = {
-      workspace: fixture.workspace,
-      skillCatalog: {} as WorkerToolDefinitionInput['skillCatalog'],
-      physicalIo: {} as WorkerToolDefinitionInput['physicalIo'],
-    };
-    const component = webFetchDefinition(definitionInput);
-    const tool = component.materialize({
-      workspace: fixture.workspace,
-      workTools: {} as ToolComponentBindings['workTools'],
-      bashOutputStore: {} as ToolComponentBindings['bashOutputStore'],
-    });
+    const tool = createWebFetchTool(fetch, { workspace: fixture.workspace });
     const output = await new Registry([tool]).dispatch({
       callId: 'increment-172-loopback',
       name: 'web_fetch',

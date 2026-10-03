@@ -1,31 +1,25 @@
 import type { LoopOutcome, Message } from '../core/contracts.ts';
-export type { HistoryV7AssistantTextKey, HistoryV7AssistantTextState } from './history_v7_model.ts';
+export type {
+  HistoryAssistantTextKey,
+  HistoryAssistantTextState,
+} from './history_semantic_model.ts';
 import type { AgentEvent } from '../core/events.ts';
 import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type {
-  DefinitionRevisionRef,
-  SessionRecord,
-  StoredSessionRecord,
-} from '../session/session_store_contract.ts';
+import type { StoredSessionRecord } from '../session/session_store_contract.ts';
 import type { RecalledExecutionContext } from '../worker/recalled_execution_context.ts';
-import type {
-  StoredWorkerExecutionArtifact,
-  WorkerExecutionArtifactV4,
-  WorkerExecutionArtifactV5,
-  WorkerExecutionArtifactV6,
-} from '../worker/worker_execution_artifact.ts';
+import type { WorkerExecutionArtifactV1 } from '../worker/worker_execution_artifact.ts';
 import type {
   WorkerCommitProposalMessage,
   WorkerEffectObservationMessage,
   WorkerErrorMessage,
   WorkerProviderObservationMessage,
-  WorkerReadyMessage,
   WorkerRuntimeEventMessage,
   WorkerTurnFailedMessage,
 } from '../worker/worker_protocol.ts';
+import type { WorkerConfigurationSnapshot } from '../worker/worker_configuration.ts';
 import type {
   ContextModelRequestRecord,
   ExecutionContextManifestV2,
@@ -33,9 +27,9 @@ import type {
   WorkerContextSnapshot,
 } from './context_attribution.ts';
 import type {
-  HistoryV7AssistantTextState,
-  HistoryV7SemanticOccurrence,
-} from './history_v7_model.ts';
+  HistoryAssistantTextState,
+  HistorySemanticOccurrence,
+} from './history_semantic_model.ts';
 
 type HistoryStoreErrorCode =
   | 'history_busy'
@@ -351,11 +345,12 @@ export interface StoredExecutionRow {
   readonly adoption: ExecutionAdoption;
   readonly baseRevision: number;
   readonly committedRevision?: number;
-  readonly agent: SessionRecord['agent'];
+  readonly agent: string;
   readonly model: ModelSelection;
   readonly build: BuildManifestV1;
-  readonly definition: DefinitionRevisionRef;
-  readonly manifest?: NonNullable<WorkerReadyMessage['manifest']>;
+  readonly configurationId: string;
+  readonly configuration: WorkerConfigurationSnapshot;
+  readonly maxSteps: number;
   readonly instanceCorrelation?: string;
   readonly workerGeneration?: string;
   readonly acknowledgement: string;
@@ -380,8 +375,8 @@ export interface StoredSessionHistoryExecution {
 /** Original rows needed to replay one Session through the shared Conversation engine. */
 export interface StoredSessionConversationExecution {
   readonly execution: StoredExecutionRow;
-  readonly occurrences: readonly HistoryV7SemanticOccurrence[];
-  readonly assistantTextStates: readonly HistoryV7AssistantTextState[];
+  readonly occurrences: readonly HistorySemanticOccurrence[];
+  readonly assistantTextStates: readonly HistoryAssistantTextState[];
 }
 
 /** Facts made durable by one terminal COMMIT, returned without a follow-up history read. */
@@ -395,7 +390,7 @@ export interface HistoryCommitDelta {
   readonly diagnostic?: Readonly<{ code: string; stage: string }>;
   readonly adoption: ExecutionAdoption;
   readonly committedRevision?: number;
-  readonly occurrences: readonly HistoryV7SemanticOccurrence[];
+  readonly occurrences: readonly HistorySemanticOccurrence[];
 }
 
 export interface BeginExecutionInput extends HistoryExecutionInput {
@@ -409,10 +404,7 @@ export interface ReconcileExecutionInput {
   readonly executionId: string;
   readonly settledAt?: string;
   readonly settlement: 'interrupted' | 'unknown';
-  readonly artifact?:
-    | WorkerExecutionArtifactV4
-    | WorkerExecutionArtifactV5
-    | WorkerExecutionArtifactV6;
+  readonly artifact?: WorkerExecutionArtifactV1;
 }
 
 export class HistoryStoreError extends Error {
@@ -427,15 +419,18 @@ export interface HistoryExecutionInput {
   readonly executionId: string;
   readonly createdAt: string;
   readonly sessionCorrelation: string;
+  /** Worker command correlation for the admitted turn, retained in the semantic admission record. */
+  readonly command: string;
   readonly canonicalSessionId?: string;
   readonly turn: number;
   readonly task: string;
   readonly baseStateRevision: number;
-  readonly agent: SessionRecord['agent'];
+  readonly agent: string;
   readonly model: ModelSelection;
   readonly build: BuildManifestV1;
-  readonly definition: DefinitionRevisionRef;
-  readonly manifest?: NonNullable<WorkerReadyMessage['manifest']>;
+  readonly configurationId: string;
+  readonly configuration: WorkerConfigurationSnapshot;
+  readonly maxSteps: number;
   readonly instanceCorrelation?: string;
   readonly workerGeneration?: string;
   readonly recalledContext?: RecalledExecutionContext;
@@ -458,14 +453,14 @@ export interface CanonicalTurnCommitInput extends HistoryExecutionInput, History
   readonly outcome: LoopOutcome;
   readonly artifactForCapture?: (
     capture: HistoryCaptureResult,
-  ) => StoredWorkerExecutionArtifact;
+  ) => WorkerExecutionArtifactV1;
 }
 
 export interface NonCanonicalExecutionInput extends HistoryExecutionInput, HistoryCaptureInput {
   readonly outcome: LoopOutcome;
   readonly artifactForCapture?: (
     capture: HistoryCaptureResult,
-  ) => StoredWorkerExecutionArtifact;
+  ) => WorkerExecutionArtifactV1;
 }
 
 export interface HistoryCaptureResult {
@@ -515,15 +510,15 @@ export interface HistoryPersistencePort {
   readExecution(id: string): StoredExecutionRow;
   listExecutionEvents(id: string): readonly StoredExecutionEvent[];
   /** Semantic source rows used by the shared read projection. */
-  listSemanticOccurrences?(id: string): readonly HistoryV7SemanticOccurrence[];
+  listSemanticOccurrences?(id: string): readonly HistorySemanticOccurrence[];
   /** Latest request text while its provider request is incomplete. */
-  listAssistantTextStates?(id: string): readonly HistoryV7AssistantTextState[];
+  listAssistantTextStates?(id: string): readonly HistoryAssistantTextState[];
   listExecutionEffects(id: string): readonly StoredExecutionEffect[];
   commitCanonicalTurn(input: CanonicalTurnCommitInput): HistoryCaptureResult;
   settleNonCanonicalExecution(
     input: NonCanonicalExecutionInput,
   ): HistoryCaptureResult;
-  recordPostCommitObservation(artifact: StoredWorkerExecutionArtifact): void;
+  recordPostCommitObservation(artifact: WorkerExecutionArtifactV1): void;
   listExecutionContext(executionId: string): {
     readonly snapshot?: WorkerContextSnapshot;
     readonly relations: readonly ExecutionContextRelation[];

@@ -223,6 +223,7 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     dataRoot: `${environment.XDG_DATA_HOME}/henji-harness`,
     physicalIoMode: 'production' as const,
     agent: 'default' as const,
+    agentChoice: {},
     rootMaxSteps: 3,
     initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     providerDeclarations: declarations,

@@ -1,8 +1,5 @@
-import {
-  createAgentResourceIdentity,
-  type PhysicalIoBindings,
-  type ToolComponent,
-} from '../../v0/agent/worker_agent_api.ts';
+import { type PhysicalIoBindings, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import { createWebSearchTool } from '../../v0/agent/tools/web_search.ts';
 import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
 import {
@@ -13,11 +10,7 @@ import {
 } from '../../v0/agent/tools/work_tools.ts';
 import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
 
-/**
- * Test-only component set matching the bundled default parent declaration. Direct
- * `createDefaultAgentComposition`/`createDeclaredRegistry` callers must supply tool Definition
- * components; the production Host resolves the bundled tool Definition modules itself.
- */
+/** Test-only component set for bundled tool implementations selected by Agent JSON configuration. */
 export const bundledToolComponents = (
   physicalIo: PhysicalIoBindings,
 ): readonly ToolComponent[] => [

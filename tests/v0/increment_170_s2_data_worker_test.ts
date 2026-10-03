@@ -1,11 +1,11 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { ExecutionEventInput } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import {
   contextDigest,
   contextOccurrenceDigest,
 } from '../../v0/agent/history/context_attribution.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { createDataClient } from '../../v0/agent/data/client.ts';
 import type { ContextReadResult, HistoryReadResult } from '../../v0/api/contract.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -27,15 +27,15 @@ Deno.test('Increment 170 S2 Data Worker reads fresh history, context and executi
   );
   deepStrictEqual(empty, { sessionId: null, view: 'session', text: '' });
 
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let session: Awaited<ReturnType<typeof history.allocateWorker>> | undefined;
   try {
     await history.initialize();
     const createdAt = '2026-10-02T00:00:00.000Z';
-    const definition = await builtinDefinitionRef('default', buildManifest());
-    session = await history.allocateWorker('default', definition);
+    const configuration = workerConfigurationFixture();
+    session = await history.allocateWorker('default', {});
     const sessionRecord: StoredSessionRecord = {
-      schemaVersion: 6,
+      schemaVersion: 1,
       sessionId: session.id,
       workspaceRoot,
       agent: 'default',
@@ -45,7 +45,7 @@ Deno.test('Increment 170 S2 Data Worker reads fresh history, context and executi
       stateRevision: 1,
       nextTurn: 1,
       transcript: [],
-      definition,
+      agentChoice: {},
       activeModel: ROOT_DEFAULT_MODEL_SELECTION,
       modelChanges: [{
         effectiveFromTurn: 1,
@@ -80,7 +80,10 @@ Deno.test('Increment 170 S2 Data Worker reads fresh history, context and executi
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition,
+      configurationId: configuration.configurationId,
+      configuration,
+      maxSteps: 128,
+      command: 'test-command',
     };
     await history.beginExecution({ ...execution, sessionMode: 'persistent' });
     const correlation: WorkerCorrelation = {

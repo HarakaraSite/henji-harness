@@ -1,7 +1,7 @@
 import { ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
@@ -109,7 +109,6 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
       commandId: crypto.randomUUID(),
       selection: { kind: 'new' as const },
       activation: {
-        agent: 'default',
         maxSteps: 4,
         providerTimeoutMs: 5_000,
         rootProvider: 'openrouter-responses',
@@ -231,7 +230,7 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     server = undefined;
     await core.close();
     core = undefined;
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
+    const history = new SqliteHistoryStore(stateRoot, workspaceRoot, {});
     await history.initialize();
     const handle = await history.openExistingWorker(id);
     const checkpointSummary = 'Slice 5 existing checkpoint applied on resume';

@@ -1,13 +1,13 @@
 import { ok, strictEqual } from 'node:assert';
 import { createDataClient } from '../../v0/agent/data/client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
 Deno.test('Increment 170 started Session close releases its shared Data writer lock and retains the public conversation cut', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-session-close-' });
   const stateRoot = `${root}/state`;
   const data = await createDataClient({ stateRoot, workspaceRoot: root });
-  const second = new SqliteHistoryV7ProductionStore(stateRoot, root);
+  const second = new SqliteHistoryStore(stateRoot, root);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({
@@ -17,7 +17,7 @@ Deno.test('Increment 170 started Session close releases its shared Data writer l
       configRoot: `${root}/config`,
       dataRoot: `${root}/resources`,
       persistence: 'new',
-      agent: 'default',
+
       physicalIoMode: 'provider-free',
     });
     ok((await created.session.submit('answer briefly')).ok);
@@ -35,7 +35,7 @@ Deno.test('Increment 170 started Session close releases its shared Data writer l
       persistence: 'session',
       sessionId,
       agent: 'default',
-      definition: created.session.definition,
+      agentChoice: created.session.agentChoice,
     });
     strictEqual(reopened.currentPosition.committedTurn, 1);
     strictEqual((await data.conversationSnapshot(sessionId)).cut, before.cut);

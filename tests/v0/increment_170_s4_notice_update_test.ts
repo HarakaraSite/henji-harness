@@ -175,3 +175,45 @@ Deno.test('Increment 170 pending steering lookup uses the session dirty-entity i
     1,
   );
 });
+
+Deno.test('181 unavailable configuration entries expose the source file and reason in normal conversation notices', () => {
+  const projector = new SnapshotConversationProjector();
+  const notices = new RemoteSystemNotices();
+  const initial = tuiSnapshot({}, []);
+  const snapshot = {
+    ...initial,
+    runtime: {
+      ...initial.runtime,
+      effectiveConfig: {
+        configuration: {
+          status: 'ready',
+          configurationId: '181-notice-config',
+          rejections: [{
+            target: 'tool',
+            name: 'write',
+            file: '/tmp/tools/write/index.ts',
+            reason: 'default export is not a factory',
+          }],
+        },
+        maxSteps: 128,
+        maxStepsSource: 'default' as const,
+        providerTimeoutMs: 30000,
+        activation: {},
+      },
+    },
+  };
+  const client = tuiClientState(snapshot);
+  const projected = projector.project(client, '181/configuration');
+  notices.sync(client, projected.store, {
+    reset: projected.reset,
+    structureChanged: projected.structureChanged,
+  });
+  const rows = projected.store.ids().map((id) => projected.store.get(id)?.text ?? '');
+  equal(
+    rows.some((text) =>
+      text.includes('CONFIGURATION REJECTED') && text.includes('/tmp/tools/write/index.ts') &&
+      text.includes('default export is not a factory')
+    ),
+    true,
+  );
+});

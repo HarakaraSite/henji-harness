@@ -1,7 +1,6 @@
 import { type CoreInitialSession, createCoreService } from '../host/core_service.ts';
 import { startCoreServer } from '../http/api_worker_client.ts';
 import { parseTuiInvocation } from './session_invocation.ts';
-import { resolveRequestedDefinition } from '../definitions/definition_selection.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import {
   builtinProviderDeclarations,
@@ -130,15 +129,9 @@ export const main = async (
       command.sessionArgs,
       providerDeclarations.map((entry) => entry.providerId),
     );
-    const selection = invocation.persistence === 'session' &&
-        invocation.rawAgentName === undefined && invocation.rawDefinitionRevision === undefined
-      ? undefined
-      : await resolveRequestedDefinition(
-        invocation.rawAgentName,
-        invocation.rawDefinitionRevision,
-        paths.dataRoot,
-        paths.configRoot,
-      );
+    const agentChoice = invocation.rawAgentFile === undefined
+      ? (invocation.rawAgentName === undefined ? undefined : { name: invocation.rawAgentName })
+      : { file: invocation.rawAgentFile };
     const initialSession: CoreInitialSession | undefined = command.openInitialSession
       ? invocation.persistence === 'session'
         ? { kind: 'exact', sessionId: invocation.sessionId! }
@@ -161,7 +154,7 @@ export const main = async (
       stateRoot: paths.stateRoot,
       configRoot: paths.configRoot,
       dataRoot: paths.dataRoot,
-      selection,
+      agentChoice,
       physicalIoMode: 'production',
       rootMaxSteps: invocation.rootMaxSteps,
       providerTimeoutMs: invocation.providerTimeoutMs,

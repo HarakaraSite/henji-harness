@@ -6,13 +6,10 @@ import { SteeringOwner } from '../../v0/agent/core/steering.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
-import {
-  DEFAULT_AGENT_MAX_STEPS,
-  defaultAgentDefinition,
-} from '../../v0/agent/definitions/agent_definition.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider/provider_profile.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
-import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
 import { type SessionRecord, validateSessionRecord } from '../../v0/agent/session/session_store.ts';
 import {
   MAX_REPLAY_MESSAGE_TEXT_BYTES,
@@ -20,14 +17,12 @@ import {
 } from '../../v0/agent/session/replay_value.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
-import { validateResolvedAgentResources } from '../../v0/agent/definitions/resource_identity.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import { displayWorkspaceLabel } from '../../v0/agent/runtime/startup_orientation.ts';
 import {
-  createAgentComposition,
-  createAgentResourceIdentity,
-  createDefaultAgentComposition,
-  type ExecutableAgentDefinition,
-  finalizeRootAgentComposition,
+  createWorkerComposition,
+  DEFAULT_AGENT_MAX_STEPS,
+  finalizeWorkerComposition,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
 import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
@@ -108,6 +103,10 @@ const bundledWorkToolComponents = (
   {
     identity: createAgentResourceIdentity('tool:web_fetch'),
     materialize: () => createWebFetchTool(),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:submit_json_result'),
+    materialize: () => createJsonResultSubmissionTool(),
   },
 ];
 
@@ -314,7 +313,6 @@ Deno.test('Worker max-step failure does not advance the committed turn', async (
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'none',
-    agent: 'default',
     rootMaxSteps: 1,
     physicalIoMode: 'provider-free',
   });
@@ -358,52 +356,17 @@ Deno.test('retained UI keeps operational metadata out of the conversation log', 
   assertEquals(second.log.entries, first.log.entries);
 });
 
-Deno.test('Definitions declare capabilities while the host materializes matching registries', () => {
-  const input = {
-    workspace: { root: '/definition-test' },
+Deno.test('common Worker composition starts with the runtime step limit', () => {
+  const composition = createWorkerComposition({
+    workspace: { root: '/configuration-test' },
     skillCatalog: emptySkillCatalog(),
-  };
-  const defaultDefinition = defaultAgentDefinition(input);
+    physicalIo: { createModel: () => ({ generate: () => ({ kind: 'final', text: 'done' }) }) },
+    toolComponents: [],
+    asyncAgentNames: [],
+  }, { roleInstruction: 'Complete the task.' });
   assertEquals(DEFAULT_AGENT_MAX_STEPS, 128);
-  assertEquals(defaultDefinition.limits.maxSteps, 128);
-  assert(!('registry' in defaultDefinition));
-  assert(!('skillCatalog' in defaultDefinition));
-  assertEquals(defaultDefinition.capabilities.tools.map(String), [
-    'tool:bash',
-    'tool:bash_output',
-    'tool:edit',
-    'tool:read',
-    'tool:web_fetch',
-    'tool:web_search',
-    'tool:write',
-    'tool:submit_json_result',
-  ]);
-  assertEquals(
-    createDeclaredRegistry(defaultDefinition.capabilities, {
-      ...input,
-      webSearchBackend: providerFreeWebSearchBackend,
-      toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
-    }).definitions().map((tool) => tool.name),
-    [
-      'bash',
-      'bash_output',
-      'edit',
-      'read',
-      'submit_json_result',
-      'web_fetch',
-      'web_search',
-      'write',
-    ],
-  );
-  validateResolvedAgentResources(defaultDefinition, 'default');
-  const configured = defaultAgentDefinition({
-    ...input,
-    asyncAgentNames: ['reviewer'],
-  });
-  assertEquals(configured.capabilities.asyncAgents.map(String), [
-    'agent:reviewer',
-  ]);
-  validateResolvedAgentResources(configured, 'default');
+  assertEquals(composition.maxSteps, 128);
+  assertEquals(composition.manifest.maxSteps, 128);
 });
 
 Deno.test('active tool guidelines compose only where their tools are materialized', () => {
@@ -421,17 +384,27 @@ Deno.test('active tool guidelines compose only where their tools are materialize
       }),
       webSearchBackend: providerFreeWebSearchBackend,
     },
-    toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
+    toolComponents: bundledWorkToolComponents(providerFreeWebSearchBackend),
   };
-  const parent = createDefaultAgentComposition(input);
-  const reviewer = createAgentComposition(input, {
-    roleInstruction: 'Review the requested change without editing files.',
-    tools: [
-      createAgentResourceIdentity('tool:read'),
-      createAgentResourceIdentity('tool:submit_json_result'),
-    ],
-    asyncAgents: [],
-  });
+  const parent = createWorkerComposition({
+    workspace: input.workspace,
+    skillCatalog: input.skillCatalog,
+    agentInstructions: input.agentInstructions,
+    physicalIo: input.physicalIo,
+    toolComponents: input.toolComponents,
+    asyncAgentNames: [],
+  }, { roleInstruction: 'Complete the requested task.' });
+  const reviewerTools = input.toolComponents.filter((component) =>
+    ['tool:read', 'tool:submit_json_result'].includes(String(component.identity))
+  );
+  const reviewer = createWorkerComposition({
+    workspace: input.workspace,
+    skillCatalog: input.skillCatalog,
+    agentInstructions: input.agentInstructions,
+    physicalIo: input.physicalIo,
+    toolComponents: reviewerTools,
+    asyncAgentNames: [],
+  }, { roleInstruction: 'Review the requested change without editing files.' });
   const guideline =
     'For file inspection, prefer read over running cat or sed through bash; use offset and limit to read further.';
   const bashGuideline =
@@ -517,7 +490,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   }
 });
 
-Deno.test('Definition-provided tool component replaces a declared tool identity', async () => {
+Deno.test('Worker composition materializes the configured tool implementation', async () => {
   let readMaterializations = 0;
   const replacement: ToolComponent = {
     identity: createAgentResourceIdentity('tool:read'),
@@ -525,20 +498,20 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
       readMaterializations += 1;
       return {
         name: 'read',
-        description: 'Definition-local read replacement',
+        description: 'Configured read replacement',
         inputSchema: {
           type: 'object',
           properties: { query: { type: 'string' } },
           required: ['query'],
           additionalProperties: false,
         },
-        promptGuidelines: ['Use the Definition-local read replacement.'],
+        promptGuidelines: ['Use the configured read replacement.'],
         execute: () => 'replacement result',
       };
     },
   };
   const input = {
-    workspace: { root: '/definition-test' },
+    workspace: { root: '/configuration-test' },
     skillCatalog: emptySkillCatalog(),
     physicalIo: {
       createModel: (role: 'parent' | 'planner') => ({
@@ -550,21 +523,17 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
       webSearchBackend: providerFreeWebSearchBackend,
     },
   };
-  const definition: ExecutableAgentDefinition = (definitionInput) =>
-    createDefaultAgentComposition({
-      ...definitionInput,
-      toolDefinitions: [
-        ...bundledWorkToolComponents(providerFreeWebSearchBackend),
-        replacement,
-      ],
-    });
-  const root = definition(input);
+  const root = createWorkerComposition({
+    ...input,
+    toolComponents: [replacement],
+    asyncAgentNames: [],
+  }, { roleInstruction: 'Use the configured tools.' });
   assertEquals(readMaterializations, 1);
   assertEquals(
     root.registry.definitions().find((tool) => tool.name === 'read'),
     {
       name: 'read',
-      description: 'Definition-local read replacement',
+      description: 'Configured read replacement',
       inputSchema: {
         type: 'object',
         properties: { query: { type: 'string' } },
@@ -581,16 +550,17 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
   assertEquals(replacementResult.content.text, 'replacement result');
   assert(
     root.systemInstruction?.includes(
-      'Use the Definition-local read replacement.',
+      'Use the configured read replacement.',
     ),
   );
   assert(root.manifest.resources.includes('tool:read'));
   assert(!JSON.stringify(root.manifest).includes('replacement result'));
 
-  const builtin = createDefaultAgentComposition({
+  const builtin = createWorkerComposition({
     ...input,
-    toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
-  });
+    toolComponents: bundledWorkToolComponents(providerFreeWebSearchBackend),
+    asyncAgentNames: [],
+  }, { roleInstruction: 'Use the bundled tools.' });
   assertEquals(
     builtin.registry.definitions().find((tool) => tool.name === 'read')
       ?.description,
@@ -598,9 +568,9 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
   );
 });
 
-Deno.test('root maxSteps finalization keeps Definition evidence coherent', () => {
-  const composition = createDefaultAgentComposition({
-    workspace: { root: '/definition-test' },
+Deno.test('root maxSteps finalization keeps Worker composition evidence coherent', () => {
+  const composition = createWorkerComposition({
+    workspace: { root: '/configuration-test' },
     skillCatalog: emptySkillCatalog(),
     physicalIo: {
       createModel: () => ({
@@ -608,9 +578,10 @@ Deno.test('root maxSteps finalization keeps Definition evidence coherent', () =>
       }),
       webSearchBackend: providerFreeWebSearchBackend,
     },
-    toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
-  });
-  const finalized = finalizeRootAgentComposition(composition, 12);
+    toolComponents: bundledWorkToolComponents(providerFreeWebSearchBackend),
+    asyncAgentNames: [],
+  }, { roleInstruction: 'Complete the task.' });
+  const finalized = finalizeWorkerComposition(composition, 12);
   assertEquals(composition.maxSteps, 128);
   assertEquals({
     maxSteps: finalized.maxSteps,
@@ -632,15 +603,7 @@ Deno.test('workspace display keeps a short physical path and bounds a long path 
   assert(new TextEncoder().encode(displayed).byteLength <= 96);
 });
 
-Deno.test('production definitions and saved messages use the expanded text ceilings', () => {
-  const input = {
-    workspace: { root: '/definition-test' },
-    skillCatalog: emptySkillCatalog(),
-  };
-  assertEquals(
-    defaultAgentDefinition(input).model.profile.maxCompletionTokens,
-    65_536,
-  );
+Deno.test('production model and saved messages use the expanded text ceilings', () => {
   assertEquals(
     PRODUCTION_MAX_COMPLETION_TOKENS,
     MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS,
@@ -658,9 +621,25 @@ Deno.test('production definitions and saved messages use the expanded text ceili
     sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     workspaceRoot: '/output-limit-test',
     agent: 'default' as const,
+    agentChoice: {},
     createdAt: '2026-09-02T00:00:00.000Z',
     updatedAt: '2026-09-02T00:00:00.000Z',
+    title: null,
+    stateRevision: 1,
     nextTurn: 2,
+    activeModel: ROOT_DEFAULT_MODEL_SELECTION,
+    modelChanges: [{
+      effectiveFromTurn: 1,
+      changedAt: '2026-09-02T00:00:00.000Z',
+      selection: ROOT_DEFAULT_MODEL_SELECTION,
+    }],
+    turnModels: [{ turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION }],
+    turnExecutions: [{
+      turn: 1,
+      executionId: '11111111-1111-4111-8111-111111111111',
+      build: buildManifest(),
+      configurationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    }],
     transcript: [
       {
         role: 'user' as const,
@@ -714,9 +693,25 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
     sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     workspaceRoot: '/mixed-tool-message-test',
     agent: 'default' as const,
+    agentChoice: {},
     createdAt: '2026-09-10T00:00:00.000Z',
     updatedAt: '2026-09-10T00:00:00.000Z',
+    title: null,
+    stateRevision: 1,
     nextTurn: 2,
+    activeModel: ROOT_DEFAULT_MODEL_SELECTION,
+    modelChanges: [{
+      effectiveFromTurn: 1,
+      changedAt: '2026-09-10T00:00:00.000Z',
+      selection: ROOT_DEFAULT_MODEL_SELECTION,
+    }],
+    turnModels: [{ turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION }],
+    turnExecutions: [{
+      turn: 1,
+      executionId: '22222222-2222-4222-8222-222222222222',
+      build: buildManifest(),
+      configurationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    }],
     transcript: [
       {
         role: 'user' as const,
@@ -757,9 +752,25 @@ Deno.test('saved message limits retain the user, assistant, and planner result b
     sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     workspaceRoot: '/saved-message-limits',
     agent: 'default',
+    agentChoice: {},
     createdAt: '2026-09-23T00:00:00.000Z',
     updatedAt: '2026-09-23T00:00:00.000Z',
+    title: null,
+    stateRevision: 1,
     nextTurn: 2,
+    activeModel: ROOT_DEFAULT_MODEL_SELECTION,
+    modelChanges: [{
+      effectiveFromTurn: 1,
+      changedAt: '2026-09-23T00:00:00.000Z',
+      selection: ROOT_DEFAULT_MODEL_SELECTION,
+    }],
+    turnModels: [{ turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION }],
+    turnExecutions: [{
+      turn: 1,
+      executionId: '33333333-3333-4333-8333-333333333333',
+      build: buildManifest(),
+      configurationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    }],
   };
   const accepts = (transcript: readonly Message[]): boolean =>
     validateSessionRecord({ ...base, transcript });

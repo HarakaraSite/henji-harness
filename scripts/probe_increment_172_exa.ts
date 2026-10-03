@@ -3,13 +3,13 @@ import {
   ParentTurnExecutionContext,
   TurnRequestBudget,
 } from '../v0/agent/core/execution_context.ts';
-import { emptySkillCatalog } from '../v0/agent/definitions/skills.ts';
 import { ProviderEvidenceRecorder } from '../v0/agent/provider/provider_evidence.ts';
-import { createBashOutputStore } from '../v0/agent/tools/bash_output.ts';
 import { Registry } from '../v0/agent/tools/tools.ts';
-import type { WebSearchRequest } from '../v0/agent/tools/web_search.ts';
-import { resolveWorkspace } from '../v0/agent/tools/work_tool_workspace.ts';
-import webSearchDefinition from '../v0/agent/worker/worker_builtin_web_search_tool.ts';
+import {
+  createWebSearchTool,
+  ExaWebSearchBackend,
+  type WebSearchRequest,
+} from '../v0/agent/tools/web_search.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
@@ -36,20 +36,13 @@ const requests: readonly WebSearchRequest[] = [
 
 if (import.meta.main) {
   const outputRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-increment-172-exa-' });
-  const workspace = await resolveWorkspace();
   const counter = createWorkerRequestCounter();
   const physicalIo = createProductionPhysicalIo(counter);
-  const component = webSearchDefinition({
-    workspace,
-    skillCatalog: emptySkillCatalog(),
-    physicalIo,
-  });
-  const bashOutputStore = createBashOutputStore();
-  const registry = new Registry([component.materialize({
-    workspace,
-    workTools: {},
-    bashOutputStore,
-  })]);
+  const registry = new Registry([
+    createWebSearchTool(
+      new ExaWebSearchBackend({ requestProvider: physicalIo.requestProvider! }),
+    ),
+  ]);
   const evidence = new ProviderEvidenceRecorder();
   const execution = new ParentTurnExecutionContext(
     1,
@@ -62,33 +55,29 @@ if (import.meta.main) {
     evidence,
   );
   const results = [];
-  try {
-    for (const [index, request] of requests.entries()) {
-      const result = await registry.dispatch({
-        callId: `exa-probe-${index + 1}`,
-        name: 'web_search',
-        arguments: request,
-      }, { modelExecution: execution, modelStep: index + 1 });
-      results.push({ arguments: request, result: result.content });
-    }
-    await Deno.writeTextFile(
-      `${outputRoot}/tool-results.json`,
-      JSON.stringify(results, null, 2),
-      { createNew: true, mode: 0o600 },
-    );
-    await Deno.writeTextFile(
-      `${outputRoot}/request-facts.json`,
-      JSON.stringify(evidence.snapshot(), null, 2),
-      { createNew: true, mode: 0o600 },
-    );
-    console.log(JSON.stringify({
-      outputRoot,
-      physicalRequests: counter.count(),
-      modelRequests: execution.snapshot(),
-      outcomes: results.map(({ result }) => result.outcome),
-    }));
-    if (results.some(({ result }) => result.outcome !== 'success')) Deno.exitCode = 1;
-  } finally {
-    await bashOutputStore.close();
+  for (const [index, request] of requests.entries()) {
+    const result = await registry.dispatch({
+      callId: `exa-probe-${index + 1}`,
+      name: 'web_search',
+      arguments: request,
+    }, { modelExecution: execution, modelStep: index + 1 });
+    results.push({ arguments: request, result: result.content });
   }
+  await Deno.writeTextFile(
+    `${outputRoot}/tool-results.json`,
+    JSON.stringify(results, null, 2),
+    { createNew: true, mode: 0o600 },
+  );
+  await Deno.writeTextFile(
+    `${outputRoot}/request-facts.json`,
+    JSON.stringify(evidence.snapshot(), null, 2),
+    { createNew: true, mode: 0o600 },
+  );
+  console.log(JSON.stringify({
+    outputRoot,
+    physicalRequests: counter.count(),
+    modelRequests: execution.snapshot(),
+    outcomes: results.map(({ result }) => result.outcome),
+  }));
+  if (results.some(({ result }) => result.outcome !== 'success')) Deno.exitCode = 1;
 }

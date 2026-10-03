@@ -1,19 +1,18 @@
 import type { Model, ModelRequest } from '../../v0/agent/core/contracts.ts';
 import type { SkillCatalog } from '../../v0/agent/definitions/skills.ts';
-import { resolveBuiltinInstructionComposition } from '../../v0/agent/instructions/compose.ts';
+import { bundledAgentConfiguration } from '../../v0/agent/configuration/agent_configuration.ts';
+import { resolveCommonInstructionComposition } from '../../v0/agent/instructions/compose.ts';
 import {
   finalizeWorkerInstructionComposition,
   finalSystemInstructionForContribution,
 } from '../../v0/agent/instructions/worker_core_finalizer.ts';
-import { DEFAULT_ROLE_INSTRUCTION } from '../../v0/agent/instructions/roles/default.ts';
 import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import type { OpenAIModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import {
-  createAgentComposition,
-  createAgentResourceIdentity,
-  createDefaultAgentComposition,
+  createWorkerComposition,
   type PhysicalIoBindings,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
@@ -98,9 +97,11 @@ const finalModel = (): Model => ({
 
 const openAiDefaultSelection = defaultModelSelectionFor('openai-responses');
 
-Deno.test('Increment 16 composes the Definition contribution in the canonical order', () => {
-  const composition = resolveBuiltinInstructionComposition({
+Deno.test('Increment 16 composes JSON Agent and common instructions in canonical order', () => {
+  const roleInstruction = bundledAgentConfiguration().configuration.instruction;
+  const composition = resolveCommonInstructionComposition({
     workspaceRoot: '/work/increment-16',
+    roleInstruction,
     toolGuidelines: [{
       tool: 'read',
       text: 'Prefer read for workspace files.',
@@ -111,7 +112,7 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
   assertEquals(
     composition.components.map((component) => String(component.identity)),
     [
-      'instruction:builtin-default-role',
+      'instruction:agent-role',
       'instruction:active-tool-guidelines',
       'instruction:workspace-agents',
       'instruction:project-skill-manifest',
@@ -119,7 +120,7 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
     ],
   );
   const positions = [
-    DEFAULT_ROLE_INSTRUCTION,
+    roleInstruction,
     '## Active tool guidelines',
     'WORKSPACE INSTRUCTION',
     'SKILL MANIFEST',
@@ -166,7 +167,7 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
   }
 });
 
-Deno.test('Increment 16 isolates default and external roles, active tools, and manifest identities', () => {
+Deno.test('Increment 16 composes JSON Agent roles, active tools, and manifest identities', () => {
   const skillCatalog: SkillCatalog = Object.freeze({
     manifest: 'PROJECT SKILL MANIFEST',
     skills: Object.freeze([Object.freeze({
@@ -186,22 +187,26 @@ Deno.test('Increment 16 isolates default and external roles, active tools, and m
     agentInstructions: 'WORKSPACE INSTRUCTION',
     skillCatalog,
     physicalIo,
-    toolDefinitions: bundledToolComponents(physicalIo),
+    toolComponents: bundledToolComponents(physicalIo),
+    asyncAgentNames: [],
   };
+  const defaultRoleInstruction = bundledAgentConfiguration().configuration.instruction;
   const root = finalizeWorkerInstructionComposition(
-    createDefaultAgentComposition(input),
+    createWorkerComposition(input, { roleInstruction: defaultRoleInstruction }),
   );
+  const reviewerRoleInstruction = 'Review the requested work.';
   const reviewer = finalizeWorkerInstructionComposition(
-    createAgentComposition(input, {
-      roleInstruction: 'Review the requested work.',
-      tools: [createAgentResourceIdentity('tool:read')],
-      asyncAgents: [],
-    }),
+    createWorkerComposition({
+      ...input,
+      toolComponents: input.toolComponents.filter((component) =>
+        String(component.identity) === 'tool:read'
+      ),
+    }, { roleInstruction: reviewerRoleInstruction }),
   );
 
-  assert(root.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
-  assert(reviewer.systemInstruction?.includes('Review the requested work.'));
-  assert(!reviewer.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
+  assert(root.systemInstruction?.includes(defaultRoleInstruction));
+  assert(reviewer.systemInstruction?.includes(reviewerRoleInstruction));
+  assert(!reviewer.systemInstruction?.includes(defaultRoleInstruction));
   assert(root.systemInstruction?.includes('- bash_output:'));
   assert(
     root.systemInstruction?.includes(
@@ -239,14 +244,19 @@ Deno.test('Increment 16 isolates default and external roles, active tools, and m
       composition.resolved.resourceSelection.resources.map(String).sort(),
     );
   }
-  assert(!root.manifest.resources.includes('agent:planner'));
-  assert(!reviewer.manifest.resources.includes('agent:planner'));
-  assert(root.manifest.resources.includes('instruction:builtin-default-role'));
-  assert(
-    reviewer.manifest.resources.includes('instruction:external-agent-role'),
+  assert(root.manifest.resources.includes('instruction:agent-role'));
+  assert(reviewer.manifest.resources.includes('instruction:agent-role'));
+  assertEquals(
+    root.instructionComponents?.find((component) =>
+      component.identity === createAgentResourceIdentity('instruction:agent-role')
+    )?.text,
+    defaultRoleInstruction,
   );
-  assert(
-    !reviewer.manifest.resources.includes('instruction:builtin-default-role'),
+  assertEquals(
+    reviewer.instructionComponents?.find((component) =>
+      component.identity === createAgentResourceIdentity('instruction:agent-role')
+    )?.text,
+    reviewerRoleInstruction,
   );
 });
 
@@ -272,8 +282,9 @@ const openAICompletedStream = (text: string): string => {
 
 Deno.test('Increment 16 maps one semantic instruction to both provider wire contracts', async () => {
   const resolved = finalSystemInstructionForContribution(
-    resolveBuiltinInstructionComposition({
+    resolveCommonInstructionComposition({
       workspaceRoot: '/work/provider-wire',
+      roleInstruction: bundledAgentConfiguration().configuration.instruction,
       toolGuidelines: [{ tool: 'read', text: 'Read files.' }],
     }).systemInstruction,
   );

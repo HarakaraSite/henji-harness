@@ -1,5 +1,5 @@
 import { ok, strictEqual } from 'node:assert';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { type CoreSessionFrameSink, createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
@@ -68,7 +68,7 @@ Deno.test('Increment 145 HTTP shutdown drains SSE and settles active Bash before
   let core: Awaited<ReturnType<typeof createCoreService>> | undefined;
   let server: Awaited<ReturnType<typeof startCoreServer>> | undefined;
   let events: AsyncGenerator<SessionStreamFrame> | undefined;
-  let history: SqliteHistoryV7ProductionStore | undefined;
+  let history: SqliteHistoryStore | undefined;
   const shutdownStatuses: number[] = [];
   try {
     provider = Deno.serve(
@@ -125,6 +125,7 @@ Deno.test('Increment 145 HTTP shutdown drains SSE and settles active Bash before
       dataRoot: `${environment.XDG_DATA_HOME}/henji-harness`,
       physicalIoMode: 'production' as const,
       agent: 'default' as const,
+      agentChoice: {},
       rootMaxSteps: 3,
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
       providerDeclarations,
@@ -213,7 +214,7 @@ Deno.test('Increment 145 HTTP shutdown drains SSE and settles active Bash before
     ok(!(await processAlive(childPid)), 'shutdown retained the Bash descendant');
     strictEqual(core.coreRead().activeSessionId, null);
 
-    history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
+    history = new SqliteHistoryStore(stateRoot, workspaceRoot, {});
     await history.initialize();
     const saved = history.listExecutions().find((row) => row.executionId === executionId);
     ok(saved, 'shutdown did not persist the active execution');

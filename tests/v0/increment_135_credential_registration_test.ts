@@ -268,7 +268,6 @@ Deno.test('Increment 135 refreshes presence for the current selection without ne
       workspaceRoot,
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       initialModelSelection: defaultModelSelectionFor('openrouter-chat'),
       capsuleFactory: (url) => {

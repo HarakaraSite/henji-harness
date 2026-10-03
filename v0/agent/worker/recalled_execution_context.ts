@@ -562,9 +562,9 @@ export const resolveRecalledExecutionContext = async (
   ) {
     throw new RecalledExecutionContextError('recall_execution_not_uncommitted');
   }
-  if (artifact?.schemaVersion === 4 || executionRow !== undefined) {
+  if (artifact !== undefined || executionRow !== undefined) {
     const normalizedOutcome = executionRow?.outcome ?? (
-      artifact?.schemaVersion === 4 ? artifact.normalizedOutcome : 'unknown'
+      artifact?.normalizedOutcome ?? 'unknown'
     );
     const outcome = normalizedOutcome === 'cancelled' || normalizedOutcome === 'failed'
       ? normalizedOutcome
@@ -586,15 +586,9 @@ export const resolveRecalledExecutionContext = async (
         ? 'complete' as const
         : 'partial' as const,
       task: executionRow?.task ?? artifact!.command.task,
-      ...(executionRow?.outcomeJson?.error === undefined &&
-          artifact?.schemaVersion !== 4 && artifact?.schemaVersion !== 5
+      ...((executionRow?.outcomeJson?.error ?? artifact?.outcome?.error) === undefined
         ? {}
-        : executionRow?.outcomeJson?.error !== undefined
-        ? { error: executionRow.outcomeJson.error }
-        : (artifact?.schemaVersion === 4 || artifact?.schemaVersion === 5) &&
-            artifact.outcome?.error !== undefined
-        ? { error: artifact.outcome.error }
-        : {}),
+        : { error: executionRow?.outcomeJson?.error ?? artifact?.outcome?.error }),
       evidence: providerObservation === undefined &&
           runtimeEvents.length === 0
         ? 'unavailable' as const
@@ -612,27 +606,7 @@ export const resolveRecalledExecutionContext = async (
       automaticReplay: false as const,
     });
   }
-  if (artifact === undefined) {
-    throw new RecalledExecutionContextError('recall_evidence_mismatch');
-  }
-  if (artifact.outcome === undefined) {
-    throw new RecalledExecutionContextError('recall_evidence_mismatch');
-  }
-  const context: RecalledExecutionContextV1 = {
-    schemaVersion: 1,
-    sourceExecutionId: artifact.executionId,
-    sessionId: artifact.sessionId,
-    turn: artifact.turn,
-    settlement: 'uncommitted',
-    stopReason: artifact.outcome.stopReason,
-    task: artifact.command.task,
-    ...(artifact.outcome.error === undefined ? {} : { error: artifact.outcome.error }),
-    evidence: 'unavailable',
-    observations: [],
-    effectCommitRelation: 'not_transactional',
-    automaticReplay: false,
-  };
-  return structuredClone(context);
+  throw new RecalledExecutionContextError('recall_evidence_mismatch');
 };
 
 export const recalledExecutionProjectionText = (

@@ -17,7 +17,7 @@ export type PresentationLifecycle =
   | 'recoverable_error'
   | 'fatal';
 
-export type PresentationAgentId = 'default' | 'planner' | 'generic';
+export type PresentationAgentId = string;
 export interface PresentationModelSelection {
   readonly provider: string;
   readonly modelId: string;

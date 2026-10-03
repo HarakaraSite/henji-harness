@@ -1,13 +1,8 @@
 import type { AgentEventSink } from '../core/events.ts';
 import type { DataService } from '../data/data_contract.ts';
 import type { DataSessionDescriptor } from '../data/session_data_owner.ts';
-import type {
-  WorkerAsyncAgentCatalogEntry,
-  WorkerDefinitionLoadRequest,
-  WorkerHostCommand,
-  WorkerToHostMessage,
-  WorkerToolDefinitionLoadRequest,
-} from './worker_protocol.ts';
+import type { WorkerHostCommand, WorkerToHostMessage } from './worker_protocol.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type { ApplicationObservationSink } from '../host/application_port.ts';
@@ -17,22 +12,16 @@ export interface WorkerHostSessionOptions {
   readonly data: DataService;
   readonly descriptor: DataSessionDescriptor;
   readonly workspaceRoot: string;
-  /** User config root propagated to Workers for the shared credential store. */
-  readonly configRoot?: string;
+  /** User config root used for provider credentials and current Agent/tool JSON files. */
+  readonly configRoot: string;
+  /** JSON Agent choice resolved afresh inside every Worker generation. */
+  readonly agentChoice: AgentConfigurationChoice;
   /** Child-spawn account snapshot carried through this run, independent of its provider. */
   readonly chatgptRegistrationId?: string | null;
-  readonly modulePath?: string;
-  readonly loadDescriptor?: WorkerDefinitionLoadRequest;
-  /** Host-resolved async child agent catalog (`agent:<name>` -> exact ref). */
-  readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
   /** Spawn-time tool filter (bare tool names) narrowing this generation's declared tools. */
   readonly toolFilter?: readonly string[];
-  /** Resolve a managed async agent ref to a process-local load descriptor. */
-  readonly resolveAsyncAgentModule?: (
-    ref: DataSessionDescriptor['definition'],
-  ) => Promise<WorkerDefinitionLoadRequest>;
-  /** Host-resolved tool Definition slots for declared tool identities. */
-  readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
+  /** Child Workers do not expose recursive async child operations. */
+  readonly enableAsyncAgents?: boolean;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;

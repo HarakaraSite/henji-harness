@@ -1,15 +1,12 @@
-import reviewer from '../../agents/reviewer.ts';
-import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
-import {
-  DefinitionStartupError,
-  resolveDefinitionRef,
-  resolveRequestedDefinition,
-} from '../../v0/agent/definitions/definition_selection.ts';
-import { ManagedDefinitionStore } from '../../v0/agent/definitions/managed_definition_store.ts';
+import { createSkillTool } from '../../v0/agent/definitions/skills.ts';
+import { resolveWorkerConfiguration } from '../../v0/agent/configuration/configuration_resolver.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { finalizeWorkerInstructionComposition } from '../../v0/agent/instructions/worker_core_finalizer.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import { selectOpenRouterModel } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { createProviderFreePhysicalIo } from '../../v0/agent/worker/worker_probe_physical_io.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import { createWorkerComposition, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
 import { bundledToolComponents } from './bundled_tool_components.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -19,80 +16,160 @@ const assert: (condition: unknown, message?: string) => asserts condition = (
   if (!condition) throw new Error(message);
 };
 
-const binding = async (
-  configRoot: string,
-  values: Readonly<Record<string, string>>,
-): Promise<void> => {
-  await Deno.mkdir(configRoot, { recursive: true });
-  await Deno.writeTextFile(
-    `${configRoot}/agents.json`,
-    JSON.stringify({
-      schemaVersion: 1,
-      bindings: values,
-    }),
-  );
+const assertEquals = (actual: unknown, expected: unknown): void => {
+  const left = JSON.stringify(actual);
+  const right = JSON.stringify(expected);
+  if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-const selector = (
-  ref: { resourceId: string; revision: { digest: string } },
-): string => `${ref.resourceId}@sha256:${ref.revision.digest}`;
+const writeJson = async (file: string, value: unknown): Promise<void> => {
+  await Deno.mkdir(file.slice(0, file.lastIndexOf('/')), { recursive: true });
+  await Deno.writeTextFile(file, JSON.stringify(value));
+};
 
-Deno.test('Increment 127 keeps a bundled default and excludes a bundled planner', async () => {
+const writeReviewerConfiguration = async (
+  configRoot: string,
+  rootAgents: readonly string[] = ['reviewer'],
+): Promise<void> => {
+  const reviewer = JSON.parse(
+    await Deno.readTextFile(new URL('../../agents/reviewer.json', import.meta.url)),
+  ) as Record<string, unknown>;
+  await writeJson(`${configRoot}/agents.json`, {
+    schemaVersion: 1,
+    default: 'agents/default.json',
+    agents: { reviewer: 'agents/reviewer.json' },
+  });
+  await writeJson(`${configRoot}/agents/default.json`, {
+    name: 'default',
+    revision: '1',
+    agents: rootAgents,
+  });
+  await writeJson(`${configRoot}/agents/reviewer.json`, reviewer);
+};
+
+Deno.test('Increment 127 keeps the bundled JSON default and has no bundled planner', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i127-default-' });
   try {
-    const selected = await resolveRequestedDefinition(
-      undefined,
-      undefined,
-      `${root}/data`,
-      `${root}/config`,
-    );
-    assert(selected.kind === 'builtin' && selected.id === 'default');
-    assert(
-      !(buildManifest().builtinResources ?? []).some((entry) =>
-        entry.resourceId === 'builtin/planner'
-      ),
-    );
-    const oldPlanner = {
-      schemaVersion: 1 as const,
-      resourceKind: 'agent-definition' as const,
-      resourceId: 'builtin/planner',
-      revision: { algorithm: 'sha256' as const, digest: 'a'.repeat(64) },
+    const selected = await resolveWorkerConfiguration(`${root}/config`);
+    assert(selected.agent !== undefined);
+    assertEquals(selected.agent.source.kind, 'bundled');
+    assertEquals(selected.agent.configuration.name, 'default');
+    assertEquals(selected.agent.configuration.agents, ['generic']);
+    assert(!selected.agent.configuration.agents.includes('planner'));
+    assertEquals(buildManifest().agentConfigurationSchemaVersion, 1);
+    assertEquals(buildManifest().supportedToolApiContracts, ['henji-tool/v1']);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 127 named reviewer JSON retains its role and investigation tools', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i127-reviewer-config-' });
+  const configRoot = `${root}/config`;
+  try {
+    await writeReviewerConfiguration(configRoot, []);
+    const selected = await resolveWorkerConfiguration(configRoot, { name: 'reviewer' });
+    assert(selected.agent !== undefined);
+    const agent = selected.agent.configuration;
+    assertEquals(agent.name, 'reviewer');
+    assert(agent.instruction.includes('You are a reviewer.'));
+    assert(agent.instruction.includes('Do not edit the workspace.'));
+    assertEquals(agent.tools, ['bash', 'bash_output', 'read', 'skill']);
+    assertEquals(agent.agents, []);
+
+    const physicalIo = createProviderFreePhysicalIo();
+    const skillCatalog = {
+      manifest: '## Project skills\n\n- review-checklist: Use the review checklist.',
+      skills: [{
+        name: 'review-checklist',
+        description: 'Use the review checklist.',
+        sourceDirectory: '.agents/skills/review-checklist',
+        body: 'Check changed code and user-visible behavior.',
+        toolResult: 'Check changed code and user-visible behavior.',
+      }],
     };
-    let error: unknown;
-    try {
-      await resolveDefinitionRef(oldPlanner, `${root}/data`);
-    } catch (caught) {
-      error = caught;
+    const configuredTools = new Set(agent.tools);
+    const components: readonly ToolComponent[] = [
+      ...bundledToolComponents(physicalIo),
+      {
+        identity: createAgentResourceIdentity('tool:skill'),
+        materialize: () => createSkillTool(skillCatalog),
+      },
+    ].filter(({ identity }) => configuredTools.has(String(identity).slice('tool:'.length)));
+    const composition = finalizeWorkerInstructionComposition(createWorkerComposition({
+      workspace: { root: Deno.cwd() },
+      skillCatalog,
+      physicalIo,
+      toolComponents: components,
+      asyncAgentNames: agent.agents,
+    }, { roleInstruction: agent.instruction }));
+    assert(composition.systemInstruction?.includes(agent.instruction));
+    for (const name of ['bash', 'bash_output', 'read', 'skill']) {
+      assert(composition.registry.definitions().some((tool) => tool.name === name));
+      assert(composition.manifest.resources.includes(`tool:${name}`));
     }
-    assert(
-      error instanceof DefinitionStartupError &&
-        error.code === 'definition_not_found',
+    for (const name of ['edit', 'write', 'web_search']) {
+      assert(!composition.registry.definitions().some((tool) => tool.name === name));
+    }
+    assert(composition.manifest.resources.includes('instruction:henji-base'));
+    assert(composition.manifest.resources.includes('skill:review-checklist'));
+    assert(!composition.manifest.resources.includes('agent:reviewer'));
+    assert(!composition.manifest.resources.includes('agent:planner'));
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 127 rereads named Agent JSON edits on the next startup', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i127-reviewer-edit-' });
+  const configRoot = `${root}/config`;
+  try {
+    await writeReviewerConfiguration(configRoot, []);
+    const first = await resolveWorkerConfiguration(configRoot, { name: 'reviewer' });
+    assert(first.agent !== undefined);
+    assert(first.agent.configuration.instruction.includes('Do not edit the workspace.'));
+
+    const file = `${configRoot}/agents/reviewer.json`;
+    const edited = JSON.parse(await Deno.readTextFile(file)) as Record<string, unknown>;
+    edited.revision = '2';
+    edited.instruction = 'Review the selected source and return verified findings.';
+    await writeJson(file, edited);
+    const next = await resolveWorkerConfiguration(configRoot, { name: 'reviewer' });
+    assert(next.agent !== undefined);
+    assertEquals(next.agent.configuration.revision, '2');
+    assertEquals(
+      next.agent.configuration.instruction,
+      'Review the selected source and return verified findings.',
     );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
 });
 
-Deno.test('Increment 127 external reviewer declares investigation tools and no child agents', () => {
-  const physicalIo = createProviderFreePhysicalIo();
-  const composition = reviewer({
-    workspace: { root: Deno.cwd() },
-    skillCatalog: emptySkillCatalog(),
-    physicalIo,
-    toolDefinitions: bundledToolComponents(physicalIo),
-    asyncAgentNames: ['planner'],
-  });
-  const resources = composition.manifest.resources;
-  assert(resources.includes('instruction:external-agent-role'));
-  for (const tool of ['bash', 'bash_output', 'read']) {
-    assert(resources.includes(`tool:${tool}`));
+Deno.test('Increment 127 named reviewer Worker spawns and collects through its parent', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i127-reviewer-worker-' });
+  const workspaceRoot = `${root}/workspace`;
+  const configRoot = `${root}/config`;
+  await Deno.mkdir(workspaceRoot);
+  await writeReviewerConfiguration(configRoot);
+  try {
+    const created = await createWorkerSession({
+      workspaceRoot,
+      stateRoot: `${root}/state`,
+      configRoot,
+      persistence: 'new',
+      physicalIoMode: 'provider-free',
+    });
+    try {
+      const outcome = await created.session.submit('async-spawn reviewer turn');
+      assert(outcome.ok, JSON.stringify(outcome));
+      assertEquals(outcome.finalText, 'async child: worker child result');
+    } finally {
+      await created.close();
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true });
   }
-  for (const tool of ['edit', 'write', 'spawn_subagent']) {
-    assert(
-      !composition.registry.definitions().some((entry) => entry.name === tool),
-    );
-  }
-  assert(!resources.includes('agent:planner'));
 });
 
 Deno.test('Increment 127 headless Worker uses the configured default model selection', async () => {
@@ -107,104 +184,15 @@ Deno.test('Increment 127 headless Worker uses the configured default model selec
     const created = await createWorkerSession({
       workspaceRoot,
       stateRoot: `${root}/state`,
-      dataRoot: `${root}/data`,
       configRoot,
       persistence: 'none',
       physicalIoMode: 'provider-free',
     });
     try {
-      assert(
-        JSON.stringify(created.session.modelSelectionSnapshot()) === JSON.stringify(selected),
-      );
+      assertEquals(created.session.modelSelectionSnapshot(), selected);
     } finally {
       await created.close();
     }
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-Deno.test('Increment 127 managed reviewer spawns and collects through the parent Worker', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i127-reviewer-' });
-  const workspaceRoot = `${root}/workspace`;
-  const dataRoot = `${root}/data`;
-  const configRoot = `${root}/config`;
-  await Deno.mkdir(workspaceRoot);
-  try {
-    const installed = await new ManagedDefinitionStore({ dataRoot }).install({
-      entryPath: new URL('../../agents/reviewer.ts', import.meta.url).pathname,
-      resourceId: 'test/reviewer',
-      declaredRole: 'parent',
-    });
-    const ref = installed.manifest.logicalRef;
-    await binding(configRoot, { 'agent:reviewer': selector(ref) });
-    const created = await createWorkerSession({
-      workspaceRoot,
-      stateRoot: `${root}/state`,
-      dataRoot,
-      configRoot,
-      persistence: 'new',
-      physicalIoMode: 'provider-free',
-    });
-    try {
-      const outcome = await created.session.submit('async-spawn reviewer turn');
-      assert(outcome.ok, JSON.stringify(outcome));
-      assert(
-        outcome.finalText === 'async child: worker child result',
-        outcome.finalText,
-      );
-    } finally {
-      await created.close();
-    }
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-Deno.test('Increment 127 external planner and external default use managed bindings', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i127-planner-' });
-  const workspaceRoot = `${root}/workspace`;
-  const dataRoot = `${root}/data`;
-  const configRoot = `${root}/config`;
-  await Deno.mkdir(workspaceRoot);
-  try {
-    const installed = await new ManagedDefinitionStore({ dataRoot }).install({
-      entryPath: new URL('./fixtures/managed_child_definition.ts', import.meta.url)
-        .pathname,
-      resourceId: 'test/external-planner',
-      declaredRole: 'parent',
-    });
-    const ref = installed.manifest.logicalRef;
-    await binding(configRoot, { 'agent:planner': selector(ref) });
-    const created = await createWorkerSession({
-      workspaceRoot,
-      stateRoot: `${root}/state`,
-      dataRoot,
-      configRoot,
-      persistence: 'new',
-      physicalIoMode: 'provider-free',
-    });
-    try {
-      const outcome = await created.session.submit('async-spawn planner turn');
-      assert(outcome.ok, JSON.stringify(outcome));
-      assert(
-        outcome.finalText === 'async child: worker child result',
-        outcome.finalText,
-      );
-    } finally {
-      await created.close();
-    }
-    await binding(configRoot, { 'agent:default': selector(ref) });
-    const selected = await resolveRequestedDefinition(
-      undefined,
-      undefined,
-      dataRoot,
-      configRoot,
-    );
-    assert(
-      selected.kind === 'managed' &&
-        selected.ref.revision.digest === ref.revision.digest,
-    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }

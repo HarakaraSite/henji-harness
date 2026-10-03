@@ -7,7 +7,7 @@ import {
   searchOpenRouterModels,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -168,7 +168,7 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
 Deno.test('Increment 12 switches and restores the root model', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-model-switch-' });
   const workspaceRoot = Deno.cwd();
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
@@ -176,7 +176,6 @@ Deno.test('Increment 12 switches and restores the root model', async () => {
       stateRoot,
       workspaceRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
     });
     assertEquals(
@@ -188,7 +187,7 @@ Deno.test('Increment 12 switches and restores the root model', async () => {
     const sessionId = first.session.currentPosition().sessionId;
     assert(typeof sessionId === 'string');
     const selectedBeforeTurn = await store.readWorker(sessionId);
-    assert(selectedBeforeTurn.schemaVersion === 6);
+    assert(selectedBeforeTurn.schemaVersion === 1);
     assertEquals(selectedBeforeTurn.activeModel, qwen);
     assertEquals(selectedBeforeTurn.nextTurn, 1);
     assertEquals(selectedBeforeTurn.turnModels, []);
@@ -205,7 +204,7 @@ Deno.test('Increment 12 switches and restores the root model', async () => {
     const delegated = await first.session.submit('delegate this small task');
     assert(delegated.ok, JSON.stringify(delegated));
     const record = await store.readWorker(sessionId);
-    assert(record.schemaVersion === 6);
+    assert(record.schemaVersion === 1);
     assertEquals(record.activeModel, gpt);
     assertEquals(record.turnModels, [
       { turn: 1, selection: qwen },
@@ -218,8 +217,7 @@ Deno.test('Increment 12 switches and restores the root model', async () => {
     );
     const execution = store.listExecutionsForSession(sessionId).at(-1);
     assert(execution !== undefined);
-    assert(execution.manifest !== undefined);
-    assertEquals(execution.manifest.rootModel, gpt);
+    assertEquals(execution.model, gpt);
 
     await first.close();
     first = undefined;
@@ -228,7 +226,6 @@ Deno.test('Increment 12 switches and restores the root model', async () => {
       workspaceRoot,
       persistence: 'session',
       sessionId,
-      agent: 'default',
       physicalIoMode: 'provider-free',
     });
     assertEquals(resumed.session.modelSelectionSnapshot(), gpt);

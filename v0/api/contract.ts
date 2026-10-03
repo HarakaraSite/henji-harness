@@ -35,16 +35,16 @@ type ApiCheckpoint = Readonly<{
 
 export type SessionActivation = Readonly<{
   agent?: string;
-  definitionRevision?: string;
+  agentFile?: string;
   maxSteps?: number;
   providerTimeoutMs?: number;
   rootProvider?: string;
 }>;
 
 export type EffectiveRuntimeConfig = Readonly<{
-  definition: ApiJson;
+  configuration: ApiJson;
   maxSteps: number | null;
-  maxStepsSource: 'activation' | 'definition' | 'unevaluated';
+  maxStepsSource: 'activation' | 'default' | 'unevaluated';
   providerTimeoutMs: number;
   activation: SessionActivation;
 }>;
@@ -69,13 +69,13 @@ export type ApiPosition = Readonly<{
   sessionId: string;
   createdAt: string;
   title?: string;
-  agent: 'default' | 'planner' | 'generic';
+  agent: string;
   committedTurn: number;
   messageCount: number;
   checkpoint?: ApiCheckpoint;
 }>;
 
-type ApiJson = null | boolean | number | string | readonly ApiJson[] | {
+export type ApiJson = null | boolean | number | string | readonly ApiJson[] | {
   readonly [key: string]: ApiJson;
 };
 
@@ -137,6 +137,7 @@ export type CoreRejection =
   | 'invalid'
   | 'notFound'
   | 'failed'
+  | 'configurationRejected'
   | 'admissionFailed'
   | 'ambiguous';
 
@@ -350,7 +351,7 @@ export type CoreReadView = Readonly<{
 
 type ApiSessionListEntry = Readonly<{
   id: string;
-  agent: 'default' | 'planner' | 'generic';
+  agent: string;
   createdAt: string;
   updatedAt: string;
   title?: string;

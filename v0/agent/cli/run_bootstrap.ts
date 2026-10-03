@@ -2,7 +2,7 @@ import { installBuildManifest } from '../runtime/build_manifest.ts';
 import type { HeadlessWorkerRun } from '../worker/worker_headless_runner.ts';
 import { main } from './runtime_cli.ts';
 import {
-  type CliDefinitionSelectionInfo,
+  type CliAgentSelectionInfo,
   type CliRunOptions,
   type MainToRunWorker,
   type RunWorkerErrorData,
@@ -36,7 +36,7 @@ const deferred = <T>(): Deferred<T> => {
 const scope = globalThis as unknown as RunWorkerScope;
 const pending = new Map<
   number,
-  { readonly kind: 'resolve'; readonly deferred: Deferred<CliDefinitionSelectionInfo> } | {
+  { readonly kind: 'resolve'; readonly deferred: Deferred<CliAgentSelectionInfo> } | {
     readonly kind: 'run';
     readonly deferred: Deferred<HeadlessWorkerRun>;
     readonly eventSink?: AgentEventSink;
@@ -61,14 +61,14 @@ scope.onmessage = (event: MessageEvent<MainToRunWorker>): void => {
     started = true;
     const start = message as RunWorkerStart;
     installBuildManifest(start.build);
-    const resolveDefinition = (
+    const resolveAgent = (
       rawAgentName: string | undefined,
-      rawDefinitionRevision: string | undefined,
-    ): Promise<CliDefinitionSelectionInfo> => {
+      rawAgentFile: string | undefined,
+    ): Promise<CliAgentSelectionInfo> => {
       const id = nextId++;
-      const request = deferred<CliDefinitionSelectionInfo>();
+      const request = deferred<CliAgentSelectionInfo>();
       pending.set(id, { kind: 'resolve', deferred: request });
-      post({ kind: 'resolve.request', id, rawAgentName, rawDefinitionRevision });
+      post({ kind: 'resolve.request', id, rawAgentName, rawAgentFile });
       return request.promise;
     };
     const run = (
@@ -90,7 +90,7 @@ scope.onmessage = (event: MessageEvent<MainToRunWorker>): void => {
     };
 
     void main(start.args, {
-      resolveDefinition,
+      resolveAgent,
       run,
     }).then(
       (exitCode) => post({ kind: 'done', exitCode }),

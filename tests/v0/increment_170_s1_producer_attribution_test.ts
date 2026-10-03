@@ -2,15 +2,13 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { Model, ModelResult } from '../../v0/agent/core/contracts.ts';
 import { createTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
 import { runAgentTurn } from '../../v0/agent/core/loop.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import type { AgentCapabilityDeclaration } from '../../v0/agent/definitions/agent_definition.ts';
-import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import {
   type ExecutionEventInput,
   type StoredExecutionEvent,
 } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import {
   type ProviderEvidenceObservation,
@@ -18,7 +16,8 @@ import {
   type ProviderEvidenceRuntimeEvent,
 } from '../../v0/agent/provider/provider_evidence.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
+import { Registry } from '../../v0/agent/tools/tools.ts';
+import { createBashOutputStore } from '../../v0/agent/tools/bash_output.ts';
 import type { Tool } from '../../v0/agent/tools/tools.ts';
 import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import type { ToolComponent } from '../../v0/agent/tools/tool_components.ts';
@@ -60,16 +59,16 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let handle: Awaited<ReturnType<typeof store.allocateWorker>> | undefined;
-  let registry: ReturnType<typeof createDeclaredRegistry> | undefined;
+  let registry: Registry | undefined;
   try {
     await store.initialize();
-    const definition = await builtinDefinitionRef('default', buildManifest());
-    handle = await store.allocateWorker('default', definition);
+    const configuration = workerConfigurationFixture();
+    handle = await store.allocateWorker('default', {});
     const createdAt = '2026-10-02T00:00:00.000Z';
     const record: StoredSessionRecord = {
-      schemaVersion: 6,
+      schemaVersion: 1,
       sessionId: handle.id,
       workspaceRoot,
       agent: 'default',
@@ -79,7 +78,7 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
       stateRevision: 1,
       nextTurn: 1,
       transcript: [],
-      definition,
+      agentChoice: {},
       activeModel: ROOT_DEFAULT_MODEL_SELECTION,
       modelChanges: [{
         effectiveFromTurn: 1,
@@ -108,7 +107,10 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition,
+      configurationId: configuration.configurationId,
+      configuration,
+      maxSteps: 128,
+      command: 'test-command',
     };
     await store.beginExecution({ ...input, sessionMode: 'persistent' });
 
@@ -249,17 +251,15 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
         return 'marker file says blue';
       },
     }));
-    const declaration: AgentCapabilityDeclaration = {
-      instructions: [],
-      skills: [],
-      tools: [searchIdentity, readIdentity],
-      asyncAgents: [],
-    };
-    registry = createDeclaredRegistry(declaration, {
-      workspace: { root: workspaceRoot },
-      skillCatalog: emptySkillCatalog(),
-      toolDefinitions: [externalSearchComponent, externalReadComponent],
-    });
+    registry = new Registry(
+      [externalSearchComponent, externalReadComponent].map((component) =>
+        component.materialize({
+          workspace: { root: workspaceRoot },
+          workTools: {},
+          bashOutputStore: createBashOutputStore(),
+        })
+      ),
+    );
 
     let generation = 0;
     const model: Model = {

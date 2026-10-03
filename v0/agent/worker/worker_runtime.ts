@@ -58,6 +58,7 @@ import {
 } from './recalled_execution_context.ts';
 import type { WorkerStageName } from './worker_stage_probe.ts';
 import type { AgentGenerationContextBasis } from '../data/agent_data_contract.ts';
+import type { WorkerConfigurationSnapshot } from './worker_configuration.ts';
 
 export interface WorkerGenerationPort {
   readonly runtimeEvent: (
@@ -173,6 +174,7 @@ export class WorkerGeneration {
     } = { skillNames: [] },
     private readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
     initialPrivateStateFromTurn = 1,
+    readonly configuration?: WorkerConfigurationSnapshot,
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
@@ -187,17 +189,23 @@ export class WorkerGeneration {
     return this.composition.registry.close();
   }
 
-  get manifest(): WorkerAgentComposition['manifest'] {
+  get manifest(): Omit<WorkerAgentComposition['manifest'], 'tools'> {
     const rootModel = structuredClone(this.rootModelSelection);
     const profileId = modelRouteProfileId(rootModel);
     const resources = this.composition.manifest.resources.map((resource) =>
       resource.startsWith('model:') ? `model:${rootModel.provider}:${profileId}` : resource
     ).sort();
     return Object.freeze({
-      ...this.composition.manifest,
+      role: this.composition.manifest.role,
+      maxSteps: this.composition.manifest.maxSteps,
       profileId,
       resources: Object.freeze(resources),
       rootModel: Object.freeze(rootModel),
+      ...(this.composition.manifest.baseInstruction === undefined ? {} : {
+        baseInstruction: structuredClone(
+          this.composition.manifest.baseInstruction,
+        ),
+      }),
     });
   }
 

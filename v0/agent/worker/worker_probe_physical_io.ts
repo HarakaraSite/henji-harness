@@ -1,4 +1,10 @@
-import type { Model, ModelGenerateOptions, ModelRequest, ModelResult } from '../core/contracts.ts';
+import type {
+  JsonValue,
+  Model,
+  ModelGenerateOptions,
+  ModelRequest,
+  ModelResult,
+} from '../core/contracts.ts';
 import { throwIfCancelled } from '../core/cancellation.ts';
 import { createProviderFreeWebSearchBackend } from '../tools/web_search.ts';
 import type { PhysicalIoBindings } from '../worker_agent_api.ts';
@@ -8,6 +14,8 @@ const probeTask = {
   stubbornChildBarrier: 'stubborn-barrier-child:',
   spawnUncollected: 'async-spawn-uncollected:',
   spawnBarrier: 'async-spawn-barrier:',
+  bashToolCall: 'bash-tool-call:',
+  processToolCall: 'process-tool-call:',
 } as const;
 
 const lastUserText = (request: ModelRequest): string => {
@@ -179,6 +187,32 @@ class WorkerProbeModel implements Model {
       };
     }
     const task = lastUserText(request);
+    if (
+      task.startsWith(probeTask.bashToolCall) ||
+      task.startsWith(probeTask.processToolCall)
+    ) {
+      if (hasCurrentTurnToolResult(request)) {
+        if (task.startsWith(probeTask.processToolCall)) {
+          return { kind: 'final', text: 'process probe finished' };
+        }
+        return { kind: 'final', text: lastToolResultText(request) };
+      }
+      const prefix = task.startsWith(probeTask.bashToolCall)
+        ? probeTask.bashToolCall
+        : probeTask.processToolCall;
+      const invocation = JSON.parse(task.slice(prefix.length)) as {
+        readonly name: string;
+        readonly arguments: JsonValue;
+      };
+      return {
+        kind: 'tool_calls',
+        calls: [{
+          callId: `probe-${invocation.name}`,
+          name: invocation.name,
+          arguments: invocation.arguments,
+        }],
+      };
+    }
     if (task.includes('child-fail') && !task.includes('async-')) {
       throw new Error('child task failed on purpose');
     }

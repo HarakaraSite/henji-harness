@@ -17,9 +17,6 @@ import {
 import { Registry, ToolInputError } from '../../v0/agent/tools/tools.ts';
 import { TurnCancelledError } from '../../v0/agent/core/cancellation.ts';
 import { createBashTool } from '../../v0/agent/tools/work_tools.ts';
-import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
-import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
-import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -301,33 +298,10 @@ Deno.test('declared bash components share one output store for readback', async 
   const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   let registry: Registry | undefined;
   try {
-    registry = createDeclaredRegistry({
-      instructions: [],
-      skills: [],
-      tools: ['tool:bash', 'tool:bash_output'].map(createAgentResourceIdentity),
-      asyncAgents: [],
-    }, {
-      workspace: { root: workspace },
-      skillCatalog: emptySkillCatalog(),
-      bashOutputStore: store,
-      processExecutor,
-      toolDefinitions: [
-        {
-          identity: createAgentResourceIdentity('tool:bash'),
-          materialize: (bindings) =>
-            createBashTool(
-              bindings.workspace,
-              bindings.processExecutor!,
-              bindings.bashOutputStore,
-              bindings.workTools.bash ?? {},
-            ),
-        },
-        {
-          identity: createAgentResourceIdentity('tool:bash_output'),
-          materialize: (bindings) => createBashOutputTool(bindings.bashOutputStore),
-        },
-      ],
-    });
+    registry = new Registry([
+      createBashTool({ root: workspace }, processExecutor, store),
+      createBashOutputTool(store),
+    ], store);
     const execution = await registry.dispatch({
       callId: 'bash-component',
       name: 'bash',

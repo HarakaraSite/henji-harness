@@ -1,10 +1,9 @@
 import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert';
 import type { Message } from '../../v0/agent/core/contracts.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
 import type {
   WorkerCorrelation,
   WorkerToHostMessage,
@@ -82,20 +81,13 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let writer: ConversationWriter | undefined;
   let reopenedWriter: ConversationWriter | undefined;
   let owner: DataSessionOwner | undefined;
   let reopened: DataSessionOwner | undefined;
   const notifications: ConversationWriterDelta[] = [];
-  const definition = await builtinDefinitionRef('default', buildManifest());
-  const manifest = {
-    role: 'parent' as const,
-    maxSteps: 4,
-    profileId: 'increment-170-s3-session-data',
-    resources: [],
-    rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-  };
+  const configuration = workerConfigurationFixture();
   try {
     await store.initialize();
     writer = new ConversationWriter(store);
@@ -105,7 +97,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       workspaceRoot,
       persistence: 'new',
       agent: 'default',
-      definition,
+      agentChoice: {},
       onConversationDelta: (delta) => notifications.push(delta),
     });
     const sessionId = owner.sessionId;
@@ -124,7 +116,8 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       task: firstTask,
       correlation: firstCorrelation,
       createdAt: '2026-10-03T00:00:01.000Z',
-      manifest,
+      configuration,
+      maxSteps: 128,
     });
     const firstEvent = runtimeInput(firstCorrelation, 1, {
       kind: 'assistant_progress',
@@ -193,7 +186,8 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       task,
       correlation,
       createdAt: '2026-10-03T00:00:02.000Z',
-      manifest,
+      configuration,
+      maxSteps: 128,
     });
     const partial = runtimeInput(correlation, 1, {
       kind: 'assistant_progress',
@@ -220,9 +214,17 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     });
     owner.receiveData({ executionId, sequence: 2, message: final });
 
+    const providerState = {
+      provider: 'openrouter-chat',
+      model: ROOT_DEFAULT_MODEL_SELECTION.modelId,
+      reasoning: { field: 'reasoning_content' as const, text: 'Persist this provider state.' },
+    };
     const transcript = [
       userMessage(task),
-      assistantMessage('The saved marker is amber.'),
+      {
+        ...assistantMessage('The saved marker is amber.'),
+        providerState,
+      },
     ];
     const token = await owner.prepareProposal({
       proposalId: 'proposal-authorized-commit',
@@ -245,7 +247,12 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     strictEqual(committed.nextTurn, 2);
     strictEqual(committed.outcome.stopReason, 'final');
     strictEqual('transcript' in committed.outcome, false);
-    deepStrictEqual((await store.readWorker(sessionId)).transcript, transcript);
+    const storedTranscript = (await store.readWorker(sessionId)).transcript;
+    deepStrictEqual(storedTranscript, transcript);
+    deepStrictEqual(
+      storedTranscript[1]?.role === 'assistant' ? storedTranscript[1].providerState : undefined,
+      providerState,
+    );
     const saved = decode(owner.snapshot().bytes);
     const partialFinal = entitiesOf(saved).find((entity) =>
       entity.kind === 'message' && entity.role === 'assistant' &&
@@ -311,7 +318,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       persistence: 'session',
       sessionId,
       agent: 'default',
-      definition,
+      agentChoice: {},
     });
     const restored = reopened.generationContext(
       correlationFor(sessionId, 2, 'reopened-next-turn'),

@@ -20,12 +20,10 @@ import type {
   WorkerHostCommand,
   WorkerReadyMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
 import { createChatGPTAuthService } from '../../v0/agent/provider/chatgpt_auth.ts';
 import { createMockChatGPTIssuer } from './helpers/increment_163_chatgpt_issuer.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 
 const mockAuth = (
   selected = 'account-selected',
@@ -422,6 +420,14 @@ childDataTest(
   },
 );
 
+const genericWorkerConfiguration = () => {
+  const configuration = workerConfigurationFixture();
+  return {
+    ...configuration,
+    agent: { ...configuration.agent, name: 'generic' },
+  };
+};
+
 class CapturingChildCapsule extends Increment170FoundationDataPortAgent {
   readonly commands: WorkerHostCommand[] = [];
   readonly readyMessages: WorkerReadyMessage[] = [];
@@ -449,7 +455,7 @@ class CapturingChildCapsule extends Increment170FoundationDataPortAgent {
           toolResultCount: 0,
         },
       });
-    });
+    }, genericWorkerConfiguration());
     this.subscribe((message) => {
       if (message.kind === 'ready') this.readyMessages.push(message);
     });
@@ -470,18 +476,15 @@ childDataTest('Increment 163 ChatGPT children freeze account selection at spawn'
     'anthropic/claude-sonnet',
   );
   const chatgptModel = selectModelFor('openai-chatgpt', 'gpt-5.6-sol');
-  const ref = await builtinDefinitionRef('generic', buildManifest());
-  const toolDefinitions = await bundledToolDefinitionLoadRequests();
   let selectedRegistrationId = 'account-a';
   let currentModel = otherProvider;
   const auth = {
     ...mockAuth(),
     selectedRegistrationId: () => Promise.resolve(selectedRegistrationId),
   } as ChatGPTAuthService;
-  const { registry } = await createChildDataTestRegistry({
+  const { registry, seedParentExecution } = await createChildDataTestRegistry({
     options: {
       configRoot: root,
-      toolDefinitions,
       physicalIoMode: 'provider-free',
       providerDeclarations: declarations,
       capsuleFactory: () => {
@@ -492,9 +495,10 @@ childDataTest('Increment 163 ChatGPT children freeze account selection at spawn'
     },
     currentModelSelection: () => currentModel,
     chatgptAuth: auth,
-    catalog: [{ name: 'generic', ref }],
+    currentCatalog: () => ['generic'],
   });
   const parentExecutionId = 'increment-163-parent-turn';
+  await seedParentExecution(parentExecutionId);
   registry.openParent(parentExecutionId, null);
   try {
     // An explicit ChatGPT child reads the selected account when this child is spawned.
@@ -553,6 +557,7 @@ childDataTest('Increment 163 ChatGPT children freeze account selection at spawn'
     const chatgptParentExecutionId = 'increment-163-chatgpt-parent-turn';
     currentModel = chatgptModel;
     selectedRegistrationId = 'account-c';
+    await seedParentExecution(chatgptParentExecutionId);
     registry.openParent(chatgptParentExecutionId, 'account-parent-turn');
     const inheritedSpawn = await registry.handle(
       {

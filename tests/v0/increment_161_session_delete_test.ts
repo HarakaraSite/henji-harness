@@ -2,7 +2,7 @@ import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert';
 import { createApplicationService } from '../../v0/agent/host/application_service.ts';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
@@ -63,7 +63,7 @@ Deno.test('Session delete HTTP removes saved Session and its execution history u
     stateRoot,
     dataRoot: `${root}/data`,
     physicalIoMode: 'production' as const,
-    agent: 'default' as const,
+
     initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     providerDeclarations: builtinProviderDeclarations().map((entry) =>
       entry.providerId === 'openrouter-responses'
@@ -81,7 +81,7 @@ Deno.test('Session delete HTTP removes saved Session and its execution history u
     ok(task.ok, JSON.stringify(task));
     await seeded.close();
     seeded = undefined;
-    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, { readOnly: true });
+    const store = new SqliteHistoryStore(stateRoot, workspaceRoot, { readOnly: true });
     await store.initialize();
     const executions = store.listExecutionsForSession(savedId);
     ok(executions.length > 0);

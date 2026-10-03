@@ -1,6 +1,6 @@
 import { strictEqual } from 'node:assert';
 import { DatabaseSync } from 'node:sqlite';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 
 for (const mode of ['begin', 'append']) {
@@ -9,11 +9,11 @@ for (const mode of ['begin', 'append']) {
     const workspace = `${root}/workspace`;
     const state = `${root}/state`;
     await Deno.mkdir(workspace);
-    const store = new SqliteHistoryV7ProductionStore(state, workspace);
+    const store = new SqliteHistoryStore(state, workspace);
     await store.initialize();
     store.close();
     const paths = await sessionPaths(state, workspace);
-    const database = new DatabaseSync(`${paths.root}/history-v7.sqlite3`);
+    const database = new DatabaseSync(`${paths.root}/history.sqlite3`);
     const executionId = crypto.randomUUID();
     const child = new Deno.Command(Deno.execPath(), {
       args: [
@@ -73,7 +73,7 @@ for (const mode of ['begin', 'append']) {
         strictEqual(
           String(
             database.prepare(`
-          SELECT payload_json FROM semantic_occurrences
+          SELECT payload_json FROM semantic_records
           WHERE execution_id=? AND kind='assistant_message'
         `).get(executionId)!.payload_json,
           ).includes('saved after wait'),

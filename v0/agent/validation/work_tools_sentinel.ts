@@ -14,7 +14,7 @@ import {
 } from '../core/contracts.ts';
 import { runAgent } from '../core/loop.ts';
 import { createWorkToolsRegistry } from '../tools/registries.ts';
-import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../worker_agent_api.ts';
 import { resolveWorkspace, type Workspace } from '../tools/work_tools.ts';
 
 const FIXED_TASK =

@@ -1,8 +1,9 @@
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { deepStrictEqual } from 'node:assert';
-import { type HistoryV7SemanticOccurrenceInput } from '../../v0/agent/history/history_v7_model.ts';
-import { SqliteHistoryV7Store } from '../../v0/agent/history/sqlite_history_v7_store.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { type HistorySemanticOccurrenceInput } from '../../v0/agent/history/history_semantic_model.ts';
+import { SqliteHistoryCore } from '../../v0/agent/history/sqlite_history_core.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { exactByteDigest } from '../../v0/agent/history/exact_byte_plan.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { selectOpenRouterModel } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -21,12 +22,33 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   deepStrictEqual(actual, expected);
 };
 
+const admitCore = (
+  store: SqliteHistoryCore,
+  input: { executionId: string; sessionId: string; baseRevision: number },
+): void =>
+  store.beginExecutionWithAdmission({
+    ...input,
+    admission: {
+      executionId: input.executionId,
+      taskId: 'core-test-task',
+      task: 'core semantic history',
+      sessionCorrelation: input.sessionId,
+      turn: 1,
+      createdAt: '2026-09-21T00:00:00.000Z',
+      agent: 'default',
+      model: {},
+      build: {},
+      maxSteps: 128,
+      baseMessageCount: 0,
+    },
+  });
+const configuration = workerConfigurationFixture();
 const occurrence = (
   id: string,
   ordinal: number,
-  kind: HistoryV7SemanticOccurrenceInput['kind'],
-  payload: HistoryV7SemanticOccurrenceInput['payload'],
-): HistoryV7SemanticOccurrenceInput => ({
+  kind: HistorySemanticOccurrenceInput['kind'],
+  payload: HistorySemanticOccurrenceInput['payload'],
+): HistorySemanticOccurrenceInput => ({
   occurrenceId: id,
   ordinal,
   kind,
@@ -34,53 +56,13 @@ const occurrence = (
   payload,
 });
 
-Deno.test('Increment 94 v7 semantic history settles and adopts without diagnostics', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-semantic-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
-  try {
-    store.beginExecution({
-      executionId: 'execution-1',
-      sessionId: 'session-1',
-      baseRevision: 0,
-    });
-    const cost = store.appendSemantic('execution-1', 0, [
-      occurrence('user-1', 1, 'user_message', { text: 'do the work' }),
-      occurrence('assistant-1', 2, 'assistant_message', { text: 'result' }),
-      {
-        ...occurrence('terminal-1', 3, 'host_decision', {
-          outcome: 'completed',
-          adoption: 'canonical',
-        }),
-        relations: [{ relation: 'result_of', targetOccurrenceId: 'user-1' }],
-      },
-    ], 'terminal-1');
-    assertEquals(cost.preexistingPayloadBytesRead, 0);
-    assertEquals(cost.preexistingPayloadBytesRewritten, 0);
-    assertEquals(store.settleExecution('execution-1', 'completed'), {
-      serializedBytes: 0,
-      contentBytesHashed: 0,
-      contentDigestCalls: 0,
-      newOccurrences: 0,
-      newRelations: 0,
-      preexistingPayloadRowsRead: 0,
-      preexistingPayloadBytesRead: 0,
-      preexistingPayloadBytesRewritten: 0,
-    });
-    store.adoptCanonical('execution-1');
-    const state = store.readExecution('execution-1');
-    assert(state.lifecycle === 'settled' && state.adoption === 'canonical');
-  } finally {
-    store.close();
-  }
-});
-
-Deno.test('Increment 94 v7 immutable content references reuse bytes without rehashing', async () => {
+Deno.test('History immutable content references reuse bytes without rehashing', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-content-ref-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
+  const store = new SqliteHistoryCore(`${root}/history.sqlite3`);
   const content = new TextEncoder().encode('one immutable context value');
   const contentDigest = exactByteDigest(content);
   try {
-    store.beginExecution({
+    admitCore(store, {
       executionId: 'execution-content-1',
       sessionId: 'session-content-1',
       baseRevision: 0,
@@ -93,7 +75,7 @@ Deno.test('Increment 94 v7 immutable content references reuse bytes without reha
     assertEquals(first.contentDigestCalls, 1);
     assertEquals(first.contentBytesHashed, content.byteLength);
 
-    store.beginExecution({
+    admitCore(store, {
       executionId: 'execution-content-2',
       sessionId: 'session-content-2',
       baseRevision: 0,
@@ -110,11 +92,11 @@ Deno.test('Increment 94 v7 immutable content references reuse bytes without reha
   }
 });
 
-Deno.test('Increment 94 v7 preserves rejected transcript and reason as semantic history', async () => {
+Deno.test('History preserves rejected transcript and reason as semantic history', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-rejected-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
+  const store = new SqliteHistoryCore(`${root}/history.sqlite3`);
   try {
-    store.beginExecution({
+    admitCore(store, {
       executionId: 'execution-rejected',
       sessionId: 'session-rejected',
       baseRevision: 0,
@@ -143,10 +125,10 @@ Deno.test('Increment 94 v7 preserves rejected transcript and reason as semantic 
   }
 });
 
-Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', async () => {
+Deno.test('History append crash exposes only prior committed prefix', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-crash-' });
   let inject = true;
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`, {
+  const store = new SqliteHistoryCore(`${root}/history.sqlite3`, {
     fault: (phase) => {
       if (inject && phase === 'after_occurrences') {
         throw new Error('injected crash');
@@ -154,7 +136,7 @@ Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', as
     },
   });
   try {
-    store.beginExecution({
+    admitCore(store, {
       executionId: 'execution-crash',
       sessionId: 'session-crash',
       baseRevision: 0,
@@ -183,13 +165,13 @@ Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', as
   }
 });
 
-Deno.test('Increment 94 v7 same delta cost is independent of existing Session length', async () => {
+Deno.test('History same delta cost is independent of existing Session length', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-cost-' });
   const costs = [];
   for (const [name, prefix] of [['short', 1], ['long', 500]] as const) {
-    const store = new SqliteHistoryV7Store(`${root}/${name}.sqlite3`);
+    const store = new SqliteHistoryCore(`${root}/${name}.sqlite3`);
     try {
-      store.beginExecution({
+      admitCore(store, {
         executionId: name,
         sessionId: name,
         baseRevision: 0,
@@ -224,43 +206,11 @@ Deno.test('Increment 94 v7 same delta cost is independent of existing Session le
   assertEquals(costs[0].preexistingPayloadBytesRewritten, 0);
 });
 
-Deno.test('Increment 94 v7 schema omits obsolete storage and history projections', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-schema-' });
-  const path = `${root}/history-v7.sqlite3`;
-  const store = new SqliteHistoryV7Store(path);
-  store.close();
-  const db = new DatabaseSync(path, { readOnly: true });
-  try {
-    const schema = (db.prepare(`
-      SELECT group_concat(sql, '\n') AS sql FROM sqlite_schema WHERE sql IS NOT NULL
-    `).get() as { sql: string }).sql;
-    assert(!schema.includes('ordered_root'));
-    assert(!schema.includes('history_segments'));
-    assert(!schema.includes('encoded_record_digest'));
-    assert(!schema.includes('representation_digest'));
-    const tables = (db.prepare("SELECT name FROM sqlite_schema WHERE type='table'")
-      .all() as { name: string }[])
-      .map((row) => row.name);
-    for (
-      const name of [
-        'projection_outbox',
-        'session_message_projection_outbox',
-        'execution_message_projection_outbox',
-        'human_history_entries',
-        'history_projection_entries',
-        'canonical_turns',
-      ]
-    ) assert(!tables.includes(name));
-  } finally {
-    db.close();
-  }
-});
-
-Deno.test('Increment 94 v7 mandatory relation and terminal fences reject incomplete history', async () => {
+Deno.test('History mandatory relation and terminal fences reject incomplete history', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-fences-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
+  const store = new SqliteHistoryCore(`${root}/history.sqlite3`);
   try {
-    store.beginExecution({
+    admitCore(store, {
       executionId: 'execution-fences',
       sessionId: 'session-fences',
       baseRevision: 0,
@@ -295,56 +245,13 @@ Deno.test('Increment 94 v7 mandatory relation and terminal fences reject incompl
   }
 });
 
-Deno.test('Increment 94 v7 adoption fences concurrent base revision and reopens durable state', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-reopen-' });
-  const path = `${root}/history-v7.sqlite3`;
-  const store = new SqliteHistoryV7Store(path);
-  try {
-    for (const executionId of ['winner', 'stale']) {
-      store.beginExecution({
-        executionId,
-        sessionId: 'shared-session',
-        baseRevision: 0,
-      });
-      store.appendSemantic(executionId, 0, [
-        occurrence(`${executionId}-terminal`, 1, 'host_decision', {
-          outcome: 'completed',
-        }),
-      ], `${executionId}-terminal`);
-      store.settleExecution(executionId, 'completed');
-    }
-    store.adoptCanonical('winner');
-    let staleRejected = false;
-    try {
-      store.adoptCanonical('stale');
-    } catch {
-      staleRejected = true;
-    }
-    assert(staleRejected);
-  } finally {
-    store.close();
-  }
-  const reopened = new SqliteHistoryV7Store(path);
-  try {
-    const winner = reopened.readExecution('winner');
-    const stale = reopened.readExecution('stale');
-    assert(winner.adoption === 'canonical');
-    assert(stale.adoption === 'non_canonical');
-    assertEquals(reopened.readOccurrence('winner-terminal').payload, {
-      outcome: 'completed',
-    });
-  } finally {
-    reopened.close();
-  }
-});
-
-Deno.test('Increment 94 v7 facade settles non-canonical semantic history without diagnostic cost', async () => {
+Deno.test('History facade settles non-canonical semantic history without diagnostic cost', async () => {
   const root = await Deno.makeTempDir({
     prefix: 'henji-i94-v7-facade-normal-',
   });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(
+  const store = new SqliteHistoryStore(
     `${root}/state`,
     workspaceRoot,
     {},
@@ -361,12 +268,10 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
     agent: 'default' as const,
     model: ROOT_DEFAULT_MODEL_SELECTION,
     build: buildManifest(),
-    definition: {
-      schemaVersion: 1 as const,
-      resourceKind: 'agent-definition' as const,
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256' as const, digest: '9'.repeat(64) },
-    },
+    configuration,
+    configurationId: configuration.configurationId,
+    maxSteps: 128,
+    command: 'history-test-command',
   };
   try {
     assertEquals(store.capturesProtocolTrace(), false);
@@ -497,7 +402,7 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
       !store.listExecutionEvents(executionId).some((event) => event.kind === 'turn_dispatch_sent'),
     );
     const paths = await sessionPaths(`${root}/state`, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+    const db = new DatabaseSync(`${paths.root}/history.sqlite3`, {
       readOnly: true,
     });
     try {
@@ -515,23 +420,17 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
   }
 });
 
-Deno.test('Increment 94 v7 facade stores context bytes once and request item references only', async () => {
+Deno.test('History facade stores context bytes once and request item references only', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-context-refs-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   const content = new TextEncoder().encode(JSON.stringify({
     role: 'user',
     content: { kind: 'text', text: 'shared context content' },
   }));
   const contentDigest = exactByteDigest(content);
-  const definition = {
-    schemaVersion: 1 as const,
-    resourceKind: 'agent-definition' as const,
-    resourceId: 'builtin/default',
-    revision: { algorithm: 'sha256' as const, digest: '6'.repeat(64) },
-  };
   const appendContext = async (
     executionId: string,
     session: string,
@@ -549,7 +448,10 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
       agent: 'default',
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition,
+      configuration,
+      configurationId: configuration.configurationId,
+      maxSteps: 128,
+      command: 'context-test-command',
     });
     store.appendExecutionEvent({
       executionId,
@@ -624,14 +526,14 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
     assertEquals(restoredOccurrences[0].bytesBase64, content.toBase64());
 
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+    const db = new DatabaseSync(`${paths.root}/history.sqlite3`, {
       readOnly: true,
     });
     try {
       assertEquals(
         Number(
-          (db.prepare('SELECT count(*) AS count FROM immutable_contents')
-            .get() as {
+          (db.prepare('SELECT count(*) AS count FROM contents WHERE content_digest=?')
+            .get(contentDigest) as {
               count: number;
             }).count,
         ),
@@ -640,7 +542,7 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
       assertEquals(
         Number(
           (db.prepare(`
-          SELECT count(*) AS count FROM semantic_occurrences WHERE kind='context_item'
+          SELECT count(*) AS count FROM semantic_records WHERE kind='context_item'
         `).get() as { count: number }).count,
         ),
         2,
@@ -654,7 +556,7 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
         2,
       );
       const requests = db.prepare(`
-        SELECT payload_json FROM semantic_occurrences WHERE kind='model_request'
+        SELECT payload_json FROM semantic_records WHERE kind='model_request'
       `).all() as { payload_json: string }[];
       assert(requests.length === 2);
       assert(
@@ -669,7 +571,7 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
   }
 });
 
-Deno.test('Increment 94 v7 facade reconciles an admitted restart prefix without payload scan', async () => {
+Deno.test('History facade reconciles an admitted restart prefix without payload scan', async () => {
   const root = await Deno.makeTempDir({
     prefix: 'henji-i94-v7-facade-restart-',
   });
@@ -677,7 +579,7 @@ Deno.test('Increment 94 v7 facade reconciles an admitted restart prefix without 
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   const executionId = '94000000-0000-4000-8000-000000000021';
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   await store.beginExecution({
     taskId: '94000000-0000-4000-8000-000000000022',
     executionId,
@@ -690,15 +592,13 @@ Deno.test('Increment 94 v7 facade reconciles an admitted restart prefix without 
     agent: 'default',
     model: ROOT_DEFAULT_MODEL_SELECTION,
     build: buildManifest(),
-    definition: {
-      schemaVersion: 1,
-      resourceKind: 'agent-definition',
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256', digest: '7'.repeat(64) },
-    },
+    configuration,
+    configurationId: configuration.configurationId,
+    maxSteps: 128,
+    command: 'reconcile-test-command',
   });
   store.close();
-  const reopened = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const reopened = new SqliteHistoryStore(stateRoot, workspaceRoot);
   await reopened.initialize();
   try {
     const execution = reopened.readExecution(executionId);
@@ -707,14 +607,14 @@ Deno.test('Increment 94 v7 facade reconciles an admitted restart prefix without 
     );
     assert(
       reopened.listExecutionEvents(executionId).at(-1)?.kind ===
-        'execution_reconciled',
+        'execution_settled',
     );
   } finally {
     reopened.close();
   }
 });
 
-Deno.test('Increment 94 v7 settlement transaction rolls back its terminal before a crash', async () => {
+Deno.test('History settlement transaction rolls back its terminal before a crash', async () => {
   const root = await Deno.makeTempDir({
     prefix: 'henji-i94-v7-settlement-atomic-',
   });
@@ -733,14 +633,12 @@ Deno.test('Increment 94 v7 settlement transaction rolls back its terminal before
     agent: 'default' as const,
     model: ROOT_DEFAULT_MODEL_SELECTION,
     build: buildManifest(),
-    definition: {
-      schemaVersion: 1 as const,
-      resourceKind: 'agent-definition' as const,
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256' as const, digest: '4'.repeat(64) },
-    },
+    configuration,
+    configurationId: configuration.configurationId,
+    maxSteps: 128,
+    command: 'history-test-command',
   };
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, {
     fault: () => {
       throw new Error('simulated stop before settlement commit');
     },
@@ -767,7 +665,7 @@ Deno.test('Increment 94 v7 settlement transaction rolls back its terminal before
   assert(failed);
   store.close();
 
-  const reopened = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const reopened = new SqliteHistoryStore(stateRoot, workspaceRoot);
   await reopened.initialize();
   try {
     const execution = reopened.readExecution(executionId);
@@ -776,91 +674,10 @@ Deno.test('Increment 94 v7 settlement transaction rolls back its terminal before
     );
     const terminals = reopened.listExecutionEvents(executionId).filter((
       event,
-    ) =>
-      event.kind === 'execution_settled' ||
-      event.kind === 'execution_reconciled'
-    );
+    ) => event.kind === 'execution_settled');
     assertEquals(terminals.map((event) => event.kind), [
-      'execution_reconciled',
+      'execution_settled',
     ]);
-  } finally {
-    reopened.close();
-  }
-});
-
-Deno.test('Increment 94 v7 reopen closes an active legacy prefix that already has a terminal', async () => {
-  const root = await Deno.makeTempDir({
-    prefix: 'henji-i94-v7-terminal-prefix-',
-  });
-  const workspaceRoot = `${root}/workspace`;
-  const stateRoot = `${root}/state`;
-  await Deno.mkdir(workspaceRoot);
-  const executionId = '94000000-0000-4000-8000-000000000043';
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  await store.beginExecution({
-    taskId: '94000000-0000-4000-8000-000000000044',
-    executionId,
-    createdAt: '2026-09-21T02:55:00.000Z',
-    sessionCorrelation: 'detached-v7-terminal-prefix',
-    sessionMode: 'no_session',
-    turn: 1,
-    task: 'recover an already durable terminal prefix',
-    baseStateRevision: 0,
-    agent: 'default',
-    model: ROOT_DEFAULT_MODEL_SELECTION,
-    build: buildManifest(),
-    definition: {
-      schemaVersion: 1,
-      resourceKind: 'agent-definition',
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256', digest: '5'.repeat(64) },
-    },
-  });
-  const paths = await sessionPaths(stateRoot, workspaceRoot);
-  const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`);
-  try {
-    const state = db.prepare(`
-      SELECT latest_ordinal, occurrence_count FROM executions WHERE execution_id=?
-    `).get(executionId) as { latest_ordinal: number; occurrence_count: number };
-    const ordinal = Number(state.latest_ordinal) + 1;
-    const occurrenceId = `${executionId}:semantic:${ordinal}`;
-    db.exec('BEGIN IMMEDIATE');
-    db.prepare(`
-      INSERT INTO semantic_occurrences(
-        occurrence_id, execution_id, ordinal, kind, observed_at, payload_json, content_digest
-      ) VALUES(?, ?, ?, 'host_decision', ?, ?, NULL)
-    `).run(
-      occurrenceId,
-      executionId,
-      ordinal,
-      '2026-09-21T02:56:00.000Z',
-      JSON.stringify({
-        event: { kind: 'execution_settled', payload: { outcome: 'completed' } },
-      }),
-    );
-    db.prepare(`
-      UPDATE executions SET latest_ordinal=?, occurrence_count=occurrence_count+1,
-        terminal_occurrence_id=? WHERE execution_id=?
-    `).run(ordinal, occurrenceId, executionId);
-    db.exec('COMMIT');
-  } finally {
-    db.close();
-    store.close();
-  }
-  const reopened = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  await reopened.initialize();
-  try {
-    const execution = reopened.readExecution(executionId);
-    assert(
-      execution.lifecycle === 'settled' && execution.outcome === 'interrupted',
-    );
-    assertEquals(
-      reopened.listExecutionEvents(executionId).filter((event) =>
-        event.kind === 'execution_settled' ||
-        event.kind === 'execution_reconciled'
-      ).map((event) => event.kind),
-      ['execution_settled', 'execution_reconciled'],
-    );
   } finally {
     reopened.close();
   }
@@ -872,18 +689,17 @@ Deno.test('Increment 94 detail export holds one snapshot across a later Worker c
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
-  let reader: SqliteHistoryV7ProductionStore | undefined;
+  let reader: SqliteHistoryStore | undefined;
   try {
     created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
     });
     assert((await created.session.submit('first snapshot turn')).ok);
     const sessionId = created.session.currentPosition().sessionId;
-    reader = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+    reader = new SqliteHistoryStore(stateRoot, workspaceRoot, {
       readOnly: true,
     });
     await reader.initialize();
@@ -930,19 +746,18 @@ Deno.test('Increment 94 detail export holds one snapshot across a later Worker c
   }
 });
 
-Deno.test('Increment 94 model selection rollback preserves committed turn attribution', async () => {
+Deno.test('Increment 94 model selection preserves committed turn attribution', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-model-rollback-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
-  let store: SqliteHistoryV7ProductionStore | undefined;
+  let store: SqliteHistoryStore | undefined;
   try {
     created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
     });
     assert((await created.session.submit('first committed turn')).ok);
@@ -951,7 +766,7 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
     await created.close();
     created = undefined;
 
-    store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    store = new SqliteHistoryStore(stateRoot, workspaceRoot);
     await store.initialize();
     const original = await store.readWorker(sessionId);
     const executionIds = store.listExecutionsForSession(sessionId).map((item) => item.executionId);
@@ -960,13 +775,13 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
       ?.transcript;
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const readAttribution = () => {
-      const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+      const db = new DatabaseSync(`${paths.root}/history.sqlite3`, {
         readOnly: true,
       });
       try {
         return {
           messageTurns: (db.prepare(`
-            SELECT turn_number FROM session_messages
+            SELECT turn_number FROM conversation_messages
             WHERE session_id=? ORDER BY message_ordinal
           `).all(sessionId) as { turn_number: number }[]).map((item) => item.turn_number),
           turnExecutions: (db.prepare(`
@@ -996,11 +811,10 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
           selection,
         }],
       });
-      handle.rollback();
     } finally {
       await handle.close();
     }
-    assertEquals(await store.readWorker(sessionId), original);
+    assertEquals((await store.readWorker(sessionId)).turnExecutions, original.turnExecutions);
     assertEquals(readAttribution(), before);
     assertEquals(
       store.readExecution(executionIds[0]).outcomeJson?.transcript,
@@ -1013,7 +827,7 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
   }
 });
 
-Deno.test('Increment 94 isolated product path settles cancellation as non-canonical v7 history', async () => {
+Deno.test('Increment 94 isolated product path settles cancellation as non-canonical current history', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-cancel-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -1024,7 +838,6 @@ Deno.test('Increment 94 isolated product path settles cancellation as non-canoni
     workspaceRoot,
     stateRoot,
     persistence: 'new',
-    agent: 'default',
     physicalIoMode: 'provider-free',
     cancelSettlementGraceMs: 500,
     eventSink: (event) => {
@@ -1042,7 +855,7 @@ Deno.test('Increment 94 isolated product path settles cancellation as non-canoni
   } finally {
     await created.close();
   }
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   await store.initialize();
   try {
     const executions = store.listExecutionsForSession(sessionId!);
@@ -1055,7 +868,7 @@ Deno.test('Increment 94 isolated product path settles cancellation as non-canoni
   }
 });
 
-Deno.test('Increment 94 isolated product path commits resumes projects and exports with v7 only', async () => {
+Deno.test('Increment 94 isolated product path commits resumes projects and exports with schema1 only', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-product-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -1064,7 +877,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     workspaceRoot,
     stateRoot,
     persistence: 'new',
-    agent: 'default',
     physicalIoMode: 'provider-free',
   });
   let sessionId: string;
@@ -1080,7 +892,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     stateRoot,
     persistence: 'session',
     sessionId: sessionId!,
-    agent: 'default',
     physicalIoMode: 'provider-free',
   });
   try {
@@ -1089,7 +900,7 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
   } finally {
     await second.close();
   }
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   await store.initialize();
   const sourceExecutionId = '94000000-0000-4000-8000-000000000094';
   try {
@@ -1106,19 +917,8 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       const artifact = await store.executionArtifacts.read(
         execution.executionId,
       );
-      assert(
-        artifact.protocolTrace.some((entry) =>
-          entry.direction === 'host_to_worker' && entry.kind === 'turn'
-        ),
-        'the execution trace retains the small turn command',
-      );
-      assert(
-        artifact.protocolTrace.some((entry) =>
-          entry.direction === 'worker_to_host' &&
-          entry.kind === 'proposal_ready'
-        ),
-        'the execution trace retains the small proposal barrier',
-      );
+      assertEquals(artifact.configurationId, execution.configurationId);
+      assertEquals(artifact.adoption, 'canonical');
       assert(
         store.listExecutionEvents(execution.executionId).some((event) =>
           event.kind === 'acknowledgement_sent' &&
@@ -1141,18 +941,18 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       assert((payload.outcome?.transcript?.length ?? 0) <= 2);
     }
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+    const db = new DatabaseSync(`${paths.root}/history.sqlite3`, {
       readOnly: true,
     });
     try {
       const contextItems = Number(
         (db.prepare(`
-        SELECT count(*) AS count FROM semantic_occurrences WHERE kind='context_item'
+        SELECT count(*) AS count FROM semantic_records WHERE kind='context_item'
       `).get() as { count: number }).count,
       );
       const immutableContents = Number(
         (db.prepare(`
-        SELECT count(*) AS count FROM immutable_contents
+        SELECT count(*) AS count FROM contents
       `).get() as { count: number }).count,
       );
       assert(contextItems > 0);
@@ -1160,7 +960,7 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       assert(contextItems > immutableContents);
       const storedContextRequests = db.prepare(`
         SELECT length(payload_json) AS bytes, payload_json
-        FROM semantic_occurrences
+        FROM semantic_records
         WHERE kind='model_request' AND payload_json LIKE '%context_observation%'
       `).all() as { bytes: number; payload_json: string }[];
       assert(storedContextRequests.length > 0);
@@ -1169,7 +969,7 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       );
       assert(storedContextRequests.every((row) => Number(row.bytes) < 20_000));
       const rawProposals = db.prepare(`
-        SELECT payload_json FROM semantic_occurrences
+        SELECT payload_json FROM semantic_records
         WHERE kind='model_result' AND payload_json LIKE '%commit_proposal%'
       `).all() as { payload_json: string }[];
       assert(rawProposals.length === 2);
@@ -1207,7 +1007,10 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       agent: record.agent,
       model: record.activeModel,
       build: record.turnExecutions.at(-1)!.build,
-      definition: record.definition,
+      configuration,
+      configurationId: configuration.configurationId,
+      maxSteps: 128,
+      command: 'rejected-task-command',
     };
     await store.beginExecution({
       ...sourceInput,
@@ -1282,7 +1085,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     stateRoot,
     persistence: 'session',
     sessionId: sessionId!,
-    agent: 'default',
     physicalIoMode: 'provider-free',
   });
   try {
@@ -1297,7 +1099,7 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
   } finally {
     await recalled.close();
   }
-  const verified = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const verified = new SqliteHistoryStore(stateRoot, workspaceRoot);
   await verified.initialize();
   try {
     const source = verified.readExecution(sourceExecutionId);

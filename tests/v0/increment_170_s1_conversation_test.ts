@@ -5,9 +5,9 @@ import type {
   HistoryAppendResult,
   StoredExecutionEvent,
 } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { renderConversationTimeline } from '../../v0/agent/history/history_view.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
@@ -38,15 +38,15 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let handle: Awaited<ReturnType<typeof store.allocateWorker>> | undefined;
   try {
     await store.initialize();
-    const definition = await builtinDefinitionRef('default', buildManifest());
-    handle = await store.allocateWorker('default', definition);
+    const configuration = workerConfigurationFixture();
+    handle = await store.allocateWorker('default', {});
     const createdAt = '2026-10-02T00:00:00.000Z';
     const record: StoredSessionRecord = {
-      schemaVersion: 6,
+      schemaVersion: 1,
       sessionId: handle.id,
       workspaceRoot,
       agent: 'default',
@@ -56,7 +56,7 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
       stateRevision: 1,
       nextTurn: 1,
       transcript: [],
-      definition,
+      agentChoice: {},
       activeModel: ROOT_DEFAULT_MODEL_SELECTION,
       modelChanges: [{
         effectiveFromTurn: 1,
@@ -85,7 +85,10 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition,
+      configurationId: configuration.configurationId,
+      configuration,
+      maxSteps: 128,
+      command: 'test-command',
     };
     await store.beginExecution({ ...input, sessionMode: 'persistent' });
 
@@ -552,7 +555,12 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
       nextTurn: 2,
       transcript: nextTranscript,
       turnModels: [{ turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION }],
-      turnExecutions: [{ turn: 1, build: buildManifest(), definition }],
+      turnExecutions: [{
+        turn: 1,
+        executionId: nextExecutionId,
+        build: buildManifest(),
+        configurationId: configuration.configurationId,
+      }],
     };
     const committed = store.commitCanonicalTurn({
       ...nextInput,

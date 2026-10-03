@@ -23,10 +23,9 @@ import {
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import { ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
-import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -1294,12 +1293,11 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
     first = await createWorkerSession({
       stateRoot,
       workspaceRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       initialModelSelection: openAiDefaultSelection,
     });
@@ -1314,18 +1312,12 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     );
     const artifact = store.listExecutions().at(-1);
     assert(artifact !== undefined);
-    assert(artifact.manifest !== undefined);
-    assertEquals(artifact.manifest.rootModel, openAiDefaultSelection);
-    assert(
-      artifact.manifest.resources.some((resource) =>
-        resource.startsWith('model:openai-responses:')
-      ),
-    );
+    assertEquals(artifact.model, openAiDefaultSelection);
     const sessionId = first.session.currentPosition().sessionId;
     await first.close();
     first = undefined;
     const stored = await store.readWorker(sessionId);
-    assert(stored.schemaVersion === 6);
+    assert(stored.schemaVersion === 1);
     assertEquals(stored.activeModel, openAiDefaultSelection);
 
     resumed = await createWorkerSession({
@@ -1333,7 +1325,6 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
       workspaceRoot,
       persistence: 'session',
       sessionId,
-      agent: 'default',
       physicalIoMode: 'provider-free',
       initialModelSelection: ROOT_DEFAULT_MODEL_SELECTION,
     });
@@ -1354,7 +1345,7 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
     prefix: 'henji-increment-113-provider-',
   });
   const stateRoot = `${configRoot}/state`;
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, configRoot, {
+  const reader = new SqliteHistoryStore(stateRoot, configRoot, {
     readOnly: true,
   });
   const builtin = builtinProviderDeclarations().find((item) =>
@@ -1373,7 +1364,7 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
     );
     const result = await runHeadlessWorker(
       'Use the configured default.',
-      resolveBuiltinAgent(),
+      {},
       {
         configRoot,
         stateRoot,
@@ -1385,7 +1376,7 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
     assert(result.outcome.ok);
     const stored = await reader.executionArtifacts.list();
     assertEquals(stored.length, 1);
-    assertEquals(stored[0].manifest?.rootModel, {
+    assertEquals(stored[0].model, {
       provider: 'openrouter-chat',
       api: 'openrouter-chat-completions',
       authProfile: 'openrouter-api-key',
@@ -1446,7 +1437,6 @@ Deno.test('Increment 113 Host and Worker share the TUI-resolved provider snapsho
       configRoot,
       dataRoot: configRoot,
       persistence: 'none',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       providerDeclarations: snapshot,
     });

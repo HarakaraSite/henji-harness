@@ -4,7 +4,7 @@ import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { main as diagnostics } from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 import { startFailureProvider176 } from './helpers/increment_176_provider.ts';
 
@@ -38,7 +38,7 @@ Deno.test('Increment 176 production Worker saves provider and tool failures and 
   });
   const server = await startCoreServer(core);
   const client = new HenjiApiClient(server.url);
-  const reader = new SqliteHistoryV7ProductionStore(`${root}/state`, root, { readOnly: true });
+  const reader = new SqliteHistoryStore(`${root}/state`, root, { readOnly: true });
   try {
     await reader.initialize();
     const sessionId = core.coreRead().activeSessionId!;

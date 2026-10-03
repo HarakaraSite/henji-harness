@@ -6,9 +6,10 @@ import type {
   HistoryReadInput,
   SessionsListResult,
 } from '../../api/contract.ts';
-import type { DefinitionRevisionRef } from '../session/session_store.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { LiveModelCatalogFact } from '../provider/live_model_catalog.ts';
+import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCorrelation,
@@ -62,8 +63,8 @@ export type DataAgentEventListener = (
 
 export type DataSessionOpenInput = Readonly<{
   persistence: DataSessionPersistence;
-  agent: 'default' | 'planner' | 'generic';
-  definition: DefinitionRevisionRef;
+  agent: string;
+  agentChoice: AgentConfigurationChoice;
   sessionId?: string;
   initialModelSelection?: ModelSelection;
 }>;
@@ -73,8 +74,6 @@ export type DataExecutionAdmitRequest = Readonly<{
   taskId: string;
   task: string;
   correlation: WorkerCorrelation;
-  /** Startup failed before a Worker generation became ready; no manifest or generation data exists. */
-  generationState?: 'unstarted';
   createdAt?: string;
   parentExecutionId?: string;
   spawnCallId?: string;
@@ -218,7 +217,13 @@ export class DataServiceError extends Error {
 
 export type DataWorkerRequest =
   | Readonly<
-    { id: number; kind: 'initialize'; stateRoot: string; workspaceRoot: string }
+    {
+      id: number;
+      kind: 'initialize';
+      stateRoot: string;
+      workspaceRoot: string;
+      build: BuildManifestV1;
+    }
   >
   | Readonly<{ id: number; kind: 'history_read'; input: HistoryReadInput }>
   | Readonly<{

@@ -11,7 +11,7 @@ import type {
 import { replaySessionConversation } from '../../conversation/history_adapter.ts';
 import { renderCanonicalView, renderConversationTimeline } from '../history/history_view.ts';
 import { HistoryStoreError, type StoredExecutionRow } from '../history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { isSessionId, SessionStoreError } from '../session/session_store_contract.ts';
 import { sessionPaths } from '../session/session_store_paths.ts';
 import type { WorkerCorrelation, WorkerToHostMessage } from '../worker/worker_protocol.ts';
@@ -154,7 +154,7 @@ const contextDelta = (value: unknown): StoredContextDelta | undefined => {
 };
 
 const latestRequest = (
-  store: SqliteHistoryV7ProductionStore,
+  store: SqliteHistoryStore,
   sessionId: string,
 ): ContextView['latestRequest'] => {
   const executions = [...store.listExecutionsForSession(sessionId)].sort((
@@ -352,9 +352,9 @@ export const createDataService = async (input: {
   readonly workspaceRoot: string;
 }): Promise<DataService> => {
   const statePaths = await sessionPaths(input.stateRoot, input.workspaceRoot);
-  let store: SqliteHistoryV7ProductionStore | undefined;
+  let store: SqliteHistoryStore | undefined;
   let writer: ConversationWriter | undefined;
-  let storeInitialization: Promise<SqliteHistoryV7ProductionStore> | undefined;
+  let storeInitialization: Promise<SqliteHistoryStore> | undefined;
   let closed = false;
   const agentEventListeners = new Set<DataAgentEventListener>();
   const owners = new Map<string, DataSessionOwner>();
@@ -400,11 +400,11 @@ export const createDataService = async (input: {
     }
   };
 
-  const currentStore = async (): Promise<SqliteHistoryV7ProductionStore> => {
+  const currentStore = async (): Promise<SqliteHistoryStore> => {
     if (closed) throw new DataServiceErrorClass(503, 'data_worker_closed');
     if (store !== undefined) return store;
     if (storeInitialization !== undefined) return await storeInitialization;
-    const created = new SqliteHistoryV7ProductionStore(
+    const created = new SqliteHistoryStore(
       input.stateRoot,
       input.workspaceRoot,
     );
@@ -459,7 +459,7 @@ export const createDataService = async (input: {
       workspaceRoot: input.workspaceRoot,
       persistence: 'session',
       agent: record.agent,
-      definition: record.definition,
+      agentChoice: record.agentChoice,
       sessionId,
     });
     const descriptor = readOwner.descriptor();
@@ -476,7 +476,7 @@ export const createDataService = async (input: {
     workspaceRoot: input.workspaceRoot,
     persistence: value.persistence,
     agent: value.agent,
-    definition: value.definition,
+    agentChoice: value.agentChoice,
     ...(value.sessionId === undefined ? {} : { sessionId: value.sessionId }),
     ...(value.initialModelSelection === undefined
       ? {}
@@ -909,12 +909,6 @@ export const createDataService = async (input: {
       value: DataExecutionAdmitRequest,
     ) {
       const owner = requireOwner(sessionId);
-      if (value.generationState === 'unstarted') {
-        const { generationState: _generationState, ...admissionInput } = value;
-        const admitted = await withSessionMutation(sessionId, () => owner.admit(admissionInput));
-        descriptors.set(sessionId, admitted.descriptor);
-        return admitted;
-      }
       const endpoint = endpointFor(sessionId, value.correlation);
       const ready = await endpoint.ready();
       if (!sameGeneration(ready.correlation, value.correlation)) {
@@ -923,7 +917,8 @@ export const createDataService = async (input: {
       const admitted = await withSessionMutation(sessionId, () =>
         owner.admit({
           ...value,
-          ...(ready.manifest === undefined ? {} : { manifest: ready.manifest }),
+          configuration: ready.configuration!,
+          maxSteps: ready.manifest!.maxSteps,
           ...(ready.startupSnapshot?.context === undefined
             ? {}
             : { contextSnapshot: ready.startupSnapshot.context }),

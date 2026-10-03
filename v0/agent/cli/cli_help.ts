@@ -1,5 +1,5 @@
 const activation =
-  '--agent NAME | --definition-revision REF\n  --max-steps N --provider-timeout-ms MS --root-provider ID';
+  '--agent NAME | --agent-file FILE\n  --max-steps N --provider-timeout-ms MS --root-provider ID';
 const target = '--new | --continue | --session ID | --no-session';
 
 const help: Readonly<Record<string, string>> = {
@@ -11,8 +11,8 @@ const help: Readonly<Record<string, string>> = {
   run          Execute one task with a local headless Host
   history      Read saved history, locally or via --connect
   sessions     Manage local saved Sessions
-  module       Manage local Agent Definitions
-  tool         Manage local tool Definitions
+  agent        Select and inspect current JSON Agent settings
+  tool         Select and inspect external tool folders
   diagnostics  Read local diagnostics and runtime information
   webui        Reserved for the future WebUI; currently unavailable
 
@@ -46,7 +46,7 @@ Stop without a target only lists Cores and instructions; it does not stop them.
 Explicit stop waits for Worker and process cleanup.
 `,
   run: `Usage: henji run [--task TEXT] [--json | --stream]
-  [--agent NAME | --definition-revision REF] [--max-steps N] [--provider-timeout-ms MS]
+  [--agent NAME | --agent-file FILE] [--max-steps N] [--provider-timeout-ms MS]
 
 Without --task, read the task from stdin. Output is final text by default,
 curated NDJSON with --json, or live assistant text with --stream.
@@ -57,9 +57,10 @@ curated NDJSON with --json, or live assistant text with --stream.
 Read history without starting a task or activating a Session.
 `,
   sessions: 'Usage: henji sessions list | delete --session ID --yes\n',
-  module: 'Usage: henji module install | list | inspect | export | import [options]\n',
+  agent:
+    'Usage: henji agent list | inspect [--name NAME | --file FILE]\n       henji agent activate --file FILE [--name NAME] | deactivate [--name NAME]\n',
   tool:
-    'Usage: henji tool install | list | active | inspect | activate | deactivate | uninstall [options]\n',
+    'Usage: henji tool list | inspect --name NAME\n       henji tool activate --name NAME --folder FOLDER | deactivate --name NAME\n',
   diagnostics:
     'Usage: henji diagnostics runtime | list | latest | show | delete | executions [options]\n',
   webui: 'WebUI is not implemented.\n',

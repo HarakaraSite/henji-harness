@@ -8,11 +8,8 @@ import { createChatGPTAuthService } from '../../v0/agent/provider/chatgpt_auth.t
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import type { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
 import { createMockChatGPTIssuer } from './helpers/increment_163_chatgpt_issuer.ts';
 
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
@@ -130,8 +127,7 @@ await import(${JSON.stringify(bootstrap)});
       const declarations = builtinProviderDeclarations();
       setActiveProviderDeclarations(declarations);
       const otherProvider = selectModelFor('openrouter-chat', 'anthropic/claude-sonnet');
-      const ref = await builtinDefinitionRef('generic', buildManifest());
-      ({ registry } = await createChildDataTestRegistry({
+      const createdRegistry = await createChildDataTestRegistry({
         workspaceRoot: root,
         options: {
           configRoot,
@@ -139,13 +135,14 @@ await import(${JSON.stringify(bootstrap)});
           providerDeclarations: declarations,
           rootMaxSteps: 4,
           providerTimeoutMs: 5_000,
-          toolDefinitions: await bundledToolDefinitionLoadRequests(),
           capsuleFactory: () => new WorkerCapsule(new URL(`file://${wrapper}`)),
         },
         currentModelSelection: () => otherProvider,
-        catalog: [{ name: 'generic', ref }],
-      }));
+        currentCatalog: () => ['generic'],
+      });
+      registry = createdRegistry.registry;
       const executionId = 'other-provider-parent-turn';
+      await createdRegistry.seedParentExecution(executionId);
       registry.openParent(executionId);
       const spawned = await registry.handle(
         {

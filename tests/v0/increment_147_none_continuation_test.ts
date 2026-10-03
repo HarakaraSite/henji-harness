@@ -1,7 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
@@ -112,7 +112,7 @@ Deno.test('Increment 147 none Session completes accepted follow-up and later tas
       stateRoot,
       dataRoot: `${environment.XDG_DATA_HOME}/henji-harness`,
       physicalIoMode: 'production',
-      agent: 'default',
+
       rootMaxSteps: 4,
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
       providerDeclarations: declarations,
@@ -210,7 +210,7 @@ Deno.test('Increment 147 none Session completes accepted follow-up and later tas
     server = undefined;
     await core.close();
     core = undefined;
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
     try {
       deepStrictEqual((await history.listWorker()).sessions, []);
       strictEqual(history.listExecutionsForSession(sessionId).length, 3);

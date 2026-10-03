@@ -5,8 +5,7 @@ import { runCliWorker } from './run_worker_client.ts';
 import { main as sessionsMain } from './session_cli.ts';
 import { main as historyMain } from './history_cli.ts';
 import { main as diagnosticsMain } from './failure_diagnostic_cli.ts';
-import { main as moduleMain } from './module_cli.ts';
-import { main as toolMain } from './tool_cli.ts';
+import { configurationMain } from './configuration_cli.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import { main as serveMain } from './serve_cli.ts';
@@ -39,8 +38,8 @@ const versionLine = (): string => {
     `deno=${manifest.denoVersion}`,
     `target=${manifest.target}`,
     `runtime=${manifest.embeddedRuntimeSha256}`,
-    `definition-api=${manifest.supportedAgentDefinitionApiContracts.join(',')}`,
-    `tool-definition-api=${manifest.supportedToolDefinitionApiContracts.join(',')}`,
+    `agent-config-schema=${manifest.agentConfigurationSchemaVersion}`,
+    `tool-api=${manifest.supportedToolApiContracts.join(',')}`,
   ].join(' ') + '\n';
 };
 
@@ -97,8 +96,8 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   }
   if (args[0] === 'sessions') return await sessionsMain(args.slice(1));
   if (args[0] === 'history') return await historyMain(args.slice(1));
-  if (args[0] === 'module') return await moduleMain(args.slice(1));
-  if (args[0] === 'tool') return await toolMain(args.slice(1));
+  if (args[0] === 'agent') return await configurationMain('agent', args.slice(1));
+  if (args[0] === 'tool') return await configurationMain('tool', args.slice(1));
   if (args[0] === 'diagnostics') {
     if (args.length === 2 && args[1] === 'runtime') return await runtimeDiagnostics();
     return await diagnosticsMain(args.slice(1));

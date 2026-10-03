@@ -12,7 +12,7 @@ import type {
   DataSessionDescriptor,
   DataSessionTerminalResult,
 } from '../data/session_data_owner.ts';
-import type { DefinitionRevisionRef } from '../session/session_store.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import { type ChatGPTAuthService, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import type {
@@ -22,15 +22,13 @@ import type {
 } from '../provider/model_selection.ts';
 import { selectModelFor } from '../provider/model_catalog.ts';
 import { TOOL_FILTER_ERROR_CODE } from '../definitions/tool_filter.ts';
-import { workerBuiltinModulePath } from './worker_definition_revision.ts';
 import type {
   WorkerAsyncAgentCatalogEntry,
   WorkerCorrelation,
-  WorkerDefinitionLoadRequest,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
-import { WorkerSupervisor } from './worker_host_supervisor.ts';
+import { WorkerHostStartupError, WorkerSupervisor } from './worker_host_supervisor.ts';
 import { sameCorrelation } from './worker_host_outcome.ts';
 import type {
   ChildCleanupObservationV1,
@@ -60,11 +58,11 @@ type ChildRun = {
   readonly parentExecutionId: string;
   readonly spawnCallId?: string;
   readonly agent: string;
+  readonly agentChoice: AgentConfigurationChoice;
   readonly task: string;
   readonly model: ModelSelection;
   readonly chatgptRegistrationId: string | null;
   readonly tools?: readonly string[];
-  readonly definitionRef: DefinitionRevisionRef;
   readonly sessionId: string;
   readonly createdAt: string;
   readonly settled: Deferred;
@@ -100,16 +98,12 @@ type ChildRun = {
 
 export interface ChildRunDeps {
   readonly options: WorkerHostSessionOptions;
-  /** Host-resolved async agent catalog passed to the parent Worker. */
-  readonly catalog: readonly WorkerAsyncAgentCatalogEntry[];
+  /** Names declared by the active parent's accepted configuration snapshot. */
+  readonly currentCatalog: () => readonly string[];
   /** Parent's current session model selection; the default source for spawns without a model. */
   readonly currentModelSelection?: () => ModelSelection;
   /** Shared same-store account selection lookup used only when an explicit ChatGPT child spawns. */
   readonly chatgptAuth?: Pick<ChatGPTAuthService, 'selectedRegistrationId'>;
-  /** Resolve a managed Definition ref to a process-local load descriptor. */
-  readonly resolveManagedModule?: (
-    ref: DefinitionRevisionRef,
-  ) => Promise<WorkerDefinitionLoadRequest>;
 }
 
 const errorText = (error: unknown): string =>
@@ -300,10 +294,13 @@ export class ChildRunRegistry {
         error: 'parent execution no longer accepts child runs',
       };
     }
-    const entry = this.deps.catalog.find((candidate) => candidate.name === agent);
-    if (entry === undefined) {
+    if (!this.deps.currentCatalog().includes(agent)) {
       return { ok: false, error: `agent is not available: ${agent}` };
     }
+    const entry: WorkerAsyncAgentCatalogEntry = {
+      name: agent,
+      choice: { name: agent },
+    };
     if (!this.activeParents.has(parentExecutionId)) {
       return {
         ok: false,
@@ -323,7 +320,8 @@ export class ChildRunRegistry {
       }
     } else {
       runModel = this.deps.currentModelSelection?.() ??
-        this.deps.options.descriptor.modelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
+        this.deps.options.descriptor.modelSelection ??
+        ROOT_DEFAULT_MODEL_SELECTION;
     }
     let chatgptRegistrationId: string | null = null;
     if (runModel.provider === 'openai-chatgpt') {
@@ -344,11 +342,11 @@ export class ChildRunRegistry {
       parentExecutionId,
       spawnCallId: callId,
       agent,
+      agentChoice: entry.choice,
       task,
       model: runModel,
       chatgptRegistrationId,
       ...(tools === undefined ? {} : { tools: Object.freeze([...tools]) }),
-      definitionRef: entry.ref,
       sessionId: childCorrelation,
       createdAt,
       state: 'starting',
@@ -388,7 +386,7 @@ export class ChildRunRegistry {
         };
       }
       try {
-        const childOptions = await this.childOptions(run, entry);
+        const childOptions = this.childOptions(run, entry);
         if (run.terminal !== undefined || run.cancelRequested) {
           if (run.terminal === undefined) {
             await this.settleUnstartedTerminal(
@@ -415,6 +413,17 @@ export class ChildRunRegistry {
         });
         run.supervisor = supervisor;
         await supervisor.start();
+        if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
+          await this.settleUnstartedTerminal(
+            run,
+            'cancelled',
+            'cancelled during child startup',
+          );
+          return {
+            ok: false,
+            error: 'parent execution settled before child start',
+          };
+        }
         const correlation = supervisor.correlation('async-child');
         run.executionCorrelation = correlation;
         const executionAdmission = this.deps.options.data.executionAdmit(
@@ -457,12 +466,30 @@ export class ChildRunRegistry {
         return { ok: true, kind: 'spawn', runId };
       } catch (error) {
         const message = errorText(error);
+        if (
+          error instanceof WorkerHostStartupError &&
+          error.code === 'configuration_rejected'
+        ) {
+          const reasons = error.configurationRejections?.map((rejection) =>
+            `${rejection.target} ${rejection.name}: ${rejection.reason}`
+          ) ?? [];
+          const detail = reasons.length === 0 ? message : `${message}: ${reasons.join('; ')}`;
+          await this.completeLocal(
+            run,
+            this.terminal(run, 'failed', detail),
+            true,
+          );
+          return { ok: false, error: detail };
+        }
         if (message.includes(TOOL_FILTER_ERROR_CODE)) {
           this.finishWithoutData(run, this.terminal(run, 'failed', message));
           return { ok: true, kind: 'spawn', runId };
         }
         if (run.admitted || run.executionAdmissionError !== undefined) {
-          this.finishWithoutData(run, this.terminal(run, 'interrupted', message));
+          this.finishWithoutData(
+            run,
+            this.terminal(run, 'interrupted', message),
+          );
         } else {
           await this.settleUnstartedTerminal(
             run,
@@ -486,8 +513,8 @@ export class ChildRunRegistry {
     try {
       const descriptor = await this.deps.options.data.openSession({
         persistence: 'none',
-        agent: 'default',
-        definition: run.definitionRef,
+        agent: run.agent,
+        agentChoice: run.agentChoice,
         sessionId: run.sessionId,
         initialModelSelection: run.model,
       });
@@ -497,33 +524,23 @@ export class ChildRunRegistry {
     }
   }
 
-  private async childOptions(
+  private childOptions(
     run: ChildRun,
     entry: WorkerAsyncAgentCatalogEntry,
-  ): Promise<WorkerHostSessionOptions> {
-    const isBuiltinGeneric = entry.ref.resourceId === 'builtin/generic';
-    if (!isBuiltinGeneric && this.deps.resolveManagedModule === undefined) {
-      throw new Error(`async agent module is unavailable: ${entry.name}`);
-    }
-    const loadDescriptor = isBuiltinGeneric
-      ? undefined
-      : await this.deps.resolveManagedModule!(entry.ref);
+  ): WorkerHostSessionOptions {
     return {
       data: this.deps.options.data,
       descriptor: run.descriptor!,
       workspaceRoot: this.deps.options.workspaceRoot,
-      ...(this.deps.options.configRoot === undefined
-        ? {}
-        : { configRoot: this.deps.options.configRoot }),
+      configRoot: this.deps.options.configRoot,
+      agentChoice: entry.choice,
+      enableAsyncAgents: false,
       chatgptRegistrationId: run.chatgptRegistrationId,
       ...(this.deps.options.capsuleFactory === undefined
         ? {}
         : { capsuleFactory: this.deps.options.capsuleFactory }),
-      ...(isBuiltinGeneric ? { modulePath: workerBuiltinModulePath('generic') } : {}),
-      ...(loadDescriptor === undefined ? {} : { loadDescriptor }),
       ...(run.tools === undefined ? {} : { toolFilter: run.tools }),
       physicalIoMode: this.deps.options.physicalIoMode ?? 'production',
-      toolDefinitions: structuredClone(this.deps.options.toolDefinitions ?? []),
       ...(this.deps.options.rootMaxSteps === undefined
         ? {}
         : { rootMaxSteps: this.deps.options.rootMaxSteps }),
@@ -600,9 +617,14 @@ export class ChildRunRegistry {
 
   private async settleChildMessage(
     run: ChildRun,
-    message: Extract<WorkerToHostMessage, { kind: 'proposal_ready' | 'failure_ready' }>,
+    message: Extract<
+      WorkerToHostMessage,
+      { kind: 'proposal_ready' | 'failure_ready' }
+    >,
   ): Promise<void> {
-    if (run.terminal !== undefined || run.settlementAttempted || !run.admitted) return;
+    if (
+      run.terminal !== undefined || run.settlementAttempted || !run.admitted
+    ) return;
     run.settlementAttempted = true;
     try {
       const result = message.kind === 'proposal_ready'
@@ -644,7 +666,6 @@ export class ChildRunRegistry {
     return {
       runId: run.runId,
       state,
-      definitionRef: this.refKey(run.definitionRef),
       parentExecutionId: run.parentExecutionId,
       ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
       ...(finalText === undefined ? {} : { finalText }),
@@ -669,11 +690,14 @@ export class ChildRunRegistry {
     run.settlementAttempted = true;
     await this.terminateWorker(run);
     try {
-      const result = await this.deps.options.data.sealGeneration(run.sessionId, {
-        executionId: run.runId,
-        decision: 'interrupted',
-        reason: message,
-      });
+      const result = await this.deps.options.data.sealGeneration(
+        run.sessionId,
+        {
+          executionId: run.runId,
+          decision: 'interrupted',
+          reason: message,
+        },
+      );
       await this.completeFromData(run, result);
     } catch (error) {
       if (run.forceSettlementRequested) return;
@@ -686,18 +710,24 @@ export class ChildRunRegistry {
     }
   }
 
-  private finishWithoutData(run: ChildRun, terminal: AsyncAgentTerminalResult): void {
+  private finishWithoutData(
+    run: ChildRun,
+    terminal: AsyncAgentTerminalResult,
+  ): void {
     if (run.terminal !== undefined || run.settlementAttempted) return;
     if (run.admitted) {
       run.settlementAttempted = true;
       void (async () => {
         await this.terminateWorker(run);
         try {
-          const result = await this.deps.options.data.sealGeneration(run.sessionId, {
-            executionId: run.runId,
-            decision: terminal.state === 'cancelled' ? 'cancelled' : 'interrupted',
-            reason: terminal.error ?? `child run ${terminal.state}`,
-          });
+          const result = await this.deps.options.data.sealGeneration(
+            run.sessionId,
+            {
+              executionId: run.runId,
+              decision: terminal.state === 'cancelled' ? 'cancelled' : 'interrupted',
+              reason: terminal.error ?? `child run ${terminal.state}`,
+            },
+          );
           await this.completeFromData(run, result);
         } catch (error) {
           await this.completeLocal(
@@ -719,51 +749,8 @@ export class ChildRunRegistry {
     reason: string,
   ): Promise<void> {
     if (run.settlementAttempted || run.terminal !== undefined) return;
-    const correlation = run.supervisor?.correlation('async-child') ?? {
-      session: run.sessionId,
-      instanceCorrelation: `reserved-child:${run.runId}`,
-      workerGeneration: `unstarted-child:${run.runId}`,
-      baseStateRevision: run.descriptor!.stateRevision,
-      command: 'async-child-startup',
-    };
-    run.executionCorrelation = correlation;
-    const admission = this.deps.options.data.executionAdmit(run.sessionId, {
-      executionId: run.runId,
-      taskId: run.runId,
-      task: run.task,
-      correlation,
-      generationState: 'unstarted',
-      createdAt: run.createdAt,
-      parentExecutionId: run.parentExecutionId,
-      ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-    }).then((result) => {
-      run.descriptor = result.descriptor;
-      run.admitted = true;
-      this.flushPendingExecutionControls(run);
-    }).catch((error: unknown) => {
-      run.executionAdmissionError = errorText(error);
-      throw error;
-    });
-    run.executionAdmission = admission;
-    try {
-      await admission;
-      run.settlementAttempted = true;
-      await this.terminateWorker(run);
-      const result = await this.deps.options.data.sealGeneration(run.sessionId, {
-        executionId: run.runId,
-        decision,
-        reason,
-      });
-      await this.completeFromData(run, result);
-    } catch (error) {
-      const failure = errorText(error);
-      await this.completeLocal(
-        run,
-        this.terminal(run, 'interrupted', failure),
-        false,
-        failure,
-      );
-    }
+    run.settlementAttempted = true;
+    await this.completeLocal(run, this.terminal(run, decision, reason), true);
   }
 
   private async completeFromData(
@@ -924,7 +911,9 @@ export class ChildRunRegistry {
     if (supervisor === undefined) return;
     const correlation = run.executionCorrelation ??
       supervisor.correlation('async-child-cancel');
-    const attempted = this.prepareExecutionControl(run, { kind: 'cancel_sent' });
+    const attempted = this.prepareExecutionControl(run, {
+      kind: 'cancel_sent',
+    });
     run.cancelSent = true;
     try {
       supervisor.cancelProcessExecution(run.runId);
@@ -936,7 +925,10 @@ export class ChildRunRegistry {
         controlSequence: attempted.controlSequence,
         observedAt: attempted.observedAt,
       });
-      this.finishWithoutData(run, this.terminal(run, 'interrupted', errorText(error)));
+      this.finishWithoutData(
+        run,
+        this.terminal(run, 'interrupted', errorText(error)),
+      );
     }
   }
 
@@ -958,11 +950,14 @@ export class ChildRunRegistry {
       await this.terminateWorker(run);
       if (run.terminal !== undefined) return;
       try {
-        const result = await this.deps.options.data.sealGeneration(run.sessionId, {
-          executionId: run.runId,
-          decision: 'interrupted',
-          reason: 'child cancellation settlement deadline exceeded',
-        });
+        const result = await this.deps.options.data.sealGeneration(
+          run.sessionId,
+          {
+            executionId: run.runId,
+            decision: 'interrupted',
+            reason: 'child cancellation settlement deadline exceeded',
+          },
+        );
         await this.completeFromData(run, result);
       } catch (error) {
         await this.completeLocal(
@@ -1049,26 +1044,29 @@ export class ChildRunRegistry {
     run: ChildRun,
     input: DataExecutionControlInput,
   ): void {
-    run.controlWrites = run.controlWrites.catch(() => undefined).then(async () => {
-      try {
-        const descriptor = await this.deps.options.data.recordExecutionControl(
-          run.sessionId,
-          run.runId,
-          input,
-        );
-        if (
-          run.descriptor !== undefined &&
-          descriptor.latestExecution?.executionId === run.runId
-        ) {
-          run.descriptor = {
-            ...run.descriptor,
-            latestExecution: structuredClone(descriptor.latestExecution),
-          };
+    run.controlWrites = run.controlWrites.catch(() => undefined).then(
+      async () => {
+        try {
+          const descriptor = await this.deps.options.data
+            .recordExecutionControl(
+              run.sessionId,
+              run.runId,
+              input,
+            );
+          if (
+            run.descriptor !== undefined &&
+            descriptor.latestExecution?.executionId === run.runId
+          ) {
+            run.descriptor = {
+              ...run.descriptor,
+              latestExecution: structuredClone(descriptor.latestExecution),
+            };
+          }
+        } catch {
+          // Control facts are auxiliary; a failed write cannot replace a child terminal result.
         }
-      } catch {
-        // Control facts are auxiliary; a failed write cannot replace a child terminal result.
-      }
-    });
+      },
+    );
   }
 
   private terminateWorker(run: ChildRun): Promise<void> {
@@ -1099,9 +1097,5 @@ export class ChildRunRegistry {
       await this.deps.options.data.closeSession(run.sessionId);
       run.descriptor = undefined;
     }
-  }
-
-  private refKey(ref: DefinitionRevisionRef): string {
-    return `${ref.resourceId}@sha256:${ref.revision.digest}`;
   }
 }

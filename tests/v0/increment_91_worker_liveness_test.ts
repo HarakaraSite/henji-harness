@@ -1,5 +1,6 @@
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
@@ -32,7 +33,7 @@ const canonicalRecord = async (
   workspaceRoot: string,
   sessionId: string,
 ) => {
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
     await history.initialize();
     return await history.readWorker(sessionId);
@@ -67,6 +68,7 @@ abstract class ProbeCapsule implements WorkerHostCapsule {
         ROOT_DEFAULT_MODEL_SELECTION;
       const message = {
         kind: 'ready',
+        configuration: workerConfigurationFixture(),
         correlation: command.correlation,
         manifest: {
           role: 'parent',
@@ -447,7 +449,7 @@ Deno.test('Increment 91 preserves graceful cancellation within the settlement gr
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-91-graceful-',
   });
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
   let progress!: () => void;
   const sawProgress = new Promise<void>((resolve) => progress = resolve);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -455,7 +457,6 @@ Deno.test('Increment 91 preserves graceful cancellation within the settlement gr
     created = await createWorkerSession({
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 500,
       eventSink: (event) => {
@@ -490,7 +491,7 @@ Deno.test('Increment 91 preserves graceful cancellation within the settlement gr
 
 Deno.test('Increment 91 force-interrupts an uncooperative turn and replaces its generation', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-91-' });
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
   let progress!: () => void;
   const sawProgress = new Promise<void>((resolve) => progress = resolve);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -498,7 +499,6 @@ Deno.test('Increment 91 force-interrupts an uncooperative turn and replaces its 
     created = await createWorkerSession({
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 20,
       eventSink: (event) => {
@@ -549,7 +549,7 @@ Deno.test('Increment 91 force-interrupts an uncooperative turn and replaces its 
     const artifact = (await history.executionArtifacts.list()).find((value) =>
       value.executionId === rows[0].executionId
     );
-    assert(artifact !== undefined && artifact.schemaVersion === 7);
+    assert(artifact !== undefined && artifact.schemaVersion === 1);
     assertEquals(artifact.normalizedOutcome, 'interrupted');
     assertEquals(artifact.outcome?.stopReason, 'interrupted');
   } finally {
@@ -570,7 +570,6 @@ Deno.test('Increment 91 escalates when the Worker cannot acknowledge cancel', as
     created = await createWorkerSession({
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 20,
       capsuleFactory: (url) => {
@@ -595,7 +594,7 @@ Deno.test('Increment 91 escalates when the Worker cannot acknowledge cancel', as
     );
     assert(next.ok);
 
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+    const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
     await history.initialize();
     const firstRow = history.listExecutionsForSession(created.session.sessionId)[0];
     const kinds = history.listExecutionEvents(firstRow.executionId).map((
@@ -619,7 +618,6 @@ Deno.test('Increment 91 closes a terminated generation without waiting for a Wor
     created = await createWorkerSession({
       stateRoot,
       persistence: 'none',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 20,
       capsuleFactory: () => {
@@ -650,7 +648,6 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
     created = await createWorkerSession({
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 20,
       capsuleFactory: (url) => {
@@ -695,7 +692,7 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
       canonical,
     );
 
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+    const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
     await history.initialize();
     const interrupted = history.listExecutionsForSession(created.session.sessionId)[0];
     assertEquals(interrupted.contextCapture, 'partial');
@@ -709,7 +706,7 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
     const artifact = (await history.executionArtifacts.list()).find((value) =>
       value.executionId === interrupted.executionId
     );
-    assert(artifact !== undefined && artifact.schemaVersion === 7);
+    assert(artifact !== undefined && artifact.schemaVersion === 1);
     assertEquals(artifact.normalizedOutcome, 'interrupted');
     assertEquals(artifact.outcome?.stopReason, 'interrupted');
     history.close();
@@ -728,7 +725,6 @@ Deno.test('Increment 91 preserves a canonical commit when post-commit settlement
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'new',
-    agent: 'default',
     physicalIoMode: 'provider-free',
     workerResponseTimeoutMs: 20,
     capsuleFactory: (url) => {
@@ -786,7 +782,6 @@ Deno.test('Increment 91 rolls back an unacknowledged model selection and replace
     const seed = await createWorkerSession({
       stateRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
     });
     assert(
@@ -798,7 +793,6 @@ Deno.test('Increment 91 rolls back an unacknowledged model selection and replace
       stateRoot,
       persistence: 'session',
       sessionId,
-      agent: 'default',
       physicalIoMode: 'provider-free',
       workerResponseTimeoutMs: 20,
       capsuleFactory: (url) => {
@@ -821,7 +815,7 @@ Deno.test('Increment 91 rolls back an unacknowledged model selection and replace
       created.session.modelSelectionSnapshot(),
       ROOT_DEFAULT_MODEL_SELECTION,
     );
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+    const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
     await history.initialize();
     assertEquals(
       (await history.readWorker(created.session.sessionId)).activeModel,

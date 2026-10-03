@@ -1,5 +1,4 @@
 import type { LoopOutcome, Message } from '../../../v0/agent/core/contracts.ts';
-import { builtinDefinitionRef } from '../../../v0/agent/definitions/managed_resource_ref.ts';
 import { createDataClient } from '../../../v0/agent/data/client.ts';
 import type {
   DataService,
@@ -7,8 +6,7 @@ import type {
   DataSessionOpenInput,
 } from '../../../v0/agent/data/data_contract.ts';
 import { createAgentDataPortClient } from '../../../v0/agent/data/agent_data_client.ts';
-import { buildManifest } from '../../../v0/agent/runtime/build_manifest.ts';
-import { SqliteHistoryV7ProductionStore } from '../../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../../v0/agent/history/sqlite_history_store.ts';
 import type {
   WorkerHostCapsule,
   WorkerHostSessionOptions,
@@ -20,14 +18,11 @@ import type {
   WorkerToHostMessage,
 } from '../../../v0/agent/worker/worker_protocol.ts';
 import { WorkerHostSession } from '../../../v0/agent/worker/worker_host_session.ts';
-import {
-  bundledToolDefinitionLoadRequests,
-  workerBuiltinModulePath,
-} from '../../../v0/agent/worker/worker_definition_revision.ts';
-import { DEFAULT_AGENT_MAX_STEPS } from '../../../v0/agent/definitions/agent_definition.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../../../v0/agent/worker_agent_api.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../../v0/agent/provider/model_selection.ts';
-import type { DefinitionRevisionRef } from '../../../v0/agent/session/session_store.ts';
+import type { AgentConfigurationChoice } from '../../../v0/agent/configuration/configuration_resolver.ts';
+import { workerConfigurationFixture } from './worker_configuration_fixture.ts';
 
 interface Increment170FoundationDataHarness {
   readonly root: string;
@@ -43,7 +38,7 @@ export const createIncrement170FoundationDataHarness = async (
     readonly prefix?: string;
     readonly persistence?: DataSessionOpenInput['persistence'];
     readonly agent?: DataSessionOpenInput['agent'];
-    readonly definition?: DefinitionRevisionRef;
+    readonly agentChoice?: AgentConfigurationChoice;
     readonly sessionId?: string;
   } = {},
 ): Promise<Increment170FoundationDataHarness> => {
@@ -55,12 +50,10 @@ export const createIncrement170FoundationDataHarness = async (
   await Deno.mkdir(workspaceRoot);
   const data = await createDataClient({ stateRoot, workspaceRoot });
   try {
-    const definition = options.definition ??
-      await builtinDefinitionRef('default', buildManifest());
     const descriptor = await data.openSession({
       persistence: options.persistence ?? 'none',
       agent: options.agent ?? 'default',
-      definition,
+      agentChoice: options.agentChoice ?? {},
       ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
     });
     let closed = false;
@@ -89,7 +82,7 @@ export const openIncrement170FoundationHost = async (
   options:
     & Omit<
       Partial<WorkerHostSessionOptions>,
-      'data' | 'descriptor' | 'workspaceRoot' | 'modulePath' | 'toolDefinitions'
+      'data' | 'descriptor' | 'workspaceRoot'
     >
     & { readonly descriptor?: DataSessionDescriptor } = {},
 ): Promise<WorkerHostSession> => {
@@ -98,8 +91,8 @@ export const openIncrement170FoundationHost = async (
     data: harness.data,
     descriptor: descriptor ?? harness.descriptor,
     workspaceRoot: harness.workspaceRoot,
-    modulePath: workerBuiltinModulePath('default'),
-    toolDefinitions: await bundledToolDefinitionLoadRequests(),
+    agentChoice: harness.descriptor.agentChoice,
+    configRoot: `${harness.root}/config`,
     physicalIoMode: 'provider-free',
     ...hostOptions,
   });
@@ -111,7 +104,7 @@ export const readIncrement170FoundationArtifacts = async (
     'stateRoot' | 'workspaceRoot'
   >,
 ) => {
-  const store = new SqliteHistoryV7ProductionStore(
+  const store = new SqliteHistoryStore(
     harness.stateRoot,
     harness.workspaceRoot,
     { readOnly: true },
@@ -156,6 +149,8 @@ export class Increment170FoundationDataPortAgent implements WorkerHostCapsule {
 
   constructor(
     private readonly createProposal: Increment170FoundationProposalFactory,
+    private readonly configuration: ReturnType<typeof workerConfigurationFixture> =
+      workerConfigurationFixture(),
   ) {}
 
   private emit(message: WorkerToHostMessage): void {
@@ -174,6 +169,7 @@ export class Increment170FoundationDataPortAgent implements WorkerHostCapsule {
       ROOT_DEFAULT_MODEL_SELECTION;
     const ready: WorkerReadyMessage = {
       kind: 'ready',
+      configuration: this.configuration,
       correlation: command.correlation,
       manifest: {
         role: 'parent',

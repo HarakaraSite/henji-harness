@@ -1,8 +1,8 @@
 import { ok, strictEqual } from 'node:assert';
 import { ExecutionDataJournal } from '../../v0/agent/data/execution_data_journal.ts';
 import { ConversationWriter } from '../../v0/agent/data/conversation_writer.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
@@ -16,7 +16,7 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-data-journal-' });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot);
+  const store = new SqliteHistoryStore(`${root}/state`, workspaceRoot);
   const writer = new ConversationWriter(store);
   const sessionId = crypto.randomUUID();
   const executionId = crypto.randomUUID();
@@ -31,6 +31,7 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
   let journal: ExecutionDataJournal | undefined;
   try {
     await store.initialize();
+    const configuration = workerConfigurationFixture();
     await writer.beginExecution({
       executionId,
       taskId: crypto.randomUUID(),
@@ -43,7 +44,10 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
       agent: 'default',
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition: await builtinDefinitionRef('default', buildManifest()),
+      configuration,
+      configurationId: configuration.configurationId,
+      maxSteps: 128,
+      command: 'test-command',
     });
     const notifications: number[] = [];
     const watch = writer.watchSession(sessionId, (delta) => notifications.push(delta.cut));

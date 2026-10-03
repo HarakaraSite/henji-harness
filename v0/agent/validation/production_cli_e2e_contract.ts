@@ -2,7 +2,7 @@ import type { StoredExecutionEvent } from '../history/history_store_contract.ts'
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
-import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../worker_agent_api.ts';
 import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 
 const PRODUCTION_CLI_E2E_SCHEMA_VERSION = 2 as const;
@@ -273,10 +273,11 @@ export const evaluateProductionCliE2e = (
   const artifact = executions[0];
   const outcome = artifact.outcome;
   if (
-    artifact.agent !== 'default' || artifact.definition.resourceKind !== 'agent-definition' ||
-    artifact.definition.resourceId !== 'builtin/default' || artifact.manifest.role !== 'parent' ||
-    artifact.manifest.profileId !== ROUTE_PROFILE_ID ||
-    artifact.manifest.maxSteps !== DEFAULT_AGENT_MAX_STEPS ||
+    artifact.agent !== 'default' || artifact.configuration.agent.name !== 'default' ||
+    artifact.configurationId !== artifact.configuration.configurationId ||
+    artifact.configuration.agent.revision !== '1' ||
+    modelRouteProfileId(artifact.model) !== ROUTE_PROFILE_ID ||
+    artifact.maxSteps !== DEFAULT_AGENT_MAX_STEPS ||
     artifact.command.kind !== 'turn' || artifact.command.task !== PRODUCTION_CLI_E2E_TASK ||
     artifact.storeResult !== 'committed' || artifact.acknowledgement !== 'accepted_sent' ||
     artifact.settlement !== 'committed' || outcome?.ok !== true ||

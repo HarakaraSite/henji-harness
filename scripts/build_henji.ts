@@ -1,11 +1,5 @@
-import {
-  AGENT_DEFINITION_API_CONTRACT,
-  type BuiltinResourceRevisionV1,
-  HENJI_TOOL_DEFINITION_API_CONTRACT,
-} from '../v0/agent/runtime/build_manifest.ts';
+import { TOOL_API_CONTRACT } from '../v0/agent/runtime/build_manifest.ts';
 import type { BuildManifestV1 } from '../v0/agent/runtime/build_manifest.ts';
-import { canonicalDefinitionRevisionBytes } from '../v0/agent/definitions/managed_definition_manifest.ts';
-import { canonicalToolDefinitionRevisionBytes } from '../v0/agent/definitions/managed_tool_definition_manifest.ts';
 
 const EXPECTED_DENO = '2.9.7';
 const ROOTS = [
@@ -14,85 +8,10 @@ const ROOTS = [
   'v0/agent/cli/run_bootstrap.ts',
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/data/data_bootstrap.ts',
-  'v0/agent/worker/worker_builtin_definition.ts',
-  'v0/agent/worker/worker_builtin_generic_definition.ts',
-  'v0/agent/worker/worker_builtin_bash_tool.ts',
-  'v0/agent/worker/worker_builtin_bash_output_tool.ts',
-  'v0/agent/worker/worker_builtin_edit_tool.ts',
-  'v0/agent/worker/worker_builtin_read_tool.ts',
-  'v0/agent/worker/worker_builtin_write_tool.ts',
-  'v0/agent/worker/worker_builtin_web_search_tool.ts',
-  'v0/agent/worker/worker_builtin_web_fetch_tool.ts',
+  'v0/agent/worker/worker_configuration.ts',
 ] as const;
 const IDENTITY_FILES = ['deno.v0.json', 'deno.lock', 'jsr.json'] as const;
-/** The `@henji/agent` contract module: a built-in resource's closure does not traverse into it. */
-const CONTRACT_BOUNDARY_FILES: ReadonlySet<string> = new Set([
-  'v0/agent/worker_agent_api.ts',
-]);
 const encoder = new TextEncoder();
-
-interface BuiltinDefinitionEntry {
-  readonly resourceId: string;
-  readonly declaredRole: 'parent';
-  readonly entry: string;
-}
-
-interface BuiltinToolEntry {
-  readonly resourceId: string;
-  readonly identity: string;
-  readonly entry: string;
-}
-
-const BUILTIN_DEFINITIONS: readonly BuiltinDefinitionEntry[] = [
-  {
-    resourceId: 'builtin/default',
-    declaredRole: 'parent',
-    entry: 'v0/agent/worker/worker_builtin_definition.ts',
-  },
-  {
-    resourceId: 'builtin/generic',
-    declaredRole: 'parent',
-    entry: 'v0/agent/worker/worker_builtin_generic_definition.ts',
-  },
-];
-
-const BUILTIN_TOOLS: readonly BuiltinToolEntry[] = [
-  {
-    resourceId: 'builtin/bash',
-    identity: 'tool:bash',
-    entry: 'v0/agent/worker/worker_builtin_bash_tool.ts',
-  },
-  {
-    resourceId: 'builtin/bash-output',
-    identity: 'tool:bash_output',
-    entry: 'v0/agent/worker/worker_builtin_bash_output_tool.ts',
-  },
-  {
-    resourceId: 'builtin/edit',
-    identity: 'tool:edit',
-    entry: 'v0/agent/worker/worker_builtin_edit_tool.ts',
-  },
-  {
-    resourceId: 'builtin/read',
-    identity: 'tool:read',
-    entry: 'v0/agent/worker/worker_builtin_read_tool.ts',
-  },
-  {
-    resourceId: 'builtin/write',
-    identity: 'tool:write',
-    entry: 'v0/agent/worker/worker_builtin_write_tool.ts',
-  },
-  {
-    resourceId: 'builtin/web-fetch',
-    identity: 'tool:web_fetch',
-    entry: 'v0/agent/worker/worker_builtin_web_fetch_tool.ts',
-  },
-  {
-    resourceId: 'builtin/web-search',
-    identity: 'tool:web_search',
-    entry: 'v0/agent/worker/worker_builtin_web_search_tool.ts',
-  },
-];
 
 const run = async (
   command: string,
@@ -188,123 +107,6 @@ const runtimeDigest = async (
   return await sha256(joined);
 };
 
-interface ModuleClosureOptions {
-  readonly config?: string;
-  readonly contractBoundaryFiles?: readonly string[];
-  readonly identityFiles?: readonly string[];
-}
-
-/** Runtime module closure of one built-in resource entry, excluding contract and identity files. */
-export const moduleClosureFiles = async (
-  root: string,
-  entry: string,
-  options: ModuleClosureOptions = {},
-): Promise<readonly string[]> => {
-  const info = JSON.parse(new TextDecoder().decode(
-    await run(Deno.execPath(), [
-      'info',
-      '--json',
-      '--config',
-      `${root}/${options.config ?? 'deno.v0.json'}`,
-      `${root}/${entry}`,
-    ]),
-  )) as {
-    readonly modules: readonly {
-      readonly local?: string;
-      readonly dependencies?: readonly {
-        readonly code?: { readonly specifier?: string };
-      }[];
-    }[];
-  };
-  const prefix = `file://${root}/`;
-  const identityFiles = new Set(options.identityFiles ?? IDENTITY_FILES);
-  const contractBoundaryFiles = new Set(
-    options.contractBoundaryFiles ?? CONTRACT_BOUNDARY_FILES,
-  );
-  const edges = new Map<string, string[]>();
-  for (const module of info.modules) {
-    if (!module.local?.startsWith(`${root}/`)) continue;
-    const relative = module.local.slice(root.length + 1);
-    const dependencies: string[] = [];
-    for (const dependency of module.dependencies ?? []) {
-      const specifier = dependency.code?.specifier;
-      if (specifier === undefined || !specifier.startsWith(prefix)) continue;
-      dependencies.push(decodeURIComponent(specifier.slice(prefix.length)));
-    }
-    edges.set(relative, dependencies);
-  }
-  // The built-in resource artifact is its own runtime module closure. The `@henji/agent`
-  // contract module is a boundary: external Definitions treat it as the contract, so built-in
-  // resources do not traverse into it (nor into type-only edges, which never run).
-  const reachable = new Set<string>();
-  const pending = [entry];
-  while (pending.length > 0) {
-    const current = pending.pop()!;
-    if (reachable.has(current)) continue;
-    if (identityFiles.has(current)) continue;
-    if (contractBoundaryFiles.has(current)) continue;
-    reachable.add(current);
-    for (const dependency of edges.get(current) ?? []) pending.push(dependency);
-  }
-  return [...reachable].sort();
-};
-
-const closureFiles = async (
-  root: string,
-  entry: string,
-): Promise<
-  readonly { path: string; bytes: Uint8Array; dependencies: readonly [] }[]
-> => {
-  const paths = await moduleClosureFiles(root, entry);
-  const files: {
-    path: string;
-    bytes: Uint8Array;
-    dependencies: readonly [];
-  }[] = [];
-  for (const path of paths) {
-    files.push({
-      path,
-      bytes: await Deno.readFile(`${root}/${path}`),
-      dependencies: [],
-    });
-  }
-  return files;
-};
-
-const builtinResourceRevisions = async (
-  root: string,
-): Promise<readonly BuiltinResourceRevisionV1[]> => {
-  const revisions: BuiltinResourceRevisionV1[] = [];
-  for (const definition of BUILTIN_DEFINITIONS) {
-    const bytes = canonicalDefinitionRevisionBytes({
-      declaredRole: definition.declaredRole,
-      apiContract: AGENT_DEFINITION_API_CONTRACT,
-      entry: definition.entry,
-      files: await closureFiles(root, definition.entry),
-    });
-    revisions.push({
-      kind: 'agent-definition',
-      resourceId: definition.resourceId,
-      digest: await sha256(bytes),
-    });
-  }
-  for (const tool of BUILTIN_TOOLS) {
-    const bytes = canonicalToolDefinitionRevisionBytes({
-      toolIdentity: tool.identity,
-      apiContract: HENJI_TOOL_DEFINITION_API_CONTRACT,
-      entry: tool.entry,
-      files: await closureFiles(root, tool.entry),
-    });
-    revisions.push({
-      kind: 'tool-definition',
-      resourceId: tool.resourceId,
-      identity: tool.identity,
-      digest: await sha256(bytes),
-    });
-  }
-  return revisions;
-};
-
 export const hasDirtyBuildInputs = async (
   root: string,
   paths: readonly string[],
@@ -392,7 +194,6 @@ const main = async (): Promise<void> => {
   const sourceRevision = new TextDecoder().decode(
     await run('git', ['-C', root, 'rev-parse', 'HEAD']),
   ).trim();
-  const builtinResources = await builtinResourceRevisions(root);
   const identity = {
     schemaVersion: 1,
     productVersion: jsr.version,
@@ -401,9 +202,8 @@ const main = async (): Promise<void> => {
     denoVersion: Deno.version.deno,
     target: Deno.build.target,
     embeddedRuntimeSha256,
-    supportedAgentDefinitionApiContracts: [AGENT_DEFINITION_API_CONTRACT],
-    supportedToolDefinitionApiContracts: [HENJI_TOOL_DEFINITION_API_CONTRACT],
-    builtinResources,
+    agentConfigurationSchemaVersion: 1,
+    supportedToolApiContracts: [TOOL_API_CONTRACT],
   } as const;
   const buildId = await sha256(
     encoder.encode(`henji-build-v1\0${JSON.stringify(identity)}`),

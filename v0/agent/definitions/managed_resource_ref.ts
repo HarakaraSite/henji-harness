@@ -1,5 +1,3 @@
-import { AGENT_DEFINITION_API_CONTRACT, type BuildManifestV1 } from '../runtime/build_manifest.ts';
-
 interface ManagedResourceRefV1 {
   readonly schemaVersion: 1;
   readonly resourceKind: string;
@@ -10,22 +8,11 @@ interface ManagedResourceRefV1 {
   };
 }
 
-export type DefinitionRevisionRef = ManagedResourceRefV1 & {
-  readonly resourceKind: 'agent-definition';
-  readonly resourceId: string;
-};
-
 export type HenjiInstructionRevisionRef = ManagedResourceRefV1 & {
   readonly resourceKind: 'henji-instruction';
   readonly resourceId: string;
 };
 
-export type ToolDefinitionRevisionRef = ManagedResourceRefV1 & {
-  readonly resourceKind: 'tool-definition';
-  readonly resourceId: string;
-};
-
-const encoder = new TextEncoder();
 const SHA256 = /^[0-9a-f]{64}$/u;
 
 const isWellFormedResourceId = (value: unknown): value is string => {
@@ -41,104 +28,6 @@ const isWellFormedResourceId = (value: unknown): value is string => {
   return true;
 };
 
-export const isExternalDefinitionResourceId = (value: unknown): value is string =>
-  isWellFormedResourceId(value) && value !== 'builtin/default' && value !== 'builtin/planner' &&
-  value !== 'builtin/generic';
-
-export const isExternalToolDefinitionResourceId = (value: unknown): value is string =>
-  isWellFormedResourceId(value) && value !== 'builtin/web-search';
-
-const sha256Hex = async (bytes: Uint8Array): Promise<string> =>
-  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer))]
-    .map((byte) => byte.toString(16).padStart(2, '0')).join('');
-
-const builtinResourceDigest = (
-  manifest: BuildManifestV1,
-  kind: 'agent-definition' | 'tool-definition',
-  resourceId: string,
-  identity?: string,
-): string | undefined =>
-  manifest.builtinResources?.find((entry) =>
-    entry.kind === kind && entry.resourceId === resourceId &&
-    entry.identity === identity
-  )?.digest;
-
-export const builtinDefinitionRef = async (
-  agent: 'default' | 'generic',
-  manifest: BuildManifestV1,
-): Promise<DefinitionRevisionRef> => {
-  const resourceId = `builtin/${agent}` as const;
-  const embedded = builtinResourceDigest(manifest, 'agent-definition', resourceId);
-  if (embedded !== undefined) {
-    return {
-      schemaVersion: 1,
-      resourceKind: 'agent-definition',
-      resourceId,
-      revision: { algorithm: 'sha256', digest: embedded },
-    };
-  }
-  if (manifest.sourceRevision !== 'development') {
-    throw new Error('built-in Definition revision is missing from the build manifest');
-  }
-  // Development/source runs have no compiled closure digest; keep the fixed development identity.
-  const identity = JSON.stringify({
-    resourceId,
-    role: 'parent',
-    apiContract: AGENT_DEFINITION_API_CONTRACT,
-    embeddedRuntimeSha256: manifest.embeddedRuntimeSha256,
-  });
-  return {
-    schemaVersion: 1,
-    resourceKind: 'agent-definition',
-    resourceId,
-    revision: { algorithm: 'sha256', digest: await sha256Hex(encoder.encode(identity)) },
-  };
-};
-
-export const builtinToolDefinitionRef = async (
-  resourceId: string,
-  toolIdentity: string,
-  apiContract: string,
-  manifest: BuildManifestV1,
-): Promise<ToolDefinitionRevisionRef> => {
-  const embedded = builtinResourceDigest(manifest, 'tool-definition', resourceId, toolIdentity);
-  if (embedded !== undefined) {
-    return {
-      schemaVersion: 1,
-      resourceKind: 'tool-definition',
-      resourceId,
-      revision: { algorithm: 'sha256', digest: embedded },
-    };
-  }
-  if (manifest.sourceRevision !== 'development') {
-    throw new Error('built-in tool Definition revision is missing from the build manifest');
-  }
-  const identity = JSON.stringify({
-    resourceId,
-    toolIdentity,
-    apiContract,
-    embeddedRuntimeSha256: manifest.embeddedRuntimeSha256,
-  });
-  return {
-    schemaVersion: 1,
-    resourceKind: 'tool-definition',
-    resourceId,
-    revision: { algorithm: 'sha256', digest: await sha256Hex(encoder.encode(identity)) },
-  };
-};
-
-export const isDefinitionRevisionRef = (value: unknown): value is DefinitionRevisionRef => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const ref = value as Record<string, unknown>;
-  const revision = ref.revision;
-  return ref.schemaVersion === 1 && ref.resourceKind === 'agent-definition' &&
-    isWellFormedResourceId(ref.resourceId) &&
-    typeof revision === 'object' && revision !== null && !Array.isArray(revision) &&
-    (revision as Record<string, unknown>).algorithm === 'sha256' &&
-    typeof (revision as Record<string, unknown>).digest === 'string' &&
-    SHA256.test((revision as Record<string, string>).digest);
-};
-
 export const isHenjiInstructionRevisionRef = (
   value: unknown,
 ): value is HenjiInstructionRevisionRef => {
@@ -152,25 +41,3 @@ export const isHenjiInstructionRevisionRef = (
     typeof (revision as Record<string, unknown>).digest === 'string' &&
     SHA256.test((revision as Record<string, string>).digest);
 };
-
-export const isToolDefinitionRevisionRef = (
-  value: unknown,
-): value is ToolDefinitionRevisionRef => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const ref = value as Record<string, unknown>;
-  const revision = ref.revision;
-  return ref.schemaVersion === 1 && ref.resourceKind === 'tool-definition' &&
-    isWellFormedResourceId(ref.resourceId) &&
-    typeof revision === 'object' && revision !== null && !Array.isArray(revision) &&
-    (revision as Record<string, unknown>).algorithm === 'sha256' &&
-    typeof (revision as Record<string, unknown>).digest === 'string' &&
-    SHA256.test((revision as Record<string, string>).digest);
-};
-
-export const sameDefinitionRevisionRef = (
-  left: DefinitionRevisionRef,
-  right: DefinitionRevisionRef,
-): boolean =>
-  left.resourceKind === right.resourceKind && left.resourceId === right.resourceId &&
-  left.revision.algorithm === right.revision.algorithm &&
-  left.revision.digest === right.revision.digest;

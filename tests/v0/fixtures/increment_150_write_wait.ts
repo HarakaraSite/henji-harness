@@ -1,13 +1,15 @@
 import { readSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { SqliteHistoryV7ProductionStore } from '../../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../../v0/agent/history/sqlite_history_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { StoredSessionRecord } from '../../../v0/agent/session/session_store.ts';
+import { workerConfigurationFixture } from '../helpers/worker_configuration_fixture.ts';
 import { buildManifest } from '../../../v0/agent/runtime/build_manifest.ts';
 
 const [mode, stateRoot, workspaceRoot, executionId] = Deno.args;
 const emit = (value: string) => Deno.stdout.writeSync(new TextEncoder().encode(`${value}\n`));
-const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+const configuration = workerConfigurationFixture();
 const input = {
   executionId,
   taskId: crypto.randomUUID(),
@@ -19,18 +21,16 @@ const input = {
   agent: 'default' as const,
   model: ROOT_DEFAULT_MODEL_SELECTION,
   build: buildManifest(),
-  definition: {
-    schemaVersion: 1 as const,
-    resourceKind: 'agent-definition' as const,
-    resourceId: 'builtin/default',
-    revision: { algorithm: 'sha256' as const, digest: '1'.repeat(64) },
-  },
+  configuration,
+  configurationId: configuration.configurationId,
+  maxSteps: 128,
+  command: 'write-wait',
   sessionMode: 'no_session' as const,
 };
 let handle: Awaited<ReturnType<typeof store.allocateWorker>> | undefined;
 try {
   await store.initialize();
-  if (mode === 'begin') handle = await store.allocateWorker('default', input.definition);
+  if (mode === 'begin') handle = await store.allocateWorker('default', {});
   if (mode === 'append') await store.beginExecution(input);
   emit('ready');
   const gate = new Uint8Array(1);
@@ -47,7 +47,7 @@ try {
   try {
     if (mode === 'begin') {
       const record: StoredSessionRecord = {
-        schemaVersion: 6,
+        schemaVersion: 1,
         sessionId: handle!.id,
         workspaceRoot,
         agent: 'default',
@@ -57,7 +57,7 @@ try {
         stateRevision: 1,
         nextTurn: 1,
         transcript: [],
-        definition: input.definition,
+        agentChoice: {},
         activeModel: input.model,
         modelChanges: [{
           effectiveFromTurn: 1,

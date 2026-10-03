@@ -1,5 +1,4 @@
 import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
 import { createDataClient } from '../../v0/agent/data/client.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
@@ -17,26 +16,28 @@ const equal = (actual: unknown, expected: unknown): void => {
     `${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`,
   );
 };
-const open = async (root: string, events: AgentEvent[] = [], onProcessStart?: () => void) => {
-  const data = await createDataClient({ workspaceRoot: root, stateRoot: `${root}/state` });
+const open = async (
+  root: string,
+  events: AgentEvent[] = [],
+  onProcessStart?: () => void,
+) => {
+  const data = await createDataClient({
+    workspaceRoot: root,
+    stateRoot: `${root}/state`,
+  });
   const descriptor = await data.openSession({
     persistence: 'none',
     agent: 'default',
-    definition: {
-      schemaVersion: 1,
-      resourceKind: 'agent-definition',
-      resourceId: 'test/bash-lifetime',
-      revision: { algorithm: 'sha256', digest: 'b'.repeat(64) },
-    },
+    agentChoice: {},
   });
   try {
     const session = await WorkerHostSession.open({
       data,
       descriptor,
-      modulePath: new URL('./fixtures/increment_133_bash_definition.ts', import.meta.url).pathname,
       workspaceRoot: root,
+      configRoot: `${root}/config`,
+      agentChoice: {},
       physicalIoMode: 'provider-free',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
       cancelSettlementGraceMs: 2_000,
       eventSink: (event) => {
         events.push(event);
@@ -45,7 +46,10 @@ const open = async (root: string, events: AgentEvent[] = [], onProcessStart?: ()
         capsuleFactory: (url: URL) => {
           const capsule = new WorkerCapsule(url);
           capsule.subscribe((message) => {
-            if (message.kind === 'process_request' && message.request.action === 'start') {
+            if (
+              message.kind === 'process_request' &&
+              message.request.action === 'start'
+            ) {
               onProcessStart();
             }
           });
@@ -67,12 +71,21 @@ const open = async (root: string, events: AgentEvent[] = [], onProcessStart?: ()
     throw error;
   }
 };
-const submit = async (session: WorkerHostSession, command: string, timeoutMs?: number) => {
+const submit = async (
+  session: WorkerHostSession,
+  command: string,
+  timeoutMs?: number,
+) => {
   const outcome = await session.submit(
-    JSON.stringify({
-      name: 'bash',
-      arguments: { command, ...(timeoutMs === undefined ? {} : { timeoutMs }) },
-    }),
+    `bash-tool-call:${
+      JSON.stringify({
+        name: 'bash',
+        arguments: {
+          command,
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        },
+      })
+    }`,
   );
   assert(outcome.ok, JSON.stringify(outcome));
   return JSON.parse(outcome.finalText!);
@@ -111,7 +124,13 @@ Deno.test('bundled bash keeps fresh shell/status/output and later-turn bash_outp
       session,
       'export LOCAL=value; cd /; printf explicit-143; printf separate >&2; exit 143',
     );
-    equal([first.stdout, first.stderr, first.exitCode, first.signal, first.timedOut], [
+    equal([
+      first.stdout,
+      first.stderr,
+      first.exitCode,
+      first.signal,
+      first.timedOut,
+    ], [
       'explicit-143',
       'separate',
       143,
@@ -131,10 +150,16 @@ Deno.test('bundled bash keeps fresh shell/status/output and later-turn bash_outp
     const large = await submit(session, "printf '%05000d' 0");
     assert(large.stdoutTruncated && typeof large.outputId === 'string');
     const read = await session.submit(
-      JSON.stringify({
-        name: 'bash_output',
-        arguments: { outputId: large.outputId, stream: 'stdout', offset: 4096 },
-      }),
+      `bash-tool-call:${
+        JSON.stringify({
+          name: 'bash_output',
+          arguments: {
+            outputId: large.outputId,
+            stream: 'stdout',
+            offset: 4096,
+          },
+        })
+      }`,
     );
     assert(read.ok, JSON.stringify(read));
     const window = JSON.parse(read.finalText!);
@@ -146,7 +171,9 @@ Deno.test('bundled bash keeps fresh shell/status/output and later-turn bash_outp
 });
 
 Deno.test('bundled bash stops capture/progress after return and retains background writers until close', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i133-bash-background-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i133-bash-background-',
+  });
   const events: AgentEvent[] = [];
   const session = await open(root, events);
   try {
@@ -157,7 +184,10 @@ Deno.test('bundled bash stops capture/progress after return and retains backgrou
     equal([result.stdout, result.exitCode], ['initial', 0]);
     const progress = events.filter((event) => event.kind === 'tool_progress').length;
     await waitFile(root, 'done');
-    equal(events.filter((event) => event.kind === 'tool_progress').length, progress);
+    equal(
+      events.filter((event) => event.kind === 'tool_progress').length,
+      progress,
+    );
     const background = await waitFile(root, 'background');
     assert(await alive(background));
     await session.close();
@@ -173,7 +203,11 @@ Deno.test('bundled bash timeout cleans TERM-resistant command and descendants be
   const session = await open(root);
   try {
     const result = await submit(session, resistant, 500);
-    equal([result.timedOut, result.exitCode, result.signal], [true, null, 'SIGKILL']);
+    equal([result.timedOut, result.exitCode, result.signal], [
+      true,
+      null,
+      'SIGKILL',
+    ]);
     assert(!await alive(await waitFile(root, 'command')));
     assert(!await alive(await waitFile(root, 'descendant')));
   } finally {
@@ -187,13 +221,21 @@ Deno.test('bundled bash cancellation settles after command/group cleanup', async
   const session = await open(root);
   try {
     const submitted = session.submit(
-      JSON.stringify({ name: 'bash', arguments: { command: resistant, timeoutMs: 5_000 } }),
+      `bash-tool-call:${
+        JSON.stringify({
+          name: 'bash',
+          arguments: { command: resistant, timeoutMs: 5_000 },
+        })
+      }`,
     );
     const command = await waitFile(root, 'command');
     const descendant = await waitFile(root, 'descendant');
     session.cancelActiveTurn();
     const outcome = await submitted;
-    assert(!outcome.ok && outcome.stopReason === 'cancelled', JSON.stringify(outcome));
+    assert(
+      !outcome.ok && outcome.stopReason === 'cancelled',
+      JSON.stringify(outcome),
+    );
     assert(!await alive(command));
     assert(!await alive(descendant));
   } finally {
@@ -203,7 +245,9 @@ Deno.test('bundled bash cancellation settles after command/group cleanup', async
 });
 
 Deno.test('bundled bash cancellation at process start permits the next turn and preserves prior background work', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i133-bash-start-cancel-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i133-bash-start-cancel-',
+  });
   let cancelStart = false;
   const session = await open(root, [], () => {
     if (!cancelStart) return;
@@ -215,10 +259,16 @@ Deno.test('bundled bash cancellation at process start permits the next turn and 
     const background = await waitFile(root, 'background');
     cancelStart = true;
     const outcome = await session.submit(
-      JSON.stringify({ name: 'bash', arguments: { command: 'sleep 10' } }),
+      `bash-tool-call:${JSON.stringify({ name: 'bash', arguments: { command: 'sleep 10' } })}`,
     );
-    assert(!outcome.ok && outcome.stopReason === 'cancelled', JSON.stringify(outcome));
-    assert(await alive(background), 'early cancellation stopped prior background work');
+    assert(
+      !outcome.ok && outcome.stopReason === 'cancelled',
+      JSON.stringify(outcome),
+    );
+    assert(
+      await alive(background),
+      'early cancellation stopped prior background work',
+    );
     equal((await submit(session, 'printf next')).stdout, 'next');
   } finally {
     await session.close();
@@ -275,10 +325,14 @@ Deno.test('cancelled bash calls release Host records while prior background work
 });
 
 Deno.test('a rejected process cleanup still releases the Session busy state', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i133-bash-cleanup-rejection-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i133-bash-cleanup-rejection-',
+  });
   const session = await open(root);
   const supervisor = (session as unknown as {
-    coordinator: { supervisor: { waitForProcessCleanup(id?: string): Promise<void> } };
+    coordinator: {
+      supervisor: { waitForProcessCleanup(id?: string): Promise<void> };
+    };
   }).coordinator.supervisor;
   const originalWait = supervisor.waitForProcessCleanup.bind(supervisor);
   try {

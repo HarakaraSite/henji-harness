@@ -16,46 +16,16 @@ import {
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
-import {
-  DefinitionStartupError,
-  type HostDefinitionSelection,
-  resolveRequestedDefinition,
-} from '../definitions/definition_selection.ts';
-import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../worker_agent_api.ts';
 import {
   projectRuntimeDisplayState,
   type RuntimeDisplayState,
 } from '../runtime/startup_orientation.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
-import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
-import {
-  type DefinitionRevisionRef,
-  launcherStateRoot,
-  type SessionRecord,
-  SessionStoreError,
-} from '../session/session_store.ts';
+import { launcherStateRoot, type SessionRecord } from '../session/session_store.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
-import {
-  managedToolDefinitionLoadRequest,
-  managedWorkerDefinitionLoadRequest,
-} from './worker_capsule.ts';
-import {
-  BUNDLED_TOOL_DEFINITION_IDENTITIES,
-  bundledToolDefinitionLoadRequest,
-  workerBuiltinModulePath,
-} from './worker_definition_revision.ts';
-import { AgentBindingError, resolveAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
 import { readDefaultSelection } from '../provider/default_selection.ts';
-import { ManagedDefinitionStore } from '../definitions/managed_definition_store.ts';
-import {
-  type ResolvedToolDefinitionBinding,
-  resolveToolDefinitionBindings,
-  ToolBindingError,
-} from '../definitions/tool_binding.ts';
-import type {
-  WorkerAsyncAgentCatalogEntry,
-  WorkerToolDefinitionLoadRequest,
-} from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import type { ApplicationObservationSink, ApplicationQueryPort } from '../host/application_port.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
@@ -75,7 +45,7 @@ export interface WorkerSessionOptions {
   readonly lazyInitialHost?: boolean;
   readonly sessionId?: string;
   readonly agent?: SessionRecord['agent'];
-  readonly selection?: HostDefinitionSelection;
+  readonly agentChoice?: AgentConfigurationChoice;
   readonly dataRoot?: string;
   readonly configRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
@@ -108,7 +78,7 @@ export interface WorkerSessionResult {
 }
 
 export interface HostActiveSession {
-  readonly definition: DefinitionRevisionRef;
+  readonly agentChoice: AgentConfigurationChoice;
   readonly sessionId: string;
   submit(text: string): ReturnType<WorkerHostSession['submit']>;
   admit(text: string, executionId?: string): ReturnType<WorkerHostSession['admit']>;
@@ -175,20 +145,22 @@ class LazyWorkerSession implements HostActiveSession {
   private closed = false;
   private pendingAdmission: { executionId: string; cancelled: boolean } | undefined;
   private localCredentialAvailability: CredentialAvailability | undefined;
+  private configurationFailure:
+    | readonly import('../configuration/agent_configuration.ts').ConfigurationRejection[]
+    | undefined;
 
   constructor(
     private readonly data: DataService,
     private readonly descriptor: DataSessionDescriptor,
-    private readonly selected: DefinitionRevisionRef,
+    private readonly selected: AgentConfigurationChoice,
     private readonly startHost: () => Promise<WorkerHostSession>,
     private readonly config: Pick<
       WorkerSessionOptions,
       'rootMaxSteps' | 'providerTimeoutMs' | 'activation' | 'configRoot'
     >,
-    private readonly builtinDefinition: boolean,
   ) {}
 
-  get definition(): DefinitionRevisionRef {
+  get agentChoice(): AgentConfigurationChoice {
     return structuredClone(this.selected);
   }
 
@@ -203,6 +175,11 @@ class LazyWorkerSession implements HostActiveSession {
       this.starting = this.startHost().then((host) => {
         this.host = host;
         return host;
+      }).catch((error) => {
+        if (error instanceof WorkerHostStartupError && error.code === 'configuration_rejected') {
+          this.configurationFailure = error.configurationRejections;
+        }
+        throw error;
       });
     }
     return await this.starting;
@@ -234,28 +211,20 @@ class LazyWorkerSession implements HostActiveSession {
 
   effectiveConfigSnapshot(): EffectiveRuntimeConfig {
     if (this.host !== undefined) return this.host.effectiveConfigSnapshot();
-    const definition = this.selected;
     const configuredMaxSteps = this.config.rootMaxSteps;
-    const maxSteps = configuredMaxSteps ??
-      (this.builtinDefinition ? DEFAULT_AGENT_MAX_STEPS : null);
-    const maxStepsSource: EffectiveRuntimeConfig['maxStepsSource'] =
-      configuredMaxSteps !== undefined
-        ? 'activation'
-        : this.builtinDefinition
-        ? 'definition'
-        : 'unevaluated';
     return {
-      definition: {
-        schemaVersion: definition.schemaVersion,
-        resourceKind: definition.resourceKind,
-        resourceId: definition.resourceId,
-        revision: {
-          algorithm: definition.revision.algorithm,
-          digest: definition.revision.digest,
-        },
+      configuration: {
+        status: this.configurationFailure === undefined ? 'pending' : 'rejected',
+        choice: { ...this.selected },
+        name: this.selected.name ?? 'default',
+        ...(this.configurationFailure === undefined ? {} : {
+          rejections: structuredClone(
+            this.configurationFailure,
+          ) as unknown as import('../../api/contract.ts').ApiJson,
+        }),
       },
-      maxSteps,
-      maxStepsSource,
+      maxSteps: configuredMaxSteps ?? DEFAULT_AGENT_MAX_STEPS,
+      maxStepsSource: configuredMaxSteps === undefined ? 'default' : 'activation',
       providerTimeoutMs: this.config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
       activation: {
         ...(this.config.activation ?? {}),
@@ -405,9 +374,10 @@ export const createWorkerSession = async (
   const runtimePaths = resolveManagedInstruction && options.dataRoot === undefined
     ? resolveRuntimePaths()
     : undefined;
-  const dataRoot = options.dataRoot ?? runtimePaths?.dataRoot;
   const configRoot = options.configRoot ??
-    (options.dataRoot === undefined ? runtimePaths?.configRoot : `${options.dataRoot}/config`);
+    (options.dataRoot === undefined
+      ? runtimePaths?.configRoot ?? `${workspace.root}/.henji`
+      : `${options.dataRoot}/config`);
   const resolveBaseInstruction = (): Promise<SelectedHenjiBaseInstruction> =>
     !resolveManagedInstruction
       ? Promise.resolve(builtinHenjiBaseInstruction())
@@ -428,44 +398,16 @@ export const createWorkerSession = async (
     stateRoot: options.stateRoot ?? launcherStateRoot(),
     workspaceRoot: workspace.root,
   });
-  let selection = options.selection;
-  if (selection !== undefined && options.agent !== undefined && selection.id !== options.agent) {
-    if (ownsData) await data.close();
-    throw new DefinitionStartupError(
-      'definition_role_mismatch',
-      'session_binding',
-      'Explicit Agent role does not match the selected Definition',
-      selection.ref,
-    );
-  }
-  try {
-    const saved = options.persistence === 'session' && options.sessionId !== undefined
-      ? await data.sessionDescriptor(options.sessionId)
-      : undefined;
-    if (selection === undefined) {
-      selection = await resolveRequestedDefinition(
-        options.agent,
-        undefined,
-        options.dataRoot,
-        configRoot,
-      );
-    }
-    if (saved !== undefined && saved.agent !== selection.id) {
-      throw new DefinitionStartupError(
-        'definition_role_mismatch',
-        'session_binding',
-        'Session Agent role does not match the selected Definition',
-        saved.definition,
-      );
-    }
-  } catch (error) {
-    if (ownsData) await data.close();
-    throw error;
-  }
+  const saved = options.persistence === 'session' && options.sessionId !== undefined
+    ? await data.sessionDescriptor(options.sessionId)
+    : undefined;
+  const agentChoice: AgentConfigurationChoice = options.agentChoice ??
+    (options.agent === undefined ? saved?.agentChoice ?? {} : { name: options.agent });
+  const agent = options.agent ?? saved?.agent ?? agentChoice.name ?? 'default';
   const descriptor = await data.openSession({
     persistence: options.persistence,
-    agent: selection.id,
-    definition: selection.ref,
+    agent,
+    agentChoice,
     ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
     initialModelSelection: configuredDefaultSelection ??
       defaultModelSelectionFor('openrouter-chat'),
@@ -474,168 +416,30 @@ export const createWorkerSession = async (
     throw error;
   });
   try {
-    if (selection === undefined) throw new SessionStoreError('session_invalid');
-    const activeSelection = selection;
-    const modulePath = activeSelection.kind === 'builtin'
-      ? workerBuiltinModulePath(activeSelection.id)
-      : undefined;
-    const loadDescriptor = activeSelection.kind === 'managed'
-      ? managedWorkerDefinitionLoadRequest(activeSelection.revision)
-      : undefined;
-    const definition = activeSelection.ref;
-    /*
-     * The activation-level `agents.json` file is validated on every generation open so an
-     * abolished `subagent:<name>` slot surfaces a typed failure instead of being ignored.
-     */
-    const resolveAsyncAgentModule = dataRoot === undefined ? undefined : async (
-      ref: import('../definitions/managed_resource_ref.ts').DefinitionRevisionRef,
-    ) => {
-      const store = new ManagedDefinitionStore({ dataRoot });
-      const revision = await store.resolve(ref);
-      return managedWorkerDefinitionLoadRequest(revision);
-    };
-    /** Resolve activation-level managed async Agent bindings for this generation. */
-    const resolveAsyncAgents = async (): Promise<
-      readonly WorkerAsyncAgentCatalogEntry[]
-    > => {
-      const entries: WorkerAsyncAgentCatalogEntry[] = [{
-        name: 'generic',
-        ref: await builtinDefinitionRef('generic', buildManifest()),
-      }];
-      if (configRoot !== undefined && dataRoot !== undefined) {
-        let bindings: ReadonlyMap<
-          string,
-          {
-            slot: { kind: string; name?: string };
-            ref: import('../definitions/managed_resource_ref.ts').DefinitionRevisionRef;
-          }
-        >;
-        try {
-          bindings = await resolveAgentSlotBindings(configRoot, dataRoot);
-        } catch (error) {
-          if (error instanceof AgentBindingError) {
-            throw new DefinitionStartupError(
-              error.code === 'binding_definition_not_found'
-                ? 'definition_not_found'
-                : error.code === 'binding_role_mismatch'
-                ? 'definition_role_mismatch'
-                : 'definition_invalid',
-              'resolution',
-              error.message,
-              error.definition,
-            );
-          }
-          throw error;
-        }
-        for (const binding of bindings.values()) {
-          if (
-            binding.slot.kind !== 'agent' || binding.slot.name === undefined
-          ) continue;
-          entries.push({
-            name: binding.slot.name,
-            ref: structuredClone(binding.ref),
-          });
-        }
-      }
-      return entries;
-    };
-    /*
-     * Resolve every declared tool Definition. An activation-level `tools.json` binding wins;
-     * otherwise a bundled Definition is used when one exists. A binding failure is a typed startup
-     * failure and never falls back to the bundled module.
-     */
-    const resolveToolDefinitions = async (): Promise<
-      readonly WorkerToolDefinitionLoadRequest[] | undefined
-    > => {
-      let bindings: ReadonlyMap<string, ResolvedToolDefinitionBinding>;
-      try {
-        bindings = configRoot === undefined || dataRoot === undefined
-          ? new Map<string, ResolvedToolDefinitionBinding>()
-          : await resolveToolDefinitionBindings(configRoot, dataRoot);
-      } catch (error) {
-        if (error instanceof ToolBindingError) {
-          throw new DefinitionStartupError(
-            error.code === 'binding_definition_not_found'
-              ? 'definition_not_found'
-              : 'definition_invalid',
-            'resolution',
-            error.message,
-          );
-        }
-        throw error;
-      }
-      const requests: WorkerToolDefinitionLoadRequest[] = [];
-      const resolvedIdentities = new Set<string>();
-      for (const identity of BUNDLED_TOOL_DEFINITION_IDENTITIES) {
-        const bound = bindings.get(identity);
-        if (bound !== undefined) {
-          requests.push({
-            toolIdentity: identity,
-            ref: structuredClone(bound.ref),
-            module: managedToolDefinitionLoadRequest(bound.revision),
-          });
-        } else {
-          requests.push(await bundledToolDefinitionLoadRequest(identity));
-        }
-        resolvedIdentities.add(identity);
-      }
-      for (const [identity, bound] of bindings) {
-        if (resolvedIdentities.has(identity)) continue;
-        requests.push({
-          toolIdentity: identity,
-          ref: structuredClone(bound.ref),
-          module: managedToolDefinitionLoadRequest(bound.revision),
-        });
-      }
-      return requests.length === 0 ? undefined : requests;
-    };
     const openHost = async (
       sessionDescriptor: DataSessionDescriptor,
     ): Promise<WorkerHostSession> => {
-      try {
-        setActiveProviderDeclarations(providerDeclarations);
-        baseInstruction = await resolveBaseInstruction();
-        return await WorkerHostSession.open({
-          data,
-          descriptor: sessionDescriptor,
-          workspaceRoot: workspace.root,
-          ...(configRoot === undefined ? {} : { configRoot }),
-          modulePath,
-          loadDescriptor,
-          asyncAgents: await resolveAsyncAgents(),
-          ...(resolveAsyncAgentModule === undefined ? {} : { resolveAsyncAgentModule }),
-          toolDefinitions: await resolveToolDefinitions(),
-          physicalIoMode: options.physicalIoMode,
-          rootMaxSteps: options.rootMaxSteps,
-          providerTimeoutMs: options.providerTimeoutMs,
-          ...(options.activation === undefined ? {} : { activation: options.activation }),
-          cancelSettlementGraceMs: options.cancelSettlementGraceMs,
-          workerResponseTimeoutMs: options.workerResponseTimeoutMs,
-          auxiliaryStageGapMs: options.auxiliaryStageGapMs,
-          baseInstruction,
-          providerDeclarations,
-          eventSink: options.eventSink,
-          applicationObservationSink: options.applicationObservationSink,
-          capsuleFactory: options.capsuleFactory,
-        });
-      } catch (error) {
-        if (
-          activeSelection.kind !== 'managed' ||
-          !(error instanceof WorkerHostStartupError)
-        ) {
-          throw error;
-        }
-        throw new DefinitionStartupError(
-          error.code === 'module_invalid'
-            ? 'definition_invalid'
-            : error.code === 'role_mismatch'
-            ? 'definition_role_mismatch'
-            : 'definition_evaluation_failed',
-          'worker_start',
-          error.message,
-          definition,
-        );
-      }
+      setActiveProviderDeclarations(providerDeclarations);
+      baseInstruction = await resolveBaseInstruction();
+      return await WorkerHostSession.open({
+        data,
+        descriptor: sessionDescriptor,
+        workspaceRoot: workspace.root,
+        agentChoice,
+        configRoot,
+        physicalIoMode: options.physicalIoMode,
+        rootMaxSteps: options.rootMaxSteps,
+        providerTimeoutMs: options.providerTimeoutMs,
+        ...(options.activation === undefined ? {} : { activation: options.activation }),
+        cancelSettlementGraceMs: options.cancelSettlementGraceMs,
+        workerResponseTimeoutMs: options.workerResponseTimeoutMs,
+        auxiliaryStageGapMs: options.auxiliaryStageGapMs,
+        baseInstruction,
+        providerDeclarations,
+        eventSink: options.eventSink,
+        applicationObservationSink: options.applicationObservationSink,
+        capsuleFactory: options.capsuleFactory,
+      });
     };
     const host = options.lazyInitialHost ? undefined : await openHost(descriptor);
     const initialSelection = host?.modelSelectionSnapshot() ??
@@ -645,7 +449,7 @@ export const createWorkerSession = async (
     const displayState = projectRuntimeDisplayState({
       productVersion: buildManifest().productVersion,
       workspaceRoot: workspace.root,
-      agentId: activeSelection.id,
+      agentId: agent,
       profileId: modelRouteProfileId(initialSelection),
       provider: initialSelection.provider,
       modelId: initialSelection.modelId,
@@ -664,10 +468,9 @@ export const createWorkerSession = async (
     const currentHost: HostActiveSession = host ?? new LazyWorkerSession(
       data,
       descriptor,
-      definition,
+      agentChoice,
       () => openHost(descriptor),
       options,
-      activeSelection.kind === 'builtin',
     );
     const position = () => currentHost.currentPosition();
     const query: ApplicationQueryPort = {

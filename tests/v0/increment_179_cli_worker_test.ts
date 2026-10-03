@@ -38,7 +38,9 @@ const runCli = async (
     stdout: 'piped',
     stderr: 'piped',
   }).spawn();
-  child.stdin.close();
+  const writer = child.stdin.getWriter();
+  await writer.write(new TextEncoder().encode('hello'));
+  await writer.close();
   const output = await child.output();
   return {
     code: output.code,
@@ -47,12 +49,12 @@ const runCli = async (
   };
 };
 
-Deno.test('Increment 179 CLI Worker returns typed Definition error data and drains before exit', async () => {
+Deno.test('Increment 179 CLI Worker returns typed configuration error data and drains before exit', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-179-cli-worker-' });
   try {
     const result = await runCli(root, [
-      '--definition-revision',
-      `example/missing@sha256:${'c'.repeat(64)}`,
+      '--agent-file',
+      `${root}/missing.json`,
       '--json',
     ]);
     assertEquals(result.code, 1);
@@ -61,9 +63,9 @@ Deno.test('Increment 179 CLI Worker returns typed Definition error data and drai
     assertEquals(records.length, 1);
     assertEquals(records[0].v, 1);
     assertEquals(records[0].kind, 'error');
-    assertEquals(records[0].error.error.code, 'definition_not_found');
-    assertEquals(records[0].error.error.stage, 'resolution');
-    assertEquals(records[0].error.error.definition.resourceId, 'example/missing');
+    assertEquals(records[0].error.error.code, 'configuration_rejected');
+    assertEquals(records[0].error.error.stage, 'worker_start');
+    assertEquals(records[0].error.error.rejections[0].file, `${root}/missing.json`);
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -73,12 +75,13 @@ Deno.test('Increment 179 CLI Worker maps runner startup errors from port data', 
   for (
     const error of [
       {
-        kind: 'definition' as const,
+        kind: 'configuration' as const,
         value: {
-          code: 'definition_evaluation_failed',
-          message: 'Definition startup failed',
+          code: 'configuration_rejected',
+          message: 'configuration startup failed',
           stage: 'worker_start',
-          reason: 'Definition evaluation failed',
+          reason: 'configuration load failed',
+          rejections: [],
         },
       },
       {
@@ -90,17 +93,7 @@ Deno.test('Increment 179 CLI Worker maps runner startup errors from port data', 
     let stdout = '';
     const exitCode = await runtimeCliMain(['--task', 'hello', '--json'], {
       stdinIsTerminal: () => true,
-      resolveDefinition: () =>
-        Promise.resolve({
-          kind: 'builtin',
-          id: 'default',
-          ref: {
-            schemaVersion: 1,
-            resourceKind: 'agent-definition',
-            resourceId: 'builtin/default',
-            revision: { algorithm: 'sha256', digest: '0'.repeat(64) },
-          },
-        }),
+      resolveAgent: () => Promise.resolve({ choice: {} }),
       run: () => Promise.reject(new RunWorkerPortError(error)),
       writeStdout: (text) => {
         stdout += text;

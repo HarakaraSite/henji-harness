@@ -1,6 +1,6 @@
 import { launcherStateRoot, sessionPaths } from '../session/session_store_paths.ts';
 import { isSessionId } from '../session/session_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { renderCanonicalView, renderConversationTimeline } from '../history/history_view.ts';
 import { HenjiApiClient } from '../../api/client.ts';
 import { replaySessionConversation } from '../../conversation/history_adapter.ts';
@@ -135,7 +135,7 @@ export const main = async (args: readonly string[]): Promise<number> => {
   }
   let databasePath: string;
   try {
-    databasePath = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v7.sqlite3`;
+    databasePath = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
   } catch {
     return await invalidInvocation();
   }
@@ -143,7 +143,7 @@ export const main = async (args: readonly string[]): Promise<number> => {
     await writeStderr('# no history\n');
     return 0;
   }
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, { readOnly: true });
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot, { readOnly: true });
   try {
     await store.initialize();
   } catch {

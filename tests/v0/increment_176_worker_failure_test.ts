@@ -3,7 +3,7 @@ import { createDataClient } from '../../v0/agent/data/client.ts';
 import type { AgentDataPortRequest } from '../../v0/agent/data/agent_data_contract.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 
 Deno.test('Increment 176 real Worker turn exception retains its facts through Host sealing and Data Worker persistence', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i176-worker-failure-' });
@@ -11,15 +11,10 @@ Deno.test('Increment 176 real Worker turn exception retains its facts through Ho
   const descriptor = await data.openSession({
     persistence: 'none',
     agent: 'default',
-    definition: {
-      schemaVersion: 1,
-      resourceKind: 'agent-definition',
-      resourceId: 'test/failure-details',
-      revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-    },
+    agentChoice: {},
   });
   const ports: MessagePort[] = [];
-  const reader = new SqliteHistoryV7ProductionStore(`${root}/state`, root, { readOnly: true });
+  const reader = new SqliteHistoryStore(`${root}/state`, root, { readOnly: true });
   let session: WorkerHostSession | undefined;
   try {
     session = await WorkerHostSession.open({
@@ -27,8 +22,8 @@ Deno.test('Increment 176 real Worker turn exception retains its facts through Ho
       descriptor,
       workspaceRoot: root,
       physicalIoMode: 'provider-free',
-      modulePath:
-        new URL('./fixtures/increment_133_process_definition.ts', import.meta.url).pathname,
+      agentChoice: {},
+      configRoot: `${root}/config`,
       capsuleFactory: (url) => {
         const capsule = new WorkerCapsule(url);
         let failTurnContext = false;

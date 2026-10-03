@@ -1,9 +1,5 @@
-import {
-  DefinitionStartupError,
-  definitionStartupErrorValue,
-  type HostDefinitionSelection,
-  resolveRequestedDefinition,
-} from '../definitions/definition_selection.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
+import { WorkerHostStartupError } from '../worker/worker_host_session.ts';
 import type { AgentEvent } from '../core/events.ts';
 import {
   HenjiInstructionError,
@@ -39,20 +35,19 @@ const workerFailure = async (): Promise<number> => {
   return 1;
 };
 
-const selectionInfo = (selection: HostDefinitionSelection) => ({
-  kind: selection.kind,
-  id: selection.id,
-  ref: structuredClone(selection.ref),
-});
-
-const resolutionError = (error: unknown): RunWorkerErrorData =>
-  error instanceof DefinitionStartupError
-    ? { kind: 'definition', value: definitionStartupErrorValue(error) }
-    : { kind: 'invalid_definition' };
-
+const resolutionError = (): RunWorkerErrorData => ({ kind: 'invalid_configuration' });
 const runError = (error: unknown): RunWorkerErrorData =>
-  error instanceof DefinitionStartupError
-    ? { kind: 'definition', value: definitionStartupErrorValue(error) }
+  error instanceof WorkerHostStartupError && error.code === 'configuration_rejected'
+    ? {
+      kind: 'configuration',
+      value: {
+        code: error.code,
+        message: 'Agent configuration rejected',
+        stage: 'worker_start',
+        reason: error.message,
+        rejections: error.configurationRejections,
+      },
+    }
     : error instanceof HenjiInstructionError
     ? { kind: 'instruction', value: henjiInstructionErrorValue(error) }
     : { kind: 'agent_failure' };
@@ -63,7 +58,7 @@ export const runCliWorker = async (args: readonly string[] = Deno.args): Promise
   const worker = new Worker(new URL('./run_bootstrap.ts', import.meta.url), { type: 'module' });
   let workerAlive = true;
   let workerFailed = false;
-  let selection: HostDefinitionSelection | undefined;
+  let selection: AgentConfigurationChoice | undefined;
   let doneResolve!: (exitCode: number) => void;
   const done = new Promise<number>((resolve) => {
     doneResolve = resolve;
@@ -87,21 +82,21 @@ export const runCliWorker = async (args: readonly string[] = Deno.args): Promise
       return;
     }
     if (message.kind === 'resolve.request') {
-      const resolveSelection = async (): Promise<void> => {
+      const resolveSelection = (): void => {
         try {
-          selection = await resolveRequestedDefinition(
-            message.rawAgentName,
-            message.rawDefinitionRevision,
-            paths.dataRoot,
-            paths.configRoot,
-          );
+          if (message.rawAgentName !== undefined && message.rawAgentFile !== undefined) {
+            throw new Error('invalid choice');
+          }
+          selection = message.rawAgentFile === undefined
+            ? (message.rawAgentName === undefined ? {} : { name: message.rawAgentName })
+            : { file: message.rawAgentFile };
           send({
             kind: 'resolve.result',
             id: message.id,
-            selection: selectionInfo(selection),
+            selection: { choice: structuredClone(selection) },
           });
-        } catch (error) {
-          replyError('resolve.error', message.id, resolutionError(error));
+        } catch {
+          replyError('resolve.error', message.id, resolutionError());
         }
       };
       void resolveSelection();
@@ -110,7 +105,7 @@ export const runCliWorker = async (args: readonly string[] = Deno.args): Promise
     if (message.kind === 'run.request') {
       const run = async (): Promise<void> => {
         try {
-          if (selection === undefined) throw new Error('Definition was not resolved');
+          if (selection === undefined) throw new Error('Agent choice was not resolved');
           const result = await runHeadlessWorker(message.task, selection, {
             dataRoot: paths.dataRoot,
             configRoot: paths.configRoot,

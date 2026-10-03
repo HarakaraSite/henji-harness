@@ -10,7 +10,7 @@ import type {
   ReconcileExecutionInput,
   StoredExecutionEvent,
 } from '../history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import {
   applyHistoryAppendResults,
   applyHistoryCommitDelta,
@@ -161,7 +161,7 @@ export class ConversationWriter {
   #closed = false;
 
   constructor(
-    readonly store: SqliteHistoryV7ProductionStore,
+    readonly store: SqliteHistoryStore,
     private readonly options: Readonly<{ ownsStore?: boolean }> = {},
   ) {}
 

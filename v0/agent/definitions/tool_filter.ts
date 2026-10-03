@@ -31,24 +31,30 @@ const nameOf = (identity: AgentResourceIdentity): string => {
  * Unknown names and a filter that keeps no work tool are tool-filter failures. `tool:skill` and
  * `tool:submit_json_result` are exempt: they stay when declared and are absent when not.
  */
-export const applyDeclaredToolFilter = (
-  tools: readonly AgentResourceIdentity[],
+export const applyToolNameFilter = (
+  tools: readonly string[],
   filter: readonly string[] | undefined,
-): readonly AgentResourceIdentity[] => {
+): readonly string[] => {
   if (filter === undefined) return tools;
   const selected = new Set<string>();
   for (const name of filter) {
     if (FILTER_EXEMPT.includes(name)) continue;
     selected.add(name);
-    if (!tools.some((identity) => nameOf(identity) === name)) {
+    if (!tools.includes(name)) {
       throw new AgentToolFilterError(`tool filter references undeclared tools: ${name}`);
     }
   }
-  const kept = tools.filter((identity) =>
-    FILTER_EXEMPT.includes(nameOf(identity)) || selected.has(nameOf(identity))
-  );
-  if (!kept.some((identity) => !FILTER_EXEMPT.includes(nameOf(identity)))) {
+  const kept = tools.filter((name) => FILTER_EXEMPT.includes(name) || selected.has(name));
+  if (!kept.some((name) => !FILTER_EXEMPT.includes(name))) {
     throw new AgentToolFilterError('tool filter selects no work tools');
   }
   return Object.freeze([...kept]);
+};
+
+export const applyDeclaredToolFilter = (
+  tools: readonly AgentResourceIdentity[],
+  filter: readonly string[] | undefined,
+): readonly AgentResourceIdentity[] => {
+  const kept = new Set(applyToolNameFilter(tools.map(nameOf), filter));
+  return Object.freeze(tools.filter((identity) => kept.has(nameOf(identity))));
 };

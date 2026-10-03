@@ -1,4 +1,5 @@
-import type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
+import type { ConfigurationRejection } from '../configuration/agent_configuration.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { AgentEvent } from '../core/events.ts';
 import type { HeadlessWorkerRun } from '../worker/worker_headless_runner.ts';
@@ -8,10 +9,8 @@ export interface RunWorkerRuntimePaths {
   readonly configRoot: string;
 }
 
-export interface CliDefinitionSelectionInfo {
-  readonly kind: 'builtin' | 'managed';
-  readonly id: string;
-  readonly ref: DefinitionRevisionRef;
+export interface CliAgentSelectionInfo {
+  readonly choice: AgentConfigurationChoice;
 }
 
 export interface CliRunOptions {
@@ -19,12 +18,12 @@ export interface CliRunOptions {
   readonly providerTimeoutMs?: number;
 }
 
-export interface DefinitionStartupErrorValue {
+export interface ConfigurationStartupErrorValue {
   readonly code: string;
   readonly message: string;
   readonly stage: string;
   readonly reason: string;
-  readonly definition?: DefinitionRevisionRef;
+  readonly rejections?: readonly ConfigurationRejection[];
 }
 
 export interface HenjiInstructionErrorValue {
@@ -33,9 +32,9 @@ export interface HenjiInstructionErrorValue {
 }
 
 export type RunWorkerErrorData =
-  | { readonly kind: 'definition'; readonly value: DefinitionStartupErrorValue }
+  | { readonly kind: 'configuration'; readonly value: ConfigurationStartupErrorValue }
   | { readonly kind: 'instruction'; readonly value: HenjiInstructionErrorValue }
-  | { readonly kind: 'invalid_definition' }
+  | { readonly kind: 'invalid_configuration' }
   | { readonly kind: 'agent_failure' };
 
 /** Reconstituted on the CLI side from public error data sent by the Host. */
@@ -58,7 +57,7 @@ export type RunWorkerToMain =
     readonly kind: 'resolve.request';
     readonly id: number;
     readonly rawAgentName: string | undefined;
-    readonly rawDefinitionRevision: string | undefined;
+    readonly rawAgentFile: string | undefined;
   }
   | {
     readonly kind: 'run.request';
@@ -74,7 +73,7 @@ export type MainToRunWorker =
   | {
     readonly kind: 'resolve.result';
     readonly id: number;
-    readonly selection: CliDefinitionSelectionInfo;
+    readonly selection: CliAgentSelectionInfo;
   }
   | {
     readonly kind: 'resolve.error';

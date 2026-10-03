@@ -85,15 +85,15 @@ const isContextView = (value: unknown): value is ContextView =>
 const isEffectiveRuntimeConfig = (
   value: unknown,
 ): value is EffectiveRuntimeConfig =>
-  isRecord(value) && isApiJson(value.definition) &&
+  isRecord(value) && isApiJson(value.configuration) &&
   (value.maxSteps === null || isCount(value.maxSteps)) &&
-  ['activation', 'definition', 'unevaluated'].includes(
+  ['activation', 'default', 'unevaluated'].includes(
     String(value.maxStepsSource),
   ) &&
   isCount(value.providerTimeoutMs) && isRecord(value.activation) &&
   (value.activation.agent === undefined || isText(value.activation.agent)) &&
-  (value.activation.definitionRevision === undefined ||
-    isText(value.activation.definitionRevision)) &&
+  (value.activation.agentFile === undefined ||
+    isText(value.activation.agentFile)) &&
   (value.activation.maxSteps === undefined ||
     isCount(value.activation.maxSteps)) &&
   (value.activation.providerTimeoutMs === undefined ||
@@ -142,6 +142,7 @@ const isCoreRejection = (value: unknown): boolean =>
     'invalid',
     'notFound',
     'failed',
+    'configurationRejected',
     'admissionFailed',
     'ambiguous',
   ].includes(String(value));
@@ -491,8 +492,8 @@ const isBuildView = (value: unknown): boolean => {
     isText(value.buildId) && isText(value.sourceRevision) &&
     typeof value.sourceDirty === 'boolean' && isText(value.denoVersion) &&
     isText(value.target) && isText(value.embeddedRuntimeSha256) &&
-    Array.isArray(value.supportedAgentDefinitionApiContracts) &&
-    Array.isArray(value.supportedToolDefinitionApiContracts);
+    value.agentConfigurationSchemaVersion === 1 &&
+    Array.isArray(value.supportedToolApiContracts);
 };
 
 export const decodeCoreReadView = (value: unknown): CoreReadView => {
@@ -517,8 +518,7 @@ export const decodeSessionsListResult = (
     if (
       !isRecord(item) || !isText(item.id) || !isText(item.createdAt) ||
       !isText(item.updatedAt) ||
-      (item.agent !== 'default' && item.agent !== 'planner' &&
-        item.agent !== 'generic') ||
+      !isText(item.agent) ||
       !isCount(item.committedTurn) || !isCount(item.messageCount) ||
       (item.persistence !== 'persistent' && item.persistence !== 'none')
     ) throw new ApiCodecError();

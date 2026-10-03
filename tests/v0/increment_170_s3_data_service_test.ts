@@ -1,13 +1,12 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { Message } from '../../v0/agent/core/contracts.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
 import type { DataConversationUpdate } from '../../v0/agent/data/data_contract.ts';
 import { createDataClient } from '../../v0/agent/data/client.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import type { ConversationEntity } from '../../v0/conversation/model.ts';
 import type {
   WorkerCorrelation,
@@ -65,6 +64,7 @@ const correlationFor = (
 const readyFor = (correlation: WorkerCorrelation): WorkerReadyMessage => ({
   kind: 'ready',
   correlation,
+  configuration: workerConfigurationFixture(),
   manifest: {
     role: 'parent',
     maxSteps: 4,
@@ -108,7 +108,6 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   const data = await createDataClient({ stateRoot, workspaceRoot });
-  const definition = await builtinDefinitionRef('default', buildManifest());
   const updates: DataConversationUpdate[] = [];
   const updateWaiters: {
     readonly index: number;
@@ -130,7 +129,7 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     const descriptor = await data.openSession({
       persistence: 'new',
       agent: 'default',
-      definition,
+      agentChoice: {},
       initialModelSelection: ROOT_DEFAULT_MODEL_SELECTION,
     });
     const sessionId = descriptor.id;
@@ -408,7 +407,7 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
       persistence: 'session',
       sessionId,
       agent: 'default',
-      definition,
+      agentChoice: {},
     });
     strictEqual(reopened.stateRevision, 2);
     strictEqual(reopened.nextTurn, 2);
@@ -434,7 +433,7 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
         synchronizedSnapshot.bytes,
       ),
     );
-    const persisted = new SqliteHistoryV7ProductionStore(
+    const persisted = new SqliteHistoryStore(
       stateRoot,
       workspaceRoot,
     );

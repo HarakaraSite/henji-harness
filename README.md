@@ -4,17 +4,16 @@ English | [日本語](README.ja.md)
 
 Henji Harness is a locally-run agent harness developed in Deno. From a single standalone executable,
 it provides an interactive TUI and non-interactive runs, Session history, switchable providers and
-models, and TypeScript Agent Definitions. The name Henji comes from the Japanese word "henji"
-(返事), meaning "reply".
+models, JSON Agent configuration, and folder-based tools. The name Henji comes from the Japanese
+word "henji" (返事), meaning "reply".
 
 In the current Henji runtime, the Host handles the TUI and headless Surfaces, Worker lifecycle,
-history stored in SQLite, and selection of the exact Agent Definition used by a Session. The
-headless Agent Worker evaluates a built-in or installed trusted TypeScript Definition and composes
-the current model, instructions, and tools. A parent Definition can declare an `agent:<name>`
-catalog; the model can start a child in a separate Deno Worker and separate Execution with
-`spawn_subagent`, and take in the child result with `collect_subagent` (V1 fork/join). General
-Surface replacement, revision transitions of durable AgentInstances, and context and loops
-composable from a Definition are not yet implemented.
+history stored in SQLite, and selection of the current JSON Agent configuration for a Session. The
+headless Agent Worker composes the selected configuration with the current model, common
+instructions, and concrete tools. An Agent can name child Agents in its `agents` list; the model can
+start a child in a separate Deno Worker and separate Execution with `spawn_subagent`, and take in
+the child result with `collect_subagent` (V1 fork/join). General Surface replacement and durable
+AgentInstance revision transitions are not yet implemented.
 
 Long term, the goal is a self-revision workflow that creates revision candidates from actual usage
 experience and has a human explicitly adopt them. This self-revision workflow is not yet
@@ -23,9 +22,8 @@ implemented.
 ## Development status
 
 This is currently a 0.x development version, and breaking changes are frequent, including to the
-CLI, storage formats, and the Agent Definition API. Migrations for existing Sessions and
-Definitions, and compatibility reads of older formats, are sometimes not provided. When using it,
-pin the version and check the changes before updating.
+CLI, storage formats, and configuration contracts. Existing Session and configuration formats are
+not automatically migrated. When using it, pin the version and check the changes before updating.
 
 ## Quick Start
 
@@ -71,10 +69,10 @@ These declarations contain display metadata, not key values. Restart the Core af
 declarations, then use `/login` to save or update the key. Entries sharing an `authProfile` use one
 registration and one credential file. Service entries do not appear in the model provider list.
 
-Tool Definitions use `physicalIo.requestProvider` with the declared `authProfile`. Authentication
-defaults to Bearer; a service such as Brave can set
+External tools use `requestProvider` with the declared `authProfile`. Authentication defaults to
+Bearer; a service such as Brave can set
 `authentication: { kind: 'header', name: 'X-Subscription-Token' }` on its request. The dispatcher
-resolves and inserts the key, so the Definition never receives it. This declaration registers a
+resolves and inserts the key, so the tool factory never receives it. This declaration registers a
 credential; the external tool supplies the service's request behavior.
 
 Start the TUI in the directory you want to work in. Type a prompt and press Enter to send it, and
@@ -147,8 +145,9 @@ resumes saved work in a fresh Core. `core stop` without a target lists Cores and
 - Sessions, conversation history, and execution records (including failures and interruptions)
   stored in SQLite
 - TUI commands such as `/new`, `/sessions`, `/view`, `/recall`, `/provider`, `/model`, and `/login`
-- Install, versioned revisions, export/import, and execution of TypeScript Agent Definitions
-- Install of TypeScript tool Definitions and activate/deactivate of an exact revision
+- JSON Agent configuration with current-file selection
+- Folder-based TypeScript tools with a JSON metadata file and local imports
+- Agent and tool configuration management from the CLI
 - Loading of the Henji base instruction from a user file, and runtime attribution
 - Loading of `AGENTS.md` and of workspace/user-scoped Zot, Claude, and Agents-compatible Skills
 
@@ -157,16 +156,57 @@ values. By default it stores config in `${XDG_CONFIG_HOME:-$HOME/.config}/henji-
 data in `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`, and Session state in
 `${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness`.
 
-## Agent Definition
+## Agent configuration and tools
 
-Local TypeScript Agent Definitions are installed into managed data before execution. Installed
-revisions are immutable, and you specify the exact revision at run time.
+Agent behavior lives in JSON files under the Henji config directory. `agents.json` can select a
+current default file and map named Agents to their current files:
+
+```json
+{
+  "schemaVersion": 1,
+  "default": "agents/my-root.json",
+  "agents": { "reviewer": "agents/reviewer.json" }
+}
+```
+
+An Agent JSON file contains its `name`, optional `revision`, `instruction`, `tools`, and `agents`.
+The bundled default is used when no default file is selected. Omitting the Agent choice selects the
+root default; an explicit name selects that named catalog entry, including a named `default`. The
+`generic` child uses the bundled configuration with its own name and does not inherit a named
+Agent's instruction. Configuration files are read again when a new Worker starts, so edits apply to
+newly started work.
 
 ```sh
-./dist/henji module install ./agent/entry.ts --id team/answer-agent
-./dist/henji module list
-./dist/henji --definition-revision team/answer-agent@sha256:<full-digest>
+henji agent list
+henji agent inspect --name reviewer
+henji agent activate --file agents/reviewer.json --name reviewer
+henji agent deactivate --name reviewer
 ```
+
+`tools.json` maps tool names to folders. Each folder contains `tool.json` with the matching name, an
+arbitrary revision label, API contract `henji-tool/v1`, and an entry module:
+
+```json
+{ "schemaVersion": 1, "tools": { "marker": "tools/marker" } }
+```
+
+```json
+{ "name": "marker", "revision": "local-1", "apiContract": "henji-tool/v1", "entry": "index.ts" }
+```
+
+The entry module's default export is a tool factory. It runs once in the Worker when the tool is
+selected, and may import other files in its folder. A folder mapping for an Agent's selected tool
+replaces the bundled implementation of that name.
+
+```sh
+henji tool list
+henji tool inspect --name marker
+henji tool activate --name marker --folder tools/marker
+henji tool deactivate --name marker
+```
+
+The runtime uses a new `history.sqlite3` database. It does not migrate the prior history database;
+existing files are left available to the user.
 
 ## Henji Instruction
 
@@ -193,9 +233,8 @@ For detailed design and implementation status, see the
 
 ## JSR package
 
-[`@henji/harness`](https://jsr.io/@henji/harness) exposes a composition API for building TypeScript
-Agent Definitions. Native binaries are not distributed from JSR. To use the CLI, build it from a
-repository checkout.
+[`@henji/harness`](https://jsr.io/@henji/harness) exposes the TypeScript tool factory API. Native
+binaries are not distributed from JSR. To use the CLI, build it from a repository checkout.
 
 In 0.x, APIs and contracts may change incompatibly, so specify an exact version.
 
@@ -204,19 +243,21 @@ deno add --save-exact jsr:@henji/harness@0.8.0
 ```
 
 ```ts
-import {
-  createDefaultAgentComposition,
-  type ExecutableAgentDefinition,
-} from 'jsr:@henji/harness@0.8.0';
+import type { ToolFactory } from 'jsr:@henji/harness@0.8.0';
 
-const definition: ExecutableAgentDefinition = (input) => createDefaultAgentComposition(input);
+const marker: ToolFactory = ({ workspace }) => ({
+  name: 'marker',
+  description: `Mark files in ${workspace.root}`,
+  inputSchema: { type: 'object' },
+  execute: () => 'ok',
+});
 
-export default definition;
+export default marker;
 ```
 
-`createAgentComposition(input, options)` lets an external Definition choose its role instruction,
-tools, and async child declarations. The standalone binary bundles `default`; named children such as
-`reviewer` are installed and bound through `agents.json`.
+Import `ToolFactoryInput` or `ToolFactory` from `jsr:@henji/harness@0.8.0`. The standalone binary
+bundles its default Agent and built-in tools; named Agent and tool files are selected from the
+config directory.
 
 ## Links
 

@@ -1,15 +1,15 @@
+import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { Message } from '../core/contracts.ts';
 import { indexSessionHistory } from '../session/session_history.ts';
 import {
-  type DefinitionRevisionRef,
   normalizeSessionTitle,
   type SemanticContextCheckpointV1,
   type SessionModelChange,
   type SessionRecord,
-  type SessionRecordV6,
+  type SessionRecordV1,
   type SessionTurnExecutionAttribution,
   type SessionTurnModelAttribution,
-  validateSessionRecordV6,
+  validateStoredSessionRecord,
   type WorkerSessionHandle,
 } from '../session/session_store.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
@@ -22,7 +22,7 @@ interface SessionAuthorityOptions {
   readonly handle: WorkerSessionHandle;
   readonly workspaceRoot: string;
   readonly agent: SessionRecord['agent'];
-  readonly definition: DefinitionRevisionRef;
+  readonly agentChoice: AgentConfigurationChoice;
   readonly initialModelSelection?: ModelSelection;
   readonly durableCanonicalHistory?: boolean;
 }
@@ -49,6 +49,7 @@ export class SessionAuthority {
   readonly projection: ActiveSessionProjection;
   readonly build: BuildManifestV1;
   readonly createdAt: string;
+  private configuredAgent: string;
   private autoCompactionNotice: {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
@@ -56,8 +57,9 @@ export class SessionAuthority {
 
   constructor(
     private readonly options: SessionAuthorityOptions,
-    record: SessionRecordV6 | undefined,
+    record: SessionRecordV1 | undefined,
   ) {
+    this.configuredAgent = record?.agent ?? options.agent;
     const nextTurn = record?.nextTurn ?? 1;
     const defaultSelection = options.initialModelSelection ??
       ROOT_DEFAULT_MODEL_SELECTION;
@@ -110,8 +112,12 @@ export class SessionAuthority {
       : structuredClone(this.projection.checkpoint);
   }
 
-  definition(): DefinitionRevisionRef {
-    return structuredClone(this.options.definition);
+  agentChoice(): AgentConfigurationChoice {
+    return structuredClone(this.options.agentChoice);
+  }
+
+  setConfiguredAgent(name: string): void {
+    this.configuredAgent = name;
   }
 
   consumeAutoCompactionNotice(): {
@@ -153,7 +159,7 @@ export class SessionAuthority {
     this.projection.stateRevision = stateRevision;
   }
 
-  applyCommitted(record: SessionRecordV6): void {
+  applyCommitted(record: SessionRecordV1): void {
     this.projection.transcript = structuredClone(
       record.transcript,
     ) as Message[];
@@ -167,27 +173,27 @@ export class SessionAuthority {
     ) as SessionTurnExecutionAttribution[];
   }
 
-  admissionSessionRecord(): SessionRecordV6 | undefined {
+  admissionSessionRecord(): SessionRecordV1 | undefined {
     if (this.options.handle.record !== undefined) return undefined;
     if (this.options.durableCanonicalHistory !== true) return undefined;
-    const record: SessionRecordV6 = {
-      schemaVersion: 6,
+    const record: SessionRecordV1 = {
+      schemaVersion: 1,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
+      agent: this.configuredAgent,
       createdAt: this.createdAt,
       updatedAt: this.createdAt,
       title: null,
       stateRevision: this.projection.stateRevision,
       nextTurn: this.projection.nextTurn,
       transcript: [],
-      definition: structuredClone(this.options.definition),
+      agentChoice: structuredClone(this.options.agentChoice),
       activeModel: structuredClone(this.projection.modelSelection),
       modelChanges: structuredClone(this.projection.modelChanges),
       turnModels: [],
       turnExecutions: [],
     };
-    if (!validateSessionRecordV6(record)) {
+    if (!validateStoredSessionRecord(record)) {
       throw new Error('empty session record invalid');
     }
     return record;
@@ -195,20 +201,21 @@ export class SessionAuthority {
 
   proposalRecord(
     proposal: WorkerCommitProposalMessage,
-  ): SessionRecordV6 | undefined {
+    execution: { executionId: string; configurationId: string },
+  ): SessionRecordV1 | undefined {
     const committedTurn = proposal.nextTurn - 1;
-    const record: SessionRecordV6 = {
-      schemaVersion: 6,
+    const record: SessionRecordV1 = {
+      schemaVersion: 1,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
+      agent: this.configuredAgent,
       createdAt: this.createdAt,
       updatedAt: new Date().toISOString(),
       title: this.projection.title,
       stateRevision: this.projection.stateRevision + 1,
       nextTurn: proposal.nextTurn,
       transcript: structuredClone(proposal.transcript),
-      definition: structuredClone(this.options.definition),
+      agentChoice: structuredClone(this.options.agentChoice),
       activeModel: structuredClone(this.projection.modelSelection),
       modelChanges: structuredClone(this.projection.modelChanges),
       turnModels: [
@@ -223,13 +230,14 @@ export class SessionAuthority {
         {
           turn: committedTurn,
           build: structuredClone(this.build),
-          definition: structuredClone(this.options.definition),
+          executionId: execution.executionId,
+          configurationId: execution.configurationId,
         },
       ],
     };
     // Detached model state uses its execution correlation and is never a persisted Session record.
     // The saved-record codec requires a canonical UUID and applies only to canonical Sessions.
-    return this.options.durableCanonicalHistory !== true || validateSessionRecordV6(record)
+    return this.options.durableCanonicalHistory !== true || validateStoredSessionRecord(record)
       ? record
       : undefined;
   }
@@ -239,25 +247,25 @@ export class SessionAuthority {
     changes: SessionModelChange[],
     stateRevision: number,
     changedAt: string,
-  ): SessionRecordV6 {
-    const record: SessionRecordV6 = {
-      schemaVersion: 6,
+  ): SessionRecordV1 {
+    const record: SessionRecordV1 = {
+      schemaVersion: 1,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
+      agent: this.configuredAgent,
       createdAt: this.createdAt,
       updatedAt: changedAt,
       title: this.projection.title,
       stateRevision,
       nextTurn: this.projection.nextTurn,
       transcript: structuredClone(this.projection.transcript),
-      definition: structuredClone(this.options.definition),
+      agentChoice: structuredClone(this.options.agentChoice),
       activeModel: structuredClone(selection),
       modelChanges: changes,
       turnModels: structuredClone(this.projection.turnModels),
       turnExecutions: structuredClone(this.projection.turnExecutions),
     };
-    if (!validateSessionRecordV6(record)) {
+    if (!validateStoredSessionRecord(record)) {
       throw new Error('model selection record invalid');
     }
     return record;
@@ -267,25 +275,25 @@ export class SessionAuthority {
     title: string,
     stateRevision: number,
     changedAt: string,
-  ): SessionRecordV6 {
-    const record: SessionRecordV6 = {
-      schemaVersion: 6,
+  ): SessionRecordV1 {
+    const record: SessionRecordV1 = {
+      schemaVersion: 1,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
+      agent: this.configuredAgent,
       createdAt: this.createdAt,
       updatedAt: changedAt,
       title,
       stateRevision,
       nextTurn: this.projection.nextTurn,
       transcript: structuredClone(this.projection.transcript),
-      definition: structuredClone(this.options.definition),
+      agentChoice: structuredClone(this.options.agentChoice),
       activeModel: structuredClone(this.projection.modelSelection),
       modelChanges: structuredClone(this.projection.modelChanges),
       turnModels: structuredClone(this.projection.turnModels),
       turnExecutions: structuredClone(this.projection.turnExecutions),
     };
-    if (!validateSessionRecordV6(record)) {
+    if (!validateStoredSessionRecord(record)) {
       throw new Error('session title record invalid');
     }
     return record;
@@ -315,7 +323,7 @@ export class SessionAuthority {
       sessionId: this.sessionId,
       createdAt: this.createdAt,
       ...(this.projection.title === null ? {} : { title: this.projection.title }),
-      agent: this.options.agent,
+      agent: this.configuredAgent,
       committedTurn: this.projection.nextTurn - 1,
       messageCount: this.projection.transcript.length,
       ...(this.projection.checkpoint === undefined ? {} : {

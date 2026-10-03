@@ -1,6 +1,7 @@
 import type { ContextView, ExecutionReadResult, HistoryReadInput } from '../../api/contract.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { LiveModelCatalogFact } from '../provider/live_model_catalog.ts';
+import { buildManifest } from '../runtime/build_manifest.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCorrelation,
@@ -514,12 +515,17 @@ class DataClient implements DataService {
   }
 
   async initialize(
-    input: { readonly stateRoot: string; readonly workspaceRoot: string },
+    input: {
+      readonly stateRoot: string;
+      readonly workspaceRoot: string;
+      readonly build: ReturnType<typeof buildManifest>;
+    },
   ): Promise<void> {
     const response = await this.request({
       kind: 'initialize',
       stateRoot: input.stateRoot,
       workspaceRoot: input.workspaceRoot,
+      build: input.build,
     });
     if (response.kind !== 'initialized') {
       throw new Error('unexpected Data Worker initialize response');
@@ -536,7 +542,7 @@ export const createDataClient = async (input: {
   }) as DataWorker;
   const client = new DataClient(worker);
   try {
-    await client.initialize(input);
+    await client.initialize({ ...input, build: buildManifest() });
     return client;
   } catch (error) {
     client.abort();

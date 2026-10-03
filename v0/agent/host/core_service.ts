@@ -59,7 +59,7 @@ import {
   sessionPaths,
   SessionStoreError,
 } from '../session/session_store.ts';
-import { resolveRequestedDefinition } from '../definitions/definition_selection.ts';
+
 import { LiveModelCatalog, LiveModelCatalogError } from '../provider/live_model_catalog.ts';
 import {
   builtinProviderDeclarations,
@@ -614,6 +614,10 @@ export const createCoreService = async (
     activation: SessionActivation = {},
     fromSessionId?: string,
   ): Promise<CoreSlot> => {
+    if (selection.kind === 'continue') {
+      const latest = (await data.sessionsList()).sessions[0];
+      if (latest !== undefined) selection = { kind: 'exact', sessionId: latest.id };
+    }
     const inherited = fromSessionId === undefined ? hostOptions : (slot?.options ?? hostOptions);
     let initialModelSelection = inherited.initialModelSelection;
     if (fromSessionId !== undefined) {
@@ -634,29 +638,19 @@ export const createCoreService = async (
         await modelCatalog.defaultEffort(declaration.providerId, declaration.defaults.modelId),
       );
     }
-    let definitionSelection = inherited.selection;
+    let agentChoice = inherited.agentChoice;
     let agent = inherited.agent;
-    if (
-      activation.agent !== undefined ||
-      activation.definitionRevision !== undefined
-    ) {
-      definitionSelection = await resolveRequestedDefinition(
-        activation.agent,
-        activation.definitionRevision,
-        options.dataRoot,
-        options.configRoot,
-      );
-      agent = definitionSelection.id;
+    if (activation.agent !== undefined || activation.agentFile !== undefined) {
+      if (activation.agent !== undefined && activation.agentFile !== undefined) {
+        throw new CoreServiceError(400, 'invalid_agent_choice');
+      }
+      agentChoice = activation.agentFile === undefined
+        ? { name: activation.agent }
+        : { file: activation.agentFile };
+      agent = activation.agent;
     } else if (selection.kind === 'exact') {
       const record = await data.sessionDescriptor(selection.sessionId);
-      if (definitionSelection?.id !== record.agent) {
-        definitionSelection = await resolveRequestedDefinition(
-          record.agent === 'default' ? undefined : record.agent,
-          undefined,
-          options.dataRoot,
-          options.configRoot,
-        );
-      }
+      agentChoice = record.agentChoice;
       agent = record.agent;
     }
     const activationMetadata = {
@@ -664,9 +658,9 @@ export const createCoreService = async (
       ...activation,
     };
     if (activation.agent !== undefined) {
-      delete activationMetadata.definitionRevision;
+      delete activationMetadata.agentFile;
     }
-    if (activation.definitionRevision !== undefined) {
+    if (activation.agentFile !== undefined) {
       delete activationMetadata.agent;
     }
     if (selection.kind === 'exact' || selection.kind === 'continue') {
@@ -677,7 +671,7 @@ export const createCoreService = async (
     const invocation: WorkerSessionOptions = {
       ...inherited,
       data,
-      selection: definitionSelection,
+      agentChoice,
       agent,
       initialModelSelection,
       rootMaxSteps: activation.maxSteps ?? inherited.rootMaxSteps,
@@ -1433,7 +1427,15 @@ export const createCoreService = async (
             );
           } catch {
             refreshSlotSnapshot(active);
-            return rejected(input.commandId, target, 'admissionFailed');
+            const configuration = active.snapshot.runtime.effectiveConfig?.configuration;
+            const rejectedConfiguration = typeof configuration === 'object' &&
+              configuration !== null && !Array.isArray(configuration) &&
+              (configuration as { readonly [key: string]: unknown }).status === 'rejected';
+            return rejected(
+              input.commandId,
+              target,
+              rejectedConfiguration ? 'configurationRejected' : 'admissionFailed',
+            );
           }
           return {
             kind: 'accepted',

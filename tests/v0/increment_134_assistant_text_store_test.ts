@@ -1,10 +1,10 @@
 import { deepStrictEqual, throws } from 'node:assert';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  type HistoryV7AssistantTextState,
-  type HistoryV7SemanticOccurrenceInput,
-} from '../../v0/agent/history/history_v7_model.ts';
-import { SqliteHistoryV7Store } from '../../v0/agent/history/sqlite_history_v7_store.ts';
+  type HistoryAssistantTextState,
+  type HistorySemanticOccurrenceInput,
+} from '../../v0/agent/history/history_semantic_model.ts';
+import { SqliteHistoryCore } from '../../v0/agent/history/sqlite_history_core.ts';
 
 const executionId = 'execution-text';
 const observedAt = '2026-09-26T14:30:00.000Z';
@@ -12,7 +12,7 @@ const textState = (
   text: string,
   ordinal: number,
   requestOrdinal = 1,
-): HistoryV7AssistantTextState => ({
+): HistoryAssistantTextState => ({
   key: { lane: 'parent', modelStep: requestOrdinal, requestOrdinal },
   firstEventOrdinal: ordinal,
   event: {
@@ -38,14 +38,14 @@ const textState = (
     },
   },
 });
-const completed: HistoryV7SemanticOccurrenceInput = {
+const completed: HistorySemanticOccurrenceInput = {
   occurrenceId: 'result-text',
   ordinal: 1,
   kind: 'model_result',
   observedAt,
   payload: { text: 'Hello world' },
 };
-const admit = (store: SqliteHistoryV7Store): void => {
+const admit = (store: SqliteHistoryCore): void => {
   store.beginExecutionWithAdmission({
     executionId,
     sessionId: 'session-text',
@@ -54,28 +54,27 @@ const admit = (store: SqliteHistoryV7Store): void => {
       executionId,
       taskId: 'task-text',
       task: 'write a response',
-      canonicalSessionId: 'session-text',
       sessionCorrelation: 'session-text',
       turn: 1,
       createdAt: observedAt,
       agent: 'default',
       model: {},
       build: {},
-      definition: {},
+      maxSteps: 128,
       baseMessageCount: 0,
     },
   });
 };
 const eventCount = (db: DatabaseSync): number =>
   Number(
-    db.prepare('SELECT event_count FROM execution_admissions WHERE execution_id=?')
+    db.prepare('SELECT event_count FROM executions WHERE execution_id=?')
       .get(executionId)!.event_count,
   );
 
 Deno.test('Increment 134 state-only batches retain latest text and position across reopen', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i134-text-' });
   const path = `${root}/history.sqlite3`;
-  const store = new SqliteHistoryV7Store(path);
+  const store = new SqliteHistoryCore(path);
   try {
     admit(store);
     for (let ordinal = 1; ordinal <= 20; ordinal++) {
@@ -102,7 +101,7 @@ Deno.test('Increment 134 state-only batches retain latest text and position acro
   } finally {
     store.close();
   }
-  const reader = new SqliteHistoryV7Store(path, { readOnly: true });
+  const reader = new SqliteHistoryCore(path, { readOnly: true });
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     deepStrictEqual(reader.listAssistantTextStates(executionId), [
@@ -110,10 +109,10 @@ Deno.test('Increment 134 state-only batches retain latest text and position acro
       { ...textState('next request', 22, 2), firstEventOrdinal: 21 },
     ]);
     deepStrictEqual(eventCount(db), 22);
-    deepStrictEqual(db.prepare('PRAGMA user_version').get()!.user_version, 11);
+    deepStrictEqual(db.prepare('PRAGMA user_version').get()!.user_version, 1);
     deepStrictEqual(
       db.prepare('SELECT schema_version FROM store_metadata').get()!.schema_version,
-      11,
+      1,
     );
   } finally {
     db.close();
@@ -125,7 +124,7 @@ Deno.test('Increment 134 state-only batches retain latest text and position acro
 Deno.test('Increment 134 completion and latest text read from one snapshot', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i134-snapshot-' });
   const path = `${root}/history.sqlite3`;
-  const store = new SqliteHistoryV7Store(path);
+  const store = new SqliteHistoryCore(path);
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     admit(store);
@@ -166,7 +165,7 @@ Deno.test('Increment 134 interrupted completion rolls back text, result and even
   const root = await Deno.makeTempDir({ prefix: 'henji-i134-atomic-' });
   const path = `${root}/history.sqlite3`;
   let interrupt = false;
-  const store = new SqliteHistoryV7Store(path, {
+  const store = new SqliteHistoryCore(path, {
     fault: (phase) => {
       if (interrupt && phase === 'before_commit') throw new Error('completion interrupted');
     },

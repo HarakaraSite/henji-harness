@@ -18,7 +18,7 @@ import {
   WorkerGeneration,
   type WorkerGenerationPort,
 } from '../../v0/agent/worker/worker_runtime.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { privateStateFromTurn } from '../../v0/agent/worker/worker_host_coordinator.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
@@ -319,7 +319,7 @@ Deno.test('Increment 116 Worker projects private state from the latest provider 
 Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Session', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-15-' });
   const workspaceRoot = Deno.cwd();
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
@@ -327,7 +327,6 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       stateRoot,
       workspaceRoot,
       persistence: 'new',
-      agent: 'default',
       physicalIoMode: 'provider-free',
     });
     assert((await first.session.submit('turn on OpenRouter')).ok);
@@ -347,31 +346,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
 
     const sessionId = first.session.sessionId;
     const record = await store.readWorker(sessionId);
-    assert(record.schemaVersion === 6);
-    const assistantIndex = record.transcript.findIndex((message) => message.role === 'assistant');
-    assert(assistantIndex >= 0);
-    const copied = await store.allocateWorker('default', record.definition);
-    try {
-      const state = {
-        provider: 'openrouter-chat',
-        model: ROOT_DEFAULT_MODEL_SELECTION.modelId,
-        reasoning: { field: 'reasoning_content' as const, text: 'Read both files.' },
-      };
-      copied.commit({
-        ...record,
-        sessionId: copied.id,
-        transcript: record.transcript.map((message, index) =>
-          index === assistantIndex && message.role === 'assistant'
-            ? { ...message, providerState: state }
-            : message
-        ),
-      });
-      const saved = await store.readWorker(copied.id);
-      const assistant = saved.transcript[assistantIndex];
-      assertEquals(assistant.role === 'assistant' ? assistant.providerState : undefined, state);
-    } finally {
-      await copied.close();
-    }
+    assert(record.schemaVersion === 1);
     assertEquals(record.activeModel, ROOT_DEFAULT_MODEL_SELECTION);
     assertEquals(record.modelChanges.map((change) => change.selection), [
       ROOT_DEFAULT_MODEL_SELECTION,
@@ -391,17 +366,11 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     );
 
     const savedArtifacts = store.listExecutionsForSession(sessionId);
-    assert(savedArtifacts.every((artifact) => artifact.manifest !== undefined));
-    assertEquals(savedArtifacts.map((artifact) => artifact.manifest!.rootModel), [
+    assertEquals(savedArtifacts.map((artifact) => artifact.model), [
       ROOT_DEFAULT_MODEL_SELECTION,
       openAiDefaultSelection,
       ROOT_DEFAULT_MODEL_SELECTION,
     ]);
-    assert(
-      savedArtifacts[1]?.manifest?.resources.some((resource) =>
-        resource.startsWith('model:openai-responses:')
-      ),
-    );
 
     await first.close();
     first = undefined;
@@ -410,7 +379,6 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       workspaceRoot,
       persistence: 'session',
       sessionId,
-      agent: 'default',
       physicalIoMode: 'provider-free',
       initialModelSelection: openAiDefaultSelection,
     });

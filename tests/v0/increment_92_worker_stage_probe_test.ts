@@ -1,3 +1,4 @@
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import {
   type ContextModelRequestDelta,
   contextOccurrenceDigest,
@@ -8,7 +9,7 @@ import {
   ParentTurnExecutionContext,
   TurnRequestBudget,
 } from '../../v0/agent/core/execution_context.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
@@ -130,6 +131,7 @@ class AuxiliaryGapCapsule implements WorkerHostCapsule {
           ROOT_DEFAULT_MODEL_SELECTION;
         const ready = {
           kind: 'ready',
+          configuration: workerConfigurationFixture(),
           correlation: command.correlation,
           manifest: {
             role: 'parent',
@@ -517,7 +519,7 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
 
 Deno.test('Increment 92 persists an auxiliary gap with receive buffer and durable cursors', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-92-' });
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     const delta = await auxiliaryDelta();
@@ -576,7 +578,7 @@ Deno.test('Increment 92 cancels the gap watchdog when provider start reaches Hos
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-92-normal-',
   });
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     const delta = await auxiliaryDelta();
@@ -618,7 +620,7 @@ Deno.test('Increment 92 persists escalation and terminal stage snapshots', async
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-92-escalation-',
   });
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     const delta = await auxiliaryDelta();

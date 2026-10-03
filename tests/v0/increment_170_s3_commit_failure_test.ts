@@ -1,15 +1,15 @@
 import { match, ok, strictEqual } from 'node:assert';
 import { createDataService } from '../../v0/agent/data/data_service.ts';
 import { HistoryStoreError } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
 Deno.test('Increment 170 real Worker Host reports Data commit failure without adopting the proposed turn', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-commit-failure-' });
   const stateRoot = `${root}/state`;
   const data = await createDataService({ stateRoot, workspaceRoot: root });
-  const reader = new SqliteHistoryV7ProductionStore(stateRoot, root, { readOnly: true });
-  const commit = SqliteHistoryV7ProductionStore.prototype.commitCanonicalTurn;
+  const reader = new SqliteHistoryStore(stateRoot, root, { readOnly: true });
+  const commit = SqliteHistoryStore.prototype.commitCanonicalTurn;
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let commitAttempts = 0;
   try {
@@ -24,7 +24,7 @@ Deno.test('Increment 170 real Worker Host reports Data commit failure without ad
     });
     // Data settlement rollback itself is covered with the production SQLite fault in foundation.
     // This fault verifies the actual Host response to that Data commit error.
-    SqliteHistoryV7ProductionStore.prototype.commitCanonicalTurn = function () {
+    SqliteHistoryStore.prototype.commitCanonicalTurn = function () {
       commitAttempts += 1;
       throw new HistoryStoreError('history_io_failure');
     };
@@ -49,7 +49,7 @@ Deno.test('Increment 170 real Worker Host reports Data commit failure without ad
     strictEqual(diagnostic.details?.exceptionType, 'HistoryStoreError');
     strictEqual(diagnostic.details?.errorCode, 'history_io_failure');
   } finally {
-    SqliteHistoryV7ProductionStore.prototype.commitCanonicalTurn = commit;
+    SqliteHistoryStore.prototype.commitCanonicalTurn = commit;
     await created?.close();
     await data.close();
     reader.close();

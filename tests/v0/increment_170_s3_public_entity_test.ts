@@ -1,10 +1,10 @@
 import { createFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { failedOutcome } from '../../v0/agent/worker/worker_host_outcome.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { ConversationWriter } from '../../v0/agent/data/conversation_writer.ts';
 import { ExecutionDataJournal } from '../../v0/agent/data/execution_data_journal.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import {
   encodedSessionSnapshot,
   encodedSessionUpdate,
@@ -22,10 +22,11 @@ Deno.test('Increment 170 public entity frames apply saved Data batches without r
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-public-entity-' });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot);
+  const store = new SqliteHistoryStore(`${root}/state`, workspaceRoot);
   const writer = new ConversationWriter(store);
   const sessionId = crypto.randomUUID();
   const executionId = crypto.randomUUID();
+  const configuration = workerConfigurationFixture();
   let journal: ExecutionDataJournal | undefined;
   try {
     await store.initialize();
@@ -41,7 +42,10 @@ Deno.test('Increment 170 public entity frames apply saved Data batches without r
       agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build: buildManifest(),
-      definition: await builtinDefinitionRef('default', buildManifest()),
+      configuration,
+      configurationId: configuration.configurationId,
+      maxSteps: 128,
+      command: 'test-command',
     };
     await writer.beginExecution(execution);
     const selection = ROOT_DEFAULT_MODEL_SELECTION;

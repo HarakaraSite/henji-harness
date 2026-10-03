@@ -1,21 +1,21 @@
 import { deepStrictEqual as equal } from 'node:assert';
-import { DatabaseSync } from 'node:sqlite';
-import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 import { LIVE_UPDATE_MIN_INTERVAL_MS } from '../../v0/agent/core/loop.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
+import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
 import type { AgentDataPortRequest } from '../../v0/agent/data/agent_data_contract.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
-import type { WorkerToHostMessage } from '../../v0/agent/worker/worker_protocol.ts';
-import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import type {
+  WorkerReadyMessage,
+  WorkerToHostMessage,
+} from '../../v0/agent/worker/worker_protocol.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createDataService } from '../../v0/agent/data/data_service.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
+import { createChildDataTestRegistry } from './helpers/increment_170_child_data.ts';
 import type { AsyncAgentProgress } from '../../v0/agent/tools/async_agents.ts';
 
 function assert(value: unknown, message = 'assertion failed'): asserts value {
@@ -279,7 +279,7 @@ Deno.test('Increment 138 parent works, reads live child status, collects, and ex
       allowTool.resolve();
       await created.close();
     }
-    const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot, {
+    const store = new SqliteHistoryStore(context.stateRoot, context.workspaceRoot, {
       readOnly: true,
     });
     await store.initialize();
@@ -324,32 +324,21 @@ Deno.test('Increment 138 parent works, reads live child status, collects, and ex
 const childRegistry = async (context: {
   workspaceRoot: string;
   stateRoot: string;
+  configRoot: string;
   declarations: ReturnType<typeof builtinProviderDeclarations>;
+  store: SqliteHistoryStore;
 }) => {
-  const ref = await builtinDefinitionRef('generic', buildManifest());
-  const data = await createDataService({
-    stateRoot: context.stateRoot,
+  return await createChildDataTestRegistry({
     workspaceRoot: context.workspaceRoot,
-  });
-  const descriptor = await data.openSession({
-    persistence: 'none',
-    agent: 'default',
-    definition: ref,
-    sessionId: `i138-parent-${crypto.randomUUID()}`,
-    initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
-  });
-  const registry = new ChildRunRegistry({
+    store: context.store,
     options: {
-      data,
-      descriptor,
-      workspaceRoot: context.workspaceRoot,
+      configRoot: context.configRoot,
       physicalIoMode: 'production',
       providerDeclarations: context.declarations,
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+      initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     },
-    catalog: [{ name: 'generic', ref }],
+    currentCatalog: () => ['generic'],
   });
-  return { registry, data };
 };
 
 Deno.test('Increment 138 child HTTP and parse failures retain per-request facts', async () => {
@@ -363,9 +352,13 @@ Deno.test('Increment 138 child HTTP and parse failures retain per-request facts'
       { headers: { 'content-type': 'text/event-stream' } },
     );
   }, async (context) => {
-    const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot);
+    const store = new SqliteHistoryStore(context.stateRoot, context.workspaceRoot);
     await store.initialize();
-    const { registry, data } = await childRegistry(context);
+    const { registry, data, seedParentExecution } = await childRegistry({
+      ...context,
+      store,
+    });
+    await seedParentExecution('failures-parent');
     registry.openParent('failures-parent');
     try {
       for (const task of ['HTTP-FAILURE', 'PARSE-FAILURE']) {
@@ -435,13 +428,13 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
       }),
       { headers: { 'content-type': 'text/event-stream' } },
     ), async (context) => {
-    const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot);
+    const store = new SqliteHistoryStore(context.stateRoot, context.workspaceRoot);
     await store.initialize();
-    const { registry, data } = await childRegistry(context);
-    const db = new DatabaseSync(
-      `${(await sessionPaths(context.stateRoot, context.workspaceRoot)).root}/history-v7.sqlite3`,
-      { readOnly: true },
-    );
+    const { registry, data, seedParentExecution } = await childRegistry({
+      ...context,
+      store,
+    });
+    await seedParentExecution('cancel-parent');
     registry.openParent('cancel-parent');
     try {
       const spawned = await registry.handle(
@@ -454,12 +447,11 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
       const deadline = Date.now() + 10_000;
       while (
         !JSON.stringify(
-          db.prepare('SELECT event_json FROM assistant_text_states WHERE execution_id=?').all(
-            spawned.runId,
-          ),
-        ).includes(
-          'first latest child text',
-        )
+          store.readSessionConversationFacts(
+            store.readExecutionMetadata(spawned.runId).sessionCorrelation,
+          ).find((fact) => fact.execution.executionId === spawned.runId)
+            ?.assistantTextStates,
+        ).includes('first latest child text')
       ) {
         assert(Date.now() < deadline, 'child text was not saved while streaming');
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -498,7 +490,6 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
       );
     } finally {
       await registry.cleanupAll();
-      db.close();
       await data.close();
       store.close();
     }
@@ -508,7 +499,7 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
 Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload is still pending', async () => {
   const settlementStarted = deferred();
   await withLocalProvider(() => final('child proposal held before Data'), async (context) => {
-    const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot);
+    const store = new SqliteHistoryStore(context.stateRoot, context.workspaceRoot);
     await store.initialize();
     const data = await createDataService({
       stateRoot: context.stateRoot,
@@ -517,10 +508,10 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
     const descriptor = await data.openSession({
       persistence: 'none',
       agent: 'default',
-      definition: await builtinDefinitionRef('generic', buildManifest()),
-      sessionId: `i170-child-parent-${crypto.randomUUID()}`,
+      agentChoice: {},
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     });
+    const configRoot = context.configRoot;
     const ports: MessagePort[] = [];
     const settleChildExecution = data.settleChildExecution.bind(data);
     data.settleChildExecution = (sessionId, input) => {
@@ -532,9 +523,10 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
         data,
         descriptor,
         workspaceRoot: context.workspaceRoot,
+        configRoot,
+        agentChoice: {},
         physicalIoMode: 'production',
         providerDeclarations: context.declarations,
-        toolDefinitions: await bundledToolDefinitionLoadRequests(),
         cancelSettlementGraceMs: 100,
         capsuleFactory: (url): WorkerHostCapsule => {
           const capsule = new WorkerCapsule(url);
@@ -561,12 +553,32 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
           };
         },
       },
-      catalog: [{
-        name: 'generic',
-        ref: await builtinDefinitionRef('generic', buildManifest()),
-      }],
+      currentCatalog: () => ['generic'],
     });
     const parentExecutionId = 'i170-child-pending-proposal-parent';
+    let parentReady: WorkerReadyMessage | undefined;
+    const parentSession = await WorkerHostSession.open({
+      data,
+      descriptor,
+      workspaceRoot: context.workspaceRoot,
+      configRoot,
+      agentChoice: {},
+      physicalIoMode: 'provider-free',
+      capsuleFactory: (url) => {
+        const capsule = new WorkerCapsule(url);
+        capsule.subscribe((message) => {
+          if (message.kind === 'ready') parentReady = message;
+        });
+        return capsule;
+      },
+    });
+    assert(parentReady, 'parent Worker must be ready before child start');
+    await data.executionAdmit(descriptor.id, {
+      executionId: parentExecutionId,
+      taskId: 'i170-parent-task',
+      task: 'parent fixture execution',
+      correlation: parentReady.correlation,
+    });
     registry.openParent(parentExecutionId);
     try {
       const spawned = await registry.handle(
@@ -599,6 +611,7 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
       );
     } finally {
       await registry.cleanupAll();
+      await parentSession.close();
       for (const port of ports) port.close();
       await data.close();
       store.close();

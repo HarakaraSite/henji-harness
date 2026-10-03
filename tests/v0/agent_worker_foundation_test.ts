@@ -1,8 +1,4 @@
-import {
-  readWorkerModuleRevision,
-  WorkerCapsule,
-  workerTextByteLength,
-} from '../../v0/agent/worker/worker_capsule.ts';
+import { WorkerCapsule, workerTextByteLength } from '../../v0/agent/worker/worker_capsule.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerClosedMessage,
@@ -21,10 +17,9 @@ import type {
 } from '../../v0/agent/core/contracts.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
-import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import { main as runtimeCliMain, parseRuntimeArgs } from '../../v0/agent/cli/runtime_cli.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import {
@@ -33,8 +28,6 @@ import {
 } from '../../v0/agent/worker/worker_runtime.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_model.ts';
-import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
 import {
@@ -44,13 +37,12 @@ import {
   openIncrement170FoundationHost,
   readIncrement170FoundationArtifacts,
 } from './helpers/increment_170_foundation_data.ts';
+import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
 import { ConversationWriter } from '../../v0/agent/data/conversation_writer.ts';
 import {
   DataRecallSelectionError,
   DataSessionOwner,
 } from '../../v0/agent/data/session_data_owner.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -69,8 +61,6 @@ const workerUrl = new URL(
   '../../v0/agent/worker/worker_bootstrap.ts',
   import.meta.url,
 );
-const fixture = (name: string): string =>
-  new URL(`../../v0/agent/worker/fixtures/${name}`, import.meta.url).pathname;
 
 const correlation = (command: string) => ({
   session: 'worker-probe-session',
@@ -102,7 +92,12 @@ const start = async (
   command = 'start',
 ): Promise<WorkerReadyMessage> => {
   const readyPromise = capsule.waitForMessage(isReady);
-  capsule.send({ kind: 'start', correlation: correlation(command) });
+  capsule.send({
+    kind: 'start',
+    correlation: correlation(command),
+    agentChoice: {},
+    configRoot: '/tmp',
+  });
   return await readyPromise;
 };
 
@@ -130,18 +125,11 @@ const successfulHeadlessRun = (task: string) =>
     requestCount: 1,
   });
 
-const cliDefinitionInfo = (id = 'default') => ({
-  kind: 'builtin' as const,
-  id,
-  ref: {
-    schemaVersion: 1 as const,
-    resourceKind: 'agent-definition' as const,
-    resourceId: `builtin/${id}`,
-    revision: { algorithm: 'sha256' as const, digest: '0'.repeat(64) },
-  },
+const cliAgentSelection = (name?: string) => ({
+  choice: name === undefined ? {} : { name },
 });
 
-Deno.test('Slice 1 starts a module Worker and preserves protocol ordering and clone isolation', async () => {
+Deno.test('Worker preserves protocol ordering and clone isolation', async () => {
   const capsule = new WorkerCapsule(workerUrl);
   try {
     await start(capsule);
@@ -178,41 +166,6 @@ Deno.test('Slice 1 starts a module Worker and preserves protocol ordering and cl
   }
 });
 
-Deno.test('Slice 1 proves pre-read/hash, digest-query relative import, import-map alias, and default export', async () => {
-  const capsule = new WorkerCapsule(workerUrl);
-  try {
-    const revision = await readWorkerModuleRevision(
-      fixture('external_definition.ts'),
-    );
-    const readyPromise = capsule.waitForMessage(isReady);
-    capsule.send({
-      kind: 'start',
-      correlation: correlation('module-start'),
-      module: revision,
-    });
-    const preRead = await capsule.waitForMessage(isRuntime);
-    assert(preRead.event.kind === 'module_pre_read');
-    assertEquals(
-      { bytes: preRead.event.sourceBytes, digest: preRead.event.entrySha256 },
-      { bytes: revision.sourceBytes, digest: revision.entrySha256 },
-    );
-    const importStart = await capsule.waitForMessage(isRuntime);
-    assert(importStart.event.kind === 'module_import_start');
-    const imported = await capsule.waitForMessage(isRuntime);
-    assert(imported.event.kind === 'module_imported');
-    const ready = await readyPromise;
-    assertEquals(ready.module, {
-      canonicalSpecifier: revision.canonicalSpecifier,
-      entrySha256: revision.entrySha256,
-      sourceBytes: revision.sourceBytes,
-      defaultExport: 'function',
-      probe: 'slice1-data-only-v2:relative-import-ok',
-    });
-  } finally {
-    capsule.terminate();
-  }
-});
-
 Deno.test('headless runner commits one real Worker turn and closes the generation', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-headless-foundation-' });
   const stateRoot = `${root}/state`;
@@ -221,7 +174,7 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
   try {
     const result = await runHeadlessWorker(
       'read worker protocol',
-      resolveBuiltinAgent(),
+      {},
       {
         workspaceRoot: root,
         stateRoot,
@@ -262,16 +215,10 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
       workspaceRoot: root,
     });
     assertEquals(written.length, 1);
-    assertEquals(written[0]?.manifest.maxSteps, 160);
-    assert(!written[0]?.manifest.resources.includes('agent:planner'));
+    assertEquals(written[0]?.maxSteps, 160);
+    assert(!written[0]?.configuration.agent.agents.includes('planner'));
     assertEquals(written[0]?.storeResult, 'committed');
     assertEquals(written[0]?.acknowledgement, 'accepted_sent');
-    assert(
-      written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'module_pre_read'),
-    );
-    assert(
-      written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'proposal_ready'),
-    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -285,7 +232,6 @@ Deno.test('production subscriber does not retain delivered Worker messages acros
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'none',
-    agent: 'default',
     physicalIoMode: 'provider-free',
     capsuleFactory: (url) => {
       capsule = new WorkerCapsule(url);
@@ -315,7 +261,7 @@ Deno.test('Host keeps provider facts on the Agent Data path without retaining a 
   let host:
     | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
     | undefined;
-  let store: SqliteHistoryV7ProductionStore | undefined;
+  let store: SqliteHistoryStore | undefined;
   try {
     host = await openIncrement170FoundationHost(harness, {
       capsuleFactory: () =>
@@ -397,7 +343,7 @@ Deno.test('Host keeps provider facts on the Agent Data path without retaining a 
         'full provider observations must stay on the Agent Data port',
       );
     }
-    store = new SqliteHistoryV7ProductionStore(
+    store = new SqliteHistoryStore(
       harness.stateRoot,
       harness.workspaceRoot,
     );
@@ -424,7 +370,7 @@ Deno.test('short provider failure facts survive the Agent Data port and SQLite r
   let host:
     | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
     | undefined;
-  let store: SqliteHistoryV7ProductionStore | undefined;
+  let store: SqliteHistoryStore | undefined;
   try {
     host = await openIncrement170FoundationHost(harness, {
       capsuleFactory: () =>
@@ -509,7 +455,7 @@ Deno.test('short provider failure facts survive the Agent Data port and SQLite r
     });
     const outcome = await host.submit('record the request fact');
     assert(outcome.ok);
-    store = new SqliteHistoryV7ProductionStore(
+    store = new SqliteHistoryStore(
       harness.stateRoot,
       harness.workspaceRoot,
     );
@@ -637,7 +583,7 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
   try {
     const result = await runHeadlessWorker(
       'return active tool guidelines',
-      resolveBuiltinAgent(),
+      {},
       {
         workspaceRoot: root,
         stateRoot: `${root}/state`,
@@ -669,9 +615,9 @@ Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', 
     ['--agent', 'default', '--task', '  plan this  '],
     {
       stdinIsTerminal: () => true,
-      resolveDefinition: (rawAgentName) => {
+      resolveAgent: (rawAgentName) => {
         resolvedAgent = rawAgentName ?? 'default';
-        return Promise.resolve(cliDefinitionInfo(resolvedAgent));
+        return Promise.resolve(cliAgentSelection(rawAgentName));
       },
       run: (task) => {
         observed.push({ task, agent: resolvedAgent });
@@ -695,9 +641,9 @@ Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', 
   const stdinExit = await runtimeCliMain([], {
     stdinIsTerminal: () => false,
     stdin: textStream('  stdin task\n'),
-    resolveDefinition: (rawAgentName) => {
+    resolveAgent: (rawAgentName) => {
       resolvedAgent = rawAgentName ?? 'default';
-      return Promise.resolve(cliDefinitionInfo(resolvedAgent));
+      return Promise.resolve(cliAgentSelection(rawAgentName));
     },
     run: (task) => {
       observed.push({ task, agent: resolvedAgent });
@@ -745,7 +691,7 @@ Deno.test('run passes both limits to the headless Worker invocation', async () =
     ['--max-steps', '160', '--provider-timeout-ms', '420000', '--task', 'hi'],
     {
       stdinIsTerminal: () => true,
-      resolveDefinition: () => Promise.resolve(cliDefinitionInfo()),
+      resolveAgent: () => Promise.resolve(cliAgentSelection()),
       run: (task, _sink, options) => {
         observed.push(options);
         return successfulHeadlessRun(task);
@@ -763,7 +709,7 @@ Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () 
   let stderr = '';
   const exit = await runtimeCliMain(['--task', 'bounded task'], {
     stdinIsTerminal: () => true,
-    resolveDefinition: () => Promise.resolve(cliDefinitionInfo()),
+    resolveAgent: () => Promise.resolve(cliAgentSelection()),
     run: (task) =>
       Promise.resolve({
         outcome: {
@@ -814,31 +760,6 @@ Deno.test('headless development task uses the unified TypeScript entry', async (
   );
   assert(!task.includes('runtime_cli_launcher.sh'));
   assert(!task.includes('HENJI_SESSION_STATE_ROOT'));
-});
-
-Deno.test('Slice 1 rejects a non-function default export and reports a Worker command error', async () => {
-  const capsule = new WorkerCapsule(workerUrl);
-  try {
-    const revision = await readWorkerModuleRevision(
-      fixture('invalid_default.ts'),
-    );
-    const errorPromise = capsule.waitForMessage(isError);
-    capsule.send({
-      kind: 'start',
-      correlation: correlation('invalid-default'),
-      module: revision,
-    });
-    const error = await errorPromise;
-    assertEquals(
-      { stage: error.stage, message: error.message },
-      {
-        stage: 'module_validation',
-        message: 'module default export must be a function',
-      },
-    );
-  } finally {
-    capsule.terminate();
-  }
 });
 
 Deno.test('Slice 1 transfers 300 KiB regression data and a 1 MiB data-only payload', async () => {
@@ -941,86 +862,11 @@ Deno.test('Slice 1 reports an uncaught Worker error through the Host bridge', as
   }
 });
 
-const runCompositionTurn = async (
-  definitionFile: string,
-  expectedMaxSteps: number,
-  rootMaxSteps?: number,
-): Promise<WorkerReadyMessage> => {
-  const harness = await createIncrement170FoundationDataHarness({
-    prefix: 'henji-composition-foundation-',
-  });
-  let host:
-    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
-    | undefined;
-  try {
-    const definitionPath = definitionFile === 'worker_builtin_definition.ts'
-      ? new URL(
-        '../../v0/agent/worker/worker_builtin_definition.ts',
-        import.meta.url,
-      ).pathname
-      : fixture(definitionFile);
-    const revision = await readWorkerModuleRevision(definitionPath);
-    let ready: WorkerReadyMessage | undefined;
-    host = await openIncrement170FoundationHost(harness, {
-      loadDescriptor: revision,
-      ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
-      capsuleFactory: (url) => {
-        const capsule = new WorkerCapsule(url);
-        return {
-          send: (command, transfer) => capsule.send(command, transfer),
-          subscribe: (listener) =>
-            capsule.subscribe((message) => {
-              if (message.kind === 'ready') ready = message;
-              listener(message);
-            }),
-          terminate: () => capsule.terminate(),
-        };
-      },
-    });
-    assert(ready !== undefined);
-    assert(ready.manifest !== undefined);
-    assertEquals(ready.credentialAvailability, {
-      authProfile: ready.manifest.rootModel.authProfile,
-      status: 'unknown',
-    });
-    assertEquals(ready.manifest.maxSteps, expectedMaxSteps);
-    assertEquals(ready.manifest.role, 'parent');
-
-    const outcome = await host.submit('read worker protocol');
-    assert(outcome.ok);
-    assert(outcome.finalText?.includes('worker answer: read worker protocol'));
-    await host.close();
-    return ready;
-  } finally {
-    await host?.close();
-    await harness.close();
-  }
-};
-
-Deno.test('Slices 2–3 run built-in and external Definitions through the same Worker composition path', async () => {
-  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 128);
-  const external = await runCompositionTurn('external_definition.ts', 4);
-  assert(builtin.manifest !== undefined && external.manifest !== undefined);
-  assertEquals(builtin.manifest.resources, external.manifest.resources);
-});
-
-Deno.test('Worker applies a root maxSteps request to built-in and external Definitions', async () => {
-  const builtin = await runCompositionTurn(
-    'worker_builtin_definition.ts',
-    12,
-    12,
-  );
-  const external = await runCompositionTurn('external_definition.ts', 12, 12);
-  assertEquals(builtin.manifest?.maxSteps, 12);
-  assertEquals(external.manifest?.maxSteps, 12);
-});
-
 Deno.test('Worker uses the requested root maxSteps as the turn budget', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-max-steps-one-' });
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'none',
-    agent: 'default',
     rootMaxSteps: 1,
     physicalIoMode: 'provider-free',
   });
@@ -1042,7 +888,6 @@ Deno.test('Worker root request admission follows maxSteps beyond the former eigh
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'none',
-    agent: 'default',
     rootMaxSteps: 10,
     physicalIoMode: 'provider-free',
   });
@@ -1372,7 +1217,7 @@ Deno.test('Data settlement rollback keeps canonical turn and recall state uncomm
   const root = await Deno.makeTempDir({ prefix: 'henji-recall-settlement-' });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(
+  const store = new SqliteHistoryStore(
     `${root}/state`,
     workspaceRoot,
     {
@@ -1384,16 +1229,16 @@ Deno.test('Data settlement rollback keeps canonical turn and recall state uncomm
     },
   );
   const writer = new ConversationWriter(store);
+  const configuration = workerConfigurationFixture();
   let owner: DataSessionOwner | undefined;
   try {
-    const definition = await builtinDefinitionRef('default', buildManifest());
     owner = await DataSessionOwner.open({
       store,
       writer,
       workspaceRoot,
       persistence: 'new',
       agent: 'default',
-      definition,
+      agentChoice: {},
     });
     const executionId = crypto.randomUUID().toLowerCase();
     const task = 'failed canonical settlement task';
@@ -1409,13 +1254,8 @@ Deno.test('Data settlement rollback keeps canonical turn and recall state uncomm
       taskId: crypto.randomUUID().toLowerCase(),
       task,
       correlation,
-      manifest: {
-        role: 'parent',
-        maxSteps: 8,
-        profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
-        resources: [],
-        rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-      },
+      configuration,
+      maxSteps: 8,
     });
     const transcript: Message[] = [
       { role: 'user', content: { kind: 'text', text: task } },
@@ -1462,12 +1302,6 @@ Deno.test('Data settlement rollback keeps canonical turn and recall state uncomm
       store.readExecutionMetadata(executionId).artifactCapture,
       'none',
     );
-    assert(
-      (await store.executionArtifacts.list()).some((artifact) =>
-        artifact.executionId === executionId
-      ),
-      'the independently derived artifact document remains unlinked after rollback',
-    );
     let recallError: unknown;
     try {
       await owner.prepareRecall(executionId.slice(0, 8));
@@ -1485,7 +1319,7 @@ Deno.test('Data settlement rollback keeps canonical turn and recall state uncomm
       persistence: 'session',
       sessionId,
       agent: 'default',
-      definition: await builtinDefinitionRef('default', buildManifest()),
+      agentChoice: {},
     });
     let reopenedRecallError: unknown;
     try {
@@ -1501,16 +1335,6 @@ Deno.test('Data settlement rollback keeps canonical turn and recall state uncomm
     store.close();
     await Deno.remove(root, { recursive: true });
   }
-});
-
-Deno.test('Increment 32 rejects unmanaged --definition before startup', () => {
-  let rejected = false;
-  try {
-    parseTuiInvocation(['--definition', 'worker.ts', '--no-session']);
-  } catch {
-    rejected = true;
-  }
-  assert(rejected);
 });
 
 Deno.test('TUI parses root maxSteps with agent and persistence selectors', () => {
@@ -1555,7 +1379,6 @@ Deno.test('Worker shares request accounting across turns without evidence docume
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'none',
-    agent: 'default',
     physicalIoMode: 'provider-free',
   });
   try {

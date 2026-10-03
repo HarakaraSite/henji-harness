@@ -3,24 +3,23 @@ import type { JsonValue, Message } from '../core/contracts.ts';
 import { MAX_REPLAY_MESSAGE_TEXT_BYTES, MAX_REPLAY_PLANNER_RESULT_BYTES } from './replay_value.ts';
 import {
   CONTEXT_CHECKPOINT_SCHEMA_VERSION,
-  type DefinitionRevisionRef,
   isSessionId,
   isSessionTitle,
   MAX_CONTEXT_CHECKPOINT_FILE_BYTES,
   MAX_CONTEXT_SUMMARY_BYTES,
   MAX_SESSION_FILE_BYTES,
   type SemanticContextCheckpointV1,
+  SESSION_SCHEMA_VERSION,
   type SessionMetadata,
   type SessionRecord,
-  type SessionRecordV5,
-  type SessionRecordV6,
+  type SessionRecordV1,
   SessionStoreError,
+  type SessionTurnExecutionAttribution,
   type StoredSessionRecord,
   type WorkerSessionMetadata,
 } from './session_store_contract.ts';
 import { canonicalAbsolutePath } from './session_store_paths.ts';
 import { isStoredModelSelection, type ModelSelection } from '../provider/model_selection.ts';
-import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 const encoder = new TextEncoder();
@@ -30,6 +29,13 @@ const ownKeys = (value: object, expected: readonly string[]): boolean => {
   const keys = Object.keys(value);
   return keys.length === expected.length &&
     keys.every((key, index) => key === expected[index]);
+};
+const hasExactKeys = (value: object, expected: readonly string[]): boolean => {
+  const keys = Object.keys(value);
+  const expectedSet = new Set(expected);
+  return keys.length === expected.length &&
+    expectedSet.size === expected.length &&
+    keys.every((key) => expectedSet.has(key));
 };
 
 const isFiniteJson = (value: unknown): value is JsonValue => {
@@ -78,7 +84,9 @@ const validateToolResult = (value: unknown): boolean => {
     ...(Object.hasOwn(result, 'terminal') ? ['terminal'] : []),
     ...(Object.hasOwn(result, 'failure') ? ['failure'] : []),
   ]);
-  if (result.failure !== undefined && !validateFailureDetails(result.failure)) return false;
+  if (result.failure !== undefined && !validateFailureDetails(result.failure)) {
+    return false;
+  }
   if (
     !common || result.kind !== 'tool_result' || !validString(result.callId) ||
     result.callId.length === 0 || !validString(result.name) ||
@@ -129,7 +137,8 @@ const validateMessage = (value: unknown): value is Message => {
           ? reasoning as Record<string, unknown>
           : undefined;
         if (
-          typeof stateRecord.provider !== 'string' || stateRecord.provider.length === 0 ||
+          typeof stateRecord.provider !== 'string' ||
+          stateRecord.provider.length === 0 ||
           !ownKeys(stateRecord, [
             'provider',
             ...(Object.hasOwn(stateRecord, 'model') ? ['model'] : []),
@@ -137,28 +146,33 @@ const validateMessage = (value: unknown): value is Message => {
             ...(Object.hasOwn(stateRecord, 'reasoningDetails') ? ['reasoningDetails'] : []),
           ]) ||
           (stateRecord.model !== undefined &&
-            (typeof stateRecord.model !== 'string' || stateRecord.model.length === 0)) ||
+            (typeof stateRecord.model !== 'string' ||
+              stateRecord.model.length === 0)) ||
           (reasoning === undefined && reasoningDetails === undefined) ||
           (reasoning !== undefined &&
             (reasoningRecord === undefined ||
               !ownKeys(reasoningRecord, ['field', 'text']) ||
               (reasoningRecord.field !== 'reasoning' &&
                 reasoningRecord.field !== 'reasoning_content') ||
-              typeof reasoningRecord.text !== 'string' || reasoningRecord.text.length === 0)) ||
+              typeof reasoningRecord.text !== 'string' ||
+              reasoningRecord.text.length === 0)) ||
           (reasoningDetails !== undefined &&
-            (!Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+            (!Array.isArray(reasoningDetails) ||
+              reasoningDetails.length === 0 ||
               !reasoningDetails.every(isFiniteJson)))
         ) return false;
       } else {
         const keys = Object.keys(stateRecord);
         const allowed = ['provider', 'replayItems', 'model'];
         if (
-          typeof stateRecord.provider !== 'string' || stateRecord.provider.length === 0 ||
+          typeof stateRecord.provider !== 'string' ||
+          stateRecord.provider.length === 0 ||
           !keys.includes('replayItems') || !keys.every((key) => allowed.includes(key)) ||
           !Array.isArray(replayItems) || replayItems.length === 0 ||
           !replayItems.every(isFiniteJson) ||
           (stateRecord.model !== undefined &&
-            (typeof stateRecord.model !== 'string' || stateRecord.model.length === 0))
+            (typeof stateRecord.model !== 'string' ||
+              stateRecord.model.length === 0))
         ) return false;
       }
     }
@@ -178,7 +192,8 @@ const validateMessage = (value: unknown): value is Message => {
         validMessageText((content as Record<string, unknown>).text);
     }
     return ownKeys(message, messageKeys) &&
-      (!hasText || typeof message.text === 'string' && message.text.length > 0 &&
+      (!hasText ||
+        typeof message.text === 'string' && message.text.length > 0 &&
           validMessageText(message.text)) &&
       Array.isArray(content) &&
       content.length > 0 &&
@@ -313,209 +328,161 @@ const canonicalTimestamp = (value: unknown): value is string => {
 
 export const validateSessionRecord = (
   value: unknown,
-): value is SessionRecord => {
-  if (typeof value !== 'object' || value === null) return false;
-  const record = value as Record<string, unknown>;
-  if (
-    !ownKeys(record, [
-      'schemaVersion',
-      'sessionId',
-      'workspaceRoot',
-      'agent',
-      'createdAt',
-      'updatedAt',
-      'nextTurn',
-      'transcript',
-    ])
-  ) return false;
-  if (
-    record.schemaVersion !== 1 || !isSessionId(record.sessionId) ||
-    typeof record.workspaceRoot !== 'string' ||
-    canonicalAbsolutePath(record.workspaceRoot) === undefined ||
-    record.workspaceRoot.trim() !== record.workspaceRoot ||
-    (record.agent !== 'default' && record.agent !== 'planner' && record.agent !== 'generic') ||
-    !canonicalTimestamp(record.createdAt) ||
-    !canonicalTimestamp(record.updatedAt) ||
-    Date.parse(record.updatedAt) < Date.parse(record.createdAt) ||
-    !Number.isSafeInteger(record.nextTurn) || (record.nextTurn as number) < 2 ||
-    !Array.isArray(record.transcript) || record.transcript.length === 0 ||
-    record.transcript.length > MAX_SESSION_FILE_BYTES ||
-    !record.transcript.every(validateMessage) ||
-    parseCausalTranscript(record.transcript) === undefined
-  ) {
-    return false;
-  }
-  const completedParentTurns = parseCausalTranscript(record.transcript);
-  return completedParentTurns !== undefined &&
-    record.nextTurn === completedParentTurns + 1;
-};
+): value is StoredSessionRecord => validateStoredSessionRecord(value);
 
-export const validRevisionRef = (
-  value: unknown,
-): value is DefinitionRevisionRef => isDefinitionRevisionRef(value);
-
-const sameSelection = (left: ModelSelection, right: ModelSelection): boolean => {
+const sameSelection = (
+  left: ModelSelection,
+  right: ModelSelection,
+): boolean => {
   return left.provider === right.provider && left.modelId === right.modelId &&
     left.effort === right.effort && left.api === right.api &&
     left.authProfile === right.authProfile;
 };
 
-const validateModelSessionRecord = (
-  value: unknown,
-): boolean => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  if (
-    !ownKeys(
-      record,
-      [
-        'schemaVersion',
-        'sessionId',
-        'workspaceRoot',
-        'agent',
-        'createdAt',
-        'updatedAt',
-        'title',
-        'stateRevision',
-        'nextTurn',
-        'transcript',
-        'definition',
-        'activeModel',
-        'modelChanges',
-        'turnModels',
-      ],
-    ) || record.schemaVersion !== 5 ||
-    (record.title !== null && !isSessionTitle(record.title)) ||
-    !isStoredModelSelection(record.activeModel) ||
-    !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
-    !Array.isArray(record.turnModels)
-  ) return false;
-  if (
-    !validRevisionRef(record.definition) || !Number.isSafeInteger(record.stateRevision) ||
-    (record.stateRevision as number) < 1
-  ) return false;
-  const base: SessionRecord = {
-    schemaVersion: 1,
-    sessionId: record.sessionId as string,
-    workspaceRoot: record.workspaceRoot as string,
-    agent: record.agent as SessionRecord['agent'],
-    createdAt: record.createdAt as string,
-    updatedAt: record.updatedAt as string,
-    nextTurn: record.nextTurn as number,
-    transcript: record.transcript as readonly Message[],
-  };
-  const emptyBeforeFirstTurn = isSessionId(base.sessionId) &&
-    typeof base.workspaceRoot === 'string' &&
-    canonicalAbsolutePath(base.workspaceRoot) !== undefined &&
-    base.workspaceRoot.trim() === base.workspaceRoot &&
-    (base.agent === 'default' || base.agent === 'planner' || base.agent === 'generic') &&
-    canonicalTimestamp(base.createdAt) && canonicalTimestamp(base.updatedAt) &&
-    Date.parse(base.updatedAt) >= Date.parse(base.createdAt) &&
-    base.nextTurn === 1 && Array.isArray(base.transcript) && base.transcript.length === 0;
-  if (!emptyBeforeFirstTurn && !validateSessionRecord(base)) return false;
-  let previousEffectiveTurn = 0;
-  let latestSelection: ModelSelection | undefined;
-  for (const value of record.modelChanges) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-    const change = value as Record<string, unknown>;
-    if (
-      !ownKeys(change, ['effectiveFromTurn', 'changedAt', 'selection']) ||
-      !Number.isSafeInteger(change.effectiveFromTurn) ||
-      (change.effectiveFromTurn as number) < previousEffectiveTurn ||
-      (change.effectiveFromTurn as number) < 1 ||
-      (change.effectiveFromTurn as number) > base.nextTurn ||
-      !canonicalTimestamp(change.changedAt) ||
-      !isStoredModelSelection(change.selection)
-    ) return false;
-    previousEffectiveTurn = change.effectiveFromTurn as number;
-    latestSelection = change.selection;
-  }
-  if (latestSelection === undefined || !sameSelection(latestSelection, record.activeModel)) {
-    return false;
-  }
-  let previousAttributedTurn = 0;
-  for (const value of record.turnModels) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-    const attribution = value as Record<string, unknown>;
-    if (
-      !ownKeys(attribution, ['turn', 'selection']) ||
-      !Number.isSafeInteger(attribution.turn) ||
-      (attribution.turn as number) <= previousAttributedTurn ||
-      (attribution.turn as number) < 1 ||
-      (attribution.turn as number) >= base.nextTurn ||
-      !isStoredModelSelection(attribution.selection)
-    ) return false;
-    previousAttributedTurn = attribution.turn as number;
-  }
-  return true;
-};
-
-const validateSessionRecordV5 = (
-  value: unknown,
-): value is SessionRecordV5 => validateModelSessionRecord(value);
-
 const validBuildManifest = (value: unknown): value is BuildManifestV1 => {
   return isBuildManifest(value);
 };
 
-export const validateSessionRecordV6 = (
+const validAgentChoice = (value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const choice = value as Record<string, unknown>;
+  const keys = Object.keys(choice);
+  return keys.length <= 2 &&
+    keys.every((key) => key === 'name' || key === 'file') &&
+    (!Object.hasOwn(choice, 'name') ||
+      validString(choice.name) && choice.name.trim().length > 0) &&
+    (!Object.hasOwn(choice, 'file') ||
+      validString(choice.file) && choice.file.trim().length > 0);
+};
+
+const validUuid = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+    value,
+  );
+
+const validateTurnExecution = (
   value: unknown,
-): value is SessionRecordV6 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+): value is SessionTurnExecutionAttribution => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const attribution = value as Record<string, unknown>;
+  return hasExactKeys(attribution, [
+    'turn',
+    'executionId',
+    'build',
+    'configurationId',
+  ]) &&
+    Number.isSafeInteger(attribution.turn) &&
+    (attribution.turn as number) > 0 &&
+    validUuid(attribution.executionId) &&
+    validBuildManifest(attribution.build) &&
+    validUuid(attribution.configurationId);
+};
+
+export const validateStoredSessionRecord = (
+  value: unknown,
+): value is StoredSessionRecord => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const record = value as Record<string, unknown>;
   if (
-    !ownKeys(record, [
+    !hasExactKeys(record, [
       'schemaVersion',
       'sessionId',
       'workspaceRoot',
       'agent',
+      'agentChoice',
       'createdAt',
       'updatedAt',
       'title',
       'stateRevision',
       'nextTurn',
       'transcript',
-      'definition',
       'activeModel',
       'modelChanges',
       'turnModels',
       'turnExecutions',
-    ]) || record.schemaVersion !== 6 || !Array.isArray(record.turnExecutions)
+    ]) || record.schemaVersion !== SESSION_SCHEMA_VERSION ||
+    !Array.isArray(record.turnExecutions)
   ) return false;
-  const base: SessionRecordV5 = {
-    schemaVersion: 5,
-    sessionId: record.sessionId as string,
-    workspaceRoot: record.workspaceRoot as string,
-    agent: record.agent as SessionRecord['agent'],
-    createdAt: record.createdAt as string,
-    updatedAt: record.updatedAt as string,
-    title: record.title as string | null,
-    stateRevision: record.stateRevision as number,
-    nextTurn: record.nextTurn as number,
-    transcript: record.transcript as readonly Message[],
-    definition: record.definition as DefinitionRevisionRef,
-    activeModel: record.activeModel as ModelSelection,
-    modelChanges: record.modelChanges as SessionRecordV5['modelChanges'],
-    turnModels: record.turnModels as SessionRecordV5['turnModels'],
-  };
-  if (!validateSessionRecordV5(base)) return false;
-  let previous = 0;
-  for (const value of record.turnExecutions) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-    const attribution = value as Record<string, unknown>;
-    if (
-      !ownKeys(attribution, ['turn', 'build', 'definition']) ||
-      !Number.isSafeInteger(attribution.turn) || (attribution.turn as number) <= previous ||
-      (attribution.turn as number) < 1 || (attribution.turn as number) >= base.nextTurn ||
-      !validBuildManifest(attribution.build) || !validRevisionRef(attribution.definition)
-    ) {
+  if (
+    !isSessionId(record.sessionId) ||
+    typeof record.workspaceRoot !== 'string' ||
+    canonicalAbsolutePath(record.workspaceRoot) === undefined ||
+    record.workspaceRoot.trim() !== record.workspaceRoot ||
+    !validString(record.agent) || record.agent.trim().length === 0 ||
+    !validAgentChoice(record.agentChoice) ||
+    !canonicalTimestamp(record.createdAt) ||
+    !canonicalTimestamp(record.updatedAt) ||
+    Date.parse(record.updatedAt) < Date.parse(record.createdAt) ||
+    (record.title !== null && !isSessionTitle(record.title)) ||
+    !Number.isSafeInteger(record.stateRevision) ||
+    (record.stateRevision as number) < 1 ||
+    !Number.isSafeInteger(record.nextTurn) || (record.nextTurn as number) < 1 ||
+    !Array.isArray(record.transcript) ||
+    record.transcript.length > MAX_SESSION_FILE_BYTES ||
+    !record.transcript.every(validateMessage) ||
+    !isStoredModelSelection(record.activeModel) ||
+    !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
+    !Array.isArray(record.turnModels) || !record.turnModels.every((item) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return false;
+      }
+      const attribution = item as Record<string, unknown>;
+      return ownKeys(attribution, ['turn', 'selection']) &&
+        Number.isSafeInteger(attribution.turn) &&
+        (attribution.turn as number) > 0 &&
+        (attribution.turn as number) < (record.nextTurn as number) &&
+        isStoredModelSelection(attribution.selection);
+    }) ||
+    !record.turnExecutions.every(validateTurnExecution)
+  ) return false;
+
+  let previousEffectiveTurn = 0;
+  let latestSelection: ModelSelection | undefined;
+  for (const item of record.modelChanges) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
       return false;
     }
-    previous = attribution.turn as number;
+    const change = item as Record<string, unknown>;
+    if (
+      !ownKeys(change, ['effectiveFromTurn', 'changedAt', 'selection']) ||
+      !Number.isSafeInteger(change.effectiveFromTurn) ||
+      (change.effectiveFromTurn as number) < previousEffectiveTurn ||
+      (change.effectiveFromTurn as number) < 1 ||
+      (change.effectiveFromTurn as number) > (record.nextTurn as number) ||
+      !canonicalTimestamp(change.changedAt) ||
+      !isStoredModelSelection(change.selection)
+    ) return false;
+    previousEffectiveTurn = change.effectiveFromTurn as number;
+    latestSelection = change.selection;
   }
-  const turnModels = record.turnModels as SessionRecordV5['turnModels'];
-  return record.turnExecutions.length === turnModels.length &&
-    record.turnExecutions.every((item, index) => item.turn === turnModels[index].turn);
+  if (
+    latestSelection === undefined ||
+    !sameSelection(latestSelection, record.activeModel)
+  ) {
+    return false;
+  }
+
+  const completedTurns = record.transcript.length === 0
+    ? record.nextTurn === 1 ? 0 : undefined
+    : parseCausalTranscript(record.transcript);
+  if (completedTurns === undefined || record.nextTurn !== completedTurns + 1) {
+    return false;
+  }
+  const turnModels = record.turnModels as SessionRecordV1['turnModels'];
+  const turnExecutions = record
+    .turnExecutions as SessionRecordV1['turnExecutions'];
+  return turnModels.length === completedTurns &&
+    turnExecutions.length === turnModels.length &&
+    turnModels.every((item, index) =>
+      item.turn === index + 1 && turnExecutions[index]?.turn === item.turn
+    );
 };
 
 const validCheckpointString = (value: unknown): value is string =>
@@ -611,17 +578,13 @@ export const metadataFromRecord = (record: SessionRecord): SessionMetadata => ({
 export const metadataFromStoredRecord = (
   record: StoredSessionRecord,
 ): WorkerSessionMetadata => ({
-  ...metadataFromRecord({
-    schemaVersion: 1,
-    sessionId: record.sessionId,
-    workspaceRoot: record.workspaceRoot,
-    agent: record.agent,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    nextTurn: record.nextTurn,
-    transcript: record.transcript,
-  }),
+  id: record.sessionId,
+  agent: record.agent,
+  createdAt: record.createdAt,
+  updatedAt: record.updatedAt,
+  turnCount: record.nextTurn - 1,
+  messageCount: record.transcript.length,
   ...(record.title === null ? {} : { title: record.title }),
-  definition: structuredClone(record.definition),
+  agentChoice: structuredClone(record.agentChoice),
   modelSelection: structuredClone(record.activeModel),
 });

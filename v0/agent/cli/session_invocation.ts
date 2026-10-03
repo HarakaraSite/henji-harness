@@ -1,10 +1,9 @@
-import { parseDefinitionRevisionSelector } from '../definitions/definition_selector.ts';
 import { isSessionId } from '../session/session_store_contract.ts';
 import { BUILTIN_PROVIDER_IDS, type ProviderId } from '../provider/model_selection.ts';
 
 interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
-  readonly rawDefinitionRevision?: string;
+  readonly rawAgentFile?: string;
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
   readonly rootProvider?: ProviderId;
@@ -18,7 +17,7 @@ export const parseTuiInvocation = (
   allowedProviders: readonly string[] = BUILTIN_PROVIDER_IDS,
 ): ParsedTuiInvocation => {
   let rawAgentName: string | undefined;
-  let rawDefinitionRevision: string | undefined;
+  let rawAgentFile: string | undefined;
   let rootMaxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
   let rootProvider: ProviderId = 'openrouter-chat';
@@ -38,21 +37,16 @@ export const parseTuiInvocation = (
       }
       rawAgentName = value;
       index += 2;
-    } else if (flag === '--definition-revision') {
+    } else if (flag === '--agent-file') {
       const value = args[index + 1];
       if (
-        rawDefinitionRevision !== undefined ||
+        rawAgentFile !== undefined ||
         value === undefined ||
         value.length === 0
       ) {
         throw new Error('invalid invocation');
       }
-      try {
-        parseDefinitionRevisionSelector(value);
-      } catch {
-        throw new Error('invalid invocation');
-      }
-      rawDefinitionRevision = value;
+      rawAgentFile = value;
       index += 2;
     } else if (flag === '--continue') {
       if (persistence !== 'new') throw new Error('invalid invocation');
@@ -110,12 +104,12 @@ export const parseTuiInvocation = (
       throw new Error('invalid invocation');
     }
   }
-  if (rawAgentName !== undefined && rawDefinitionRevision !== undefined) {
+  if (rawAgentName !== undefined && rawAgentFile !== undefined) {
     throw new Error('invalid invocation');
   }
   return {
     rawAgentName,
-    ...(rawDefinitionRevision === undefined ? {} : { rawDefinitionRevision }),
+    ...(rawAgentFile === undefined ? {} : { rawAgentFile }),
     ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
     ...(rootProviderSeen ? { rootProvider } : {}),
