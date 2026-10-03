@@ -47,8 +47,16 @@ origin/mainへpush済み。171の変更はこのcommitに含めていない。
 ## 適用
 
 表示の適用にはTUIを開き直す。commit/pushは実施済み（実装`fdc2ae42`、記録`3ef29fd5`）。
-常用配置・公開は未指示のため未実施。
+公開は未実施。
 
 ### 完了承認
 
 2026-10-03、利用者確認のうえ完了承認を受け、Increment 171を完了とする。
+
+### 常用配置
+
+2026-10-03、利用者の指示により常用binaryへ配置した。source `26071a70`（dirtyなし）で
+公式henji:compileを再実行し、build ID `0e41bf02…`、SHA-256 `92ed1819…`がbuildと
+配置先で一致することを確認した。以前のbinaryは`.tools/increment-171/henji.previous`へ退避した。
+稼働中のCoreは停止せず保持し、新しいCore/TUIの起動から適用する。配置先の隔離Core/TUI起動
+（ready表示）を確認した。配置記録は`.tools/increment-171/deployment.json`。公開は未実施。

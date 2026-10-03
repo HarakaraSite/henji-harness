@@ -6,9 +6,9 @@
 
 [Increment 171](../docs/increments/increment-171.md)は利用者確認・完了承認済み（2026-10-03）。
 8色を切り捨て256色を最低ラインとして、user行を黄色文字＋淡いグレー帯（行幅padding）、
-見出しをbold soft blueへ変更しgreenを廃止した。要件・検証・完了承認の正本はincrement文書。
-sourceはcommit `fdc2ae42`、build IDは`e364a71f…`。commit/push済み。
-常用配置・公開は未指示のため未実施。
+見出しをbold soft blueへ変更しgreenを廃止した。要件・検証・配置・完了承認の正本はincrement文書。
+常用配置はsource `26071a70`、build `0e41bf02…`。commit/push済み。
+稼働中のCoreは停止せず保持し、新しいCore/TUIの起動から適用する。公開は未実施。
 
 2026-10-03、利用者の「コミットプッシュして」により、Increment 171（実装`fdc2ae42`、記録`3ef29fd5`）を
 origin/mainへpushした。169/170を含むmainの未送信commitも送信済み。公開は未実施。
