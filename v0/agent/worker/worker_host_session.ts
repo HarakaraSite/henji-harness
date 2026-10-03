@@ -1,11 +1,7 @@
-import type { LoopOutcome, Message } from '../core/contracts.ts';
-import type {
-  DefinitionRevisionRef,
-  SemanticContextCheckpointV1,
-} from '../session/session_store.ts';
+import type { LoopOutcome } from '../core/contracts.ts';
+import type { ContextView, ExecutionView } from '../../api/contract.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { WorkerReadyMessage } from './worker_protocol.ts';
-import type { RecalledExecutionContext } from './recalled_execution_context.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { ExecutionCoordinator } from './worker_host_coordinator.ts';
 export {
@@ -32,7 +28,7 @@ export class WorkerHostSession {
 
   private constructor(private readonly coordinator: ExecutionCoordinator) {}
 
-  get definition(): DefinitionRevisionRef {
+  get definition(): WorkerHostSessionOptions['descriptor']['definition'] {
     return this.coordinator.definition;
   }
 
@@ -61,7 +57,9 @@ export class WorkerHostSession {
   }
 
   /** Presence-only display refresh; never starts work or moves a credential value. */
-  async refreshCredentialAvailability(): Promise<CredentialAvailability | undefined> {
+  async refreshCredentialAvailability(): Promise<
+    CredentialAvailability | undefined
+  > {
     return await this.coordinator.refreshCredentialAvailability();
   }
 
@@ -73,10 +71,12 @@ export class WorkerHostSession {
     return this.coordinator.runtimeSnapshot();
   }
 
-  consumeAutoCompactionNotice(): {
-    readonly coveredThroughTurn: number;
-    readonly retainedFromTurn: number;
-  } | null {
+  consumeAutoCompactionNotice(): Promise<
+    {
+      readonly coveredThroughTurn: number;
+      readonly retainedFromTurn: number;
+    } | null
+  > {
     return this.coordinator.consumeAutoCompactionNotice();
   }
 
@@ -88,7 +88,7 @@ export class WorkerHostSession {
 
   renameTitle(
     value: string,
-  ): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
+  ): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'> {
     return this.coordinator.renameTitle(value);
   }
 
@@ -99,22 +99,22 @@ export class WorkerHostSession {
     return await this.coordinator.prepareRecall(id);
   }
 
-  clearPendingRecall(): boolean {
+  clearPendingRecall(): Promise<boolean> {
     return this.coordinator.clearPendingRecall();
   }
 
   async submit(
     task: string,
-    recalledContext?: RecalledExecutionContext,
-  ): Promise<LoopOutcome> {
-    return await this.coordinator.submit(task, recalledContext);
+  ): Promise<Omit<LoopOutcome, 'transcript'>> {
+    return await this.coordinator.submit(task);
   }
 
   admit(
     task: string,
-    recalledContext?: RecalledExecutionContext,
+    executionId?: string,
+    initiallyCancelled = false,
   ): ReturnType<ExecutionCoordinator['admit']> {
-    return this.coordinator.admit(task, recalledContext);
+    return this.coordinator.admit(task, executionId, initiallyCancelled);
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
@@ -129,16 +129,16 @@ export class WorkerHostSession {
     return this.coordinator.isAvailable();
   }
 
-  transcriptSnapshot(): readonly Message[] {
-    return this.coordinator.transcriptSnapshot();
-  }
-
   currentPosition(): ReturnType<ExecutionCoordinator['currentPosition']> {
     return this.coordinator.currentPosition();
   }
 
-  checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
-    return this.coordinator.checkpointSnapshot();
+  executionSnapshot(): ExecutionView | undefined {
+    return this.coordinator.executionSnapshot();
+  }
+
+  contextSnapshot(): ContextView {
+    return this.coordinator.contextSnapshot();
   }
 
   async close(): Promise<void> {

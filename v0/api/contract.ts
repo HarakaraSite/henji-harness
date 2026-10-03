@@ -1,3 +1,5 @@
+import type { ConversationChange, ConversationEntity } from '../conversation/model.ts';
+
 /** Shared, data-only state contract used by the in-process TUI and later clients. */
 export type {
   ChatGPTAuthResult,
@@ -82,46 +84,6 @@ export type RequestKey = Readonly<{
   lane?: 'parent' | 'planner';
   modelStep: number;
   requestOrdinal?: number;
-}>;
-
-export type ApiMessage = Readonly<{
-  id: string;
-  executionId: string;
-  turn: number;
-  role: 'user' | 'assistant' | 'tool';
-  text?: string;
-  requestKey?: RequestKey;
-  toolOccurrenceIds?: readonly string[];
-}>;
-
-export type ApiToolOccurrence = Readonly<{
-  toolOccurrenceId: string;
-  executionId: string;
-  turn: number;
-  requestKey?: RequestKey;
-  name: string;
-  arguments: ApiJson;
-  progress?: string;
-  result?: Readonly<{
-    text: string;
-    outcome: 'success' | 'error';
-    terminal?: 'json_result';
-  }>;
-}>;
-
-export type ApiThinking = Readonly<{
-  requestKey: RequestKey;
-  turn: number;
-  thinkingKind: 'text' | 'summary';
-  text: string;
-  complete: boolean;
-  beforeMessageIndex?: number;
-}>;
-
-export type ApiRequestText = Readonly<{
-  requestKey: RequestKey;
-  turn: number;
-  text: string;
 }>;
 
 export type ApiRuntimePhase =
@@ -312,7 +274,7 @@ export type PendingView = Readonly<{
   followUps: readonly FollowUpRecord[];
 }>;
 export type FollowUpReadResult = Readonly<{ followUp: FollowUpRecord }>;
-export type SessionOpenValue = Readonly<{ snapshot: SessionSnapshot }>;
+export type SessionOpenValue = Readonly<{ sessionId: string }>;
 export type SessionRenameInput = Readonly<{ commandId: string; title: string }>;
 export type SessionRenameValue = Readonly<{ result: 'renamed' | 'unchanged' }>;
 export type SessionDeleteInput = Readonly<{ commandId: string }>;
@@ -426,7 +388,7 @@ export type HistoryReadResult = Readonly<{
 
 /** Slice 1 publishes only state that the current Host already owns. */
 export type SessionSnapshot = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   cursor: CoreCursor;
   session: Readonly<{
     id: string;
@@ -441,24 +403,39 @@ export type SessionSnapshot = Readonly<{
     activeSessionId: string | null;
     phase: ApiRuntimePhase;
     execution: ExecutionView | null;
+    /** Core reservation is visible before a durable execution row exists. */
+    reservation?: Readonly<{ executionId: string; commandId: string; phase: 'preparing' }>;
     operations: readonly CoreOperationName[];
     effectiveConfig?: EffectiveRuntimeConfig;
   }>;
-  conversation: Readonly<{
-    /** Human-facing attempts, independent of canonical model context. */
-    executions: readonly ExecutionView[];
-    messages: readonly ApiMessage[];
-    tools: readonly ApiToolOccurrence[];
-    thinking: readonly ApiThinking[];
-    requests: readonly ApiRequestText[];
-    omitted: number;
-  }>;
+  conversation: ConversationSnapshot;
   pending: PendingView;
   credentialAvailability: Readonly<
     { status: 'present' | 'missing' | 'unknown' }
   >;
   context: ContextView;
 }>;
+
+export type ConversationSnapshot = Readonly<{
+  schemaVersion: 2;
+  sessionId: string;
+  cut: number;
+  storeRevision: number;
+  entities: Readonly<Record<string, ConversationEntity>>;
+  order: readonly string[];
+}>;
+
+export type ConversationDelta = Readonly<{
+  schemaVersion: 2;
+  kind: 'delta';
+  sessionId: string;
+  cut: number;
+  storeRevision: number;
+  changes: readonly ConversationChange[];
+}>;
+
+/** Core owns only these small control fields; Data owns conversation payloads. */
+export type SessionControlSnapshot = Omit<SessionSnapshot, 'conversation'>;
 
 export type SessionChange =
   | Readonly<{ kind: 'session.replace'; session: SessionSnapshot['session'] }>
@@ -468,21 +445,7 @@ export type SessionChange =
     kind: 'credentialAvailability.replace';
     credentialAvailability: SessionSnapshot['credentialAvailability'];
   }>
-  | Readonly<{ kind: 'context.replace'; context: SessionSnapshot['context'] }>
-  | Readonly<{ kind: 'executions.replace'; executions: readonly ExecutionView[] }>
-  | Readonly<{ kind: 'message.upsert'; message: ApiMessage }>
-  | Readonly<{ kind: 'message.remove'; id: string }>
-  | Readonly<{ kind: 'tool.upsert'; tool: ApiToolOccurrence }>
-  | Readonly<{ kind: 'tool.remove'; toolOccurrenceId: string }>
-  | Readonly<{ kind: 'thinking.upsert'; thinking: ApiThinking }>
-  | Readonly<{
-    kind: 'thinking.remove';
-    requestKey: RequestKey;
-    thinkingKind: ApiThinking['thinkingKind'];
-  }>
-  | Readonly<{ kind: 'request.upsert'; request: ApiRequestText }>
-  | Readonly<{ kind: 'request.remove'; requestKey: RequestKey }>
-  | Readonly<{ kind: 'conversation.omitted.replace'; omitted: number }>;
+  | Readonly<{ kind: 'context.replace'; context: SessionSnapshot['context'] }>;
 
 export type SessionStreamFrame =
   | Readonly<{ kind: 'session.snapshot'; snapshot: SessionSnapshot }>
@@ -491,62 +454,5 @@ export type SessionStreamFrame =
     cursor: CoreCursor;
     previousRevision: number;
     changes: readonly SessionChange[];
-  }>;
-
-export type SessionReadEvent =
-  | Readonly<{ kind: 'snapshot'; snapshot: SessionSnapshot }>
-  | Readonly<{
-    kind: 'runtime_state';
-    sessionId: string;
-    active: boolean;
-    phase: ApiRuntimePhase;
-  }>
-  | Readonly<{
-    kind: 'user_message';
-    id: string;
-    executionId: string;
-    turn: number;
-    text: string;
-  }>
-  | Readonly<{
-    kind: 'assistant_text';
-    requestKey: RequestKey;
-    turn: number;
-    text: string;
-  }>
-  | Readonly<{
-    kind: 'assistant_message';
-    id: string;
-    executionId: string;
-    requestKey: RequestKey;
-    turn: number;
-    text?: string;
-    toolOccurrenceIds?: readonly string[];
-  }>
-  | Readonly<{
-    kind: 'assistant_thinking';
-    requestKey: RequestKey;
-    turn: number;
-    thinkingKind: 'text' | 'summary';
-    text: string;
-    complete: boolean;
-  }>
-  | Readonly<{
-    kind: 'tool_call';
-    toolOccurrenceId: string;
-    executionId: string;
-    turn: number;
-    requestKey?: RequestKey;
-    name: string;
-    arguments: ApiJson;
-  }>
-  | Readonly<{
-    kind: 'tool_progress';
-    toolOccurrenceId: string;
-    text: string;
-  }>
-  | Readonly<{
-    kind: 'tool_result';
-    toolOccurrenceId: string;
-    result: NonNullable<ApiToolOccurrence['result']>;
+    conversationDelta?: ConversationDelta;
   }>;

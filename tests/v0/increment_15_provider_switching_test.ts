@@ -329,6 +329,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       physicalIoMode: 'provider-free',
     });
     assert((await first.session.submit('turn on OpenRouter')).ok);
+    await store.initialize();
     assertEquals(await first.session.selectModel(OPENAI_DEFAULT_MODEL_SELECTION), 'selected');
     assertEquals(first.session.credentialAvailabilitySnapshot(), {
       authProfile: 'openai-api-key',
@@ -381,7 +382,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       { turn: 3, selection: ROOT_DEFAULT_MODEL_SELECTION },
     ]);
     assertEquals(
-      first.session.transcriptSnapshot().filter((message) => message.role === 'user').map((
+      record.transcript.filter((message) => message.role === 'user').map((
         message,
       ) => message.role === 'user' ? message.content.text : ''),
       ['turn on OpenRouter', 'turn on OpenAI', 'back on OpenRouter'],

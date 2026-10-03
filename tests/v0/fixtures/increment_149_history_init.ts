@@ -49,6 +49,32 @@ const watchSchemaLockAttempt = (directoryPath: string, marker: string): () => vo
   };
 };
 
+const installDataWorkerSchemaLockProbe = (directoryPath: string): () => void => {
+  const workerDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Worker');
+  if (workerDescriptor === undefined || typeof workerDescriptor.value !== 'function') {
+    throw new Error('Worker constructor is unavailable');
+  }
+  const originalWorker = workerDescriptor.value as typeof Worker;
+  const productionBootstrap = new URL('../../../v0/agent/data/data_bootstrap.ts', import.meta.url);
+  const fixtureBootstrap = new URL('./increment_149_data_bootstrap.ts', import.meta.url);
+  const workerWithDataProbe = new Proxy(originalWorker, {
+    construct(target, args: [string | URL, WorkerOptions?], newTarget) {
+      const [scriptUrl, options] = args;
+      const resolvedUrl = new URL(scriptUrl, import.meta.url);
+      if (resolvedUrl.href === productionBootstrap.href) {
+        fixtureBootstrap.searchParams.set('root', directoryPath);
+        return Reflect.construct(target, [fixtureBootstrap, options], newTarget);
+      }
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+  Object.defineProperty(globalThis, 'Worker', {
+    ...workerDescriptor,
+    value: workerWithDataProbe,
+  });
+  return () => Object.defineProperty(globalThis, 'Worker', workerDescriptor);
+};
+
 if (mode === 'create-session') {
   const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   const paths = await sessionPaths(stateRoot, workspaceRoot);
@@ -118,7 +144,7 @@ if (mode === 'prepare-schema-barrier') {
 
 if (mode === 'open-core') {
   const paths = await sessionPaths(stateRoot, workspaceRoot);
-  const restoreOpen = watchSchemaLockAttempt(paths.root, 'schema-lock-attempt');
+  const restoreWorker = installDataWorkerSchemaLockProbe(paths.root);
   emit('core-opening');
   try {
     const core = await createCoreService({
@@ -127,7 +153,8 @@ if (mode === 'open-core') {
       physicalIoMode: 'provider-free',
     });
     try {
-      const history = await core.historyRead({ view: 'session' });
+      const reply = await core.historyRead({ view: 'session' });
+      const history = JSON.parse(new TextDecoder().decode(reply.bytes));
       if (history.sessionId !== null || history.text !== '') {
         throw new Error('new schema should have empty history');
       }
@@ -138,13 +165,13 @@ if (mode === 'open-core') {
       if (opened.kind !== 'accepted') {
         throw new Error(`Core could not open a new Session: ${JSON.stringify(opened)}`);
       }
-      const snapshot = await core.sessionRead(opened.value.snapshot.session.id);
-      emit(JSON.stringify({ sessionId: snapshot.session.id, phase: 'ready' }));
+      await core.sessionRead(opened.value.sessionId);
+      emit(JSON.stringify({ sessionId: opened.value.sessionId, phase: 'ready' }));
     } finally {
       await core.close();
     }
   } finally {
-    restoreOpen();
+    restoreWorker();
   }
   Deno.exit(0);
 }

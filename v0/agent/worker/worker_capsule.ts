@@ -59,12 +59,16 @@ export const managedClosureLoadRequest = (
 ): WorkerDefinitionLoadRequest => {
   const files = revision.manifest.files.map((file) => ({
     relativePath: file.path,
-    canonicalSpecifier: fileSpecifier(`${revision.physicalRoot}/files/${file.path}`),
+    canonicalSpecifier: fileSpecifier(
+      `${revision.physicalRoot}/files/${file.path}`,
+    ),
     sha256: file.sha256,
     sourceBytes: file.byteLength,
   }));
   const entry = files.find((file) => file.relativePath === revision.manifest.entry);
-  if (entry === undefined) throw new Error('Managed Definition entry is absent from its closure');
+  if (entry === undefined) {
+    throw new Error('Managed Definition entry is absent from its closure');
+  }
   return Object.freeze({
     kind: 'managed' as const,
     entry: Object.freeze({
@@ -153,8 +157,8 @@ export class WorkerCapsule {
     return this.currentStatus;
   }
 
-  send(command: WorkerHostCommand): void {
-    this.worker.postMessage(command);
+  send(command: WorkerHostCommand, transfer?: Transferable[]): void {
+    this.worker.postMessage(command, transfer ?? []);
   }
 
   /** Observe every data-only message without exposing the underlying Worker object. */

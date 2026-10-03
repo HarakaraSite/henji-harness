@@ -222,7 +222,7 @@ Deno.test('Increment 150 early-settled recovery releases the Session lock for ex
     const original = recovery.reconcileExecution.bind(recovery);
     recovery.reconcileExecution = (input) => {
       settler.reconcileExecution(input);
-      original(input);
+      return original(input);
     };
     await recovery.initialize();
     strictEqual(recovery.readExecution(id).lifecycle, 'settled');

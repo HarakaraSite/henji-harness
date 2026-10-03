@@ -8,12 +8,11 @@ import type {
   WorkerClosedMessage,
   WorkerCommitProposalMessage,
   WorkerErrorMessage,
-  WorkerHostCommand,
   WorkerReadyMessage,
   WorkerRuntimeEventMessage,
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
-import type { AssistantMessage, Message } from '../../v0/agent/core/contracts.ts';
+import type { Message } from '../../v0/agent/core/contracts.ts';
 import type {
   Model,
   ModelGenerateOptions,
@@ -21,18 +20,9 @@ import type {
   ModelResult,
 } from '../../v0/agent/core/contracts.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
-import type { WorkerSessionHandle } from '../../v0/agent/session/session_store.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import {
-  bundledToolDefinitionLoadRequests,
-  createWorkerSession,
-  readDefinitionRevision,
-  workerBuiltinModulePath,
-  WorkerHostSession,
-  WorkerRecallSelectionError,
-} from '../../v0/agent/worker/worker_host.ts';
-import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import { main as runtimeCliMain, parseRuntimeArgs } from '../../v0/agent/cli/runtime_cli.ts';
@@ -42,17 +32,25 @@ import {
   type WorkerGenerationPort,
 } from '../../v0/agent/worker/worker_runtime.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
-import {
-  FakeWorkerExecutionArtifactStore,
-} from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_model.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import {
-  createFailureDiagnostic,
-  validateFailureDiagnostic,
-} from '../../v0/agent/session/failure_diagnostic.ts';
+import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
+import {
+  createIncrement170FoundationDataHarness,
+  foundationProposal,
+  Increment170FoundationDataPortAgent,
+  openIncrement170FoundationHost,
+  readIncrement170FoundationArtifacts,
+} from './helpers/increment_170_foundation_data.ts';
+import { ConversationWriter } from '../../v0/agent/data/conversation_writer.ts';
+import {
+  DataRecallSelectionError,
+  DataSessionOwner,
+} from '../../v0/agent/data/session_data_owner.ts';
+import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -99,20 +97,6 @@ const isClosed = (
 ): message is WorkerClosedMessage => message.kind === 'closed';
 const isError = (message: WorkerToHostMessage): message is WorkerErrorMessage =>
   message.kind === 'worker_error';
-const isCommitProposal = (
-  message: WorkerToHostMessage,
-): message is WorkerCommitProposalMessage => message.kind === 'commit_proposal';
-const isTerminalAgentRuntime = (
-  message: WorkerToHostMessage,
-): message is WorkerRuntimeEventMessage =>
-  message.kind === 'runtime_event' && message.event.kind === 'agent_event' &&
-  message.event.event.kind === 'turn_end';
-type TextAssistantMessage = AssistantMessage & {
-  readonly content: { readonly kind: 'text'; readonly text: string };
-};
-const isTextAssistant = (message: Message): message is TextAssistantMessage =>
-  message.role === 'assistant' && !Array.isArray(message.content);
-
 const start = async (
   capsule: WorkerCapsule,
   command = 'start',
@@ -129,123 +113,6 @@ const textStream = (text: string): ReadableStream<Uint8Array> =>
       controller.close();
     },
   });
-
-class TerminalToolOutcomeCapsule implements WorkerHostCapsule {
-  private readonly listeners = new Set<
-    (message: WorkerToHostMessage) => void
-  >();
-
-  private emit(message: WorkerToHostMessage): void {
-    for (const listener of this.listeners) listener(message);
-  }
-
-  send(command: WorkerHostCommand): void {
-    if (command.kind === 'start') {
-      const rootModel = command.modelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
-      this.emit({
-        kind: 'ready',
-        correlation: command.correlation,
-        manifest: {
-          role: 'parent',
-          maxSteps: 8,
-          profileId: modelRouteProfileId(rootModel),
-          resources: [],
-          rootModel,
-          ...(command.baseInstruction === undefined ? {} : {
-            baseInstruction: {
-              slot: command.baseInstruction.slot,
-              selectionSource: command.baseInstruction.selectionSource,
-              ref: command.baseInstruction.ref,
-              contentDigest: command.baseInstruction.contentDigest,
-            },
-          }),
-        },
-        startupSnapshot: { skillNames: [] },
-        credentialAvailability: {
-          authProfile: rootModel.authProfile,
-          status: 'unknown',
-        },
-      });
-      return;
-    }
-    if (command.kind === 'turn') {
-      const finalText = '{"ok":true}';
-      const transcript: Message[] = [
-        { role: 'user', content: { kind: 'text', text: command.task } },
-        {
-          role: 'assistant',
-          content: [{
-            kind: 'tool_call',
-            callId: 'terminal-1',
-            name: 'submit_json_result',
-            arguments: { json: finalText },
-          }],
-        },
-        {
-          role: 'tool',
-          content: [{
-            kind: 'tool_result',
-            callId: 'terminal-1',
-            name: 'submit_json_result',
-            text: finalText,
-            outcome: 'success',
-            terminal: 'json_result',
-          }],
-        },
-      ];
-      queueMicrotask(() =>
-        this.emit({
-          kind: 'commit_proposal',
-          correlation: command.correlation,
-          nextTurn: 2,
-          transcript,
-          outcome: {
-            ok: true,
-            task: command.task,
-            outcome: 'final',
-            stopReason: 'tool_terminal',
-            finalText,
-            terminalKind: 'json_result',
-            steps: 1,
-            toolCallCount: 1,
-            toolResultCount: 1,
-            transcript,
-          },
-        })
-      );
-      return;
-    }
-    if (command.kind === 'commit_acknowledgement' && command.accepted) {
-      queueMicrotask(() =>
-        this.emit({
-          kind: 'runtime_event',
-          correlation: command.correlation,
-          sequence: 1,
-          event: {
-            kind: 'agent_event',
-            event: {
-              kind: 'turn_end',
-              turn: 1,
-              outcome: 'tool_terminal',
-              committed: true,
-            },
-          },
-        })
-      );
-      return;
-    }
-    if (command.kind === 'close') {
-      this.emit({ kind: 'closed', correlation: command.correlation });
-    }
-  }
-
-  subscribe(listener: (message: WorkerToHostMessage) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  terminate(): void {}
-}
 
 const successfulHeadlessRun = (task: string) =>
   Promise.resolve({
@@ -336,61 +203,76 @@ Deno.test('Slice 1 proves pre-read/hash, digest-query relative import, import-ma
 });
 
 Deno.test('headless runner commits one real Worker turn and closes the generation', async () => {
-  const artifacts = new FakeWorkerExecutionArtifactStore();
-  let closed = false;
+  const root = await Deno.makeTempDir({ prefix: 'henji-headless-foundation-' });
+  const stateRoot = `${root}/state`;
+  let terminated = false;
   let startOptions: unknown;
-  const result = await runHeadlessWorker(
-    'read worker protocol',
-    resolveBuiltinAgent(),
-    {
-      physicalIoMode: 'provider-free',
+  try {
+    const result = await runHeadlessWorker(
+      'read worker protocol',
+      resolveBuiltinAgent(),
+      {
+        workspaceRoot: root,
+        stateRoot,
+        physicalIoMode: 'provider-free',
+        rootMaxSteps: 160,
+        providerTimeoutMs: 420_000,
+        capsuleFactory: (url) => {
+          const capsule = new WorkerCapsule(url);
+          return {
+            send: (command, transfer) => {
+              if (command.kind === 'start') {
+                startOptions = {
+                  rootMaxSteps: command.rootMaxSteps,
+                  providerTimeoutMs: command.providerTimeoutMs,
+                };
+              }
+              capsule.send(command, transfer);
+            },
+            subscribe: (listener) => capsule.subscribe(listener),
+            terminate: () => {
+              terminated = true;
+              capsule.terminate();
+            },
+          };
+        },
+      },
+    );
+    assert(result.outcome.ok);
+    assertEquals(result.outcome.stopReason, 'final');
+    assertEquals(result.requestCount, 0);
+    assertEquals(terminated, true);
+    assertEquals(startOptions, {
       rootMaxSteps: 160,
       providerTimeoutMs: 420_000,
-      executionArtifactStore: artifacts,
-      capsuleFactory: (url) => {
-        const capsule = new WorkerCapsule(url);
-        return {
-          send: (command) => {
-            if (command.kind === 'start') {
-              startOptions = {
-                rootMaxSteps: command.rootMaxSteps,
-                providerTimeoutMs: command.providerTimeoutMs,
-              };
-            }
-            capsule.send(command);
-          },
-          subscribe: (listener) =>
-            capsule.subscribe((message) => {
-              if (message.kind === 'closed') closed = true;
-              listener(message);
-            }),
-          terminate: () => capsule.terminate(),
-        };
-      },
-    },
-  );
-  assert(result.outcome.ok);
-  assertEquals(result.outcome.stopReason, 'final');
-  assertEquals(result.requestCount, 0);
-  assertEquals(closed, true);
-  assertEquals(startOptions, { rootMaxSteps: 160, providerTimeoutMs: 420_000 });
-  const written = await artifacts.list();
-  assertEquals(written.length, 1);
-  assertEquals(written[0]?.manifest.maxSteps, 160);
-  assert(!written[0]?.manifest.resources.includes('agent:planner'));
-  assertEquals(written[0]?.storeResult, 'committed');
-  assertEquals(written[0]?.acknowledgement, 'accepted_sent');
-  assert(
-    written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'module_pre_read'),
-  );
-  assert(
-    written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'commit_proposal'),
-  );
+    });
+    const written = await readIncrement170FoundationArtifacts({
+      stateRoot,
+      workspaceRoot: root,
+    });
+    assertEquals(written.length, 1);
+    assertEquals(written[0]?.manifest.maxSteps, 160);
+    assert(!written[0]?.manifest.resources.includes('agent:planner'));
+    assertEquals(written[0]?.storeResult, 'committed');
+    assertEquals(written[0]?.acknowledgement, 'accepted_sent');
+    assert(
+      written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'module_pre_read'),
+    );
+    assert(
+      written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'proposal_ready'),
+    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
 
 Deno.test('production subscriber does not retain delivered Worker messages across turns', async () => {
   let capsule: WorkerCapsule | undefined;
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-subscriber-foundation-',
+  });
   const created = await createWorkerSession({
+    stateRoot,
     persistence: 'none',
     agent: 'default',
     physicalIoMode: 'provider-free',
@@ -411,171 +293,215 @@ Deno.test('production subscriber does not retain delivered Worker messages acros
     }
   } finally {
     await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });
 
-Deno.test('Host does not retain processed provider observations in its response queue', async () => {
-  const artifacts = new FakeWorkerExecutionArtifactStore();
-  let turn = 0;
-  let probeSequence = 0;
-  let hostListener: ((message: WorkerToHostMessage) => void) | undefined;
-  const created = await createWorkerSession({
-    persistence: 'none',
-    agent: 'default',
-    physicalIoMode: 'provider-free',
-    executionArtifactStore: artifacts,
-    capsuleFactory: (url) => {
-      const capsule = new WorkerCapsule(url);
-      return {
-        send: (command) => {
-          if (command.kind === 'turn') {
-            turn += 1;
-            assert(hostListener !== undefined);
-            const listener = hostListener;
-            const recorder = new ProviderEvidenceRecorder(
-              undefined,
-              turn,
-              undefined,
-              (observation) => {
-                listener({
-                  kind: 'provider_observation',
-                  correlation: command.correlation,
-                  sequence: ++probeSequence,
-                  turn,
-                  observation,
-                });
-                return probeSequence;
-              },
-            );
-            recorder.startRequestMetadata({
-              lane: 'parent',
-              modelStep: 1,
-              endpoint: 'https://example.invalid/provider',
-              method: 'POST',
-            });
-            recorder.recordResponse({
-              status: 200,
-            });
-          }
-          capsule.send(command);
-        },
-        subscribe: (listener) => {
-          hostListener = listener;
-          const unsubscribe = capsule.subscribe(listener);
-          return () => {
-            hostListener = undefined;
-            unsubscribe();
-          };
-        },
-        terminate: () => capsule.terminate(),
-      };
-    },
+Deno.test('Host keeps provider facts on the Agent Data path without retaining a response queue', async () => {
+  const harness = await createIncrement170FoundationDataHarness({
+    prefix: 'henji-provider-observation-foundation-',
   });
+  let host:
+    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
+    | undefined;
+  let store: SqliteHistoryV7ProductionStore | undefined;
   try {
+    host = await openIncrement170FoundationHost(harness, {
+      capsuleFactory: () =>
+        new Increment170FoundationDataPortAgent((input) => {
+          let sequence = 0;
+          const recorder = new ProviderEvidenceRecorder(
+            undefined,
+            input.turnNumber,
+            undefined,
+            (observation) => {
+              const messageSequence = ++sequence;
+              input.data.observation({
+                kind: 'provider_observation',
+                correlation: input.command.correlation,
+                sequence: messageSequence,
+                turn: input.turnNumber,
+                observation,
+              });
+              if (observation.kind === 'request_start') {
+                input.requestStarted(
+                  observation.request.ordinal,
+                  observation.request.modelStep,
+                );
+              }
+              return messageSequence;
+            },
+            false,
+          );
+          recorder.startRequestMetadata({
+            lane: 'parent',
+            modelStep: 1,
+            contextRequestOrdinal: 1,
+            endpoint: 'https://example.invalid/provider',
+            method: 'POST',
+          });
+          recorder.recordResponse({ status: 200 });
+          input.requestCount(1, input.turnNumber);
+          const transcript: Message[] = [
+            {
+              role: 'user',
+              content: { kind: 'text', text: input.command.task },
+            },
+            {
+              role: 'assistant',
+              content: {
+                kind: 'text',
+                text: `recorded provider request ${input.turnNumber}`,
+              },
+            },
+          ];
+          return foundationProposal({
+            correlation: input.command.correlation,
+            task: input.command.task,
+            turn: input.turnNumber,
+            transcript,
+            outcome: {
+              ok: true,
+              outcome: 'final',
+              stopReason: 'final',
+              finalText: `recorded provider request ${input.turnNumber}`,
+              steps: 1,
+              toolCallCount: 0,
+              toolResultCount: 0,
+              turnProviderRequestCount: 1,
+              runtimeProviderRequestCount: input.turnNumber,
+            },
+          });
+        }),
+    });
     for (let index = 1; index <= 3; index += 1) {
-      const outcome = await created.session.submit(
-        `provider observation turn ${index}`,
-      );
+      const outcome = await host.submit(`provider observation turn ${index}`);
       assert(outcome.ok);
-      const coordinator = Reflect.get(created.session, 'coordinator') as object;
+      const coordinator = Reflect.get(host, 'coordinator') as object;
       const supervisor = Reflect.get(coordinator, 'supervisor') as object;
       const messages = Reflect.get(supervisor, 'messages') as object;
       const queued = Reflect.get(messages, 'queue') as WorkerToHostMessage[];
-      assertEquals(queued.length, 0);
+      assert(
+        queued.every((message) => message.kind === 'turn_settled'),
+        'full provider observations must stay on the Agent Data port',
+      );
     }
-    const stored = await artifacts.list();
-    assertEquals(stored.length, 3);
-    for (const artifact of stored) {
+    store = new SqliteHistoryV7ProductionStore(
+      harness.stateRoot,
+      harness.workspaceRoot,
+    );
+    await store.initialize();
+    const executions = store.listExecutions();
+    assertEquals(executions.length, 3);
+    for (const execution of executions) {
       assertEquals(
-        artifact.protocolTrace.filter((entry) =>
-          entry.kind === 'provider_observation' &&
-          entry.semanticSubtype !== 'runtime_event'
-        )
-          .map((entry) => entry.semanticSubtype),
-        ['request_start', 'response_start'],
+        store.readExecutionRequestFacts(execution.executionId, 1).map((fact) => fact.kind),
+        ['provider_request_start', 'provider_response_start'],
       );
     }
   } finally {
-    await created.close();
+    await host?.close();
+    store?.close();
+    await harness.close();
   }
 });
 
-Deno.test('short provider failure facts survive Worker to Host SQLite persistence', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-short-facts-' });
-  const workspaceRoot = Deno.cwd();
-  let hostListener: ((message: WorkerToHostMessage) => void) | undefined;
-  let sequence = 0;
-  const created = await createWorkerSession({
-    stateRoot,
-    workspaceRoot,
-    persistence: 'new',
-    agent: 'default',
-    physicalIoMode: 'provider-free',
-    capsuleFactory: (url) => {
-      const capsule = new WorkerCapsule(url);
-      return {
-        send: (command) => {
-          if (command.kind === 'turn') {
-            assert(hostListener !== undefined);
-            const recorder = new ProviderEvidenceRecorder(
-              undefined,
-              1,
-              undefined,
-              (observation) => {
-                hostListener!({
-                  kind: 'provider_observation',
-                  correlation: command.correlation,
-                  sequence: ++sequence,
-                  turn: 1,
-                  observation,
-                });
-                return sequence;
-              },
-              false,
-            );
-            recorder.startRequestMetadata({
-              lane: 'parent',
-              modelStep: 1,
-              contextRequestOrdinal: 1,
-              endpoint: 'https://example.invalid/chat/completions',
-              method: 'POST',
-              requestMetadata: {
-                provider: 'opencode-go-chat',
-                api: 'openrouter-chat-completions',
-                modelId: 'mimo-v2.6-pro',
-              },
-            });
-            recorder.recordResponse({ status: 200 });
-            recorder.recordParserTransition({
-              kind: 'failure',
-              field: 'response.choices[0].message.tool_calls[0].function.arguments',
-              expectedShape: 'JSON string',
-              actualShape: 'number',
-            });
-            recorder.recordRequestFailure({
-              stage: 'response_parse',
-              code: 'response_error',
-              httpStatus: 200,
-            });
-          }
-          capsule.send(command);
-        },
-        subscribe: (listener) => {
-          hostListener = listener;
-          const unsubscribe = capsule.subscribe(listener);
-          return () => {
-            hostListener = undefined;
-            unsubscribe();
-          };
-        },
-        terminate: () => capsule.terminate(),
-      };
-    },
+Deno.test('short provider failure facts survive the Agent Data port and SQLite readback', async () => {
+  const harness = await createIncrement170FoundationDataHarness({
+    prefix: 'henji-short-facts-',
   });
+  let host:
+    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
+    | undefined;
+  let store: SqliteHistoryV7ProductionStore | undefined;
   try {
-    const outcome = await created.session.submit('record the request fact');
+    host = await openIncrement170FoundationHost(harness, {
+      capsuleFactory: () =>
+        new Increment170FoundationDataPortAgent((input) => {
+          let sequence = 0;
+          const recorder = new ProviderEvidenceRecorder(
+            undefined,
+            input.turnNumber,
+            undefined,
+            (observation) => {
+              const messageSequence = ++sequence;
+              input.data.observation({
+                kind: 'provider_observation',
+                correlation: input.command.correlation,
+                sequence: messageSequence,
+                turn: input.turnNumber,
+                observation,
+              });
+              if (observation.kind === 'request_start') {
+                input.requestStarted(
+                  observation.request.ordinal,
+                  observation.request.modelStep,
+                );
+              }
+              return messageSequence;
+            },
+            false,
+          );
+          recorder.startRequestMetadata({
+            lane: 'parent',
+            modelStep: 1,
+            contextRequestOrdinal: 1,
+            endpoint: 'https://example.invalid/chat/completions',
+            method: 'POST',
+            requestMetadata: {
+              provider: 'opencode-go-chat',
+              api: 'openrouter-chat-completions',
+              modelId: 'mimo-v2.6-pro',
+            },
+          });
+          recorder.recordResponse({ status: 200 });
+          recorder.recordParserTransition({
+            kind: 'failure',
+            field: 'response.choices[0].message.tool_calls[0].function.arguments',
+            expectedShape: 'JSON string',
+            actualShape: 'number',
+          });
+          recorder.recordRequestFailure({
+            stage: 'response_parse',
+            code: 'response_error',
+            httpStatus: 200,
+          });
+          input.requestCount(1, input.turnNumber);
+          const transcript: Message[] = [
+            {
+              role: 'user',
+              content: { kind: 'text', text: input.command.task },
+            },
+            {
+              role: 'assistant',
+              content: { kind: 'text', text: 'recorded the request facts' },
+            },
+          ];
+          return foundationProposal({
+            correlation: input.command.correlation,
+            task: input.command.task,
+            turn: input.turnNumber,
+            transcript,
+            outcome: {
+              ok: true,
+              outcome: 'final',
+              stopReason: 'final',
+              finalText: 'recorded the request facts',
+              steps: 1,
+              toolCallCount: 0,
+              toolResultCount: 0,
+              turnProviderRequestCount: 1,
+              runtimeProviderRequestCount: input.turnNumber,
+            },
+          });
+        }),
+    });
+    const outcome = await host.submit('record the request fact');
     assert(outcome.ok);
-    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    store = new SqliteHistoryV7ProductionStore(
+      harness.stateRoot,
+      harness.workspaceRoot,
+    );
     await store.initialize();
     const execution = store.listExecutions().at(-1);
     assert(execution !== undefined);
@@ -592,38 +518,84 @@ Deno.test('short provider failure facts survive Worker to Host SQLite persistenc
     assert(!serialized.includes('requestBody'));
     assert(!serialized.includes('rawFrame'));
   } finally {
-    await created.close();
-    await Deno.remove(stateRoot, { recursive: true });
+    await host?.close();
+    store?.close();
+    await harness.close();
   }
 });
 
-Deno.test('terminal tool success persists and reads back its Worker execution artifact', async () => {
-  const artifacts = new FakeWorkerExecutionArtifactStore();
-  const created = await createWorkerSession({
-    persistence: 'none',
-    agent: 'default',
-    physicalIoMode: 'provider-free',
-    executionArtifactStore: artifacts,
-    capsuleFactory: () => new TerminalToolOutcomeCapsule(),
+Deno.test('terminal tool success flows through the Agent Data port and SQLite artifact readback', async () => {
+  const harness = await createIncrement170FoundationDataHarness({
+    prefix: 'henji-terminal-artifact-foundation-',
   });
+  let host:
+    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
+    | undefined;
   try {
-    const outcome = await created.session.submit('submit terminal JSON');
+    host = await openIncrement170FoundationHost(harness, {
+      capsuleFactory: () =>
+        new Increment170FoundationDataPortAgent((input) => {
+          const finalText = '{"ok":true}';
+          const transcript: Message[] = [
+            {
+              role: 'user',
+              content: { kind: 'text', text: input.command.task },
+            },
+            {
+              role: 'assistant',
+              content: [{
+                kind: 'tool_call',
+                callId: 'terminal-1',
+                name: 'submit_json_result',
+                arguments: { json: finalText },
+              }],
+            },
+            {
+              role: 'tool',
+              content: [{
+                kind: 'tool_result',
+                callId: 'terminal-1',
+                name: 'submit_json_result',
+                text: finalText,
+                outcome: 'success',
+                terminal: 'json_result',
+              }],
+            },
+          ];
+          return foundationProposal({
+            correlation: input.command.correlation,
+            task: input.command.task,
+            turn: input.turnNumber,
+            transcript,
+            outcome: {
+              ok: true,
+              outcome: 'final',
+              stopReason: 'tool_terminal',
+              finalText,
+              terminalKind: 'json_result',
+              steps: 1,
+              toolCallCount: 1,
+              toolResultCount: 1,
+            },
+          });
+        }),
+    });
+    const outcome = await host.submit('submit terminal JSON');
     assert(outcome.ok);
     assertEquals(
       {
         outcome: outcome.outcome,
         stopReason: outcome.stopReason,
         finalText: outcome.finalText,
-        durability: outcome.executionArtifactDurability,
       },
       {
         outcome: 'final',
         stopReason: 'tool_terminal',
         finalText: '{"ok":true}',
-        durability: 'yes',
       },
     );
-    const stored = await artifacts.list();
+    await host.close();
+    const stored = await readIncrement170FoundationArtifacts(harness);
     assertEquals(stored.length, 1);
     assertEquals(
       {
@@ -631,24 +603,34 @@ Deno.test('terminal tool success persists and reads back its Worker execution ar
         stopReason: stored[0]?.outcome?.stopReason,
         finalText: stored[0]?.outcome?.finalText,
         terminalKind: stored[0]?.outcome?.terminalKind,
+        storeResult: stored[0]?.storeResult,
       },
       {
         outcome: 'final',
         stopReason: 'tool_terminal',
         finalText: '{"ok":true}',
         terminalKind: 'json_result',
+        storeResult: 'committed',
       },
     );
   } finally {
-    await created.close();
+    await host?.close();
+    await harness.close();
   }
 });
 
 Deno.test('headless Worker model receives each active tool guideline once', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-guidelines-foundation-',
+  });
   const result = await runHeadlessWorker(
     'return active tool guidelines',
     resolveBuiltinAgent(),
-    { physicalIoMode: 'provider-free' },
+    {
+      workspaceRoot: Deno.cwd(),
+      stateRoot: `${root}/state`,
+      physicalIoMode: 'provider-free',
+    },
   );
   assert(result.outcome.ok);
   const instruction = result.outcome.finalText ?? '';
@@ -656,6 +638,7 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
   for (const tool of ['bash_output', 'read', 'web_search']) {
     assertEquals(instruction.match(new RegExp(`- ${tool}:`, 'g'))?.length, 1);
   }
+  await Deno.remove(root, { recursive: true });
 });
 
 Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', async () => {
@@ -933,26 +916,38 @@ const runCompositionTurn = async (
   expectedMaxSteps: number,
   rootMaxSteps?: number,
 ): Promise<WorkerReadyMessage> => {
-  const capsule = new WorkerCapsule(workerUrl);
+  const harness = await createIncrement170FoundationDataHarness({
+    prefix: 'henji-composition-foundation-',
+  });
+  let host:
+    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
+    | undefined;
   try {
     const definitionPath = definitionFile === 'worker_builtin_definition.ts'
       ? new URL(
         '../../v0/agent/worker/worker_builtin_definition.ts',
         import.meta.url,
-      )
-        .pathname
+      ).pathname
       : fixture(definitionFile);
     const revision = await readWorkerModuleRevision(definitionPath);
-    const readyPromise = capsule.waitForMessage(isReady);
-    capsule.send({
-      kind: 'start',
-      correlation: correlation(`composition-${definitionFile}`),
-      module: revision,
-      workspaceRoot: Deno.cwd(),
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+    let ready: WorkerReadyMessage | undefined;
+    host = await openIncrement170FoundationHost(harness, {
+      loadDescriptor: revision,
       ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
+      capsuleFactory: (url) => {
+        const capsule = new WorkerCapsule(url);
+        return {
+          send: (command, transfer) => capsule.send(command, transfer),
+          subscribe: (listener) =>
+            capsule.subscribe((message) => {
+              if (message.kind === 'ready') ready = message;
+              listener(message);
+            }),
+          terminate: () => capsule.terminate(),
+        };
+      },
     });
-    const ready = await readyPromise;
+    assert(ready !== undefined);
     assert(ready.manifest !== undefined);
     assertEquals(ready.credentialAvailability, {
       authProfile: ready.manifest.rootModel.authProfile,
@@ -961,36 +956,14 @@ const runCompositionTurn = async (
     assertEquals(ready.manifest.maxSteps, expectedMaxSteps);
     assertEquals(ready.manifest.role, 'parent');
 
-    capsule.send({
-      kind: 'turn',
-      correlation: correlation(`turn-${definitionFile}`),
-      task: 'read worker protocol',
-    });
-    const proposal = await capsule.waitForMessage(isCommitProposal);
-    assertEquals(proposal.transcript.at(-1)?.role, 'assistant');
-    assert(
-      proposal.transcript.some((message) =>
-        isTextAssistant(message) &&
-        message.content.kind === 'text' &&
-        message.content.text.includes('worker answer: read worker protocol')
-      ),
-    );
-    capsule.send({
-      kind: 'commit_acknowledgement',
-      correlation: proposal.correlation,
-      accepted: true,
-    });
-    const terminal = await capsule.waitForMessage(isTerminalAgentRuntime);
-    assert(terminal.event.kind === 'agent_event');
-    assertEquals(terminal.event.event.kind, 'turn_end');
-    if (terminal.event.event.kind !== 'turn_end') {
-      throw new Error('turn did not end');
-    }
-    assertEquals(terminal.event.event.committed, true);
-    await capsule.close(correlation(`close-${definitionFile}`));
+    const outcome = await host.submit('read worker protocol');
+    assert(outcome.ok);
+    assert(outcome.finalText?.includes('worker answer: read worker protocol'));
+    await host.close();
     return ready;
   } finally {
-    capsule.terminate();
+    await host?.close();
+    await harness.close();
   }
 };
 
@@ -1013,7 +986,9 @@ Deno.test('Worker applies a root maxSteps request to built-in and external Defin
 });
 
 Deno.test('Worker uses the requested root maxSteps as the turn budget', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-max-steps-one-' });
   const created = await createWorkerSession({
+    stateRoot,
     persistence: 'none',
     agent: 'default',
     rootMaxSteps: 1,
@@ -1028,11 +1003,14 @@ Deno.test('Worker uses the requested root maxSteps as the turn budget', async ()
     });
   } finally {
     await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });
 
 Deno.test('Worker root request admission follows maxSteps beyond the former eight-step ceiling', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-max-steps-ten-' });
   const created = await createWorkerSession({
+    stateRoot,
     persistence: 'none',
     agent: 'default',
     rootMaxSteps: 10,
@@ -1047,142 +1025,80 @@ Deno.test('Worker root request admission follows maxSteps beyond the former eigh
     });
   } finally {
     await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });
 
 Deno.test('Slice 3 keeps effect and cancellation semantics inside the Worker generation', async () => {
-  const capsule = new WorkerCapsule(workerUrl);
+  const harness = await createIncrement170FoundationDataHarness({
+    prefix: 'henji-effect-cancel-foundation-',
+  });
+  let host:
+    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
+    | undefined;
   try {
-    const revision = await readWorkerModuleRevision(
-      new URL(
-        '../../v0/agent/worker/worker_builtin_definition.ts',
-        import.meta.url,
-      )
-        .pathname,
-    );
-    const readyPromise = capsule.waitForMessage(isReady);
-    capsule.send({
-      kind: 'start',
-      correlation: correlation('planner-start'),
-      module: revision,
-      workspaceRoot: Deno.cwd(),
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+    host = await openIncrement170FoundationHost(harness, {
+      capsuleFactory: (url) => new WorkerCapsule(url),
     });
-    await readyPromise;
+    const ordinary = await host.submit('ordinary worker turn');
+    assert(ordinary.ok);
+    assert(ordinary.finalText?.includes('worker answer: ordinary worker turn'));
 
-    capsule.send({
-      kind: 'turn',
-      correlation: correlation('planner-turn'),
-      task: 'ordinary worker turn',
-    });
-    const proposal = await capsule.waitForMessage(isCommitProposal);
-    capsule.send({
-      kind: 'commit_acknowledgement',
-      correlation: proposal.correlation,
-      accepted: true,
-    });
-    await capsule.waitForMessage(isTerminalAgentRuntime);
-    assert(
-      proposal.transcript.some((message) =>
-        isTextAssistant(message) &&
-        message.content.text.includes('worker answer: ordinary worker turn')
-      ),
-    );
-
-    capsule.send({
-      kind: 'turn',
-      correlation: correlation('cancel-turn'),
-      task: 'slow cancellation turn',
-    });
-    capsule.send({
-      kind: 'cancel',
-      correlation: correlation('cancel-command'),
-    });
-    const failed = await capsule.waitForMessage((message): message is Extract<
-      WorkerToHostMessage,
-      { kind: 'turn_failed' }
-    > => message.kind === 'turn_failed');
-    assertEquals(failed.outcome.stopReason, 'cancelled');
-    assert(!failed.outcome.ok);
+    const admission = await host.admit('slow cancellation turn');
+    assertEquals(host.cancelActiveTurn(), 'requested');
+    const cancelled = await admission.completion;
+    assertEquals(cancelled.stopReason, 'cancelled');
+    assert(!cancelled.ok);
   } finally {
-    capsule.terminate();
+    await host?.close();
+    await harness.close();
   }
 });
 
-Deno.test('Slice 3 sends long user turns directly to commit without checkpoint proposals', async () => {
-  const capsule = new WorkerCapsule(workerUrl);
-  const sessionCorrelation = compactionCorrelation('compaction-start');
+Deno.test('Slice 3 commits long user turns through Data without installing a checkpoint', async () => {
+  const harness = await createIncrement170FoundationDataHarness({
+    prefix: 'henji-long-turn-foundation-',
+  });
+  let host:
+    | Awaited<ReturnType<typeof openIncrement170FoundationHost>>
+    | undefined;
   try {
-    const revision = await readWorkerModuleRevision(
-      new URL(
-        '../../v0/agent/worker/worker_builtin_definition.ts',
-        import.meta.url,
-      )
-        .pathname,
-    );
-    const readyPromise = capsule.waitForMessage(isReady);
-    capsule.send({
-      kind: 'start',
-      correlation: sessionCorrelation,
-      module: revision,
-      workspaceRoot: Deno.cwd(),
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+    host = await openIncrement170FoundationHost(harness, {
+      capsuleFactory: (url) => new WorkerCapsule(url),
     });
-    await readyPromise;
-
-    const commitTurn = async (command: string, task: string): Promise<void> => {
-      capsule.send({
-        kind: 'turn',
-        correlation: compactionCorrelation(command),
-        task,
-      });
-      const proposal = await capsule.waitForMessage(isCommitProposal);
-      capsule.send({
-        kind: 'commit_acknowledgement',
-        correlation: proposal.correlation,
-        accepted: true,
-      });
-      const terminal = await capsule.waitForMessage(isTerminalAgentRuntime);
-      assert(terminal.event.kind === 'agent_event');
-      if (terminal.event.event.kind !== 'turn_end') {
-        throw new Error('turn did not end');
-      }
-      assertEquals(terminal.event.event.committed, true);
-    };
-    await commitTurn('compaction-turn-1', `first ${'x'.repeat(30_000)}`);
-    await commitTurn('compaction-turn-2', `second ${'y'.repeat(30_000)}`);
-
-    const heldText = 'held user turn after checkpoint';
-    capsule.send({
-      kind: 'turn',
-      correlation: compactionCorrelation('compaction-turn-3'),
-      task: heldText,
-    });
-    const proposal = await capsule.waitForMessage(isCommitProposal);
-    assert(
-      proposal.transcript.some((message) =>
-        isTextAssistant(message) && message.content.text.includes(heldText)
-      ),
-    );
-    assert(
-      proposal.transcript.some((message) =>
-        message.role === 'user' &&
-        message.content.text.includes('x'.repeat(30_000))
-      ),
-    );
-    capsule.send({
-      kind: 'commit_acknowledgement',
-      correlation: proposal.correlation,
-      accepted: true,
-    });
-    const terminal = await capsule.waitForMessage(isTerminalAgentRuntime);
-    assert(terminal.event.kind === 'agent_event');
-    if (terminal.event.event.kind !== 'turn_end') {
-      throw new Error('turn did not end');
+    const tasks = [
+      `first ${'x'.repeat(30_000)}`,
+      `second ${'y'.repeat(30_000)}`,
+      'held user turn after checkpoint',
+    ];
+    for (const task of tasks) {
+      const outcome = await host.submit(task);
+      assert(outcome.ok);
     }
-    assertEquals(terminal.event.event.committed, true);
+    assertEquals(host.currentPosition().committedTurn, 3);
+    assertEquals(host.contextSnapshot().checkpoint, undefined);
+
+    const snapshot = await harness.data.conversationSnapshot(
+      harness.descriptor.id,
+    );
+    const publicConversation = JSON.parse(
+      new TextDecoder().decode(snapshot.bytes),
+    ) as {
+      readonly entities: Readonly<
+        Record<string, {
+          readonly kind: string;
+          readonly role?: string;
+          readonly text?: string;
+        }>
+      >;
+    };
+    const userText = Object.values(publicConversation.entities)
+      .filter((entity) => entity.kind === 'message' && entity.role === 'user')
+      .map((entity) => entity.text);
+    for (const task of tasks) assert(userText.includes(task));
   } finally {
-    capsule.terminate();
+    await host?.close();
+    await harness.close();
   }
 });
 
@@ -1422,177 +1338,138 @@ Deno.test('Provider timeout on long history is attributed to the admitted user t
   assertEquals(phases, ['user_turn']);
 });
 
-Deno.test('Worker execution artifact distinguishes Host store failure from committed generation loss', async () => {
-  class FailingCommitHandle implements WorkerSessionHandle {
-    readonly id = '88888888-8888-4888-8888-888888888888';
-    readonly record = undefined;
-    readonly checkpoint = undefined;
-    commit(
-      _record: import('../../v0/agent/session/session_store.ts').StoredSessionRecord,
-    ): void {
-      throw new Error('simulated Host store failure');
-    }
-    installCheckpoint(
-      _checkpoint: import('../../v0/agent/session/session_store.ts').SemanticContextCheckpointV1,
-    ): void {
-      throw new Error('unexpected checkpoint');
-    }
-    rollback(): void {}
-    rollbackCheckpoint(): void {}
-    close(): Promise<void> {
-      return Promise.resolve();
-    }
-  }
-
-  const artifacts = new FakeWorkerExecutionArtifactStore();
-  const definition = await readDefinitionRevision(
-    workerBuiltinModulePath('default'),
-    'builtin',
-    'default',
-  );
-  const handle = new FailingCommitHandle();
-  const host = await WorkerHostSession.open({
-    handle,
-    workspaceRoot: Deno.cwd(),
-    agent: 'default',
-    definition,
-    modulePath: workerBuiltinModulePath('default'),
-    physicalIoMode: 'provider-free',
-    executionArtifactStore: artifacts,
-    toolDefinitions: await bundledToolDefinitionLoadRequests(),
-  });
-  try {
-    const outcome = await host.submit('Host store failure task');
-    assert(!outcome.ok);
-    const artifact = (await artifacts.list())[0];
-    assert(artifact !== undefined);
-    assertEquals(artifact.storeResult, 'failed');
-    assertEquals(artifact.acknowledgement, 'rejected_sent');
-    assertEquals(artifact.settlement, 'uncommitted');
-    assertEquals(artifact.automaticReplay, false);
-    assertEquals(host.currentPosition().committedTurn, 0);
-  } finally {
-    await host.close();
-  }
-});
-
-Deno.test('a failed SQLite settlement cannot advertise a persisted artifact as recallable', async () => {
-  const stateRoot = await Deno.makeTempDir({
-    prefix: 'henji-recall-settlement-',
-  });
-  const workspaceRoot = Deno.cwd();
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
-    fault: (phase) => {
-      if (phase === 'before_settlement_commit') {
-        throw new Error('simulated SQLite rollback');
-      }
-    },
-  });
-  await history.initialize();
-  const definition = await readDefinitionRevision(
-    workerBuiltinModulePath('default'),
-    'builtin',
-    'default',
-  );
-  const handle = await history.allocateWorker('default', definition);
-  let listener: ((message: WorkerToHostMessage) => void) | undefined;
-  const capsule: WorkerHostCapsule = {
-    send: (command) => {
-      if (command.kind === 'start') {
-        const rootModel = command.modelSelection ??
-          ROOT_DEFAULT_MODEL_SELECTION;
-        listener?.({
-          kind: 'ready',
-          correlation: command.correlation,
-          manifest: {
-            role: 'parent',
-            maxSteps: 8,
-            profileId: modelRouteProfileId(rootModel),
-            resources: [],
-            rootModel,
-          },
-          startupSnapshot: { skillNames: [] },
-          credentialAvailability: {
-            authProfile: rootModel.authProfile,
-            status: 'unknown',
-          },
-        });
-      } else if (command.kind === 'turn') {
-        const diagnostic = createFailureDiagnostic({
-          stage: 'response_parse',
-          code: 'response_error',
-          lane: 'parent',
-          providerRequestCount: 1,
-          turnNumber: 1,
-          modelStep: 1,
-          retryCount: 0,
-        });
-        queueMicrotask(() =>
-          listener?.({
-            kind: 'turn_failed',
-            correlation: command.correlation,
-            outcome: {
-              ok: false,
-              task: command.task,
-              outcome: 'contract_failure',
-              stopReason: 'contract_failure',
-              error: 'mock provider response invalid',
-              steps: 1,
-              toolCallCount: 0,
-              toolResultCount: 0,
-              transcript: [{
-                role: 'user',
-                content: { kind: 'text', text: command.task },
-              }],
-              diagnostic,
-            },
-            diagnostic,
-          })
-        );
-      } else if (command.kind === 'close') {
-        listener?.({ kind: 'closed', correlation: command.correlation });
-      }
-    },
-    subscribe: (next) => {
-      listener = next;
-      return () => {
-        listener = undefined;
-      };
-    },
-    terminate: () => {},
-  };
-  const host = await WorkerHostSession.open({
-    handle,
+Deno.test('Data settlement rollback keeps canonical turn and recall state uncommitted', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-recall-settlement-' });
+  const workspaceRoot = `${root}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(
+    `${root}/state`,
     workspaceRoot,
-    agent: 'default',
-    definition,
-    modulePath: workerBuiltinModulePath('default'),
-    physicalIoMode: 'provider-free',
-    executionArtifactStore: new FakeWorkerExecutionArtifactStore(),
-    historyPersistence: history,
-    durableCanonicalHistory: true,
-    toolDefinitions: await bundledToolDefinitionLoadRequests(),
-    capsuleFactory: () => capsule,
-  });
+    {
+      fault: (phase) => {
+        if (phase === 'before_settlement_commit') {
+          throw new Error('simulated SQLite rollback');
+        }
+      },
+    },
+  );
+  const writer = new ConversationWriter(store);
+  let owner: DataSessionOwner | undefined;
   try {
-    const outcome = await host.submit('failed settlement task');
-    assert(!outcome.ok);
-    assert(outcome.executionArtifactId !== undefined);
-    assertEquals(outcome.executionArtifactDurability, 'yes');
-    assertEquals(outcome.recallableExecutionId, undefined);
-    const row = history.readExecution(outcome.executionArtifactId);
-    assertEquals(row.lifecycle, 'active');
+    const definition = await builtinDefinitionRef('default', buildManifest());
+    owner = await DataSessionOwner.open({
+      store,
+      writer,
+      workspaceRoot,
+      persistence: 'new',
+      agent: 'default',
+      definition,
+    });
+    const executionId = crypto.randomUUID().toLowerCase();
+    const task = 'failed canonical settlement task';
+    const correlation = {
+      session: owner.sessionId,
+      instanceCorrelation: 'foundation-settlement-instance',
+      workerGeneration: 'foundation-settlement-generation',
+      baseStateRevision: owner.descriptor().stateRevision,
+      command: 'foundation-settlement-task',
+    };
+    await owner.admit({
+      executionId,
+      taskId: crypto.randomUUID().toLowerCase(),
+      task,
+      correlation,
+      manifest: {
+        role: 'parent',
+        maxSteps: 8,
+        profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
+        resources: [],
+        rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+      },
+    });
+    const transcript: Message[] = [
+      { role: 'user', content: { kind: 'text', text: task } },
+      {
+        role: 'assistant',
+        content: { kind: 'text', text: 'proposed answer' },
+      },
+    ];
+    const token = await owner.prepareProposal({
+      proposalId: 'foundation-settlement-proposal',
+      executionId,
+      finalDataSequence: 0,
+      message: {
+        kind: 'commit_proposal',
+        correlation,
+        transcript,
+        nextTurn: 2,
+      },
+    });
+    let settlementError: unknown;
     try {
-      await host.prepareRecall(outcome.executionArtifactId.slice(0, 8));
-      throw new Error('recall unexpectedly selected the unsettled execution');
+      owner.authorizeCommit(token, { accepted: true });
     } catch (error) {
-      assert(error instanceof WorkerRecallSelectionError);
-      assertEquals(error.code, 'unavailable');
+      settlementError = error;
     }
+    assert(
+      settlementError instanceof Error,
+      'SQLite settlement should roll back',
+    );
+
+    const row = store.readExecution(executionId);
+    assertEquals(row.lifecycle, 'active');
+    const session = await store.readWorker(owner.sessionId);
+    assertEquals(
+      {
+        nextTurn: session.nextTurn,
+        stateRevision: session.stateRevision,
+        transcript: session.transcript,
+        committedTurn: owner.authority.currentPosition().committedTurn,
+      },
+      { nextTurn: 1, stateRevision: 1, transcript: [], committedTurn: 0 },
+    );
+    assertEquals(
+      store.readExecutionMetadata(executionId).artifactCapture,
+      'none',
+    );
+    assert(
+      (await store.executionArtifacts.list()).some((artifact) =>
+        artifact.executionId === executionId
+      ),
+      'the independently derived artifact document remains unlinked after rollback',
+    );
+    let recallError: unknown;
+    try {
+      await owner.prepareRecall(executionId.slice(0, 8));
+    } catch (error) {
+      recallError = error;
+    }
+    assert(recallError instanceof DataRecallSelectionError);
+    assertEquals(recallError.code, 'not_found');
+    const sessionId = owner.sessionId;
+    await owner.close();
+    owner = await DataSessionOwner.open({
+      store,
+      writer,
+      workspaceRoot,
+      persistence: 'session',
+      sessionId,
+      agent: 'default',
+      definition: await builtinDefinitionRef('default', buildManifest()),
+    });
+    let reopenedRecallError: unknown;
+    try {
+      await owner.prepareRecall(executionId.slice(0, 8));
+    } catch (error) {
+      reopenedRecallError = error;
+    }
+    assert(reopenedRecallError instanceof DataRecallSelectionError);
+    assertEquals(reopenedRecallError.code, 'not_found');
   } finally {
-    await host.close();
-    history.close();
-    await Deno.remove(stateRoot, { recursive: true });
+    await owner?.close();
+    writer.close();
+    store.close();
+    await Deno.remove(root, { recursive: true });
   }
 });
 
@@ -1642,7 +1519,11 @@ Deno.test('TUI parses root maxSteps with agent and persistence selectors', () =>
 });
 
 Deno.test('Worker shares request accounting across turns without evidence documents', async () => {
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-request-count-foundation-',
+  });
   const created = await createWorkerSession({
+    stateRoot,
     persistence: 'none',
     agent: 'default',
     physicalIoMode: 'provider-free',
@@ -1676,5 +1557,6 @@ Deno.test('Worker shares request accounting across turns without evidence docume
     assertEquals(host.requestCount(), 0);
   } finally {
     await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });

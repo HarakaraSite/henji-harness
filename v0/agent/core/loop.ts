@@ -824,7 +824,11 @@ const runAgentTurnInternal = async (
       });
     }
     emitThinking(true, result.providerState);
-    evidence?.recordModelResult(result, steps, evidenceLane);
+    const modelResultAttribution = evidence?.recordModelResult(
+      result,
+      steps,
+      evidenceLane,
+    );
     if (result.kind === 'final') {
       evidence?.setContextRequestOrdinal(undefined);
       const assistant: AssistantMessage = {
@@ -892,11 +896,13 @@ const runAgentTurnInternal = async (
       readonly kind: 'json_result';
       readonly finalText: string;
     } | null = null;
-    for (const call of calls) {
+    for (const [callIndex, call] of calls.entries()) {
       if (signal?.aborted) return finishCancelled();
       deliverEvent(sink, { kind: 'tool_call', turn, call });
       toolCallCount += 1;
-      evidence?.recordToolCall(call, steps, evidenceLane);
+      if (modelResultAttribution !== undefined) {
+        evidence?.recordToolCall(call, callIndex, modelResultAttribution);
+      }
       if (signal?.aborted) return finishCancelled();
       if (invalidTerminalBatch) {
         const resultContent = terminalBatchError(call);
@@ -907,7 +913,9 @@ const runAgentTurnInternal = async (
           result: resultContent,
         });
         toolResultCount += 1;
-        evidence?.recordToolResult(resultContent, steps, evidenceLane);
+        if (modelResultAttribution !== undefined) {
+          evidence?.recordToolResult(resultContent, callIndex, modelResultAttribution);
+        }
         continue;
       }
       let progressFailure: EventDeliveryError | undefined;
@@ -929,7 +937,14 @@ const runAgentTurnInternal = async (
             name: call.name,
             text: progressText,
           });
-          evidence?.recordToolProgress(call, progressText, steps, evidenceLane);
+          if (modelResultAttribution !== undefined) {
+            evidence?.recordToolProgress(
+              call,
+              progressText,
+              callIndex,
+              modelResultAttribution,
+            );
+          }
         } catch (error) {
           progressFailure = error instanceof EventDeliveryError ? error : new EventDeliveryError();
           // The cancellation owner is synchronous by contract. The callback caller observes
@@ -1002,7 +1017,9 @@ const runAgentTurnInternal = async (
         result: resultContent,
       });
       toolResultCount += 1;
-      evidence?.recordToolResult(resultContent, steps, evidenceLane);
+      if (modelResultAttribution !== undefined) {
+        evidence?.recordToolResult(resultContent, callIndex, modelResultAttribution);
+      }
     }
     const toolMessage: ToolMessage = { role: 'tool', content: results };
     transcript.push(toolMessage);

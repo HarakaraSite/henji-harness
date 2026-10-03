@@ -240,7 +240,7 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const ownKeys = (value: object, keys: readonly string[]): boolean => {
   const actual = Object.keys(value);
   return actual.length === keys.length &&
-    actual.every((key, index) => key === keys[index]);
+    keys.every((key) => Object.hasOwn(value, key));
 };
 
 const validText = (value: unknown, nonEmpty = false): value is string =>

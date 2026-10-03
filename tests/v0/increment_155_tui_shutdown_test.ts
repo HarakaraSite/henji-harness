@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import { ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/server.ts';
@@ -98,7 +99,7 @@ for (const control of ['slash', 'shortcut'] as const) {
       });
       strictEqual(opened.kind, 'accepted');
       if (opened.kind !== 'accepted') throw new Error('Session open failed');
-      const id = opened.value.snapshot.session.id;
+      const id = opened.value.sessionId;
       let observerReady = false;
       other = runRemoteTui(server.url, id, {
         terminal: observer,
@@ -136,7 +137,11 @@ for (const control of ['slash', 'shortcut'] as const) {
       terminal.push('\x03');
       if (control === 'shortcut') {
         terminal.push('/help\r\r');
-        await waitFor(() => terminal.output.join('').includes('Core終了 │ /quit │ Ctrl-Q'));
+        await waitFor(() =>
+          stripVTControlCharacters(terminal.frames.at(-1)?.rows.join('\n') ?? '').includes(
+            'Stop Core │ /quit │ Ctrl-Q',
+          ) ?? false
+        );
         terminal.push('\x1b');
         terminal.push('\x11');
       } else terminal.push('/qui\t\r');

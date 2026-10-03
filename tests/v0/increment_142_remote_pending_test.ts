@@ -1,6 +1,12 @@
 import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
-import type { CoreOperationName, ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
+import type {
+  ConversationSnapshot,
+  CoreOperationName,
+  ExecutionView,
+  SessionSnapshot,
+} from '../../v0/api/contract.ts';
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import { apiStartupFixture } from './fixtures/api_startup.ts';
@@ -63,53 +69,93 @@ const snapshot = (options: {
     | 'unavailable';
   readonly currentExecution?: ExecutionView | null;
   readonly operations?: readonly CoreOperationName[];
-  readonly messages?: SessionSnapshot['conversation']['messages'];
   readonly pending?: SessionSnapshot['pending'];
-} = {}): SessionSnapshot => ({
-  schemaVersion: 1,
-  cursor: {
-    coreEpoch,
+  readonly conversationCut?: number;
+} = {}): SessionSnapshot => {
+  const entities: Record<string, ConversationEntity> = {};
+  if (options.currentExecution != null) {
+    const value = options.currentExecution;
+    const row: ConversationEntity = {
+      kind: 'execution',
+      id: `execution/${encodeURIComponent(value.executionId)}`,
+      executionId: value.executionId,
+      version: 0,
+      position: {
+        executionOrder: 0,
+        requestOrder: -1,
+        phase: -2,
+        eventOrdinal: -1,
+        itemOrdinal: 0,
+      },
+      execution: {
+        executionId: value.executionId,
+        taskId: `task/${value.executionId}`,
+        task: value.task,
+        sessionId: value.sessionId,
+        turn: value.turn,
+        createdAt: value.createdAt,
+        lifecycle: value.lifecycle,
+        outcome: value.outcome,
+        ...(value.stopReason === undefined ? {} : { stopReason: value.stopReason }),
+        ...(value.diagnostic === undefined ? {} : { diagnostic: value.diagnostic }),
+        adoption: value.adoption,
+        ...(value.committedRevision === undefined
+          ? {}
+          : { committedRevision: value.committedRevision }),
+        baseRevision: 0,
+        agent: 'default',
+        model: { provider: 'openrouter-responses', modelId: 'test/model', effort: 'high' },
+      },
+    };
+    entities[row.id] = row;
+  }
+  const conversation: ConversationSnapshot = {
+    schemaVersion: 2,
     sessionId,
-    revision: options.revision ?? 4,
-  },
-  session: {
-    id: sessionId,
-    canonicalSessionId: sessionId,
-    persistence: 'persistent',
-    position: {
+    cut: options.conversationCut ?? 1,
+    storeRevision: options.conversationCut ?? 1,
+    entities,
+    order: Object.keys(entities),
+  };
+  return {
+    schemaVersion: 2,
+    cursor: {
+      coreEpoch,
       sessionId,
-      createdAt: '2026-09-28T00:00:00.000Z',
-      title: 'Increment 142 task Session',
-      agent: 'default',
-      committedTurn: 0,
-      messageCount: options.messages?.length ?? 0,
+      revision: options.revision ?? 4,
     },
-    selection: {
-      provider: 'openrouter-responses',
-      modelId: 'test/model',
-      effort: 'high',
+    session: {
+      id: sessionId,
+      canonicalSessionId: sessionId,
+      persistence: 'persistent',
+      position: {
+        sessionId,
+        createdAt: '2026-09-28T00:00:00.000Z',
+        title: 'Increment 142 task Session',
+        agent: 'default',
+        committedTurn: 0,
+        messageCount: 0,
+      },
+      selection: {
+        provider: 'openrouter-responses',
+        modelId: 'test/model',
+        effort: 'high',
+      },
+      startup: apiStartupFixture(),
     },
-    startup: apiStartupFixture(),
-  },
-  runtime: {
-    active: options.active ?? false,
-    activeSessionId: sessionId,
-    phase: options.phase ?? 'idle',
-    execution: options.currentExecution ?? null,
-    operations: options.operations ?? ['task.submit', 'command.read'],
-  },
-  conversation: {
-    messages: options.messages ?? [],
-    tools: [],
-    thinking: [],
-    executions: options.currentExecution == null ? [] : [options.currentExecution],
-    requests: [],
-    omitted: 0,
-  },
-  pending: options.pending ?? { kind: 'core-owned', followUps: [] },
-  credentialAvailability: { status: 'unknown' },
-  context: {},
-});
+    runtime: {
+      active: options.active ?? false,
+      activeSessionId: sessionId,
+      phase: options.phase ?? 'idle',
+      execution: options.currentExecution ?? null,
+      operations: options.operations ?? ['task.submit', 'command.read'],
+    },
+    conversation,
+    pending: options.pending ?? { kind: 'core-owned', followUps: [] },
+    credentialAvailability: { status: 'unknown' },
+    context: {},
+  };
+};
 
 const coreRead = {
   apiVersion: 1,

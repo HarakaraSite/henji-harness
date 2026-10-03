@@ -1,14 +1,25 @@
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { SessionSnapshot } from '../../v0/api/contract.ts';
-import { decodeSessionStreamFrame } from '../../v0/api/codec.ts';
-import {
-  diffSessionSnapshots,
-  initialSessionClientState,
-  reduceSessionStreamFrame,
-} from '../../v0/api/reducer.ts';
+import { initialSessionClientState, reduceSessionStreamFrame } from '../../v0/api/reducer.ts';
 import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentation.ts';
 import { RemoteSystemNotices } from '../../v0/tui/system_notices.ts';
 import { createHistoryProbe, waitForHistory } from './helpers/increment_167_history_probe.ts';
+
+const entities = <K extends ConversationEntity['kind']>(
+  snapshot: SessionSnapshot,
+  kind: K,
+): Extract<ConversationEntity, { kind: K }>[] =>
+  snapshot.conversation.order.map((id) => snapshot.conversation.entities[id]).filter((
+    entity,
+  ): entity is Extract<ConversationEntity, { kind: K }> => entity.kind === kind);
+
+const presentationEntries = (snapshot: SessionSnapshot) => {
+  const client = initialSessionClientState(snapshot);
+  const update = new SnapshotConversationProjector().project(client, 'fresh');
+  new RemoteSystemNotices().sync(client, update.store, { reset: true, structureChanged: true });
+  return update.store.window(0, update.store.size);
+};
 
 Deno.test('Increment 167 entire history survives cancel, recall, later commits, SSE and Core restart', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i167-' });
@@ -23,24 +34,39 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
   const probe = await createHistoryProbe(root);
   const projector = new SnapshotConversationProjector();
   const notices = new RemoteSystemNotices();
-  let previous = await probe.client.sessionRead(probe.sessionId);
-  let state = initialSessionClientState(previous);
-  let revision = previous.cursor.revision;
-  const observe = (snapshot: SessionSnapshot) => {
-    // Exercise the real wire codec and stream reducer as well as direct snapshots.
-    const after = { ...snapshot, cursor: { ...snapshot.cursor, revision: ++revision } };
-    state = reduceSessionStreamFrame(
-      state,
-      decodeSessionStreamFrame(JSON.parse(JSON.stringify({
-        kind: 'session.update',
-        cursor: after.cursor,
-        previousRevision: revision - 1,
-        changes: diffSessionSnapshots(previous, after),
-      }))),
-    );
-    deepStrictEqual(state.snapshot, after);
-    previous = after;
-    return notices.merge(after, projector.project(after, 'scope').entries);
+  let state = initialSessionClientState(await probe.client.sessionRead(probe.sessionId));
+  const streamAbort = new AbortController();
+  let streamError: unknown;
+  const stream = (async () => {
+    try {
+      for await (
+        const frame of probe.client.sessionSubscribe(probe.sessionId, {
+          signal: streamAbort.signal,
+        })
+      ) {
+        state = reduceSessionStreamFrame(state, frame);
+        const update = projector.project(state, 'scope');
+        notices.sync(state, update.store, {
+          reset: update.reset,
+          structureChanged: update.structureChanged,
+        });
+      }
+    } catch (error) {
+      if (!streamAbort.signal.aborted) streamError = error;
+    }
+  })();
+  const observe = async (snapshot: SessionSnapshot) => {
+    await waitForHistory(() => {
+      if (streamError !== undefined) throw streamError;
+      return Promise.resolve(state.snapshot.cursor.revision >= snapshot.cursor.revision);
+    });
+    deepStrictEqual(state.snapshot.conversation, snapshot.conversation);
+    const update = projector.project(state, 'scope');
+    notices.sync(state, update.store, {
+      reset: update.reset,
+      structureChanged: update.structureChanged,
+    });
+    return update.store.window(0, update.store.size);
   };
   const submit = async (text: string, cancel = false) => {
     probe.hold(cancel);
@@ -53,11 +79,11 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
     const executionId = result.value.executionId;
     if (cancel) {
       await waitForHistory(async () =>
-        (await probe.client.sessionRead(probe.sessionId)).conversation.requests.some((item) =>
-          item.text === 'CANCELLED_PARTIAL'
+        entities(await probe.client.sessionRead(probe.sessionId), 'message').some((item) =>
+          item.role === 'assistant' && item.text === 'CANCELLED_PARTIAL'
         )
       );
-      observe(await probe.client.sessionRead(probe.sessionId));
+      await observe(await probe.client.sessionRead(probe.sessionId));
       strictEqual(
         (await probe.client.executionCancel(probe.sessionId, executionId, {
           commandId: crypto.randomUUID(),
@@ -74,7 +100,7 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
       cancel ? 'cancelled' : 'completed',
       JSON.stringify(snapshot.runtime.execution),
     );
-    return { executionId, snapshot, entries: observe(snapshot) };
+    return { executionId, snapshot, entries: await observe(snapshot) };
   };
   try {
     const first = await submit('BASELINE');
@@ -99,13 +125,13 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
       executionId: cancelled.executionId,
     });
     strictEqual(recall.kind, 'accepted');
-    observe(await probe.client.sessionRead(probe.sessionId));
+    await observe(await probe.client.sessionRead(probe.sessionId));
     notices.retain(probe.sessionId, 'recall-receipt', 'RECALL PREPARED');
     const continued = await submit('CONTINUE');
     const next = await submit('NEXT_TASK');
     strictEqual(
       cancelled.snapshot.runtime.execution?.turn,
-      continued.snapshot.conversation.executions.find((item) =>
+      entities(continued.snapshot, 'execution').map((entity) => entity.execution).find((item) =>
         item.executionId === continued.executionId
       )?.turn,
     );
@@ -115,7 +141,10 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
       continued.executionId,
       next.executionId,
     ];
-    deepStrictEqual(next.snapshot.conversation.executions.map((item) => item.executionId), order);
+    deepStrictEqual(
+      entities(next.snapshot, 'execution').map((entity) => entity.executionId),
+      order,
+    );
     deepStrictEqual([
       ...new Set(
         next.entries.filter((entry) => entry.executionId).map((entry) => entry.executionId),
@@ -137,7 +166,7 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
     }
     strictEqual(next.entries.filter((entry) => entry.kind === 'tool').length, 4);
     strictEqual(new Set(next.entries.map((entry) => entry.id)).size, next.entries.length);
-    for (const item of next.snapshot.conversation.messages.filter((item) => item.role === 'user')) {
+    for (const item of entities(next.snapshot, 'message').filter((item) => item.role === 'user')) {
       strictEqual(next.entries.find((entry) => entry.text === item.text)?.label, 'user>');
     }
     ok(
@@ -150,15 +179,13 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
     ok(lastInput.includes('BASELINE'));
     ok(lastInput.includes('CONTINUE'));
     const beforeRestart = next.snapshot;
+    streamAbort.abort();
+    await stream;
     const resumed = await probe.restart();
-    deepStrictEqual(resumed.conversation.messages, beforeRestart.conversation.messages);
-    deepStrictEqual(resumed.conversation.tools, beforeRestart.conversation.tools);
-    deepStrictEqual(resumed.conversation.thinking, beforeRestart.conversation.thinking);
+    deepStrictEqual(resumed.conversation.entities, beforeRestart.conversation.entities);
+    deepStrictEqual(resumed.conversation.order, beforeRestart.conversation.order);
     // Fresh TUI restores persisted outcomes; local recall receipt is deliberately UI-local.
-    const freshEntries = new RemoteSystemNotices().merge(
-      resumed,
-      new SnapshotConversationProjector().project(resumed, 'resumed').entries,
-    );
+    const freshEntries = presentationEntries(resumed);
     deepStrictEqual(
       freshEntries.filter((entry) => entry.executionId === cancelled.executionId),
       cancelledRows,
@@ -169,6 +196,8 @@ Deno.test('Increment 167 entire history survives cancel, recall, later commits, 
     );
     strictEqual(probe.inputs.length, 8);
   } finally {
+    streamAbort.abort();
+    await stream;
     await probe.close();
     for (const [key, value] of previousEnv) {
       if (value === undefined) Deno.env.delete(key);
@@ -198,7 +227,7 @@ Deno.test('Increment 167 stopped thinking stays at its execution boundary after 
     if (submitted.kind !== 'accepted') throw new Error('task rejected');
     const executionId = submitted.value.executionId;
     await waitForHistory(async () =>
-      (await probe.client.sessionRead(probe.sessionId)).conversation.thinking.some((item) =>
+      entities(await probe.client.sessionRead(probe.sessionId), 'thinking').some((item) =>
         item.text === 'STOPPED_THOUGHT'
       )
     );
@@ -219,10 +248,7 @@ Deno.test('Increment 167 stopped thinking stays at its execution boundary after 
         'complete'
     );
     const snapshot = await probe.client.sessionRead(probe.sessionId);
-    const entries = new RemoteSystemNotices().merge(
-      snapshot,
-      new SnapshotConversationProjector().project(snapshot, 'scope').entries,
-    );
+    const entries = presentationEntries(snapshot);
     const index = entries.findIndex((entry) => entry.text === 'STOPPED_THOUGHT');
     ok(index >= 0);
     strictEqual(entries[index].executionId, executionId);

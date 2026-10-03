@@ -10,14 +10,35 @@ import {
   type SessionTurnExecutionAttribution,
   type SessionTurnModelAttribution,
   validateSessionRecordV6,
+  type WorkerSessionHandle,
 } from '../session/session_store.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
-import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
-import type { ActiveSessionProjection } from './worker_host_types.ts';
-import type { WorkerCommitProposalMessage } from './worker_protocol.ts';
+import type { WorkerCommitProposalMessage } from '../worker/worker_protocol.ts';
+
+export interface SessionAuthorityOptions {
+  readonly handle: WorkerSessionHandle;
+  readonly workspaceRoot: string;
+  readonly agent: SessionRecord['agent'];
+  readonly definition: DefinitionRevisionRef;
+  readonly initialModelSelection?: ModelSelection;
+  readonly durableCanonicalHistory?: boolean;
+}
+
+export type ActiveSessionProjection = {
+  readonly sessionId: string;
+  transcript: Message[];
+  nextTurn: number;
+  stateRevision: number;
+  checkpoint?: SemanticContextCheckpointV1;
+  modelSelection: ModelSelection;
+  modelChanges: SessionModelChange[];
+  turnModels: SessionTurnModelAttribution[];
+  turnExecutions: SessionTurnExecutionAttribution[];
+  title: string | null;
+};
 
 /**
  * Owns the canonical Session projection: transcript, state revision, checkpoint, model selection
@@ -34,7 +55,7 @@ export class SessionAuthority {
   } | undefined;
 
   constructor(
-    private readonly options: WorkerHostSessionOptions,
+    private readonly options: SessionAuthorityOptions,
     record: SessionRecordV6 | undefined,
   ) {
     const nextTurn = record?.nextTurn ?? 1;
@@ -206,7 +227,11 @@ export class SessionAuthority {
         },
       ],
     };
-    return validateSessionRecordV6(record) ? record : undefined;
+    // Detached model state uses its execution correlation and is never a persisted Session record.
+    // The saved-record codec requires a canonical UUID and applies only to canonical Sessions.
+    return this.options.durableCanonicalHistory !== true || validateSessionRecordV6(record)
+      ? record
+      : undefined;
   }
 
   modelSelectionRecord(

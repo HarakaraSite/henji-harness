@@ -17,7 +17,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
 | S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
-| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                           |
+| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIのF1 helpとCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
@@ -35,6 +35,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A23 | Agent実行      | `run_typescript`でファイル操作を含む小処理をHenji内で実行                    | 利用者が対象用途・実行条件の具体化や利用価値検証を指示するとき                                                         |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
+| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -152,8 +153,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   workspaceパス補完の廃止判断をこの候補で取り消さず、既存処理を将来用に残す要件とも扱わない。
 - 再検討条件: 人間がファイル内容等をmodel turnなしでcontextへ入れたい実例があり、
   利用者が必要性を判断してこの候補を個別Incrementへ採用するとき。
-- 関連:
-  [Increment 159](../increments/increment-159.md)、
+- 関連: [Increment 159](../increments/increment-159.md)、
   [Pi／Zot参照実装比較](../research/pi-zot-command-surface-comparison.md)、
   P9（画像入力は別候補）。今回のフッター・ショートカット整理では実装しない。
 
@@ -419,8 +419,8 @@ Pi／OpenCode／Henjiの画面表示比較
 - 利用者指示（2026-09-27）: 今回はアイデアのメモのみ。runtime通知・地域設定の実装は未指示。
 - 再検討条件: 個別Incrementへ採用するとき。実際に通知が報告・作業継続の判断に使われるかを
   通常利用で確認する。
-- 関連: A18、A11、S4、E3、`v0/agent/core/loop.ts`、
-  `v0/agent/worker/worker_runtime.ts`のrequest projection・context attribution。
+- 関連: A18、A11、S4、E3、`v0/agent/core/loop.ts`、 `v0/agent/worker/worker_runtime.ts`のrequest
+  projection・context attribution。
 
 ### A21 — 1ターン内でsteeringを複数回受け付ける
 
@@ -534,6 +534,28 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 決まったタイミングで実行したい具体的な処理が通常利用で必要になったとき、
   または利用者がhookの検討を再開するとき。
 - 関連: A5（ambient情報）、A11（instructionの与え方）、E2（追加resource kind）。
+
+### A27 — providerの一時的な応答中断に対する自動再試行（未採用）
+
+- 利用者判断（2026-10-01）: 常に停止するわけではないため、当面は`/recall`で対処する。
+  自動再試行は将来の候補としてメモに留める。採用・実装は未指示。
+- 観測: Session `e71f582a`の4ターン目で、`opencode-go-chat / mimo-v2.6-pro`の回答が途中で
+  終了し、HTTP 200のまま`stream_ended_before_done`／`provider response invalid`となった。
+  保存入力をproduction adapterで再送する1 requestのprobeでは、約40秒で`finish_reason: stop`と
+  `[DONE]`を受信し正常完了した。中断の発生箇所がprovider・gateway・通信経路のどれかは未確定。
+  局所probeの証拠は`.tools/provider-stream-eof-probe/report.json`。
+- 現行経路と比較: HenjiのChat経路はHTTP 5xxを最大2回再試行するが、今回のHTTP 200後の中断は
+  そのままターン失敗となる。Piは途中終了等を分類して既定3回、OpenCodeは再試行可能なエラーを
+  最大5回再試行する。参照は10月1日更新のsnapshotにある
+  `_refs/pi/packages/ai/src/utils/retry.ts`と`_refs/opencode/packages/opencode/src/session/retry.ts`。
+- トークン量: 今回の再送は入力30,878、出力1,533（推論661を含む）、cached 0だった。
+  同規模で3回再試行すれば、キャッシュなしの追加入力だけで約9.3万tokenとなる。
+  recallの準備自体はproviderを呼ばないが、次のtaskには通常履歴と参照JSONを送るため、
+  recallによる継続1回が再試行1回より少ないtokenで済むとは限らない。
+- 候補: 確認された一時的な中断に対し、完了済みtool結果を保持して失敗したmodel requestだけを
+  再試行する。途中回答を次のmodel入力へ混ぜない処理、再試行の対象・回数・待ち時間・表示は採用時に
+  決める。raw応答の常設保存は候補に含めず、必要な調査時だけ別probeで取得する。
+- 再検討条件: recallでの手動継続が通常利用の負担になる、または利用者が検討の再開を指示するとき。
 
 ## F24・自己改訂
 
@@ -839,3 +861,17 @@ Pi／OpenCode／Henjiの画面表示比較
   [`increment-85.md`](../increments/increment-85.md)、[`increment-94.md`](../increments/increment-94.md)、
   [`increment-97.md`](../increments/increment-97.md)、`v0/agent/worker/worker_host_authority.ts`、
   `v0/agent/worker/worker_host_coordinator.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`。
+
+### B6 — ChatGPT account未登録時にprovider一覧全体を取得できない
+
+- 観測（2026-10-03、Increment 170の隔離HTTP確認中）: ChatGPT accountを登録していない
+  configで`catalog.read(kind=providers)`がHTTP 500となる。Coreの直接呼出しでは
+  `LiveModelCatalogError: credential_unavailable`を確認した。実provider requestは使っていない。
+- 現行経路: Coreは全providerの`defaultEffort`を`Promise.all`で取得し、openai-chatgptだけは
+  `LiveModelCatalog.#catalogRegistrationId`で選択accountがないと例外になる。API-key providerの
+  model選択にも必要なprovider一覧全体が失敗する。該当処理は170の変更前から存在する。
+- 170では未採用・未修正。144のfocused testはAPI-key catalogの対象providerに限定して確認した。
+- 対応候補: 未登録providerも一覧で選択でき、認証が必要な操作で登録へ進めるようにする。
+  provider一覧やmodel選択が通常利用で失敗する、または利用者がこの修正を採用するときに検討する。
+- 関連: `v0/agent/host/core_service.ts`の`catalogRead`、
+  `v0/agent/provider/live_model_catalog.ts`の`defaultEffort`／`#catalogRegistrationId`。

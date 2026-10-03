@@ -1,3 +1,4 @@
+import type { ConversationSnapshot } from '../../v0/api/contract.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
@@ -157,22 +158,23 @@ Deno.test('Increment 137 Responses notes settle before later thinking and surviv
       physicalIoMode: 'production',
       providerDeclarations: declarations,
     });
-    assert(resumed.restored !== undefined);
-    const restoredAssistants = resumed.restored.messages.filter((entry) =>
-      entry.role === 'assistant'
+    const encoded = await resumed.data.conversationSnapshot(sessionId);
+    const conversation: ConversationSnapshot = JSON.parse(new TextDecoder().decode(encoded.bytes));
+    const ordered = conversation.order.map((id) => conversation.entities[id]);
+    assertEquals(
+      ordered.filter((entry) => entry.kind === 'message' && entry.role === 'assistant')
+        .map((entry) => entry.kind === 'message' ? entry.text : null),
+      ['I will read the marker.', 'Done.'],
     );
     assertEquals(
-      restoredAssistants.map((entry) => {
-        if ('kind' in entry.content) return entry.content.text;
-        return entry.text ?? null;
-      }),
-      ['I will read the marker.', null, 'Done.'],
+      ordered.filter((entry) => entry.kind === 'thinking')
+        .map((entry) => entry.kind === 'thinking' ? entry.text : null),
+      [
+        'Thinking 1.',
+        'Thinking 2.',
+        'Thinking 3.',
+      ],
     );
-    assertEquals(resumed.restored.thinking.map((entry) => entry.text), [
-      'Thinking 1.',
-      'Thinking 2.',
-      'Thinking 3.',
-    ]);
     assert(inputs.length === 3, 'restoring the Session must not make a model request');
   } finally {
     await resumed?.close();

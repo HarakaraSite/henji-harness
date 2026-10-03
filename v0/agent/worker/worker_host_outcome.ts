@@ -124,7 +124,7 @@ export const diagnosticPersistenceCodes: readonly FailureDiagnosticPersistenceEr
 
 export const turnEndFromOutcome = (
   turn: number,
-  outcome: LoopOutcome,
+  outcome: Omit<LoopOutcome, 'transcript'>,
   committed: boolean,
 ): AgentEvent => ({
   kind: 'turn_end',

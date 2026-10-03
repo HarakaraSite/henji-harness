@@ -1,3 +1,4 @@
+import { Increment170FoundationDataPortAgent } from './helpers/increment_170_foundation_data.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import {
@@ -7,17 +8,11 @@ import {
 } from '../../v0/agent/provider/openrouter_model.ts';
 import {
   OPENROUTER_MODEL_CATALOG,
-  ROOT_DEFAULT_MODEL_SELECTION,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
-import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
-import type {
-  WorkerHostCommand,
-  WorkerToHostMessage,
-} from '../../v0/agent/worker/worker_protocol.ts';
+import type { WorkerHostCommand } from '../../v0/agent/worker/worker_protocol.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
 import {
   createUiState,
@@ -143,57 +138,28 @@ Deno.test('Increment 13 preserves provider_timeout when an aborted SSE body reje
 });
 
 Deno.test('Increment 13 sends the configured provider deadline across the Host Worker boundary', async () => {
-  class CaptureCapsule implements WorkerHostCapsule {
-    private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
-    start?: Extract<WorkerHostCommand, { readonly kind: 'start' }>;
+  class CaptureCapsule extends Increment170FoundationDataPortAgent {
+    startCommand?: Extract<WorkerHostCommand, { readonly kind: 'start' }>;
 
-    send(command: WorkerHostCommand): void {
-      if (command.kind === 'start') {
-        this.start = command;
-        this.emit({
-          kind: 'ready',
-          correlation: command.correlation,
-          manifest: {
-            role: 'parent',
-            maxSteps: 128,
-            profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
-            resources: [],
-            rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-            ...(command.baseInstruction === undefined ? {} : {
-              baseInstruction: {
-                slot: command.baseInstruction.slot,
-                selectionSource: command.baseInstruction.selectionSource,
-                ref: command.baseInstruction.ref,
-                contentDigest: command.baseInstruction.contentDigest,
-              },
-            }),
-          },
-          startupSnapshot: { skillNames: [] },
-          credentialAvailability: {
-            authProfile: 'openrouter-api-key',
-            status: 'unknown',
-          },
-        });
-      } else if (command.kind === 'close') {
-        this.emit({ kind: 'closed', correlation: command.correlation });
-      }
+    constructor() {
+      super(() => {
+        throw new Error('This startup probe does not submit a turn');
+      });
     }
 
-    subscribe(listener: (message: WorkerToHostMessage) => void): () => void {
-      this.listeners.add(listener);
-      return () => this.listeners.delete(listener);
-    }
-
-    terminate(): void {}
-
-    private emit(message: WorkerToHostMessage): void {
-      for (const listener of this.listeners) listener(message);
+    override send(command: WorkerHostCommand, transfer?: Transferable[]): void {
+      if (command.kind === 'start') this.startCommand = command;
+      super.send(command, transfer);
     }
   }
 
+  const root = await Deno.makeTempDir({ prefix: 'henji-i170-provider-deadline-' });
   const capsule = new CaptureCapsule();
   const created = await createWorkerSession({
-    workspaceRoot: Deno.cwd(),
+    workspaceRoot: root,
+    stateRoot: `${root}/state`,
+    configRoot: `${root}/config`,
+    dataRoot: `${root}/data`,
     persistence: 'none',
     agent: 'default',
     physicalIoMode: 'provider-free',
@@ -201,9 +167,10 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
     capsuleFactory: () => capsule,
   });
   try {
-    assertEquals(capsule.start?.providerTimeoutMs, 180_000);
+    assertEquals(capsule.startCommand?.providerTimeoutMs, 180_000);
   } finally {
     await created.close();
+    await Deno.remove(root, { recursive: true });
   }
 });
 

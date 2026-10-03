@@ -3,11 +3,14 @@ import {
   type DataValue,
   parseWorkerHostCommand,
   type WorkerAsyncAgentCatalogEntry,
+  type WorkerChildProgressMessage,
   type WorkerCorrelation,
   type WorkerDefinitionLoadRequest,
+  type WorkerEffectObservation,
   type WorkerHostCommand,
   type WorkerManagedClosureFileRequest,
   type WorkerModuleRevisionRequest,
+  type WorkerReadyMessage,
   type WorkerRuntimeEvent,
   type WorkerToHostMessage,
 } from './worker_protocol.ts';
@@ -47,6 +50,8 @@ import {
 import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
 import { recordWorkerStage, type WorkerStageName } from './worker_stage_probe.ts';
 import { TurnCancelledError } from '../core/cancellation.ts';
+import { createAgentDataPortClient } from '../data/agent_data_client.ts';
+import type { AgentDataPortClient } from '../data/agent_data_contract.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -60,9 +65,17 @@ const scope = globalThis as unknown as WorkerScope;
 let eventSequence = 0;
 let activeCorrelation: WorkerCorrelation | undefined;
 let processExecutor: WorkerProcessExecutor | undefined;
-let processContext: { correlation: WorkerCorrelation; executionId?: string } | undefined;
+let processContext:
+  | { correlation: WorkerCorrelation; executionId?: string }
+  | undefined;
 let generation: WorkerGeneration | undefined;
 let diagnosticStageBuffer: SharedArrayBuffer | undefined;
+let auxiliaryStageGapMs: number | undefined;
+let agentDataClient: AgentDataPortClient | undefined;
+const preparingTurns = new Map<
+  string,
+  { readonly correlation: WorkerCorrelation; cancelRequested: boolean }
+>();
 
 const reportAuxiliaryStage = (
   stage: WorkerStageName,
@@ -98,6 +111,110 @@ const runtimeEvent = (
   return eventSequence;
 };
 
+const requireAgentDataClient = (): AgentDataPortClient => {
+  if (agentDataClient === undefined) {
+    throw new Error('Agent Data port is required for Worker generation data');
+  }
+  return agentDataClient;
+};
+
+const postChildProgress = (
+  correlation: WorkerCorrelation,
+  progress: WorkerChildProgressMessage['progress'],
+): void => {
+  if (correlation.command !== 'async-child') return;
+  post({ kind: 'child_progress', correlation, progress });
+};
+
+const childProgressFromEffect = (
+  effect: WorkerEffectObservation,
+): WorkerChildProgressMessage['progress'] => {
+  const requestCoordinates = effect.requestKey === undefined ? {} : {
+    modelStep: effect.requestKey.modelStep,
+    ...(effect.requestKey.requestOrdinal === undefined ? {} : {
+      requestOrdinal: effect.requestKey.requestOrdinal,
+    }),
+  };
+  if (effect.kind === 'tool_call') {
+    return {
+      phase: 'tool',
+      ...requestCoordinates,
+      lastTool: {
+        name: effect.call.name,
+        callId: effect.call.callId,
+        state: 'running',
+      },
+    };
+  }
+  if (effect.kind === 'tool_progress') {
+    return {
+      phase: 'tool',
+      ...requestCoordinates,
+      lastTool: {
+        name: effect.name,
+        callId: effect.callId,
+        state: 'running',
+      },
+    };
+  }
+  return {
+    phase: 'between_steps',
+    ...requestCoordinates,
+    lastTool: {
+      name: effect.result.name,
+      callId: effect.result.callId,
+      state: 'completed',
+      outcome: effect.result.outcome,
+    },
+  };
+};
+
+const generationRuntimeEvent = (
+  correlation: WorkerCorrelation,
+  event: WorkerRuntimeEvent,
+): number => {
+  eventSequence += 1;
+  const message = {
+    kind: 'runtime_event' as const,
+    correlation,
+    sequence: eventSequence,
+    event,
+  };
+  requireAgentDataClient().observation(message);
+  if (
+    event.kind === 'agent_event' && event.event.kind === 'steering_message'
+  ) {
+    post({
+      kind: 'steering_applied',
+      correlation,
+      sequence: eventSequence,
+      text: event.event.message.content.text,
+    });
+  }
+  return eventSequence;
+};
+
+const sendRequestCount = (
+  correlation: WorkerCorrelation,
+  outcome: import('../core/contracts.ts').LoopOutcome,
+): void => {
+  eventSequence += 1;
+  post({
+    kind: 'request_count',
+    correlation,
+    sequence: eventSequence,
+    ...(processContext?.executionId === undefined
+      ? {}
+      : { executionId: processContext.executionId }),
+    ...(outcome.turnProviderRequestCount === undefined ? {} : {
+      turnProviderRequestCount: outcome.turnProviderRequestCount,
+    }),
+    ...(outcome.runtimeProviderRequestCount === undefined ? {} : {
+      runtimeProviderRequestCount: outcome.runtimeProviderRequestCount,
+    }),
+  });
+};
+
 const withDigestQuery = (specifier: string, digest: string): string =>
   `${specifier}${specifier.includes('?') ? '&' : '?'}sha256=${digest}`;
 
@@ -114,6 +231,8 @@ const acknowledgementKey = (
   correlation: WorkerCorrelation,
 ): string =>
   `${kind}:${correlation.session}:${correlation.workerGeneration}:${correlation.command}`;
+
+const preparingTurnKey = (correlation: WorkerCorrelation): string => JSON.stringify(correlation);
 
 const sameCorrelation = (
   left: WorkerCorrelation,
@@ -245,7 +364,7 @@ const loadVerifiedModule = async (
 const waitForAcknowledgement = (
   kind: 'commit' | 'checkpoint',
   correlation: WorkerCorrelation,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<boolean> => {
   const key = acknowledgementKey(kind, correlation);
   return new Promise<boolean>((resolve) => {
@@ -254,30 +373,72 @@ const waitForAcknowledgement = (
       if (settled) return;
       settled = true;
       acknowledgements.delete(key);
-      signal.removeEventListener('abort', onAbort);
+      signal?.removeEventListener('abort', onAbort);
       resolve(accepted);
     };
     const onAbort = (): void => finish(false);
     acknowledgements.set(key, { correlation, finish });
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+};
+
+const awaitCheckpointAcknowledgement = (
+  acknowledgement: Promise<boolean>,
+  signal: AbortSignal,
+): Promise<boolean> => {
+  if (signal.aborted) {
+    void acknowledgement.catch(() => {});
+    return Promise.resolve(false);
+  }
+  return new Promise<boolean>((resolve, reject) => {
+    let settled = false;
+    const finish = (accepted: boolean): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      resolve(accepted);
+    };
+    const onAbort = (): void => finish(false);
     signal.addEventListener('abort', onAbort, { once: true });
+    acknowledgement.then(finish, (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      reject(error);
+    });
   });
 };
 
 const makeGenerationPort = (): WorkerGenerationPort => ({
-  runtimeEvent: (correlation, event) =>
-    runtimeEvent(correlation, {
+  runtimeEvent: (correlation, event) => {
+    const sequence = generationRuntimeEvent(correlation, {
       kind: 'agent_event',
       event,
-    }),
+    });
+    if (event.kind === 'turn_start') {
+      postChildProgress(correlation, { phase: 'model' });
+    } else if (event.kind === 'assistant_thinking') {
+      postChildProgress(correlation, {
+        phase: 'model',
+        modelStep: event.modelStep,
+        ...(event.requestKey?.requestOrdinal === undefined ? {} : {
+          requestOrdinal: event.requestKey.requestOrdinal,
+        }),
+      });
+    }
+    return sequence;
+  },
   effectObservation: (correlation, effect) => {
     eventSequence += 1;
-    post({
+    const sequence = eventSequence;
+    requireAgentDataClient().observation({
       kind: 'effect_observation',
       correlation,
-      sequence: eventSequence,
+      sequence,
       effect,
     });
-    return eventSequence;
+    postChildProgress(correlation, childProgressFromEffect(effect));
+    return sequence;
   },
   providerObservation: (
     correlation: WorkerCorrelation,
@@ -289,14 +450,65 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       reportAuxiliaryStage('provider_start_post_entered', nextSequence);
     }
     eventSequence = nextSequence;
-    post({
+    requireAgentDataClient().observation({
       kind: 'provider_observation',
       correlation,
       sequence: eventSequence,
       turn,
       observation,
     });
+    if (observation.kind === 'runtime_event') {
+      const event = observation.event;
+      if (event.kind === 'tool_call') {
+        postChildProgress(correlation, {
+          phase: 'tool',
+          modelStep: event.modelStep,
+          ...(event.requestOrdinal === undefined ? {} : {
+            requestOrdinal: event.requestOrdinal,
+          }),
+          lastTool: {
+            name: event.call.name,
+            callId: event.call.callId,
+            state: 'running',
+          },
+        });
+      } else if (event.kind === 'tool_progress') {
+        postChildProgress(correlation, {
+          phase: 'tool',
+          modelStep: event.modelStep,
+          ...(event.requestOrdinal === undefined ? {} : {
+            requestOrdinal: event.requestOrdinal,
+          }),
+          lastTool: {
+            name: event.name,
+            callId: event.callId,
+            state: 'running',
+          },
+        });
+      } else if (event.kind === 'tool_result') {
+        postChildProgress(correlation, {
+          phase: 'between_steps',
+          modelStep: event.modelStep,
+          ...(event.requestOrdinal === undefined ? {} : {
+            requestOrdinal: event.requestOrdinal,
+          }),
+          lastTool: {
+            name: event.result.name,
+            callId: event.result.callId,
+            state: 'completed',
+            outcome: event.result.outcome,
+          },
+        });
+      }
+    }
     if (observation.kind === 'request_start') {
+      post({
+        kind: 'request_started',
+        correlation,
+        sequence: eventSequence,
+        requestOrdinal: observation.request.ordinal,
+        modelStep: observation.request.modelStep,
+      });
       reportAuxiliaryStage('provider_start_post_returned', eventSequence);
     }
     return eventSequence;
@@ -307,7 +519,7 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       reportAuxiliaryStage('aux_context_post_entered', nextSequence);
     }
     eventSequence = nextSequence;
-    post({
+    requireAgentDataClient().observation({
       kind: 'context_observation',
       correlation,
       sequence: eventSequence,
@@ -318,22 +530,36 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     }
     return eventSequence;
   },
-  checkpointProposal: async (correlation, proposal, signal) => {
-    post(proposal);
-    return await waitForAcknowledgement('checkpoint', correlation, signal);
+  checkpointProposal: async (_correlation, proposal, signal) => {
+    return await awaitCheckpointAcknowledgement(
+      requireAgentDataClient().checkpoint(proposal),
+      signal,
+    );
   },
-  commitProposal: async (correlation, proposal, signal) => {
-    post(proposal);
-    return await waitForAcknowledgement('commit', correlation, signal);
+  commitProposal: async (correlation, proposal, _signal) => {
+    if (proposal.outcome !== undefined) {
+      sendRequestCount(correlation, proposal.outcome);
+    }
+    const barrier = requireAgentDataClient().sendProposal(proposal);
+    post({ kind: 'proposal_ready', ...barrier });
+    return await waitForAcknowledgement('commit', correlation);
   },
-  turnFailed: (correlation, outcome, contextManifest) =>
-    post({
+  turnFailed: (correlation, outcome, contextManifest) => {
+    sendRequestCount(correlation, outcome);
+    const executionId = processContext?.executionId;
+    if (executionId === undefined) {
+      throw new Error('Worker execution id is required for Agent Data failure');
+    }
+    const barrier = requireAgentDataClient().sendFailure({
       kind: 'turn_failed',
       correlation,
       outcome,
       ...(contextManifest === undefined ? {} : { contextManifest }),
       ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
-    }),
+    });
+    post({ kind: 'failure_ready', executionId, ...barrier });
+  },
+  turnSettled: (correlation) => post({ kind: 'turn_settled', correlation }),
 });
 
 const createGeneration = async (
@@ -385,7 +611,10 @@ const createGeneration = async (
     },
     generate: (request, options) => rootModel.generate(request, options),
   };
-  processExecutor = new WorkerProcessExecutor(post, () => processContext ?? { correlation });
+  processExecutor = new WorkerProcessExecutor(
+    post,
+    () => processContext ?? { correlation },
+  );
   const routedPhysicalIo = {
     processExecutor,
     ...physicalIo,
@@ -579,6 +808,42 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       diagnosticStageBuffer = command.diagnosticStageBuffer instanceof SharedArrayBuffer
         ? command.diagnosticStageBuffer
         : undefined;
+      auxiliaryStageGapMs = command.auxiliaryStageGapMs;
+      agentDataClient?.close();
+      agentDataClient = command.dataPort === undefined
+        ? undefined
+        : createAgentDataPortClient(command.dataPort);
+      const startsGeneration = command.module !== undefined &&
+        command.workspaceRoot !== undefined;
+      if (startsGeneration && agentDataClient === undefined) {
+        post({
+          kind: 'worker_error',
+          correlation: command.correlation,
+          stage: 'composition',
+          message: 'Agent Data port is required for Worker generation startup',
+        });
+        return;
+      }
+      let generationBasis:
+        | Awaited<
+          ReturnType<AgentDataPortClient['generationContext']>
+        >
+        | undefined;
+      if (startsGeneration) {
+        try {
+          generationBasis = await requireAgentDataClient().generationContext(
+            command.correlation,
+          );
+        } catch (error) {
+          post({
+            kind: 'worker_error',
+            correlation: command.correlation,
+            stage: 'composition',
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+      }
       let module: Awaited<ReturnType<typeof loadVerifiedModule>> | undefined;
       const loadedTools: AgentToolDefinitionModule[] = [];
       if (command.module !== undefined) {
@@ -620,6 +885,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         module !== undefined
       ) {
         try {
+          if (generationBasis === undefined) {
+            throw new Error('Agent Data generation context is unavailable');
+          }
           setActiveProviderDeclarations(command.providerDeclarations ?? []);
           workerGeneration = await createGeneration(
             command.correlation,
@@ -629,16 +897,16 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.physicalIoMode ?? 'provider-free',
             command.rootMaxSteps,
             command.providerTimeoutMs,
-            command.initialTranscript,
-            command.nextTurn,
-            command.checkpoint,
-            command.modelSelection,
+            generationBasis.initialTranscript,
+            generationBasis.nextTurn,
+            generationBasis.checkpoint,
+            generationBasis.modelSelection,
             command.baseInstruction,
             command.providerDeclarations ?? [],
             loadedTools,
             command.asyncAgents ?? [],
             command.toolFilter,
-            command.privateStateFromTurn,
+            generationBasis.privateStateFromTurn,
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -654,7 +922,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       generation = workerGeneration;
       const credentialAvailability = await workerGeneration
         ?.rootCredentialAvailability();
-      post({
+      const ready: WorkerReadyMessage = {
         kind: 'ready',
         correlation: command.correlation,
         ...(command.module === undefined || module === undefined ? {} : {
@@ -673,6 +941,30 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           ? {}
           : { startupSnapshot: workerGeneration.startupSnapshot }),
         ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
+      };
+      if (workerGeneration !== undefined && agentDataClient !== undefined) {
+        try {
+          await agentDataClient.ready(ready);
+        } catch (error) {
+          post({
+            kind: 'worker_error',
+            correlation: command.correlation,
+            stage: 'composition',
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+      }
+      post({
+        ...ready,
+        ...(ready.startupSnapshot === undefined ? {} : {
+          startupSnapshot: {
+            ...(ready.startupSnapshot.instructionSource === undefined ? {} : {
+              instructionSource: ready.startupSnapshot.instructionSource,
+            }),
+            skillNames: ready.startupSnapshot.skillNames,
+          },
+        }),
       });
       return;
     }
@@ -686,6 +978,27 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       const credentialAvailability = accepted
         ? await generation?.rootCredentialAvailability()
         : undefined;
+      if (
+        accepted && generation !== undefined && agentDataClient !== undefined
+      ) {
+        try {
+          await agentDataClient.ready({
+            kind: 'ready',
+            correlation: command.correlation,
+            manifest: generation.manifest,
+            startupSnapshot: generation.startupSnapshot,
+            ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
+          });
+        } catch (error) {
+          post({
+            kind: 'worker_error',
+            correlation: command.correlation,
+            stage: 'worker_command',
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+      }
       post({
         kind: 'model_selected',
         correlation: command.correlation,
@@ -695,7 +1008,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       });
       return;
     }
-    case 'turn':
+    case 'turn': {
       if (generation === undefined) {
         post({
           kind: 'worker_error',
@@ -705,28 +1018,78 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         });
         return;
       }
-      processContext = { correlation: command.correlation, executionId: command.executionId };
+      if (agentDataClient === undefined || command.executionId === undefined) {
+        post({
+          kind: 'worker_error',
+          correlation: command.correlation,
+          stage: 'worker_command',
+          message: 'Worker generation requires an execution id and Agent Data port',
+        });
+        return;
+      }
+      const dataClient = agentDataClient;
+      const preparationKey = preparingTurnKey(command.correlation);
+      const preparation = {
+        correlation: command.correlation,
+        cancelRequested: false,
+      };
+      preparingTurns.set(preparationKey, preparation);
+      processContext = {
+        correlation: command.correlation,
+        executionId: command.executionId,
+      };
       try {
+        const generationBasis = await dataClient.generationContext(
+          command.correlation,
+        );
+        dataClient.beginExecution(
+          command.executionId,
+          command.correlation,
+          diagnosticStageBuffer,
+          auxiliaryStageGapMs,
+        );
+        preparingTurns.delete(preparationKey);
         await generation.runTurn(
           command.correlation,
           command.task,
-          command.recalledContext,
+          generationBasis.recalledContext,
           command.chatgptRegistrationId,
+          generationBasis,
+          preparation.cancelRequested,
         );
+      } catch (error) {
+        post({
+          kind: 'worker_error',
+          correlation: command.correlation,
+          stage: 'turn',
+          message: error instanceof Error ? error.message : String(error),
+        });
       } finally {
+        preparingTurns.delete(preparationKey);
         processContext = undefined;
       }
       return;
+    }
     case 'steer':
       generation?.steerActiveTurn(command.text);
       return;
     case 'cancel': {
-      const result = generation?.cancelActiveTurn() ?? 'idle';
+      const observedAt = new Date().toISOString();
+      const preparation = preparingTurns.get(
+        preparingTurnKey(command.correlation),
+      );
+      const result = preparation !== undefined &&
+          sameCorrelation(preparation.correlation, command.correlation)
+        ? preparation.cancelRequested
+          ? 'already_requested'
+          : (preparation.cancelRequested = true, 'requested')
+        : generation?.cancelActiveTurn() ?? 'idle';
       eventSequence += 1;
       post({
         kind: 'cancel_received',
         correlation: command.correlation,
         sequence: eventSequence,
+        observedAt,
         result,
       });
       return;
@@ -798,6 +1161,8 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       generation?.cancelActiveTurn();
       await processExecutor?.close();
       await generation?.close();
+      agentDataClient?.close();
+      agentDataClient = undefined;
       post({ kind: 'closed', correlation: command.correlation });
       scope.close();
       return;
@@ -818,6 +1183,8 @@ scope.onmessage = (event: MessageEvent<unknown>): void => {
 };
 
 scope.onerror = (event: ErrorEvent): boolean => {
+  agentDataClient?.close();
+  agentDataClient = undefined;
   post({
     kind: 'worker_error',
     ...(activeCorrelation === undefined ? {} : { correlation: activeCorrelation }),

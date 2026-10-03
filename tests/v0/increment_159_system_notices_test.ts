@@ -1,383 +1,265 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import type { ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
+import type {
+  ConversationEntity,
+  ConversationExecutionMetadata,
+} from '../../v0/conversation/model.ts';
+import { KeyedConversationStore } from '../../v0/tui/keyed_conversation_store.ts';
 import { RemoteSystemNotices } from '../../v0/tui/system_notices.ts';
 import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentation.ts';
 import { freezeUiLogEntry, type UiLogEntry } from '../../v0/tui/state.ts';
 import { TuiRenderer } from '../../v0/tui/tui_renderer.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
-import { apiStartupFixture } from './fixtures/api_startup.ts';
+import { conversationPosition, tuiClientState, tuiSnapshot } from './tui_entity_fixture.ts';
 
-const entry = (id: string, text: string, label = 'user>'): UiLogEntry =>
-  freezeUiLogEntry({
-    id,
-    kind: 'user',
-    label,
-    text,
-    revision: 0,
-    live: false,
-    executionId: 'execution-a',
-    turn: 1,
-  });
-const execution = (outcome: ExecutionView['outcome']): ExecutionView => ({
-  executionId: 'execution-a',
-  sessionId: 'session-a',
+const executionId = 'execution-a';
+const executionMetadata = (
+  outcome: ConversationExecutionMetadata['outcome'],
+  diagnostic?: ConversationExecutionMetadata['diagnostic'],
+): ConversationExecutionMetadata => ({
+  executionId,
+  taskId: 'task-a',
   task: 'test task',
+  sessionId: 'tui-entity-session',
   turn: 1,
   createdAt: '2026-09-29T00:00:00Z',
-  lifecycle: 'settled',
+  lifecycle: outcome === 'unknown' ? 'active' : 'settled',
   outcome,
+  ...(diagnostic === undefined ? {} : { diagnostic }),
   adoption: 'non_canonical',
-  processSettlement: 'complete',
-  requestCount: 1,
-  durability: {
-    acknowledgement: 'durable',
-    generationAvailability: 'available',
-    diagnosticCapture: 'durable',
-    artifactCapture: 'none',
-    contextCapture: 'none',
-  },
+  baseRevision: 1,
+  agent: 'default',
+  model: null,
 });
-const snapshot = (sessionId = 'session-a'): SessionSnapshot => ({
-  schemaVersion: 1,
-  cursor: { coreEpoch: 'core', sessionId, revision: 1 },
-  session: {
-    id: sessionId,
-    canonicalSessionId: sessionId,
-    persistence: 'persistent',
-    position: {
-      sessionId,
-      createdAt: '2026-09-29T00:00:00Z',
-      agent: 'default',
-      committedTurn: 1,
-      messageCount: 1,
-    },
-    selection: { provider: 'test', modelId: 'test/model', effort: 'auto' },
-    startup: apiStartupFixture(),
-  },
-  runtime: {
-    active: false,
-    activeSessionId: sessionId,
-    phase: 'idle',
-    execution: null,
-    operations: ['task.submit'],
-  },
-  conversation: { messages: [], tools: [], thinking: [], executions: [], requests: [], omitted: 0 },
-  pending: { kind: 'core-owned', followUps: [] },
-  credentialAvailability: { status: 'present' },
-  context: {},
+const task: ConversationEntity = {
+  kind: 'message',
+  id: 'task-a',
+  executionId,
+  turn: 1,
+  version: 0,
+  position: conversationPosition(0, -1, -1),
+  role: 'user',
+  text: 'Inspect the file.',
+  complete: true,
+};
+const tool: ConversationEntity = {
+  kind: 'tool',
+  id: 'read-one',
+  declarationOccurrenceId: 'declaration-one',
+  started: true,
+  executionId,
+  turn: 1,
+  requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+  version: 1,
+  position: conversationPosition(0, 1, 2),
+  callId: 'read-call',
+  name: 'read',
+  arguments: { path: 'README.md' },
+  result: { text: 'file contents', outcome: 'success' },
+};
+const thinking: ConversationEntity = {
+  kind: 'thinking',
+  id: 'thinking-one',
+  executionId,
+  turn: 1,
+  requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+  thinkingKind: 'summary',
+  version: 1,
+  position: conversationPosition(0, 1, 1),
+  text: 'I will inspect the file.',
+  complete: true,
+};
+const terminalExecution = (
+  outcome: ConversationExecutionMetadata['outcome'],
+  diagnostic?: ConversationExecutionMetadata['diagnostic'],
+): ConversationEntity => ({
+  kind: 'execution',
+  id: 'execution-row-a',
+  executionId,
+  version: 1,
+  position: conversationPosition(0, -1, -2),
+  execution: executionMetadata(outcome, diagnostic),
 });
-const systemEntries = (entries: readonly UiLogEntry[]) =>
-  entries.filter((item) => item.kind === 'system');
+const rows = (store: KeyedConversationStore): readonly UiLogEntry[] => store.window(0, store.size);
+const apply = (
+  projector: SnapshotConversationProjector,
+  notices: RemoteSystemNotices,
+  client: ReturnType<typeof tuiClientState>,
+  scope = 'core/session-a',
+) => {
+  const projected = projector.project(client, scope);
+  const noticeUpdate = notices.sync(client, projected.store, {
+    reset: projected.reset,
+    structureChanged: projected.structureChanged,
+  });
+  return {
+    ...projected,
+    structureChanged: projected.structureChanged || noticeUpdate.changed,
+    previousIds: projected.previousIds ?? noticeUpdate.previousIds,
+  };
+};
 
-const toolConversation = (): SessionSnapshot['conversation'] => ({
-  messages: [
-    { id: 'user', executionId: 'execution-a', turn: 1, role: 'user', text: 'Inspect the file.' },
-    {
-      id: 'call',
-      executionId: 'execution-a',
-      turn: 1,
-      role: 'assistant',
-      toolOccurrenceIds: ['read-one'],
-    },
-    {
-      id: 'result',
-      executionId: 'execution-a',
-      turn: 1,
-      role: 'tool',
-      toolOccurrenceIds: ['read-one'],
-    },
-  ],
-  tools: [{
-    toolOccurrenceId: 'read-one',
-    executionId: 'execution-a',
+Deno.test('Increment 166 failure and cancellation notices follow their keyed execution rows', () => {
+  const projector = new SnapshotConversationProjector();
+  const notices = new RemoteSystemNotices();
+  const entities = {
+    'task-a': task,
+    'thinking-one': thinking,
+    'read-one': tool,
+    'execution-row-a': terminalExecution('cancelled'),
+  } satisfies Record<string, ConversationEntity>;
+  const cancelled = tuiSnapshot(entities, Object.keys(entities));
+  const first = apply(projector, notices, tuiClientState(cancelled));
+  deepStrictEqual(rows(first.store).map((item) => item.kind), [
+    'user',
+    'thinking',
+    'tool',
+    'system',
+  ]);
+  strictEqual(rows(first.store).at(-1)?.text, 'CANCELLED');
+  const retainedNotice = rows(first.store).at(-1);
+  const repeated = apply(projector, notices, tuiClientState(structuredClone(cancelled)));
+  strictEqual(rows(repeated.store).at(-1), retainedNotice);
+
+  const assistant: ConversationEntity = {
+    kind: 'message',
+    id: 'answer-a',
+    executionId,
     turn: 1,
-    name: 'read',
-    arguments: { path: 'README.md' },
-    result: { text: 'file contents', outcome: 'success' },
-  }],
-  thinking: [],
-  executions: [],
-  requests: [],
-  omitted: 0,
+    version: 1,
+    position: conversationPosition(0, 2, 1),
+    role: 'assistant',
+    text: 'Partial answer.',
+    complete: false,
+  };
+  const withLateBody = {
+    ...cancelled,
+    cursor: { ...cancelled.cursor, revision: 2 },
+    conversation: {
+      ...cancelled.conversation,
+      cut: 2,
+      storeRevision: 2,
+      entities: { ...entities, 'answer-a': assistant },
+      order: [...cancelled.conversation.order, 'answer-a'],
+    },
+  };
+  const advanced = apply(
+    projector,
+    notices,
+    tuiClientState(withLateBody, new Set(['answer-a']), true),
+  );
+  deepStrictEqual(rows(advanced.store).map((item) => item.kind), [
+    'user',
+    'thinking',
+    'tool',
+    'assistant',
+    'system',
+  ]);
+  strictEqual(rows(advanced.store).at(-1)?.text, 'CANCELLED');
+
+  const failed = tuiSnapshot({
+    'task-a': task,
+    'execution-row-a': terminalExecution('failed', { code: 'response_error', stage: 'model' }),
+  }, ['execution-row-a', 'task-a']);
+  const freshProjector = new SnapshotConversationProjector();
+  const freshNotices = new RemoteSystemNotices();
+  const failure = apply(freshProjector, freshNotices, tuiClientState(failed));
+  strictEqual(rows(failure.store).at(-1)?.text, 'FAILED · provider response invalid · try /recall');
 });
 
-Deno.test('Increment 166 cancellation follows projected tools with or without thinking', () => {
-  const first = {
-    ...snapshot(),
-    runtime: { ...snapshot().runtime, execution: execution('cancelled') },
-    conversation: { ...toolConversation(), executions: [execution('cancelled')] },
-  };
+Deno.test('Increment 159 local, queue and steering notices remain keyed by receipt and session', () => {
   const projector = new SnapshotConversationProjector();
   const notices = new RemoteSystemNotices();
-  const merged = notices.merge(first, projector.project(first, 'scope').entries);
-  deepStrictEqual(merged.map((item) => item.kind), ['user', 'tool', 'system']);
-  strictEqual(merged.at(-1)?.text, 'CANCELLED');
-  const resynced = structuredClone(first);
-  deepStrictEqual(
-    notices.merge(resynced, projector.project(resynced, 'scope', { resync: true }).entries),
-    merged,
-  );
+  const initial = tuiSnapshot({ 'task-a': task }, ['task-a']);
+  const first = apply(projector, notices, tuiClientState(initial));
+  notices.retain(initial.session.id, 'command-one', 'REJECTED · draft kept · busy', 'REJECTED');
+  const previousIds = notices.refresh(initial.session.id, first.store);
+  ok(previousIds);
+  const local = rows(first.store);
+  strictEqual(local.at(-1)?.text, 'REJECTED · draft kept · busy');
+  strictEqual(local.at(-1)?.kind, 'system');
 
-  const withThinking = {
-    ...first,
-    conversation: {
-      ...first.conversation,
-      thinking: [{
-        requestKey: { executionId: 'execution-a', modelStep: 1, requestOrdinal: 1 },
-        turn: 1,
-        thinkingKind: 'summary' as const,
-        text: 'I will inspect the file.',
-        complete: true,
-        beforeMessageIndex: 1,
-      }],
-    },
-  };
-  const thought = new RemoteSystemNotices().merge(
-    withThinking,
-    projector.project(withThinking, 'scope').entries,
-  );
-  deepStrictEqual(thought.map((item) => item.kind), ['user', 'thinking', 'tool', 'system']);
-  strictEqual(thought.at(-1)?.text, 'CANCELLED');
-
-  const next = {
-    ...first,
-    conversation: {
-      ...first.conversation,
-      messages: [...first.conversation.messages, {
-        id: 'next-user',
-        executionId: 'execution-b',
-        turn: 2,
-        role: 'user' as const,
-        text: 'Next task.',
-      }],
-    },
-  };
-  deepStrictEqual(
-    notices.merge(next, projector.project(next, 'scope').entries).map((item) => item.kind),
-    ['user', 'tool', 'system', 'user'],
-  );
-});
-
-Deno.test('Increment 166 failure follows the last assistant or thinking entry of its execution', () => {
-  const conversation = toolConversation();
-  const first = {
-    ...snapshot(),
-    runtime: { ...snapshot().runtime, execution: execution('failed') },
-    conversation: {
-      ...conversation,
-      executions: [execution('failed')],
-      messages: [...conversation.messages, {
-        id: 'answer',
-        executionId: 'execution-a',
-        turn: 1,
-        role: 'assistant' as const,
-        text: 'Partial answer.',
-      }],
-    },
-  };
-  const projector = new SnapshotConversationProjector();
-  const merged = new RemoteSystemNotices().merge(first, projector.project(first, 'scope').entries);
-  deepStrictEqual(merged.map((item) => item.kind), ['user', 'tool', 'assistant', 'system']);
-  strictEqual(merged.at(-1)?.text, 'FAILED · execution failed');
-  const withTrailingThinking = {
-    ...first,
-    conversation: {
-      ...first.conversation,
-      thinking: [{
-        requestKey: { executionId: 'execution-a', modelStep: 2, requestOrdinal: 2 },
-        turn: 1,
-        thinkingKind: 'summary' as const,
-        text: 'Continuing the investigation.',
-        complete: false,
-        beforeMessageIndex: first.conversation.messages.length,
-      }],
-    },
-  };
-  deepStrictEqual(
-    new RemoteSystemNotices().merge(
-      withTrailingThinking,
-      projector.project(withTrailingThinking, 'scope').entries,
-    ).map((item) => item.kind),
-    ['user', 'tool', 'assistant', 'thinking', 'system'],
-  );
-});
-
-Deno.test('Increment 166 command, queue and steering notices anchor after projected work', () => {
-  const base = toolConversation();
-  const conversation = {
-    ...base,
-    messages: base.messages.map((message) =>
-      message.id === 'call' ? { ...message, text: 'I will inspect it.' } : message
-    ),
-  };
-  const first = { ...snapshot(), conversation };
-  const projector = new SnapshotConversationProjector();
-  const notices = new RemoteSystemNotices();
-  const entries = projector.project(first, 'scope').entries;
-  notices.merge(first, entries);
-  notices.retain(
-    first.session.id,
-    'command',
-    'REJECTED · execution.cancel',
-    'REJECTED',
-    'execution-a',
-  );
-  notices.retain(first.session.id, 'connection', 'DISCONNECTED', 'DISCONNECTED');
-  const queued = {
-    ...first,
+  const pending = {
+    ...initial,
+    cursor: { ...initial.cursor, revision: 2 },
     pending: {
-      ...first.pending,
+      ...initial.pending,
       followUp: {
         queueId: 'queue-one',
         commandId: 'queue-command',
-        sessionId: first.session.id,
-        afterExecutionId: 'execution-a',
+        sessionId: initial.session.id,
+        afterExecutionId: executionId,
         text: 'Next task.',
         status: 'queued' as const,
       },
-      steering: { commandId: 'steer-command', executionId: 'execution-a', text: 'Keep it short.' },
+      steering: { executionId, commandId: 'steer-command', text: 'Keep it short.' },
     },
   };
-  const merged = notices.merge(queued, entries);
-  deepStrictEqual(merged.map((item) => item.kind), [
-    'user',
-    'assistant',
-    'tool',
-    'system',
-    'system',
-    'system',
-    'system',
-  ]);
-  strictEqual(merged[3].text, 'REJECTED · execution.cancel');
-  strictEqual(merged[5].text, 'RESERVED · Next task.');
-  strictEqual(merged[6].text, 'Additional instruction received · Keep it short.');
-  notices.retain(
-    first.session.id,
-    'command',
-    'UNCONFIRMED · execution.cancel',
-    'UNCONFIRMED',
-    'execution-a',
+  const queued = apply(
+    projector,
+    notices,
+    tuiClientState(pending, new Set(), false),
   );
-  const next = {
-    ...queued,
-    conversation: {
-      ...conversation,
-      messages: [...conversation.messages, {
-        id: 'later-note',
-        executionId: 'execution-a',
-        turn: 1,
-        role: 'assistant' as const,
-        text: 'Later work.',
-      }],
-    },
+  ok(rows(queued.store).some((item) => item.text === 'RESERVED · Next task.'));
+  ok(
+    rows(queued.store).some((item) =>
+      item.text === 'Additional instruction received · Keep it short.'
+    ),
+  );
+  strictEqual(rows(queued.store).filter((item) => item.id.includes('queue:')).length, 1);
+
+  const appliedSteering: ConversationEntity = {
+    kind: 'message',
+    id: 'steering-applied',
+    executionId,
+    turn: 1,
+    version: 1,
+    position: conversationPosition(0, 4, 0),
+    role: 'user',
+    text: 'Keep it short.',
+    complete: true,
+  };
+  const started = {
+    ...pending,
+    cursor: { ...pending.cursor, revision: 3 },
     pending: {
-      ...queued.pending,
+      ...pending.pending,
+      steering: undefined,
       followUp: {
-        ...queued.pending.followUp,
+        ...pending.pending.followUp,
         status: 'started' as const,
         executionId: 'execution-b',
       },
     },
-  };
-  const updated = notices.merge(next, projector.project(next, 'scope').entries);
-  strictEqual(updated[3].text, 'UNCONFIRMED · execution.cancel');
-  strictEqual(updated[5].text, 'STARTED · Next task.');
-  strictEqual(updated.at(-1)?.text, 'Later work.');
-});
-
-Deno.test('Increment 159 local system notices survive snapshots and return to their original Session', () => {
-  const notices = new RemoteSystemNotices();
-  const first = snapshot();
-  const user = entry('user-a', 'task');
-  notices.merge(first, [user]);
-  notices.retain(first.session.id, 'command-one', 'REJECTED · draft kept · busy', 'REJECTED');
-  const initial = notices.merge(first, [user]);
-  const repeated = notices.merge({ ...first, cursor: { ...first.cursor, revision: 2 } }, [user]);
-  strictEqual(systemEntries(repeated).length, 1);
-  strictEqual(systemEntries(repeated)[0], systemEntries(initial)[0]);
-  deepStrictEqual(notices.merge(snapshot('session-b'), []), []);
-  const returned = notices.merge(first, [user, entry('user-b', 'next task')]);
-  deepStrictEqual(returned.map((item) => item.id), [
-    user.id,
-    systemEntries(initial)[0].id,
-    'user-b',
-  ]);
-  notices.retain(first.session.id, 'command-one', 'UNCONFIRMED · draft kept', 'UNCONFIRMED');
-  strictEqual(systemEntries(notices.merge(first, [user])).length, 1);
-});
-
-Deno.test('Increment 159 derives short failure and updates one queue notice without duplicating steering', () => {
-  const notices = new RemoteSystemNotices();
-  const first = snapshot();
-  const record = {
-    queueId: 'queue-one',
-    commandId: 'queue-command',
-    sessionId: first.session.id,
-    afterExecutionId: 'execution-a',
-    text: 'next task',
-    status: 'queued' as const,
-  };
-  const running = {
-    ...first,
-    pending: {
-      ...first.pending,
-      followUp: record,
-      steering: {
-        commandId: 'steer-command',
-        executionId: 'execution-a',
-        text: 'additional instruction',
-      },
-    },
-  };
-  const user = entry('user-a', 'task');
-  const reserved = notices.merge(running, [user]);
-  strictEqual(systemEntries(reserved).length, 2);
-  ok(systemEntries(reserved).some((item) => item.text === 'RESERVED · next task'));
-  const failed = {
-    ...first,
     conversation: {
-      ...first.conversation,
-      executions: [{
-        ...execution('failed'),
-        stopReason: 'contract_failure' as const,
-        diagnostic: { code: 'http_error', stage: 'http' },
-      }],
-    },
-    runtime: {
-      ...first.runtime,
-      execution: {
-        ...execution('failed'),
-        stopReason: 'contract_failure',
-        diagnostic: { code: 'http_error', stage: 'http' },
-      },
-    },
-    pending: {
-      ...first.pending,
-      followUps: [{ ...record, status: 'discarded' as const, reason: 'failed' }],
+      ...pending.conversation,
+      cut: 2,
+      storeRevision: 2,
+      entities: { ...pending.conversation.entities, 'steering-applied': appliedSteering },
+      order: [...pending.conversation.order, 'steering-applied'],
     },
   };
-  const applied = entry('steer-a', 'additional instruction', 'steer>');
-  const ended = notices.merge(failed, [user, applied]);
-  const notifications = systemEntries(ended);
-  strictEqual(notifications.length, 2);
-  ok(notifications.some((item) => item.text === 'FAILED · provider request failed'));
-  ok(notifications.some((item) => item.text === 'NOT STARTED · next task · failed'));
-  deepStrictEqual(notices.merge(failed, [user, applied]), ended);
-  const started = {
-    ...first,
-    pending: {
-      ...first.pending,
-      followUps: [{ ...record, status: 'started' as const, executionId: 'next-execution' }],
+  const applied = apply(
+    projector,
+    notices,
+    tuiClientState(started, new Set(['steering-applied']), true),
+  );
+  strictEqual(rows(applied.store).filter((item) => item.id.includes('steering:')).length, 0);
+  strictEqual(rows(applied.store).filter((item) => item.id.includes('queue:')).length, 1);
+  ok(rows(applied.store).some((item) => item.text === 'STARTED · Next task.'));
+
+  const otherSession = tuiSnapshot({}, [], {
+    session: {
+      ...initial.session,
+      id: 'session-b',
+      position: { ...initial.session.position, sessionId: 'session-b' },
     },
-  };
-  const updated = notices.merge(started, [user, applied]);
-  strictEqual(systemEntries(updated).filter((item) => item.id.includes('queue:')).length, 1);
-  ok(systemEntries(updated).some((item) => item.text === 'STARTED · next task'));
-  const completed = new RemoteSystemNotices().merge({
-    ...first,
-    runtime: { ...first.runtime, execution: execution('completed') },
-  }, [user]);
-  strictEqual(systemEntries(completed).length, 0);
+    cursor: { ...initial.cursor, sessionId: 'session-b' },
+    conversation: { ...initial.conversation, sessionId: 'session-b' },
+  });
+  const away = apply(projector, notices, tuiClientState(otherSession), 'core/session-b');
+  strictEqual(rows(away.store).some((item) => item.text === 'REJECTED · draft kept · busy'), false);
+  const back = apply(projector, notices, tuiClientState(initial), 'core/session-a');
+  ok(rows(back.store).some((item) => item.text === 'REJECTED · draft kept · busy'));
 });
 
 Deno.test('Increment 159 normal system text is neutral and failure color stops after its short word', () => {
@@ -395,8 +277,9 @@ Deno.test('Increment 159 normal system text is neutral and failure color stops a
     addSignal() {},
     removeSignal() {},
   };
-  const renderer = new TuiRenderer(terminal);
-  renderer.setConversationEntries([
+  const store = new KeyedConversationStore();
+  store.set(
+    'notice',
     freezeUiLogEntry({
       id: 'notice',
       kind: 'system',
@@ -405,40 +288,24 @@ Deno.test('Increment 159 normal system text is neutral and failure color stops a
       revision: 0,
       live: false,
     }),
+  );
+  store.set(
+    'failure',
     freezeUiLogEntry({
       id: 'failure',
       kind: 'system',
       label: 'system>',
-      text: 'FAILED · provider request failed',
+      text: 'FAILED · provider response invalid · try /recall',
       failureWord: 'FAILED',
       revision: 0,
       live: false,
     }),
-  ], 0);
+  );
+  store.replaceSemanticOrder(['notice', 'failure']);
+  const renderer = new TuiRenderer(terminal);
+  renderer.setKeyedConversationStore(store, true);
   const frame = renderer.renderFrame(100, 24);
   ok(frame.includes('system> RESERVED · next task'));
-  ok(frame.includes('\x1b[31msystem> FAILED\x1b[0m · provider request failed'));
+  ok(frame.includes('\x1b[31msystem> FAILED\x1b[0m · provider response invalid · try /recall'));
   renderer.close();
-});
-
-Deno.test('Increment 159 repeated steering text matches only its own execution', () => {
-  const notices = new RemoteSystemNotices();
-  const previous = entry('old-steer', 'Keep reply short', 'steer>');
-  const nextUser = { ...entry('next-user', 'next task'), executionId: 'execution-b', turn: 2 };
-  const pending = {
-    ...snapshot(),
-    pending: {
-      ...snapshot().pending,
-      steering: { executionId: 'execution-b', commandId: 'new-steer', text: 'Keep reply short' },
-    },
-  };
-  const received = notices.merge(pending, [previous, nextUser]);
-  strictEqual(systemEntries(received).length, 1);
-  strictEqual(systemEntries(received)[0].executionId, 'execution-b');
-  const applied = {
-    ...entry('new-steer', 'Keep reply short', 'steer>'),
-    executionId: 'execution-b',
-    turn: 2,
-  };
-  strictEqual(systemEntries(notices.merge(pending, [previous, nextUser, applied])).length, 0);
 });

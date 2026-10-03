@@ -6,7 +6,7 @@ import {
   WorkerGeneration,
   type WorkerGenerationPort,
 } from '../../v0/agent/worker/worker_runtime.ts';
-import { SessionAuthority } from '../../v0/agent/worker/worker_host_authority.ts';
+import { SessionAuthority } from '../../v0/agent/data/session_authority.ts';
 import {
   type SessionRecordV6,
   validateSessionRecordV6,
@@ -154,7 +154,6 @@ Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive c
       workspaceRoot: Deno.cwd(),
       agent: 'default',
       definition,
-      physicalIoMode: 'provider-free',
     }, undefined);
     let committed: SessionRecordV6 | undefined;
     const port: WorkerGenerationPort = {

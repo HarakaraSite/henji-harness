@@ -1,9 +1,12 @@
-import { ok, strictEqual } from 'node:assert';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/server.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
-import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
+import type { SessionSnapshot } from '../../v0/api/contract.ts';
+
+const entities = (snapshot: SessionSnapshot) =>
+  snapshot.conversation.order.map((id) => snapshot.conversation.entities[id]);
 
 const frame = (value: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
 const completedResponse = (output: unknown[]) => ({
@@ -125,8 +128,8 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
     });
     strictEqual(opened.kind, 'accepted');
     if (opened.kind !== 'accepted') return;
-    const sessionId = opened.value.snapshot.session.id;
-    const startup = opened.value.snapshot.session.startup;
+    const sessionId = opened.value.sessionId;
+    const startup = (await client.sessionRead(sessionId)).session.startup;
     strictEqual(startup.status, 'unevaluated');
     strictEqual(startup.productVersion, (await client.coreRead()).build.productVersion);
     strictEqual(startup.workspace, workspaceRoot);
@@ -157,37 +160,36 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
       strictEqual(visible.runtime.execution?.stopReason, execution.execution.stopReason);
       strictEqual(visible.session.startup.status, 'evaluated');
       strictEqual(
-        visible.conversation.messages.filter((item) => item.text === `RESULT ${index + 1}`).length,
+        entities(visible).filter((item) =>
+          item.kind === 'message' && item.text === `RESULT ${index + 1}`
+        ).length,
         1,
       );
     }
 
     strictEqual(requestCount, 4);
     let snapshot = await client.sessionRead((await client.coreRead()).activeSessionId!);
-    strictEqual(snapshot.conversation.tools.length, 2);
-    const toolIds = snapshot.conversation.tools.map((tool) => tool.toolOccurrenceId);
+    const tools = entities(snapshot).filter((item) => item.kind === 'tool');
+    strictEqual(tools.length, 2);
+    const toolIds = tools.map((tool) => tool.id);
     strictEqual(new Set(toolIds).size, 2);
     strictEqual(
-      new Set(snapshot.conversation.tools.map((tool) => tool.executionId)).size,
+      new Set(tools.map((tool) => tool.executionId)).size,
       2,
     );
-    for (const tool of snapshot.conversation.tools) {
+    for (const tool of tools) {
       strictEqual(tool.result?.outcome, 'success');
       ok(tool.result?.text.includes('shared query sample'));
     }
     for (const text of ['RESULT 1', 'RESULT 2']) {
       strictEqual(
-        snapshot.conversation.messages.filter((item) => item.text === text).length,
+        entities(snapshot).filter((item) => item.kind === 'message' && item.text === text).length,
         1,
       );
     }
-    strictEqual(snapshot.conversation.requests.length, 0);
-    const visible = restoredConversationFromSnapshot(snapshot);
-    const visibleToolIds = visible.messages.flatMap((item) =>
-      item.role === 'tool' ? item.content.map((result) => result.callId) : []
-    );
-    strictEqual(visibleToolIds.length, 2);
-    strictEqual(new Set(visibleToolIds).size, 2);
+    strictEqual(entities(snapshot).filter((item) => item.kind === 'request').length, 4);
+    ok(tools.every((tool) => tool.semanticOccurrenceId !== undefined));
+    const before = snapshot.conversation;
 
     await server.shutdown();
     server = undefined;
@@ -203,19 +205,15 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
     });
     strictEqual(resumed.kind, 'accepted');
     if (resumed.kind !== 'accepted') return;
-    snapshot = resumed.value.snapshot;
+    snapshot = await resumedClient.sessionRead(resumed.value.sessionId);
     strictEqual(
-      snapshot.conversation.tools.map((tool) => tool.toolOccurrenceId).join(','),
+      entities(snapshot).filter((item) => item.kind === 'tool').map((tool) => tool.id).join(','),
       toolIds.join(','),
     );
-    strictEqual(snapshot.conversation.requests.length, 0);
+    strictEqual(entities(snapshot).filter((item) => item.kind === 'request').length, 4);
     strictEqual(requestCount, 4, 'resuming the Session must not call the provider');
-    strictEqual(
-      restoredConversationFromSnapshot(snapshot).messages.flatMap((item) =>
-        item.role === 'tool' ? item.content.map((result) => result.callId) : []
-      ).join(','),
-      visibleToolIds.join(','),
-    );
+    deepStrictEqual(snapshot.conversation.entities, before.entities);
+    strictEqual(snapshot.conversation.order.join(','), before.order.join(','));
   } finally {
     await resumedServer?.shutdown();
     await resumedCore?.close();

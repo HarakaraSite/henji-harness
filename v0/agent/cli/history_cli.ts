@@ -1,8 +1,9 @@
 import { launcherStateRoot, sessionPaths } from '../session/session_store_paths.ts';
 import { isSessionId } from '../session/session_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
-import { renderCanonicalView, renderSessionTimeline } from '../history/history_view.ts';
+import { renderCanonicalView, renderConversationTimeline } from '../history/history_view.ts';
 import { HenjiApiClient } from '../../api/client.ts';
+import { replaySessionConversation } from '../../conversation/history_adapter.ts';
 
 const encoder = new TextEncoder();
 /** Full UUID or a hex short-id prefix as shown by the TUI footer / session picker. */
@@ -186,7 +187,9 @@ export const main = async (args: readonly string[]): Promise<number> => {
       return 0;
     }
     if (command.view === 'session') {
-      await writeStdout(renderSessionTimeline(store.readSessionHistory(sessionId)));
+      const facts = store.readSessionConversationFacts(sessionId);
+      const { state } = replaySessionConversation(sessionId, facts);
+      await writeStdout(renderConversationTimeline(state));
     } else {
       const record = await store.readWorker(sessionId);
       await writeStdout(renderCanonicalView(record, workspaceRoot));

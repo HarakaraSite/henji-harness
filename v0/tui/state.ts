@@ -5,7 +5,6 @@ import {
   type PresentationNavigationListing,
   type PresentationPosition,
   type PresentationProjection,
-  type PresentationRestoredThinking,
   type PresentationStartupState,
   snapshotPresentation,
 } from '../presentation/contract.ts';
@@ -19,6 +18,7 @@ import {
 } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 import { truncateText } from './terminal_text.ts';
+import type { KeyedConversationStore } from './keyed_conversation_store.ts';
 
 export const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const UI_MAX_NEW_BELOW = 512;
@@ -123,6 +123,8 @@ export interface UiState {
   readonly log: Readonly<
     { readonly entries: readonly UiLogEntry[]; readonly omittedCount: number }
   >;
+  /** Schema-2 remote conversation rows are held by identity and ordered only structurally. */
+  readonly keyedConversation?: KeyedConversationStore;
   /** A rendering window over the complete conversation log. */
   readonly historyWindow?: Readonly<
     { readonly start: number; readonly end: number }
@@ -149,10 +151,11 @@ export type UiAction =
   | Readonly<{ readonly kind: 'editor'; readonly snapshot: EditorSnapshot }>
   | Readonly<{ readonly kind: 'clear_live' }>
   | Readonly<{
-    readonly kind: 'conversation_projection';
-    readonly entries: readonly UiLogEntry[];
-    readonly omitted: number;
+    readonly kind: 'keyed_conversation';
+    readonly store: KeyedConversationStore;
     readonly resetScroll?: boolean;
+    readonly structureChanged?: boolean;
+    readonly previousIds?: readonly string[];
   }>
   | Readonly<
     {
@@ -281,19 +284,52 @@ const historyWindowEndingAt = (
   return Object.freeze({ start, end });
 };
 
-const historyWindowStartingAt = (
-  entries: readonly UiLogEntry[],
+export const uiConversationCount = (state: UiState): number =>
+  state.keyedConversation?.size ?? state.log.entries.length;
+
+export const uiConversationEntryAt = (state: UiState, index: number): UiLogEntry | undefined =>
+  state.keyedConversation?.entryAt(index) ?? state.log.entries[index];
+
+export const uiConversationIndexOf = (state: UiState, id: string): number =>
+  state.keyedConversation?.indexOf(id) ?? state.log.entries.findIndex((entry) => entry.id === id);
+
+export const uiConversationWindow = (
+  state: UiState,
   start: number,
-): Readonly<{ start: number; end: number }> => {
+  end: number,
+): readonly UiLogEntry[] =>
+  state.keyedConversation?.window(start, end) ??
+    state.log.entries.slice(start, end);
+
+const historyWindowEndingAtUi = (state: UiState, end: number) => {
+  const total = uiConversationCount(state);
+  let start = end;
+  let size = 0;
+  while (start > 0 && end - start < HISTORY_WINDOW_ENTRIES) {
+    const entry = uiConversationEntryAt(state, start - 1);
+    const nextSize = entry === undefined ? 0 : entryBytes(entry);
+    if (start < end && size + nextSize > HISTORY_WINDOW_BYTES) break;
+    start -= 1;
+    size += nextSize;
+  }
+  return Object.freeze({
+    start: Math.max(0, Math.min(start, total)),
+    end: Math.max(0, Math.min(end, total)),
+  });
+};
+
+const historyWindowStartingAtUi = (state: UiState, start: number) => {
   let end = start;
   let size = 0;
-  while (end < entries.length && end - start < HISTORY_WINDOW_ENTRIES) {
-    const nextSize = entryBytes(entries[end]);
+  const total = uiConversationCount(state);
+  while (end < total && end - start < HISTORY_WINDOW_ENTRIES) {
+    const entry = uiConversationEntryAt(state, end);
+    const nextSize = entry === undefined ? 0 : entryBytes(entry);
     if (end > start && size + nextSize > HISTORY_WINDOW_BYTES) break;
     end += 1;
     size += nextSize;
   }
-  return Object.freeze({ start, end });
+  return Object.freeze({ start: Math.max(0, Math.min(start, total)), end });
 };
 
 export const pageHistoryWindow = (
@@ -304,15 +340,15 @@ export const pageHistoryWindow = (
   if (window === undefined) return state;
   if (direction === 'up') {
     if (window.start === 0) return state;
-    const next = historyWindowEndingAt(state.log.entries, window.start);
+    const next = historyWindowEndingAtUi(state, window.start);
     return Object.freeze({
       ...state,
       historyWindow: next,
       scroll: Object.freeze({ kind: 'followLatest' as const }),
     });
   }
-  if (window.end >= state.log.entries.length) return state;
-  const next = historyWindowStartingAt(state.log.entries, window.end);
+  if (window.end >= uiConversationCount(state)) return state;
+  const next = historyWindowStartingAtUi(state, window.end);
   return Object.freeze({
     ...state,
     historyWindow: next,
@@ -768,133 +804,6 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         lifecycle: event.lifecycle,
         generation: event.generation,
       });
-    case 'restored_log': {
-      const entries: UiLogEntry[] = [];
-      const thinkingByIndex = new Map<number, PresentationRestoredThinking[]>();
-      for (const item of event.thinking ?? []) {
-        const items = thinkingByIndex.get(item.beforeMessageIndex) ?? [];
-        items.push(item);
-        thinkingByIndex.set(item.beforeMessageIndex, items);
-      }
-      const addThinking = (index: number): void => {
-        for (const item of thinkingByIndex.get(index) ?? []) {
-          entries.push(freezeEntry({
-            id: `restored:thinking:${item.turn}:${item.modelStep}:${index}`,
-            kind: 'thinking',
-            label: item.thinkingKind === 'summary'
-              ? item.complete ? 'thinking summary>' : 'thinking summary~'
-              : item.complete
-              ? 'thinking>'
-              : 'thinking~',
-            text: item.text,
-            revision: 0,
-            live: false,
-            turn: item.turn,
-          }));
-        }
-      };
-      let turn = 0;
-      const seenUserTurns = new Set<number>();
-      const callPreviewById = new Map<string, string>();
-      for (let index = 0; index < event.messages.length; index += 1) {
-        addThinking(index);
-        const message = event.messages[index];
-        turn = event.messageTurns?.[index] ??
-          (message.role === 'user' ? turn + 1 : turn);
-        if (message.role === 'user') {
-          const steering = seenUserTurns.has(turn);
-          seenUserTurns.add(turn);
-          entries.push(freezeEntry({
-            id: `restored:user:${index}`,
-            kind: 'user',
-            label: steering ? 'steer>' : 'user>',
-            text: message.content.text,
-            revision: 0,
-            live: false,
-            turn,
-          }));
-        } else if (message.role === 'assistant') {
-          const assistantText = 'text' in message.content ? message.content.text : message.text;
-          if (assistantText !== undefined) {
-            entries.push(freezeEntry({
-              id: `restored:assistant:${turn}:${index}`,
-              kind: 'assistant',
-              label: Array.isArray(message.content) ? 'assistant note>' : 'assistant>',
-              text: assistantText,
-              revision: 0,
-              live: false,
-              turn,
-            }));
-          }
-          if (Array.isArray(message.content)) {
-            for (const call of message.content) {
-              const preview = toolActivityPreview(call.name, call.arguments);
-              callPreviewById.set(`${turn}:${call.callId}`, preview);
-              entries.push(freezeEntry({
-                id: `restored:tool:${turn}:${call.callId}`,
-                kind: 'tool',
-                label: 'tool>',
-                text: pendingToolActivityText(call.name, preview),
-                revision: 0,
-                live: false,
-                turn,
-                callId: call.callId,
-              }));
-            }
-          }
-        } else {
-          for (const result of message.content) {
-            const id = `restored:tool:${turn}:${result.callId}`;
-            const text = settledToolActivityText(
-              result.name,
-              result.outcome,
-              callPreviewById.get(`${turn}:${result.callId}`) ?? '',
-            );
-            const priorIndex = entries.findIndex((entry) => entry.id === id);
-            if (priorIndex >= 0) {
-              entries[priorIndex] = freezeEntry({
-                ...entries[priorIndex],
-                text,
-                revision: 1,
-              });
-            } else {
-              entries.push(freezeEntry({
-                id,
-                kind: 'tool',
-                label: 'tool>',
-                text,
-                revision: 0,
-                live: false,
-                turn,
-                callId: result.callId,
-              }));
-            }
-          }
-        }
-      }
-      addThinking(event.messages.length);
-      if (event.omitted > 0) {
-        entries.push(freezeEntry({
-          id: `history:omitted:${event.omitted}`,
-          kind: 'warning',
-          label: 'history>',
-          text: `${event.omitted} messages omitted`,
-          revision: 0,
-          live: false,
-        }));
-      }
-      return Object.freeze({
-        ...state,
-        log: Object.freeze({
-          entries: Object.freeze(entries),
-          omittedCount: 0,
-        }),
-        historyWindow: historyWindowEndingAt(entries, entries.length),
-        scroll: Object.freeze({ kind: 'followLatest' as const }),
-        newBelowCount: 0,
-        overlay: Object.freeze({ kind: 'none' }),
-      });
-    }
     case 'session_binding_replaced':
       return Object.freeze({
         ...state,
@@ -1011,102 +920,80 @@ export const reduceUiEvent = (
   return next;
 };
 
-const applyConversationProjection = (
+const applyKeyedConversation = (
   state: UiState,
-  action: Extract<UiAction, { readonly kind: 'conversation_projection' }>,
+  action: Extract<UiAction, { readonly kind: 'keyed_conversation' }>,
 ): UiState => {
-  const entries = [...action.entries];
-  if (action.omitted > 0) {
-    const id = `history:omitted:${action.omitted}`;
-    const text = `${action.omitted} messages omitted`;
-    const previous = state.log.entries.find((entry) => entry.id === id);
-    entries.push(
-      previous?.text === text ? previous : freezeEntry({
-        id,
-        kind: 'warning',
-        label: 'history>',
-        text,
-        revision: 0,
-        live: false,
-      }),
-    );
-  }
-  const retainedEntries = Object.freeze(entries);
+  const store = action.store;
+  const count = store.size;
   const resetScroll = action.resetScroll === true;
-  const scroll = resetScroll ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
+  const structural = action.structureChanged === true || resetScroll;
+  let scroll = resetScroll ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
   let historyWindow = state.historyWindow;
+  let newBelowCount = state.newBelowCount;
+  const previousIds = action.previousIds;
   if (resetScroll || scroll.kind === 'followLatest') {
-    historyWindow = historyWindowEndingAt(
-      retainedEntries,
-      retainedEntries.length,
-    );
-  } else if (historyWindow !== undefined && scroll.kind === 'anchored') {
-    const previousAnchorIndex = state.log.entries.findIndex((entry) => entry.id === scroll.entryId);
-    let nextAnchor = retainedEntries.find((entry) => entry.id === scroll.entryId);
+    historyWindow = historyWindowEndingAtUi({ ...state, keyedConversation: store }, count);
+  } else if (structural && scroll.kind === 'anchored' && previousIds !== undefined) {
+    const priorAnchorIndex = previousIds.indexOf(scroll.entryId);
+    let anchorId = store.indexOf(scroll.entryId) >= 0 ? scroll.entryId : undefined;
     let sourceScalarOffset = scroll.sourceScalarOffset;
-    if (nextAnchor === undefined && previousAnchorIndex >= 0) {
-      for (
-        let index = previousAnchorIndex + 1;
-        index < state.log.entries.length;
-        index += 1
-      ) {
-        const candidate = state.log.entries[index];
-        nextAnchor = candidate === undefined
-          ? undefined
-          : retainedEntries.find((entry) => entry.id === candidate.id);
-        if (nextAnchor !== undefined) break;
+    if (anchorId === undefined && priorAnchorIndex >= 0) {
+      for (let index = priorAnchorIndex + 1; index < previousIds.length; index += 1) {
+        const candidate = previousIds[index];
+        if (candidate !== undefined && store.indexOf(candidate) >= 0) {
+          anchorId = candidate;
+          break;
+        }
       }
-      if (nextAnchor === undefined) {
-        for (let index = previousAnchorIndex - 1; index >= 0; index -= 1) {
-          const candidate = state.log.entries[index];
-          nextAnchor = candidate === undefined
-            ? undefined
-            : retainedEntries.find((entry) => entry.id === candidate.id);
-          if (nextAnchor !== undefined) break;
+      if (anchorId === undefined) {
+        for (let index = priorAnchorIndex - 1; index >= 0; index -= 1) {
+          const candidate = previousIds[index];
+          if (candidate !== undefined && store.indexOf(candidate) >= 0) {
+            anchorId = candidate;
+            break;
+          }
         }
       }
       sourceScalarOffset = 0;
     }
-    if (nextAnchor !== undefined) {
-      const anchorIndex = retainedEntries.findIndex((entry) => entry.id === nextAnchor!.id);
-      const windowLength = historyWindow.end - historyWindow.start;
-      let start = Math.max(
-        0,
-        anchorIndex - Math.max(0, previousAnchorIndex - historyWindow.start),
-      );
-      const end = Math.min(retainedEntries.length, start + windowLength);
-      start = Math.max(0, end - windowLength);
+    if (anchorId !== undefined) {
+      const nextIndex = store.indexOf(anchorId);
+      const oldStart = state.historyWindow?.start ?? 0;
+      const oldViewportOffset = Math.max(0, priorAnchorIndex - oldStart);
+      const length = Math.max(1, (state.historyWindow?.end ?? count) - oldStart);
+      let start = Math.max(0, nextIndex - oldViewportOffset);
+      const end = Math.min(count, start + length);
+      start = Math.max(0, end - length);
       historyWindow = Object.freeze({ start, end });
-      if (
-        nextAnchor.id !== scroll.entryId ||
-        sourceScalarOffset !== scroll.sourceScalarOffset
-      ) {
-        return Object.freeze({
-          ...state,
-          log: Object.freeze({
-            entries: retainedEntries,
-            omittedCount: state.log.omittedCount,
-          }),
-          historyWindow,
-          scroll: Object.freeze({
-            kind: 'anchored' as const,
-            entryId: nextAnchor.id,
-            sourceScalarOffset,
-          }),
-          newBelowCount: state.newBelowCount,
-        });
-      }
+      scroll = Object.freeze({ kind: 'anchored', entryId: anchorId, sourceScalarOffset });
     }
+  } else if (structural && scroll.kind === 'oldest') {
+    const length = Math.max(
+      1,
+      (state.historyWindow?.end ?? count) - (state.historyWindow?.start ?? 0),
+    );
+    historyWindow = Object.freeze({ start: 0, end: Math.min(count, length) });
+  } else if (structural && state.historyWindow !== undefined) {
+    const start = Math.min(state.historyWindow.start, count);
+    historyWindow = Object.freeze({ start, end: Math.min(count, state.historyWindow.end) });
+  }
+  if (!resetScroll && structural && scroll.kind !== 'followLatest' && previousIds !== undefined) {
+    const previous = new Set(previousIds);
+    const boundary = state.historyWindow?.end ?? 0;
+    let addedBelow = 0;
+    for (const id of store.ids()) {
+      if (!previous.has(id) && store.indexOf(id) >= boundary) addedBelow += 1;
+    }
+    newBelowCount = Math.min(UI_MAX_NEW_BELOW, state.newBelowCount + addedBelow);
   }
   return Object.freeze({
     ...state,
-    log: Object.freeze({
-      entries: retainedEntries,
-      omittedCount: state.log.omittedCount,
-    }),
+    log: Object.freeze({ entries: Object.freeze([]), omittedCount: store.omitted }),
+    keyedConversation: store,
     historyWindow,
     scroll,
-    newBelowCount: resetScroll || scroll.kind === 'followLatest' ? 0 : state.newBelowCount,
+    newBelowCount: resetScroll || scroll.kind === 'followLatest' ? 0 : newBelowCount,
   });
 };
 
@@ -1119,8 +1006,8 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       });
     case 'clear_live':
       return removeLiveEntries(state);
-    case 'conversation_projection':
-      return applyConversationProjection(state, action);
+    case 'keyed_conversation':
+      return applyKeyedConversation(state, action);
     case 'pending':
       return Object.freeze({
         ...state,
@@ -1209,7 +1096,7 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
         scroll: Object.freeze({ kind: 'followLatest' }),
         historyWindow: state.historyWindow === undefined
           ? undefined
-          : historyWindowEndingAt(state.log.entries, state.log.entries.length),
+          : historyWindowEndingAtUi(state, uiConversationCount(state)),
         newBelowCount: 0,
       });
     case 'overlay':

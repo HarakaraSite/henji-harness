@@ -1,6 +1,6 @@
 import { ok, strictEqual } from 'node:assert';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { createCoreService } from '../../v0/agent/host/core_service.ts';
+import { type CoreSessionFrameSink, createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/server.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
@@ -14,7 +14,7 @@ const frame = (value: unknown): Uint8Array =>
 const opened = (result: CommandResult<SessionOpenValue>) => {
   strictEqual(result.kind, 'accepted', JSON.stringify(result));
   if (result.kind !== 'accepted') throw new Error('Session was not opened');
-  return result.value.snapshot;
+  return result.value;
 };
 
 const waitFor = async (
@@ -138,14 +138,14 @@ Deno.test('Increment 145 HTTP shutdown drains SSE and settles active Bash before
       }
       return response;
     });
-    const snapshot = opened(
+    const receipt = opened(
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'new' },
       }),
     );
-    const sessionId = snapshot.session.id;
-    strictEqual(snapshot.session.persistence, 'persistent');
+    const sessionId = receipt.sessionId;
+    strictEqual((await client.sessionRead(sessionId)).session.persistence, 'persistent');
     events = client.sessionSubscribe(sessionId);
     const initial = await events.next();
     ok(!initial.done && initial.value.kind === 'session.snapshot');
@@ -266,7 +266,7 @@ Deno.test('Increment 145 Core.close waits for a Session slot admitted before shu
     const openedSession = opened(await opening);
     await closing;
     strictEqual(core.coreRead().activeSessionId, null);
-    ok(openedSession.session.id.length > 0);
+    ok(openedSession.sessionId.length > 0);
   } finally {
     await core?.close();
     for (const [key, value] of previous) {
@@ -316,7 +316,7 @@ Deno.test('Increment 145 closes an SSE subscription stopped before its HTTP stre
       ...core,
       async subscribeSession(
         sessionId: string,
-        sink: (frame: SessionStreamFrame | undefined) => void,
+        sink: CoreSessionFrameSink,
       ) {
         const subscription = await core!.subscribeSession(sessionId, sink);
         subscriptionReady();
@@ -336,13 +336,13 @@ Deno.test('Increment 145 closes an SSE subscription stopped before its HTTP stre
       },
     });
     const client = new HenjiApiClient(server.url);
-    const snapshot = opened(
+    const receipt = opened(
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'new' },
       }),
     );
-    events = client.sessionSubscribe(snapshot.session.id, {
+    events = client.sessionSubscribe(receipt.sessionId, {
       signal: controller.signal,
     });
     const firstFrame = events.next();

@@ -50,7 +50,7 @@ Deno.test('Increment 159 HTTP exposes the stored short failure reason in snapsho
     });
     strictEqual(opened.kind, 'accepted');
     if (opened.kind !== 'accepted') return;
-    const sessionId = opened.value.snapshot.session.id;
+    const sessionId = opened.value.sessionId;
     const submitted = await client.taskSubmit(sessionId, {
       commandId: crypto.randomUUID(),
       text: 'Return a result',

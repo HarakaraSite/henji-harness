@@ -1,8 +1,7 @@
 import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import { readWorkerModuleRevision } from '../../v0/agent/worker/worker_capsule.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
+import { createDataClient } from '../../v0/agent/data/client.ts';
 import type { WorkerToHostMessage } from '../../v0/agent/worker/worker_protocol.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 
@@ -17,14 +16,15 @@ const ref = {
   resourceId: 'test/process-probe',
   revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
 } as const;
-const handle = (): WorkerSessionHandle => ({
-  id: crypto.randomUUID(),
-  commit: () => {},
-  rollback: () => {},
-  installCheckpoint: () => {},
-  rollbackCheckpoint: () => {},
-  close: () => Promise.resolve(),
-});
+const dataSession = async (root: string) => {
+  const data = await createDataClient({ stateRoot: `${root}/state`, workspaceRoot: root });
+  const descriptor = await data.openSession({
+    persistence: 'none',
+    agent: 'default',
+    definition: ref,
+  });
+  return { data, descriptor };
+};
 const pid = async (root: string): Promise<number> => {
   for (let i = 0; i < 300; i++) {
     try {
@@ -53,11 +53,10 @@ const alive = async (value: number): Promise<boolean> => {
 
 Deno.test('Worker process proxy retains returned background work until Session close', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-host-' });
+  const state = await dataSession(root);
   const observed: WorkerToHostMessage[] = [];
   const session = await WorkerHostSession.open({
-    handle: handle(),
-    agent: 'default',
-    definition: ref,
+    ...state,
     modulePath,
     workspaceRoot: root,
     physicalIoMode: 'provider-free',
@@ -82,16 +81,16 @@ Deno.test('Worker process proxy retains returned background work until Session c
     assert(!await alive(child), 'Session close returned with live process');
   } finally {
     await session.close();
+    await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
 });
 
 Deno.test('Host cancellation and replacement await physical cleanup after an uncooperative Worker tool', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-replace-' });
+  const state = await dataSession(root);
   const session = await WorkerHostSession.open({
-    handle: handle(),
-    agent: 'default',
-    definition: ref,
+    ...state,
     modulePath,
     workspaceRoot: root,
     physicalIoMode: 'provider-free',
@@ -109,23 +108,22 @@ Deno.test('Host cancellation and replacement await physical cleanup after an unc
     assert((await session.submit('answer')).ok, 'replacement generation did not start');
   } finally {
     await session.close();
+    await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
 });
 
 Deno.test('Child collect joins its Supervisor process cleanup before returning completion', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-child-' });
+  const state = await dataSession(root);
   const registry = new ChildRunRegistry({
     options: {
-      handle: handle(),
-      agent: 'default',
-      definition: ref,
+      ...state,
       workspaceRoot: root,
       physicalIoMode: 'provider-free',
     },
     catalog: [{ name: 'probe', ref }],
     resolveManagedModule: () => readWorkerModuleRevision(modulePath),
-    build: buildManifest(),
   });
   const parent = crypto.randomUUID();
   registry.openParent(parent);
@@ -148,16 +146,16 @@ Deno.test('Child collect joins its Supervisor process cleanup before returning c
     assert(!await alive(await pid(root)), 'collect returned with live child process');
   } finally {
     await registry.cleanupAll();
+    await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
 });
 
 Deno.test('Cancelling a running call preserves the same generation’s normally returned background work', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-soft-cancel-' });
+  const state = await dataSession(root);
   const session = await WorkerHostSession.open({
-    handle: handle(),
-    agent: 'default',
-    definition: ref,
+    ...state,
     modulePath,
     workspaceRoot: root,
     physicalIoMode: 'provider-free',
@@ -179,6 +177,7 @@ Deno.test('Cancelling a running call preserves the same generation’s normally 
     assert(!await alive(background));
   } finally {
     await session.close();
+    await state.data.close();
     await Deno.remove(root, { recursive: true });
   }
 });

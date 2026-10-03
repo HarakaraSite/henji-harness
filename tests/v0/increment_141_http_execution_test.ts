@@ -6,6 +6,15 @@ import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_de
 import { HenjiApiClient } from '../../v0/api/client.ts';
 import { requestKeyIdentity } from '../../v0/api/reducer.ts';
 import type { SessionSnapshot, SessionStreamFrame } from '../../v0/api/contract.ts';
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
+
+const entities = <K extends ConversationEntity['kind']>(
+  snapshot: SessionSnapshot,
+  kind: K,
+): Extract<ConversationEntity, { kind: K }>[] =>
+  snapshot.conversation.order.map((id) => snapshot.conversation.entities[id]).filter(
+    (entity): entity is Extract<ConversationEntity, { kind: K }> => entity.kind === kind,
+  );
 
 const deferred = () => {
   let resolve!: () => void;
@@ -85,36 +94,38 @@ const waitFor = async (
 };
 
 const assertToolThenPartialOrder = (
-  messages: SessionSnapshot['conversation']['messages'],
+  snapshot: SessionSnapshot,
   executionId: string,
-  toolOccurrenceId: string,
+  toolId: string,
 ): void => {
-  const executionMessages = messages.filter((message) => message.executionId === executionId);
-  const assistantIndex = executionMessages.findIndex((message) =>
-    message.role === 'assistant' && message.text === toolLeadText
+  const order = snapshot.conversation.order;
+  const messages = entities(snapshot, 'message').filter((item) => item.executionId === executionId);
+  const lead = messages.find((item) => item.role === 'assistant' && item.text === toolLeadText);
+  const partial = messages.find((item) =>
+    item.role === 'assistant' && item.text === cancelledPartialText
   );
-  const toolIndex = executionMessages.findIndex((message) =>
-    message.role === 'tool' && message.toolOccurrenceIds?.includes(toolOccurrenceId)
-  );
-  const partialIndex = executionMessages.findIndex((message) =>
-    message.role === 'assistant' && message.text === cancelledPartialText
-  );
-  ok(assistantIndex >= 0);
-  ok(toolIndex >= 0);
-  ok(partialIndex >= 0);
-  ok(assistantIndex < toolIndex);
-  ok(toolIndex < partialIndex);
+  ok(lead && partial);
+  ok(order.indexOf(lead.id) < order.indexOf(toolId));
+  ok(order.indexOf(toolId) < order.indexOf(partial.id));
   strictEqual(
-    executionMessages.filter((message) =>
-      message.role === 'assistant' && message.toolOccurrenceIds?.includes(toolOccurrenceId)
-    ).length,
+    messages.filter((item) => item.role === 'assistant' && item.toolIds?.includes(toolId)).length,
     1,
   );
-  strictEqual(
-    executionMessages.filter((message) =>
-      message.role === 'tool' && message.toolOccurrenceIds?.includes(toolOccurrenceId)
-    ).length,
-    1,
+  strictEqual(entities(snapshot, 'tool').filter((item) => item.id === toolId).length, 1);
+};
+
+const assertThoughtRequest = (snapshot: SessionSnapshot, executionId: string): void => {
+  const thought = entities(snapshot, 'thinking').find((item) =>
+    item.text === liveThought && item.executionId === executionId
+  );
+  const message = entities(snapshot, 'message').find((item) =>
+    item.executionId === executionId && item.text === cancelledPartialText
+  );
+  ok(thought && message?.requestKey);
+  strictEqual(requestKeyIdentity(message.requestKey), requestKeyIdentity(thought.requestKey));
+  ok(
+    snapshot.conversation.order.indexOf(thought.id) <
+      snapshot.conversation.order.indexOf(message.id),
   );
 };
 
@@ -240,7 +251,7 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     });
     strictEqual(opened.kind, 'accepted');
     if (opened.kind !== 'accepted') return;
-    const sessionId = opened.value.snapshot.session.id;
+    const sessionId = opened.value.sessionId;
 
     detached = client.sessionSubscribe(sessionId)[Symbol.asyncIterator]();
     const firstFrame = await detached.next();
@@ -269,11 +280,11 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     await cancelStarted.promise;
     await waitFor(async () => {
       const snapshot = await client.sessionRead(sessionId);
-      return snapshot.conversation.messages.some((message) =>
+      return entities(snapshot, 'message').some((message) =>
         message.role === 'assistant' &&
         message.executionId === executionId &&
         message.text === cancelledPartialText
-      ) && snapshot.conversation.thinking.some((item) =>
+      ) && entities(snapshot, 'thinking').some((item) =>
         item.requestKey.executionId === executionId && item.text === liveThought
       );
     });
@@ -282,31 +293,19 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     strictEqual(inProgress.runtime.execution?.submittedByCommandId, commandId);
     strictEqual(inProgress.runtime.execution?.processSettlement, 'running');
     ok(
-      inProgress.conversation.messages.some((message) =>
+      entities(inProgress, 'message').some((message) =>
         message.role === 'user' && message.executionId === executionId
       ),
     );
-    const call = inProgress.conversation.tools.find((tool) => tool.executionId === executionId);
+    const call = entities(inProgress, 'tool').find((tool) => tool.executionId === executionId);
     ok(call !== undefined);
     ok(call.result?.text.includes('Slice 3 tool result marker'));
     assertToolThenPartialOrder(
-      inProgress.conversation.messages,
+      inProgress,
       executionId,
-      call.toolOccurrenceId,
+      call.id,
     );
-    const thought = inProgress.conversation.thinking.find((item) =>
-      item.text === liveThought && item.requestKey.executionId === executionId
-    );
-    ok(thought !== undefined);
-    if (thought !== undefined) {
-      const thoughtMessage = inProgress.conversation.messages[thought.beforeMessageIndex ?? -1];
-      ok(thoughtMessage !== undefined);
-      strictEqual(thoughtMessage.role, 'assistant');
-      strictEqual(
-        requestKeyIdentity(thoughtMessage.requestKey!),
-        requestKeyIdentity(thought.requestKey),
-      );
-    }
+    assertThoughtRequest(inProgress, executionId);
 
     await detached.return?.(undefined);
     detached = undefined;
@@ -319,15 +318,15 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
         executionId,
       );
       ok(
-        resumedFrame.value.snapshot.conversation.tools.some((tool) =>
-          tool.toolOccurrenceId === call.toolOccurrenceId &&
+        entities(resumedFrame.value.snapshot, 'tool').some((tool) =>
+          tool.id === call.id &&
           tool.result !== undefined
         ),
       );
       assertToolThenPartialOrder(
-        resumedFrame.value.snapshot.conversation.messages,
+        resumedFrame.value.snapshot,
         executionId,
-        call.toolOccurrenceId,
+        call.id,
       );
     } else {
       throw new Error('reconnect did not begin with a snapshot');
@@ -363,44 +362,28 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
       JSON.stringify(cancelled.execution.diagnostic),
     );
     ok(
-      afterCancel.conversation.messages.some((message) =>
+      entities(afterCancel, 'message').some((message) =>
         message.role === 'user' && message.executionId === executionId
       ),
     );
     ok(
-      afterCancel.conversation.messages.some((message) =>
+      entities(afterCancel, 'message').some((message) =>
         message.role === 'assistant' &&
         message.executionId === executionId &&
         message.text === cancelledPartialText
       ),
       JSON.stringify({
         runtime: afterCancel.runtime,
-        messages: afterCancel.conversation.messages,
-        requests: afterCancel.conversation.requests,
-        thinking: afterCancel.conversation.thinking,
+        messages: entities(afterCancel, 'message'),
+        entities: afterCancel.conversation.entities,
       }),
     );
-    const cancelledThought = afterCancel.conversation.thinking.find((item) =>
-      item.text === liveThought &&
-      item.requestKey.executionId === executionId
-    );
-    ok(cancelledThought !== undefined);
-    if (cancelledThought !== undefined) {
-      const thoughtMessage = afterCancel.conversation.messages[
-        cancelledThought.beforeMessageIndex ?? -1
-      ];
-      ok(thoughtMessage !== undefined);
-      strictEqual(thoughtMessage.role, 'assistant');
-      strictEqual(
-        requestKeyIdentity(thoughtMessage.requestKey!),
-        requestKeyIdentity(cancelledThought.requestKey),
-      );
-    }
+    assertThoughtRequest(afterCancel, executionId);
 
     assertToolThenPartialOrder(
-      afterCancel.conversation.messages,
+      afterCancel,
       executionId,
-      call.toolOccurrenceId,
+      call.id,
     );
 
     const finalSession = await client.sessionOpen({
@@ -409,8 +392,11 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     });
     strictEqual(finalSession.kind, 'accepted');
     if (finalSession.kind !== 'accepted') return;
-    strictEqual(finalSession.value.snapshot.session.persistence, 'none');
-    const finalSubmit = await client.taskSubmit(finalSession.value.snapshot.session.id, {
+    strictEqual(
+      (await client.sessionRead(finalSession.value.sessionId)).session.persistence,
+      'none',
+    );
+    const finalSubmit = await client.taskSubmit(finalSession.value.sessionId, {
       commandId: crypto.randomUUID(),
       text: 'Return a short final result',
     });
@@ -424,10 +410,10 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     const finalExecution = await client.executionRead(finalSubmit.value.executionId);
     strictEqual(finalExecution.execution.outcome, 'completed');
     strictEqual(finalExecution.execution.adoption, 'non_canonical');
-    const finalSnapshot = await client.sessionRead(finalSession.value.snapshot.session.id);
-    strictEqual(finalSnapshot.conversation.requests.length, 0);
+    const finalSnapshot = await client.sessionRead(finalSession.value.sessionId);
+    strictEqual(entities(finalSnapshot, 'request').length, 1);
     strictEqual(
-      finalSnapshot.conversation.messages.filter((message) =>
+      entities(finalSnapshot, 'message').filter((message) =>
         message.role === 'assistant' && message.text === completedText
       ).length,
       1,

@@ -57,6 +57,7 @@ import {
   type RecalledExecutionContext,
 } from './recalled_execution_context.ts';
 import type { WorkerStageName } from './worker_stage_probe.ts';
+import type { AgentGenerationContextBasis } from '../data/agent_data_contract.ts';
 
 export interface WorkerGenerationPort {
   readonly runtimeEvent: (
@@ -91,6 +92,8 @@ export interface WorkerGenerationPort {
     outcome: LoopOutcome,
     contextManifest?: import('../history/context_attribution.ts').ExecutionContextManifestV2,
   ) => void | PromiseLike<void>;
+  /** Synchronous Core receipt emitted only after runtime turn cleanup clears `active`. */
+  readonly turnSettled?: (correlation: WorkerCorrelation) => void;
 }
 
 type TurnEndEvent = Extract<AgentEvent, { readonly kind: 'turn_end' }>;
@@ -198,7 +201,10 @@ export class WorkerGeneration {
     });
   }
 
-  selectRootModel(selection: ModelSelection, privateStateFromTurn = 1): boolean {
+  selectRootModel(
+    selection: ModelSelection,
+    privateStateFromTurn = 1,
+  ): boolean {
     if (this.active) return false;
     this.replaceRootModel(selection);
     this.rootModelSelection = structuredClone(selection);
@@ -238,6 +244,8 @@ export class WorkerGeneration {
     task: string,
     recalledContext?: RecalledExecutionContext,
     chatgptRegistrationId?: string | null,
+    generationBasis?: AgentGenerationContextBasis,
+    cancelledDuringPreparation = false,
   ): Promise<void> {
     if (this.active) {
       this.port.turnFailed(
@@ -249,6 +257,26 @@ export class WorkerGeneration {
         ),
       );
       return;
+    }
+    if (generationBasis !== undefined) {
+      this.committedTranscript = snapshotMessages(
+        generationBasis.initialTranscript,
+      );
+      this.nextTurn = generationBasis.nextTurn;
+      this.checkpoint = generationBasis.checkpoint === undefined
+        ? undefined
+        : structuredClone(generationBasis.checkpoint);
+      if (
+        !sameModelSelection(
+          this.rootModelSelection,
+          generationBasis.modelSelection,
+        )
+      ) {
+        this.replaceRootModel(generationBasis.modelSelection);
+      }
+      this.rootModelSelection = structuredClone(generationBasis.modelSelection);
+      this.privateStateFromTurn = generationBasis.privateStateFromTurn;
+      recalledContext = generationBasis.recalledContext;
     }
     this.active = true;
     if (
@@ -315,6 +343,7 @@ export class WorkerGeneration {
     );
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
+    if (cancelledDuringPreparation) cancellation.request();
     const contextObservations: Promise<void>[] = [];
     const contextRequests: ContextModelRequestDelta[] = [];
     const sentContextBlobs = new Set<string>();
@@ -1151,6 +1180,7 @@ export class WorkerGeneration {
       this.activeSteering = null;
       this.activeCancellation = null;
       this.active = false;
+      this.port.turnSettled?.(correlation);
     }
   }
 }

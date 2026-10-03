@@ -3,6 +3,13 @@ import { isAuthProfileId, type ReasoningEffort } from './model_selection.ts';
 import { isJsonValue } from './openrouter_value.ts';
 
 export type ProviderEvidenceLane = 'parent' | 'planner';
+/** Attribution captured from the model result that declared a tool-call batch. */
+export interface ProviderEvidenceAttribution {
+  readonly modelStep: number;
+  readonly lane?: ProviderEvidenceLane;
+  /** Omitted when this model result has no matching physical provider request. */
+  readonly requestOrdinal?: number;
+}
 /** Identifies whether a retained request belongs to compaction or the user turn. */
 export type ProviderEvidencePhase = 'user_turn' | 'compaction';
 
@@ -71,6 +78,7 @@ export type ProviderEvidenceRuntimeEvent =
   | {
     readonly kind: 'tool_call';
     readonly call: ToolCall;
+    readonly callIndex: number;
     readonly modelStep: number;
     readonly lane?: ProviderEvidenceLane;
     readonly requestOrdinal?: number;
@@ -80,6 +88,7 @@ export type ProviderEvidenceRuntimeEvent =
     readonly callId: string;
     readonly name: string;
     readonly text: string;
+    readonly callIndex: number;
     readonly modelStep: number;
     readonly lane?: ProviderEvidenceLane;
     readonly requestOrdinal?: number;
@@ -87,6 +96,7 @@ export type ProviderEvidenceRuntimeEvent =
   | {
     readonly kind: 'tool_result';
     readonly result: ToolResultContent;
+    readonly callIndex: number;
     readonly modelStep: number;
     readonly lane?: ProviderEvidenceLane;
     readonly requestOrdinal?: number;
@@ -186,6 +196,8 @@ const hasExactKeys = (
 };
 const validPositiveInteger = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+const validCallIndex = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const validText = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && !value.includes('\0');
 const validProviderMetadata = (
@@ -312,11 +324,12 @@ const validRuntimeEvent = (
         validPositiveInteger(value.requestOrdinal));
   }
   if (value.kind === 'tool_call') {
-    return hasExactKeys(value, ['kind', 'call', 'modelStep'], [
+    return hasExactKeys(value, ['kind', 'call', 'callIndex', 'modelStep'], [
       'lane',
       'requestOrdinal',
     ]) &&
-      validToolCall(value.call) && validPositiveInteger(value.modelStep) &&
+      validToolCall(value.call) && validCallIndex(value.callIndex) &&
+      validPositiveInteger(value.modelStep) &&
       (value.lane === undefined || value.lane === 'parent' ||
         value.lane === 'planner') &&
       (value.requestOrdinal === undefined ||
@@ -325,11 +338,12 @@ const validRuntimeEvent = (
   if (value.kind === 'tool_progress') {
     return hasExactKeys(
       value,
-      ['kind', 'callId', 'name', 'text', 'modelStep'],
+      ['kind', 'callId', 'name', 'text', 'callIndex', 'modelStep'],
       ['lane', 'requestOrdinal'],
     ) &&
       validText(value.callId) && validText(value.name) &&
       typeof value.text === 'string' &&
+      validCallIndex(value.callIndex) &&
       validPositiveInteger(value.modelStep) &&
       (value.lane === undefined || value.lane === 'parent' ||
         value.lane === 'planner') &&
@@ -337,11 +351,12 @@ const validRuntimeEvent = (
         validPositiveInteger(value.requestOrdinal));
   }
   if (value.kind === 'tool_result') {
-    return hasExactKeys(value, ['kind', 'result', 'modelStep'], [
+    return hasExactKeys(value, ['kind', 'result', 'callIndex', 'modelStep'], [
       'lane',
       'requestOrdinal',
     ]) &&
-      validToolResult(value.result) && validPositiveInteger(value.modelStep) &&
+      validToolResult(value.result) && validCallIndex(value.callIndex) &&
+      validPositiveInteger(value.modelStep) &&
       (value.lane === undefined || value.lane === 'parent' ||
         value.lane === 'planner') &&
       (value.requestOrdinal === undefined ||
@@ -569,14 +584,11 @@ export class ProviderEvidenceRecorder {
     modelStep: number,
     lane?: ProviderEvidenceLane,
   ): void {
+    const attribution = this.modelAttribution(modelStep, lane);
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'assistant_progress',
       text,
-      modelStep,
-      ...(lane === undefined ? {} : { lane }),
-      ...(this.activeRequest === undefined ? {} : {
-        requestOrdinal: this.activeRequest.request.ordinal,
-      }),
+      ...attribution,
     };
     this.emitRuntimeObservation(event);
     if (!this.retainSnapshot) return;
@@ -593,33 +605,28 @@ export class ProviderEvidenceRecorder {
     result: ModelResult,
     modelStep: number,
     lane?: ProviderEvidenceLane,
-  ): void {
+  ): ProviderEvidenceAttribution {
+    const attribution = this.modelAttribution(modelStep, lane);
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'model_result',
       result: cloneValue(result),
-      modelStep,
-      ...(lane === undefined ? {} : { lane }),
-      ...(this.activeRequest === undefined ? {} : {
-        requestOrdinal: this.activeRequest.request.ordinal,
-      }),
+      ...attribution,
     };
     this.emitRuntimeObservation(event);
     if (this.retainSnapshot) this.runtimeEvents.push(event);
+    return attribution;
   }
 
   recordToolCall(
     call: ToolCall,
-    modelStep: number,
-    lane?: ProviderEvidenceLane,
+    callIndex: number,
+    attribution: ProviderEvidenceAttribution,
   ): void {
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'tool_call',
       call: cloneValue(call),
-      modelStep,
-      ...(lane === undefined ? {} : { lane }),
-      ...(this.activeRequest === undefined ? {} : {
-        requestOrdinal: this.activeRequest.request.ordinal,
-      }),
+      callIndex,
+      ...attribution,
     };
     this.emitRuntimeObservation(event);
     if (this.retainSnapshot) this.runtimeEvents.push(event);
@@ -628,26 +635,25 @@ export class ProviderEvidenceRecorder {
   recordToolProgress(
     call: Pick<ToolCall, 'callId' | 'name'>,
     text: string,
-    modelStep: number,
-    lane?: ProviderEvidenceLane,
+    callIndex: number,
+    attribution: ProviderEvidenceAttribution,
   ): void {
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'tool_progress',
       callId: call.callId,
       name: call.name,
       text,
-      modelStep,
-      ...(lane === undefined ? {} : { lane }),
-      ...(this.activeRequest === undefined ? {} : {
-        requestOrdinal: this.activeRequest.request.ordinal,
-      }),
+      callIndex,
+      ...attribution,
     };
     this.emitRuntimeObservation(event);
     if (!this.retainSnapshot) return;
     const index = this.runtimeEvents.findIndex((existing) =>
       existing.kind === 'tool_progress' && existing.callId === call.callId &&
-      existing.name === call.name && existing.modelStep === modelStep &&
-      existing.lane === lane && existing.requestOrdinal === event.requestOrdinal
+      existing.name === call.name && existing.callIndex === callIndex &&
+      existing.modelStep === attribution.modelStep &&
+      existing.lane === attribution.lane &&
+      existing.requestOrdinal === attribution.requestOrdinal
     );
     if (index < 0) this.runtimeEvents.push(event);
     else this.runtimeEvents[index] = event;
@@ -655,17 +661,14 @@ export class ProviderEvidenceRecorder {
 
   recordToolResult(
     result: ToolResultContent,
-    modelStep: number,
-    lane?: ProviderEvidenceLane,
+    callIndex: number,
+    attribution: ProviderEvidenceAttribution,
   ): void {
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'tool_result',
       result: cloneValue(result),
-      modelStep,
-      ...(lane === undefined ? {} : { lane }),
-      ...(this.activeRequest === undefined ? {} : {
-        requestOrdinal: this.activeRequest.request.ordinal,
-      }),
+      callIndex,
+      ...attribution,
     };
     this.emitRuntimeObservation(event);
     if (this.retainSnapshot) this.runtimeEvents.push(event);
@@ -689,6 +692,20 @@ export class ProviderEvidenceRecorder {
         ? { requestOrdinal: event.requestOrdinal }
         : {}),
       event: structuredClone(event),
+    });
+  }
+
+  private modelAttribution(
+    modelStep: number,
+    lane?: ProviderEvidenceLane,
+  ): ProviderEvidenceAttribution {
+    const request = this.activeRequest?.request;
+    return Object.freeze({
+      modelStep,
+      ...(lane === undefined ? {} : { lane }),
+      ...(request === undefined || request.modelStep !== modelStep || request.lane !== lane
+        ? {}
+        : { requestOrdinal: request.ordinal }),
     });
   }
 

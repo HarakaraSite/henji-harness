@@ -1,20 +1,24 @@
+import {
+  foundationProposal,
+  Increment170FoundationDataPortAgent,
+} from './helpers/increment_170_foundation_data.ts';
+import {
+  childDataTest,
+  closeChildDataTests,
+  createChildDataTestRegistry,
+} from './helpers/increment_170_child_data.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { ChatGPTResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
 import { createCredentialResolver } from '../../v0/agent/provider/credential_resolver.ts';
 import { LiveModelCatalog } from '../../v0/agent/provider/live_model_catalog.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
-import {
-  type ChatGPTModelSelection,
-  modelRouteProfileId,
-} from '../../v0/agent/provider/model_selection.ts';
+import { type ChatGPTModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import type { ChatGPTAuthService } from '../../v0/agent/provider/chatgpt_auth.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
-import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
-import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import type {
   WorkerHostCommand,
-  WorkerToHostMessage,
+  WorkerReadyMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
@@ -43,7 +47,7 @@ const mockAuth = (
   close: () => Promise.resolve(),
 });
 
-Deno.test('Increment 163 resolver uses the frozen ChatGPT registration', async () => {
+childDataTest('Increment 163 resolver uses the frozen ChatGPT registration', async () => {
   const resolved: (string | undefined)[] = [];
   const auth = {
     ...mockAuth(),
@@ -73,7 +77,7 @@ Deno.test('Increment 163 resolver uses the frozen ChatGPT registration', async (
   deepStrictEqual(resolved, ['account-a']);
 });
 
-Deno.test('Increment 163 resolver records contextual OAuth refresh request facts', async () => {
+childDataTest('Increment 163 resolver records contextual OAuth refresh request facts', async () => {
   const temporaryRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-163-refresh-facts-',
   });
@@ -158,310 +162,291 @@ Deno.test('Increment 163 resolver records contextual OAuth refresh request facts
   }
 });
 
-Deno.test('Increment 163 ChatGPT route groups local tools and replays empty-completion items by account', async () => {
-  const selection = {
-    ...selectModelFor('openai-chatgpt', 'gpt-5.6-sol', 'high'),
-    registrationId: 'account-a',
-  } as ChatGPTModelSelection;
-  const doneItems = [
-    {
-      type: 'reasoning',
-      id: 'reasoning-a',
-      encrypted_content: 'mock-encrypted-thinking',
-      summary: [{ type: 'summary_text', text: 'Check the echoed value.' }],
-    },
-    {
-      type: 'function_call',
-      id: 'function-a',
-      status: 'completed',
-      call_id: 'call-a',
-      name: 'echo',
-      arguments: '{"value":"ok"}',
-    },
-    {
-      type: 'message',
-      id: 'message-a',
-      role: 'assistant',
-      status: 'completed',
-      content: [{
-        type: 'output_text',
-        text: 'Echo complete.',
-        annotations: [],
-      }],
-    },
-  ];
-  let requestedUrl = '';
-  let requestedAuthorization: string | null = null;
-  let requestBody: Record<string, unknown> = {};
-  const fetcher: typeof fetch = async (input, init) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    requestedUrl = request.url;
-    requestedAuthorization = request.headers.get('authorization');
-    requestBody = JSON.parse(await request.clone().text());
-    const events = [
+childDataTest(
+  'Increment 163 ChatGPT route groups local tools and replays empty-completion items by account',
+  async () => {
+    const selection = {
+      ...selectModelFor('openai-chatgpt', 'gpt-5.6-sol', 'high'),
+      registrationId: 'account-a',
+    } as ChatGPTModelSelection;
+    const doneItems = [
       {
-        type: 'response.output_item.done',
-        output_index: 2,
-        item: doneItems[2],
+        type: 'reasoning',
+        id: 'reasoning-a',
+        encrypted_content: 'mock-encrypted-thinking',
+        summary: [{ type: 'summary_text', text: 'Check the echoed value.' }],
       },
       {
-        type: 'response.output_item.done',
-        output_index: 1,
-        item: doneItems[1],
+        type: 'function_call',
+        id: 'function-a',
+        status: 'completed',
+        call_id: 'call-a',
+        name: 'echo',
+        arguments: '{"value":"ok"}',
       },
       {
-        type: 'response.output_item.done',
-        output_index: 0,
-        item: doneItems[0],
-      },
-      {
-        type: 'response.completed',
-        response: {
-          id: 'response-a',
-          status: 'completed',
-          output: [],
-          output_text: '',
-        },
+        type: 'message',
+        id: 'message-a',
+        role: 'assistant',
+        status: 'completed',
+        content: [{
+          type: 'output_text',
+          text: 'Echo complete.',
+          annotations: [],
+        }],
       },
     ];
-    const stream = events.map((event) => `data: ${JSON.stringify(event)}\n\n`)
-      .join('');
-    return new Response(stream, {
-      headers: { 'content-type': 'text/event-stream' },
+    let requestedUrl = '';
+    let requestedAuthorization: string | null = null;
+    let requestBody: Record<string, unknown> = {};
+    const fetcher: typeof fetch = async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      requestedUrl = request.url;
+      requestedAuthorization = request.headers.get('authorization');
+      requestBody = JSON.parse(await request.clone().text());
+      const events = [
+        {
+          type: 'response.output_item.done',
+          output_index: 2,
+          item: doneItems[2],
+        },
+        {
+          type: 'response.output_item.done',
+          output_index: 1,
+          item: doneItems[1],
+        },
+        {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: doneItems[0],
+        },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'response-a',
+            status: 'completed',
+            output: [],
+            output_text: '',
+          },
+        },
+      ];
+      const stream = events.map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join('');
+      return new Response(stream, {
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    };
+    const model = new ChatGPTResponsesModel({
+      selection,
+      credentialSource: () => 'mock-access-token',
+      fetcher,
     });
-  };
-  const model = new ChatGPTResponsesModel({
-    selection,
-    credentialSource: () => 'mock-access-token',
-    fetcher,
-  });
-  const request: ModelRequest = {
-    systemInstruction: 'Use Henji tools when needed.',
-    transcript: [
-      { role: 'user', content: { kind: 'text', text: 'Echo the value.' } },
-      {
-        role: 'assistant',
-        content: { kind: 'text', text: 'Private item from account A.' },
-        providerState: {
-          provider: 'openai-chatgpt@account-a',
-          replayItems: [{ type: 'reasoning', id: 'prior-account-a' }],
-          model: selection.modelId,
-        },
-      },
-      {
-        role: 'assistant',
-        content: { kind: 'text', text: 'Visible history from account B.' },
-        providerState: {
-          provider: 'openai-chatgpt@account-b',
-          replayItems: [{ type: 'reasoning', id: 'must-not-replay-account-b' }],
-          model: selection.modelId,
-        },
-      },
-    ],
-    tools: [{
-      name: 'echo',
-      description: 'Return the supplied value.',
-      inputSchema: {
-        type: 'object',
-        properties: { value: { type: 'string' } },
-      },
-    }],
-  };
-
-  const thinking: unknown[] = [];
-  const result = await model.generate(request, {
-    reportThinkingDelta: (delta) => thinking.push(delta),
-  });
-  deepStrictEqual(requestBody.reasoning, { summary: 'auto', effort: 'high' });
-  deepStrictEqual(thinking, [{ kind: 'summary', text: 'Check the echoed value.' }]);
-  strictEqual(result.kind, 'tool_calls');
-  if (result.kind !== 'tool_calls') {
-    throw new Error('tool call result expected');
-  }
-  strictEqual(result.text, 'Echo complete.');
-  deepStrictEqual(result.calls, [{
-    callId: 'call-a',
-    name: 'echo',
-    arguments: { value: 'ok' },
-  }]);
-  deepStrictEqual(result.providerState, {
-    provider: 'openai-chatgpt@account-a',
-    replayItems: doneItems,
-    model: selection.modelId,
-  });
-  strictEqual(requestedUrl, 'https://api.openai.com/v1/responses');
-  strictEqual(requestedAuthorization, 'Bearer mock-access-token');
-  strictEqual(requestBody.store, false);
-  strictEqual(requestBody.stream, true);
-  const tools = requestBody.tools as Record<string, unknown>[];
-  strictEqual(tools[0].type, 'namespace');
-  strictEqual(tools[0].name, 'henji');
-  deepStrictEqual(tools[0].tools, [{
-    type: 'function',
-    name: 'echo',
-    description: 'Return the supplied value.',
-    parameters: { type: 'object', properties: { value: { type: 'string' } } },
-    strict: false,
-  }]);
-  deepStrictEqual(requestBody.input, [
-    { role: 'user', content: 'Echo the value.' },
-    { type: 'reasoning', id: 'prior-account-a' },
-    { role: 'assistant', content: 'Visible history from account B.' },
-  ]);
-  ok(!JSON.stringify(requestBody).includes('mock-access-token'));
-});
-
-Deno.test('Increment 163 ChatGPT catalogs preserve account order and account-scoped favorites', async () => {
-  const root = await Deno.makeTempDir({
-    prefix: 'henji-increment-163-catalog-',
-  });
-  const authorization: (string | null)[] = [];
-  const auth = mockAuth('account-selected');
-  const fetcher: typeof fetch = (input, init) => {
-    const url = new URL(String(input));
-    if (url.origin === 'https://models.dev') return Promise.resolve(Response.json({}));
-    authorization.push(new Headers(init?.headers).get('authorization'));
-    return Promise.resolve(Response.json({
-      models: [
+    const request: ModelRequest = {
+      systemInstruction: 'Use Henji tools when needed.',
+      transcript: [
+        { role: 'user', content: { kind: 'text', text: 'Echo the value.' } },
         {
-          slug: 'model-second',
-          display_name: 'Second model',
-          visibility: 'list',
+          role: 'assistant',
+          content: { kind: 'text', text: 'Private item from account A.' },
+          providerState: {
+            provider: 'openai-chatgpt@account-a',
+            replayItems: [{ type: 'reasoning', id: 'prior-account-a' }],
+            model: selection.modelId,
+          },
         },
-        { slug: 'hidden-model', display_name: 'Hidden', visibility: 'hidden' },
         {
-          slug: 'model-first',
-          display_name: 'First model',
-          visibility: 'list',
+          role: 'assistant',
+          content: { kind: 'text', text: 'Visible history from account B.' },
+          providerState: {
+            provider: 'openai-chatgpt@account-b',
+            replayItems: [{ type: 'reasoning', id: 'must-not-replay-account-b' }],
+            model: selection.modelId,
+          },
         },
       ],
-    }));
-  };
-  const declarations = builtinProviderDeclarations();
-  const catalog = new LiveModelCatalog({
-    configRoot: root,
-    declarations,
-    chatgptAuth: auth,
-    fetcher,
-  });
-  try {
-    const accountA = await catalog.models(
-      'openai-chatgpt',
-      undefined,
-      'account-a',
-    );
-    const accountB = await catalog.models(
-      'openai-chatgpt',
-      undefined,
-      'account-b',
-    );
-    deepStrictEqual(accountA.models.map((model) => model.modelId), [
-      'model-second',
-      'model-first',
-    ]);
-    deepStrictEqual(accountB.models.map((model) => model.modelId), [
-      'model-second',
-      'model-first',
-    ]);
-    deepStrictEqual(authorization, [
-      'Bearer token-account-a',
-      'Bearer token-account-b',
-    ]);
+      tools: [{
+        name: 'echo',
+        description: 'Return the supplied value.',
+        inputSchema: {
+          type: 'object',
+          properties: { value: { type: 'string' } },
+        },
+      }],
+    };
 
-    const favorited = await catalog.favorite(
-      'openai-chatgpt',
-      'model-second',
-      true,
-      'account-a',
-    );
-    strictEqual(favorited.models[0].favorite, true);
-    const accountBReadback = await catalog.models(
-      'openai-chatgpt',
-      undefined,
-      'account-b',
-    );
-    strictEqual(accountBReadback.models[0].favorite, false);
-    const accountAReadback = await catalog.models(
-      'openai-chatgpt',
-      undefined,
-      'account-a',
-    );
-    strictEqual(accountAReadback.models[0].favorite, true);
-    const paths = [...Deno.readDirSync(`${root}/model-catalogs`)].map((entry) => entry.name)
-      .sort();
-    deepStrictEqual(paths, [
-      'openai-chatgpt-account-a.json',
-      'openai-chatgpt-account-b.json',
-    ]);
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-class CapturingChildCapsule implements WorkerHostCapsule {
-  readonly commands: WorkerHostCommand[] = [];
-  private listener: ((message: WorkerToHostMessage) => void) | undefined;
-
-  send(command: WorkerHostCommand): void {
-    this.commands.push(command);
-    if (command.kind === 'start') {
-      const selection = command.modelSelection!;
-      queueMicrotask(() =>
-        this.listener?.({
-          kind: 'ready',
-          correlation: command.correlation,
-          manifest: {
-            role: 'parent',
-            maxSteps: 128,
-            profileId: modelRouteProfileId(selection),
-            resources: [],
-            rootModel: selection,
-            tools: (command.toolDefinitions ?? []).map((
-              { toolIdentity, ref },
-            ) => ({
-              toolIdentity,
-              ref,
-            })),
-          },
-          startupSnapshot: { skillNames: [] },
-          credentialAvailability: {
-            authProfile: selection.authProfile,
-            status: 'unknown',
-          },
-        })
-      );
-    } else if (command.kind === 'turn') {
-      queueMicrotask(() =>
-        this.listener?.({
-          kind: 'commit_proposal',
-          correlation: command.correlation,
-          transcript: [],
-          nextTurn: 2,
-          outcome: {
-            ok: true,
-            task: command.task,
-            outcome: 'final',
-            stopReason: 'final',
-            finalText: 'ChatGPT child completed.',
-            steps: 1,
-            toolCallCount: 0,
-            toolResultCount: 0,
-            transcript: [],
-          },
-        })
-      );
+    const thinking: unknown[] = [];
+    const result = await model.generate(request, {
+      reportThinkingDelta: (delta) => thinking.push(delta),
+    });
+    deepStrictEqual(requestBody.reasoning, { summary: 'auto', effort: 'high' });
+    deepStrictEqual(thinking, [{ kind: 'summary', text: 'Check the echoed value.' }]);
+    strictEqual(result.kind, 'tool_calls');
+    if (result.kind !== 'tool_calls') {
+      throw new Error('tool call result expected');
     }
-  }
+    strictEqual(result.text, 'Echo complete.');
+    deepStrictEqual(result.calls, [{
+      callId: 'call-a',
+      name: 'echo',
+      arguments: { value: 'ok' },
+    }]);
+    deepStrictEqual(result.providerState, {
+      provider: 'openai-chatgpt@account-a',
+      replayItems: doneItems,
+      model: selection.modelId,
+    });
+    strictEqual(requestedUrl, 'https://api.openai.com/v1/responses');
+    strictEqual(requestedAuthorization, 'Bearer mock-access-token');
+    strictEqual(requestBody.store, false);
+    strictEqual(requestBody.stream, true);
+    const tools = requestBody.tools as Record<string, unknown>[];
+    strictEqual(tools[0].type, 'namespace');
+    strictEqual(tools[0].name, 'henji');
+    deepStrictEqual(tools[0].tools, [{
+      type: 'function',
+      name: 'echo',
+      description: 'Return the supplied value.',
+      parameters: { type: 'object', properties: { value: { type: 'string' } } },
+      strict: false,
+    }]);
+    deepStrictEqual(requestBody.input, [
+      { role: 'user', content: 'Echo the value.' },
+      { type: 'reasoning', id: 'prior-account-a' },
+      { role: 'assistant', content: 'Visible history from account B.' },
+    ]);
+    ok(!JSON.stringify(requestBody).includes('mock-access-token'));
+  },
+);
 
-  subscribe(listener: (message: WorkerToHostMessage) => void): () => void {
-    this.listener = listener;
-    return () => this.listener = undefined;
-  }
+childDataTest(
+  'Increment 163 ChatGPT catalogs preserve account order and account-scoped favorites',
+  async () => {
+    const root = await Deno.makeTempDir({
+      prefix: 'henji-increment-163-catalog-',
+    });
+    const authorization: (string | null)[] = [];
+    const auth = mockAuth('account-selected');
+    const fetcher: typeof fetch = (input, init) => {
+      const url = new URL(String(input));
+      if (url.origin === 'https://models.dev') return Promise.resolve(Response.json({}));
+      authorization.push(new Headers(init?.headers).get('authorization'));
+      return Promise.resolve(Response.json({
+        models: [
+          {
+            slug: 'model-second',
+            display_name: 'Second model',
+            visibility: 'list',
+          },
+          { slug: 'hidden-model', display_name: 'Hidden', visibility: 'hidden' },
+          {
+            slug: 'model-first',
+            display_name: 'First model',
+            visibility: 'list',
+          },
+        ],
+      }));
+    };
+    const declarations = builtinProviderDeclarations();
+    const catalog = new LiveModelCatalog({
+      configRoot: root,
+      declarations,
+      chatgptAuth: auth,
+      fetcher,
+    });
+    try {
+      const accountA = await catalog.models(
+        'openai-chatgpt',
+        undefined,
+        'account-a',
+      );
+      const accountB = await catalog.models(
+        'openai-chatgpt',
+        undefined,
+        'account-b',
+      );
+      deepStrictEqual(accountA.models.map((model) => model.modelId), [
+        'model-second',
+        'model-first',
+      ]);
+      deepStrictEqual(accountB.models.map((model) => model.modelId), [
+        'model-second',
+        'model-first',
+      ]);
+      deepStrictEqual(authorization, [
+        'Bearer token-account-a',
+        'Bearer token-account-b',
+      ]);
 
-  terminate(): void {}
+      const favorited = await catalog.favorite(
+        'openai-chatgpt',
+        'model-second',
+        true,
+        'account-a',
+      );
+      strictEqual(favorited.models[0].favorite, true);
+      const accountBReadback = await catalog.models(
+        'openai-chatgpt',
+        undefined,
+        'account-b',
+      );
+      strictEqual(accountBReadback.models[0].favorite, false);
+      const accountAReadback = await catalog.models(
+        'openai-chatgpt',
+        undefined,
+        'account-a',
+      );
+      strictEqual(accountAReadback.models[0].favorite, true);
+      const paths = [...Deno.readDirSync(`${root}/model-catalogs`)].map((entry) => entry.name)
+        .sort();
+      deepStrictEqual(paths, [
+        'openai-chatgpt-account-a.json',
+        'openai-chatgpt-account-b.json',
+      ]);
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+);
+
+class CapturingChildCapsule extends Increment170FoundationDataPortAgent {
+  readonly commands: WorkerHostCommand[] = [];
+  readonly readyMessages: WorkerReadyMessage[] = [];
+  constructor() {
+    super(({ command, turnNumber }) => {
+      const transcript = [
+        { role: 'user' as const, content: { kind: 'text' as const, text: command.task } },
+        {
+          role: 'assistant' as const,
+          content: { kind: 'text' as const, text: 'ChatGPT child completed.' },
+        },
+      ];
+      return foundationProposal({
+        correlation: command.correlation,
+        task: command.task,
+        turn: turnNumber,
+        transcript,
+        outcome: {
+          ok: true,
+          outcome: 'final',
+          stopReason: 'final',
+          finalText: 'ChatGPT child completed.',
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+        },
+      });
+    });
+    this.subscribe((message) => {
+      if (message.kind === 'ready') this.readyMessages.push(message);
+    });
+  }
+  override send(command: WorkerHostCommand): void {
+    this.commands.push(command);
+    super.send(command);
+  }
 }
 
-Deno.test('Increment 163 ChatGPT children freeze account selection at spawn', async () => {
+childDataTest('Increment 163 ChatGPT children freeze account selection at spawn', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-163-child-' });
   const capsules: CapturingChildCapsule[] = [];
   const declarations = builtinProviderDeclarations();
@@ -479,23 +464,11 @@ Deno.test('Increment 163 ChatGPT children freeze account selection at spawn', as
     ...mockAuth(),
     selectedRegistrationId: () => Promise.resolve(selectedRegistrationId),
   } as ChatGPTAuthService;
-  const registry = new ChildRunRegistry({
+  const { registry } = await createChildDataTestRegistry({
     options: {
-      handle: {
-        id: 'increment-163-parent',
-        commit() {},
-        rollback() {},
-        installCheckpoint() {},
-        rollbackCheckpoint() {},
-        close: () => Promise.resolve(),
-      },
-      workspaceRoot: Deno.cwd(),
       configRoot: root,
-      agent: 'default',
-      definition: ref,
       toolDefinitions,
       physicalIoMode: 'provider-free',
-      initialModelSelection: otherProvider,
       providerDeclarations: declarations,
       capsuleFactory: () => {
         const capsule = new CapturingChildCapsule();
@@ -538,12 +511,14 @@ Deno.test('Increment 163 ChatGPT children freeze account selection at spawn', as
     ok(start?.kind === 'start');
     ok(turn?.kind === 'turn');
     strictEqual(start.configRoot, root);
-    strictEqual(start.modelSelection?.provider, 'openai-chatgpt');
-    if (start.modelSelection?.provider !== 'openai-chatgpt') {
+    const frozenModel = capsule.readyMessages[0]?.manifest?.rootModel;
+    ok(frozenModel);
+    strictEqual(frozenModel?.provider, 'openai-chatgpt');
+    if (frozenModel?.provider !== 'openai-chatgpt') {
       throw new Error('ChatGPT child model was not selected');
     }
     strictEqual(
-      'registrationId' in start.modelSelection ? start.modelSelection.registrationId : undefined,
+      'registrationId' in frozenModel ? frozenModel.registrationId : undefined,
       'account-b',
     );
     strictEqual(turn.chatgptRegistrationId, 'account-b');
@@ -582,17 +557,20 @@ Deno.test('Increment 163 ChatGPT children freeze account selection at spawn', as
     const inheritedTurn = capsules[1]?.commands.find((command) => command.kind === 'turn');
     ok(inheritedStart?.kind === 'start');
     ok(inheritedTurn?.kind === 'turn');
-    strictEqual(inheritedStart.modelSelection?.provider, 'openai-chatgpt');
-    if (inheritedStart.modelSelection?.provider !== 'openai-chatgpt') {
+    const inheritedModel = capsules[1]?.readyMessages[0]?.manifest?.rootModel;
+    ok(inheritedModel);
+    strictEqual(inheritedModel?.provider, 'openai-chatgpt');
+    if (inheritedModel?.provider !== 'openai-chatgpt') {
       throw new Error('ChatGPT parent child route was not inherited');
     }
     strictEqual(
-      (inheritedStart.modelSelection as ChatGPTModelSelection).registrationId,
+      (inheritedModel as ChatGPTModelSelection).registrationId,
       'account-parent-turn',
     );
     strictEqual(inheritedTurn.chatgptRegistrationId, 'account-parent-turn');
   } finally {
     await registry.cleanupAll();
+    await closeChildDataTests();
     setActiveProviderDeclarations([]);
     await Deno.remove(root, { recursive: true });
   }

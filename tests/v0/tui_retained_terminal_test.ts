@@ -1,8 +1,17 @@
 import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
-import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state.ts';
+import {
+  createUiState,
+  reduceUiAction,
+  reduceUiEvent,
+  uiConversationCount,
+  uiConversationWindow,
+} from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
 import { ImmediateTuiRenderer as TuiRenderer } from './tui_renderer_fixture.ts';
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
+import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentation.ts';
+import { conversationPosition, tuiClientState, tuiSnapshot } from './tui_entity_fixture.ts';
 import type {
   PresentationProjection,
   PresentationStartupState,
@@ -40,6 +49,23 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
+};
+
+const projectEntities = (
+  renderer: TuiRenderer,
+  entities: Readonly<Record<string, ConversationEntity>>,
+  order: readonly string[],
+): void => {
+  const update = new SnapshotConversationProjector().project(
+    tuiClientState(tuiSnapshot(entities, order)),
+    'retained-terminal-test',
+  );
+  renderer.setKeyedConversationStore(update.store, true, update.structureChanged);
+};
+
+const rendererEntries = (renderer: TuiRenderer) => {
+  const state = renderer.stateSnapshot();
+  return uiConversationWindow(state, 0, uiConversationCount(state));
 };
 
 const withoutSgr = (text: string): string => {
@@ -625,29 +651,47 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
     committedTurn: 30,
     messageCount: 60,
   });
-  const messages = Array.from({ length: 30 }, (_, index) => [
-    {
-      role: 'user' as const,
-      content: { kind: 'text' as const, text: `question ${index}` },
-    },
-    {
-      role: 'assistant' as const,
-      content: {
-        kind: 'text' as const,
-        text: index < 6 ? `answer ${index}` : `answer ${index}: ${'detail '.repeat(35)}`,
-      },
-    },
-  ]).flat();
-  renderer.renderRestored(messages, 0);
+  const entities: Record<string, ConversationEntity> = {};
+  const order: string[] = [];
+  for (let index = 0; index < 30; index += 1) {
+    const executionId = `execution-${index}`;
+    const userId = `question-${index}`;
+    const answerId = `answer-${index}`;
+    entities[userId] = {
+      kind: 'message',
+      id: userId,
+      executionId,
+      turn: index + 1,
+      version: 0,
+      position: conversationPosition(index, -1, -1),
+      role: 'user',
+      text: `question ${index}`,
+      complete: true,
+    };
+    entities[answerId] = {
+      kind: 'message',
+      id: answerId,
+      executionId,
+      turn: index + 1,
+      version: 0,
+      position: conversationPosition(index, 1, 1),
+      role: 'assistant',
+      text: index < 6 ? `answer ${index}` : `answer ${index}: ${'detail '.repeat(35)}`,
+      complete: true,
+    };
+    order.push(userId, answerId);
+  }
+  projectEntities(renderer, entities, order);
+  const entryCount = uiConversationCount(renderer.stateSnapshot());
   assert((renderer.stateSnapshot().historyWindow?.start ?? 0) > 0);
 
-  let previousEntry = renderer.stateSnapshot().log.entries.length;
+  let previousEntry = entryCount;
   for (let page = 0; page < 80; page += 1) {
     renderer.scrollPage('up');
     const footer = renderer.layoutSnapshot().footer[0].text;
     const position = footer.match(/history record (\d+) of (\d+)/);
     if (position !== null) {
-      assertEquals(Number(position[2]), messages.length);
+      assertEquals(Number(position[2]), entryCount);
       assert(
         Number(position[1]) <= previousEntry,
         'PageUp moved toward newer entries',
@@ -678,7 +722,7 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
     renderer.scrollPage('down');
   }
   assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  assertEquals(renderer.stateSnapshot().historyWindow?.end, messages.length);
+  assertEquals(renderer.stateSnapshot().historyWindow?.end, entryCount);
 });
 
 Deno.test('retained PageDown advances through a large assistant entry after oldest', () => {
@@ -1088,29 +1132,58 @@ Deno.test('retained PageUp keeps latest when the conversation fits one page', ()
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
 });
 
-Deno.test('restored thinking stays ordered and PageUp reaches history beyond the old display limits', () => {
+Deno.test('keyed thinking stays ordered and PageUp reaches history beyond the old display limits', () => {
   const renderer = new TuiRenderer(new RecordingTerminal());
-  const messages = Array.from({ length: 300 }, (_, index) => [
-    {
-      role: 'user' as const,
-      content: { kind: 'text' as const, text: `question ${index}` },
-    },
-    {
-      role: 'assistant' as const,
-      content: { kind: 'text' as const, text: `answer ${index}` },
-    },
-  ]).flat();
-  renderer.renderRestored(messages, 0, [{
-    beforeMessageIndex: 599,
-    turn: 300,
-    modelStep: 1,
-    thinkingKind: 'summary',
-    text: 'Read the final question.',
-    complete: true,
-  }]);
-  const entries = renderer.stateSnapshot().log.entries;
-  assert(entries.length > 512);
-  assertEquals(renderer.stateSnapshot().log.omittedCount, 0);
+  const entities: Record<string, ConversationEntity> = {};
+  const order: string[] = [];
+  for (let index = 0; index < 300; index += 1) {
+    const executionId = `execution-${index}`;
+    const userId = `question-${index}`;
+    const answerId = `answer-${index}`;
+    entities[userId] = {
+      kind: 'message',
+      id: userId,
+      executionId,
+      turn: index + 1,
+      version: 0,
+      position: conversationPosition(index, -1, -1),
+      role: 'user',
+      text: `question ${index}`,
+      complete: true,
+    };
+    if (index === 299) {
+      entities['thinking-final'] = {
+        kind: 'thinking',
+        id: 'thinking-final',
+        executionId,
+        turn: index + 1,
+        requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+        thinkingKind: 'summary',
+        version: 0,
+        position: conversationPosition(index, 1, 1),
+        text: 'Read the final question.',
+        complete: true,
+      };
+    }
+    entities[answerId] = {
+      kind: 'message',
+      id: answerId,
+      executionId,
+      turn: index + 1,
+      version: 0,
+      position: conversationPosition(index, 1, 2),
+      role: 'assistant',
+      text: `answer ${index}`,
+      complete: true,
+    };
+    order.push(userId);
+    if (index === 299) order.push('thinking-final');
+    order.push(answerId);
+  }
+  projectEntities(renderer, entities, order);
+  const entries = rendererEntries(renderer);
+  assert(uiConversationCount(renderer.stateSnapshot()) > 512);
+  assertEquals(renderer.stateSnapshot().keyedConversation?.omitted, 0);
   const tail = entries.slice(-3);
   assertEquals(tail.map((entry) => entry.kind), [
     'user',
@@ -1137,7 +1210,10 @@ Deno.test('restored thinking stays ordered and PageUp reaches history beyond the
     renderer.scrollPage('down');
   }
   assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  assertEquals(renderer.stateSnapshot().historyWindow?.end, entries.length);
+  assertEquals(
+    renderer.stateSnapshot().historyWindow?.end,
+    uiConversationCount(renderer.stateSnapshot()),
+  );
   renderer.latest();
   assert(
     renderer.layoutSnapshot().allLog.some((row) => row.text.includes('answer 299')),
@@ -1170,91 +1246,123 @@ Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () 
   assert((state.historyWindow?.start ?? 0) > 0);
 });
 
-Deno.test('restored conversation retains more than 2 MiB of entry text', () => {
+Deno.test('keyed conversation retains more than 2 MiB of entry text', () => {
   const longAnswer = 'A'.repeat(710 * 1024);
-  const messages = Array.from({ length: 3 }, (_, index) => [
-    {
-      role: 'user' as const,
-      content: { kind: 'text' as const, text: `question ${index}` },
-    },
-    {
-      role: 'assistant' as const,
-      content: { kind: 'text' as const, text: longAnswer },
-    },
-  ]).flat();
-  const state = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    messages,
-    omitted: 0,
-  });
-  assertEquals(state.log.entries.length, 6);
-  assertEquals(state.log.entries[1].text.length, longAnswer.length);
-  assertEquals(state.log.entries[5].text.length, longAnswer.length);
-  assertEquals(state.log.omittedCount, 0);
-  assert((state.historyWindow?.start ?? 0) > 0);
+  const entities: Record<string, ConversationEntity> = {};
+  const order: string[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const executionId = `execution-${index}`;
+    const userId = `question-${index}`;
+    const answerId = `answer-${index}`;
+    entities[userId] = {
+      kind: 'message',
+      id: userId,
+      executionId,
+      turn: index + 1,
+      version: 0,
+      position: conversationPosition(index, -1, -1),
+      role: 'user',
+      text: `question ${index}`,
+      complete: true,
+    };
+    entities[answerId] = {
+      kind: 'message',
+      id: answerId,
+      executionId,
+      turn: index + 1,
+      version: 0,
+      position: conversationPosition(index, 1, 1),
+      role: 'assistant',
+      text: longAnswer,
+      complete: true,
+    };
+    order.push(userId, answerId);
+  }
+  const renderer = new TuiRenderer(new RecordingTerminal());
+  projectEntities(renderer, entities, order);
+  const entries = rendererEntries(renderer);
+  assertEquals(entries.length, 6);
+  assertEquals(entries[1]?.text.length, longAnswer.length);
+  assertEquals(entries[5]?.text.length, longAnswer.length);
+  assertEquals(renderer.stateSnapshot().keyedConversation?.omitted, 0);
+  assert((renderer.stateSnapshot().historyWindow?.start ?? 0) > 0);
 });
 
-Deno.test('restored model steps place thinking around a tool result and final answer', () => {
+Deno.test('keyed model steps place thinking around a tool result and final answer', () => {
   const renderer = new TuiRenderer(new RecordingTerminal());
-  renderer.renderRestored(
-    [
-      { role: 'user', content: { kind: 'text', text: 'Compare the READMEs' } },
-      {
-        role: 'assistant',
-        content: [{
-          kind: 'tool_call',
-          callId: 'read-1',
-          name: 'read',
-          arguments: { path: 'README.md' },
-        }],
-      },
-      {
-        role: 'tool',
-        content: [{
-          kind: 'tool_result',
-          callId: 'read-1',
-          name: 'read',
-          text: 'README contents',
-          outcome: 'success',
-        }],
-      },
-      { role: 'assistant', content: { kind: 'text', text: 'They match.' } },
-    ],
-    0,
-    [
-      {
-        beforeMessageIndex: 1,
-        turn: 1,
-        modelStep: 1,
-        thinkingKind: 'text',
-        text: 'Read both files.',
-        complete: true,
-      },
-      {
-        beforeMessageIndex: 3,
-        turn: 1,
-        modelStep: 2,
-        thinkingKind: 'summary',
-        text: 'Comparison done.',
-        complete: true,
-      },
-    ],
-    [1, 1, 1, 1],
-  );
-  assertEquals(
-    renderer.stateSnapshot().log.entries.map((entry) => entry.kind),
-    [
-      'user',
-      'thinking',
-      'tool',
-      'thinking',
-      'assistant',
-    ],
-  );
-  assertEquals(
-    renderer.stateSnapshot().log.entries[3].label,
-    'thinking summary>',
-  );
+  const executionId = 'compare-execution';
+  const entities: Record<string, ConversationEntity> = {
+    task: {
+      kind: 'message',
+      id: 'task',
+      executionId,
+      turn: 1,
+      version: 0,
+      position: conversationPosition(0, -1, -1),
+      role: 'user',
+      text: 'Compare the READMEs',
+      complete: true,
+    },
+    beforeTool: {
+      kind: 'thinking',
+      id: 'beforeTool',
+      executionId,
+      turn: 1,
+      requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+      thinkingKind: 'text',
+      version: 0,
+      position: conversationPosition(0, 1, 1),
+      text: 'Read both files.',
+      complete: true,
+    },
+    tool: {
+      kind: 'tool',
+      id: 'tool',
+      started: true,
+      executionId,
+      turn: 1,
+      requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+      version: 1,
+      position: conversationPosition(0, 1, 2),
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md' },
+      result: { text: 'README contents', outcome: 'success' },
+    },
+    afterTool: {
+      kind: 'thinking',
+      id: 'afterTool',
+      executionId,
+      turn: 1,
+      requestKey: { executionId, modelStep: 2, requestOrdinal: 2 },
+      thinkingKind: 'summary',
+      version: 0,
+      position: conversationPosition(0, 2, 1),
+      text: 'Comparison done.',
+      complete: true,
+    },
+    answer: {
+      kind: 'message',
+      id: 'answer',
+      executionId,
+      turn: 1,
+      version: 0,
+      position: conversationPosition(0, 2, 2),
+      role: 'assistant',
+      text: 'They match.',
+      complete: true,
+    },
+  };
+  projectEntities(renderer, entities, ['task', 'beforeTool', 'tool', 'afterTool', 'answer']);
+  const entries = rendererEntries(renderer);
+  assertEquals(entries.map((entry) => entry.kind), [
+    'user',
+    'thinking',
+    'tool',
+    'thinking',
+    'assistant',
+  ]);
+  assertEquals(entries[3]?.label, 'thinking summary>');
 });
 
 Deno.test('history footer hints Esc latest while busy and only latest advertises cancel', () => {

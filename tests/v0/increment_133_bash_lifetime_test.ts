@@ -1,6 +1,6 @@
 import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
 import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
-import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
+import { createDataClient } from '../../v0/agent/data/client.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import { WorkerProcessOwner } from '../../v0/agent/worker/worker_process_owner.ts';
@@ -17,17 +17,10 @@ const equal = (actual: unknown, expected: unknown): void => {
     `${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`,
   );
 };
-const handle = (): WorkerSessionHandle => ({
-  id: crypto.randomUUID(),
-  commit: () => {},
-  rollback: () => {},
-  installCheckpoint: () => {},
-  rollbackCheckpoint: () => {},
-  close: () => Promise.resolve(),
-});
-const open = async (root: string, events: AgentEvent[] = [], onProcessStart?: () => void) =>
-  await WorkerHostSession.open({
-    handle: handle(),
+const open = async (root: string, events: AgentEvent[] = [], onProcessStart?: () => void) => {
+  const data = await createDataClient({ workspaceRoot: root, stateRoot: `${root}/state` });
+  const descriptor = await data.openSession({
+    persistence: 'none',
     agent: 'default',
     definition: {
       schemaVersion: 1,
@@ -35,26 +28,45 @@ const open = async (root: string, events: AgentEvent[] = [], onProcessStart?: ()
       resourceId: 'test/bash-lifetime',
       revision: { algorithm: 'sha256', digest: 'b'.repeat(64) },
     },
-    modulePath: new URL('./fixtures/increment_133_bash_definition.ts', import.meta.url).pathname,
-    workspaceRoot: root,
-    physicalIoMode: 'provider-free',
-    toolDefinitions: await bundledToolDefinitionLoadRequests(),
-    cancelSettlementGraceMs: 2_000,
-    eventSink: (event) => {
-      events.push(event);
-    },
-    ...(onProcessStart === undefined ? {} : {
-      capsuleFactory: (url: URL) => {
-        const capsule = new WorkerCapsule(url);
-        capsule.subscribe((message) => {
-          if (message.kind === 'process_request' && message.request.action === 'start') {
-            onProcessStart();
-          }
-        });
-        return capsule;
-      },
-    }),
   });
+  try {
+    const session = await WorkerHostSession.open({
+      data,
+      descriptor,
+      modulePath: new URL('./fixtures/increment_133_bash_definition.ts', import.meta.url).pathname,
+      workspaceRoot: root,
+      physicalIoMode: 'provider-free',
+      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+      cancelSettlementGraceMs: 2_000,
+      eventSink: (event) => {
+        events.push(event);
+      },
+      ...(onProcessStart === undefined ? {} : {
+        capsuleFactory: (url: URL) => {
+          const capsule = new WorkerCapsule(url);
+          capsule.subscribe((message) => {
+            if (message.kind === 'process_request' && message.request.action === 'start') {
+              onProcessStart();
+            }
+          });
+          return capsule;
+        },
+      }),
+    });
+    const closeSession = session.close.bind(session);
+    session.close = async () => {
+      try {
+        await closeSession();
+      } finally {
+        await data.close();
+      }
+    };
+    return session;
+  } catch (error) {
+    await data.close();
+    throw error;
+  }
+};
 const submit = async (session: WorkerHostSession, command: string, timeoutMs?: number) => {
   const outcome = await session.submit(
     JSON.stringify({
@@ -276,13 +288,8 @@ Deno.test('a rejected process cleanup still releases the Session busy state', as
       await originalWait(id);
       throw new Error('observed process cleanup rejection');
     };
-    let rejected = false;
-    try {
-      await submit(session, 'printf first');
-    } catch (error) {
-      rejected = error instanceof Error && error.message === 'observed process cleanup rejection';
-    }
-    assert(rejected);
+    equal((await submit(session, 'printf first')).stdout, 'first');
+    equal(session.runtimeSnapshot().phase, 'idle');
     supervisor.waitForProcessCleanup = originalWait;
     equal((await submit(session, 'printf next')).stdout, 'next');
   } finally {

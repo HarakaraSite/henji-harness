@@ -5,6 +5,7 @@ import { startCoreServer } from '../../v0/agent/http/server.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
+import { decodeSessionSnapshotJson } from '../../v0/api/codec.ts';
 import type { SessionSnapshot } from '../../v0/api/contract.ts';
 
 const response = (text: string): Response => {
@@ -123,7 +124,11 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     strictEqual(snapshot.session.startup.productVersion, coreView.build.productVersion);
     strictEqual(snapshot.session.startup.workspace, workspaceRoot);
     strictEqual(snapshot.session.startup.sessionMode.kind, 'exact');
-    ok(snapshot.conversation.messages.some((item) => item.text === 'S22 saved history result'));
+    ok(
+      Object.values(snapshot.conversation.entities).some((item) =>
+        item.kind === 'message' && item.text === 'S22 saved history result'
+      ),
+    );
     strictEqual((await client.coreRead()).activeSessionId, null);
     strictEqual(capsuleStarts, 0);
     strictEqual(providerRequests, 2);
@@ -170,9 +175,10 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     ]);
     ok(opened.kind === 'accepted' && concurrentDuplicate.kind === 'accepted');
     if (opened.kind !== 'accepted' || concurrentDuplicate.kind !== 'accepted') return;
-    strictEqual(concurrentDuplicate.value.snapshot.session.id, opened.value.snapshot.session.id);
-    strictEqual(opened.value.snapshot.session.position.agent, 'generic');
-    strictEqual(startupStatus(opened.value.snapshot), 'unevaluated');
+    strictEqual(concurrentDuplicate.value.sessionId, opened.value.sessionId);
+    const openedSnapshot = await client.sessionRead(opened.value.sessionId);
+    strictEqual(openedSnapshot.session.position.agent, 'generic');
+    strictEqual(startupStatus(openedSnapshot), 'unevaluated');
     const openedAgain = await client.sessionOpen({
       commandId: 'slice2-new-command',
       selection: { kind: 'new' },
@@ -180,14 +186,14 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     });
     ok(openedAgain.kind === 'accepted');
     if (openedAgain.kind !== 'accepted') return;
-    strictEqual(openedAgain.value.snapshot.session.id, opened.value.snapshot.session.id);
-    strictEqual((await client.coreRead()).activeSessionId, opened.value.snapshot.session.id);
+    strictEqual(openedAgain.value.sessionId, opened.value.sessionId);
+    strictEqual((await client.coreRead()).activeSessionId, opened.value.sessionId);
 
     const savedWhileActive = await client.sessionRead(savedSessionId);
     strictEqual(savedWhileActive.session.id, savedSessionId);
     strictEqual(savedWhileActive.runtime.active, false);
-    strictEqual(savedWhileActive.runtime.activeSessionId, opened.value.snapshot.session.id);
-    strictEqual((await client.coreRead()).activeSessionId, opened.value.snapshot.session.id);
+    strictEqual(savedWhileActive.runtime.activeSessionId, opened.value.sessionId);
+    strictEqual((await client.coreRead()).activeSessionId, opened.value.sessionId);
 
     const genericResume = await client.sessionOpen({
       commandId: 'slice5-generic-resume-command',
@@ -195,7 +201,10 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     });
     strictEqual(genericResume.kind, 'accepted');
     if (genericResume.kind !== 'accepted') return;
-    strictEqual(genericResume.value.snapshot.session.position.agent, 'generic');
+    strictEqual(
+      (await client.sessionRead(genericResume.value.sessionId)).session.position.agent,
+      'generic',
+    );
     strictEqual(capsuleStarts, 0);
 
     const none = await client.sessionOpen({
@@ -204,18 +213,18 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     });
     ok(none.kind === 'accepted');
     if (none.kind !== 'accepted') return;
-    strictEqual(none.value.snapshot.session.persistence, 'none');
+    strictEqual((await client.sessionRead(none.value.sessionId)).session.persistence, 'none');
     const exact = await client.sessionOpen({
       commandId: 'slice2-exact-command',
       selection: { kind: 'exact', sessionId: savedSessionId },
     });
     ok(exact.kind === 'accepted');
     if (exact.kind !== 'accepted') return;
-    strictEqual(exact.value.snapshot.session.id, savedSessionId);
+    strictEqual(exact.value.sessionId, savedSessionId);
     ok(
-      exact.value.snapshot.conversation.messages.some((item) =>
-        item.text === 'S22 saved history result'
-      ),
+      Object.values((await client.sessionRead(exact.value.sessionId)).conversation.entities).some((
+        item,
+      ) => item.kind === 'message' && item.text === 'S22 saved history result'),
     );
     const noneAgain = await client.sessionOpen({
       commandId: 'slice2-none-again-command',
@@ -223,14 +232,14 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     });
     strictEqual(noneAgain.kind, 'accepted');
     if (noneAgain.kind !== 'accepted') return;
-    strictEqual(noneAgain.value.snapshot.session.persistence, 'none');
+    strictEqual((await client.sessionRead(noneAgain.value.sessionId)).session.persistence, 'none');
     const continued = await client.sessionOpen({
       commandId: 'slice2-continue-command',
       selection: { kind: 'continue' },
     });
     ok(continued.kind === 'accepted');
     if (continued.kind !== 'accepted') return;
-    strictEqual(continued.value.snapshot.session.id, savedSessionId);
+    strictEqual(continued.value.sessionId, savedSessionId);
     strictEqual(capsuleStarts, 0);
     strictEqual(providerRequests, 2);
 
@@ -250,7 +259,14 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     });
     try {
       strictEqual(initial.coreRead().activeSessionId, savedSessionId);
-      strictEqual(startupStatus(await initial.sessionRead(savedSessionId)), 'unevaluated');
+      strictEqual(
+        startupStatus(
+          decodeSessionSnapshotJson(
+            new TextDecoder().decode((await initial.sessionRead(savedSessionId)).bytes),
+          ),
+        ),
+        'unevaluated',
+      );
       strictEqual(initialCapsuleStarts, 0);
       strictEqual(providerRequests, 2);
     } finally {

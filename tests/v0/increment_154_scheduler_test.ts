@@ -2,6 +2,15 @@ import { deepStrictEqual, strictEqual } from 'node:assert';
 import { TuiRenderer } from '../../v0/tui/tui_renderer.ts';
 import { type ScreenFrame, type TerminalPort } from '../../v0/tui/terminal.ts';
 import { markdownAssistantRenderer } from '../../v0/tui/assistant_layout.ts';
+import { KeyedConversationStore } from '../../v0/tui/keyed_conversation_store.ts';
+import { freezeUiLogEntry, type UiLogEntry } from '../../v0/tui/state.ts';
+
+const keyedStore = (entries: readonly UiLogEntry[]): KeyedConversationStore => {
+  const store = new KeyedConversationStore();
+  for (const entry of entries) store.set(entry.id, entry);
+  store.replaceSemanticOrder(entries.map((entry) => entry.id));
+  return store;
+};
 
 const fixture = (columns = 120, rows = 40, completeWrites = true) => {
   let now = 0;
@@ -89,7 +98,7 @@ Deno.test('Increment 154 setters update state immediately and merge display work
   f.renderer.close();
 });
 
-Deno.test('Increment 154 latest conversation projection is applied once within the reserved frame', () => {
+Deno.test('Increment 154 applies each conversation update and merges only the frame', () => {
   const f = fixture();
   const applied: number[] = [];
   f.renderer.updateConversation(() => {
@@ -97,17 +106,22 @@ Deno.test('Increment 154 latest conversation projection is applied once within t
   });
   f.renderer.updateConversation(() => {
     applied.push(2);
-    f.renderer.setConversationEntries([{
-      id: 'a',
-      kind: 'assistant',
-      label: 'assistant>',
-      text: 'latest',
-      revision: 1,
-      live: false,
-    }], 0);
+    f.renderer.setKeyedConversationStore(
+      keyedStore([freezeUiLogEntry({
+        id: 'a',
+        kind: 'assistant',
+        label: 'assistant>',
+        text: 'latest',
+        revision: 1,
+        live: false,
+      })]),
+      true,
+      true,
+    );
   });
+  deepStrictEqual(applied, [1, 2]);
   f.tick();
-  deepStrictEqual(applied, [2]);
+  deepStrictEqual(applied, [1, 2]);
   strictEqual(f.frames.length, 1);
   strictEqual(f.callbacks.size, 0);
   strictEqual(f.frames[0].rows.some((row) => row.includes('latest')), true);
@@ -119,7 +133,7 @@ Deno.test('Increment 154 deferred Session projection preserves an overlay opened
   f.renderer.clearModal();
   f.renderer.latest();
   f.renderer.updateConversation(() => {
-    f.renderer.setConversationEntries([], 0, true);
+    f.renderer.setKeyedConversationStore(new KeyedConversationStore(), true, true);
   });
   f.renderer.renderReadOnlyHelp(['new context after Session switch']);
   f.tick();
@@ -141,7 +155,8 @@ Deno.test('Increment 154 editor and spinner reuse body layout; changed entry alo
     revision: 0,
     live: false,
   }));
-  f.renderer.setConversationEntries(entries, 0);
+  const store = keyedStore(entries.map((entry) => freezeUiLogEntry(entry)));
+  f.renderer.setKeyedConversationStore(store, true, true);
   f.tick();
   deepStrictEqual(f.rendered, ['first', 'second']);
   f.renderer.setEditor('typed');
@@ -152,10 +167,8 @@ Deno.test('Increment 154 editor and spinner reuse body layout; changed entry alo
   f.spin();
   f.tick();
   deepStrictEqual(f.rendered, ['first', 'second']);
-  f.renderer.setConversationEntries(
-    [entries[0], { ...entries[1], text: 'changed', revision: 1 }],
-    0,
-  );
+  store.set(entries[1].id, freezeUiLogEntry({ ...entries[1], text: 'changed', revision: 1 }));
+  f.renderer.setKeyedConversationStore(store, false, false);
   f.tick();
   deepStrictEqual(f.rendered, ['first', 'second', 'changed']);
   f.renderer.close();
@@ -174,29 +187,35 @@ Deno.test('Increment 154 resize notifications survive same-size frame merging an
     f.frames[1].geometryGeneration,
     f.frames[0].geometryGeneration + 2,
   );
-  let stale = false;
+  let alreadyApplied = false;
   f.renderer.updateConversation(() => {
-    stale = true;
+    alreadyApplied = true;
   });
+  strictEqual(alreadyApplied, true);
   f.renderer.setDisplayScope('core:new-session');
   f.renderer.updateConversation(() => {});
   f.tick();
-  strictEqual(stale, false);
+  strictEqual(alreadyApplied, true);
   strictEqual(f.frames.at(-1)?.scope, 'core:new-session');
   f.renderer.close();
 });
 
-Deno.test('Increment 154 close cancels pending display and delayed rendering errors reach the exit handler', () => {
+Deno.test('Increment 154 display work is synchronous and close cancels the reserved frame', () => {
   const f = fixture();
   let failures = 0;
   f.renderer.subscribeRenderFailure(() => {
     failures++;
   });
-  f.renderer.updateConversation(() => {
-    throw new Error('projection failed');
-  });
-  f.tick();
-  strictEqual(failures, 1);
+  let threw = false;
+  try {
+    f.renderer.updateConversation(() => {
+      throw new Error('projection failed');
+    });
+  } catch {
+    threw = true;
+  }
+  strictEqual(threw, true);
+  strictEqual(failures, 0);
   strictEqual(f.frames.length, 0);
   f.renderer.setEditor('pending');
   f.renderer.close();
@@ -218,7 +237,11 @@ Deno.test('Increment 154 Page bursts and pending writes retain intermediate hist
       live: false,
     }));
     for (const f of [burst, separated]) {
-      f.renderer.setConversationEntries(entries, 0);
+      f.renderer.setKeyedConversationStore(
+        keyedStore(entries.map((entry) => freezeUiLogEntry(entry))),
+        true,
+        true,
+      );
       f.tick();
       f.writeNext();
       f.renderer.scrollPage('up');

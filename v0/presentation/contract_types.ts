@@ -153,22 +153,6 @@ export type PresentationMessage =
   | PresentationAssistantMessage
   | PresentationToolMessage;
 
-export interface PresentationRestoredThinking {
-  readonly beforeMessageIndex: number;
-  readonly turn: number;
-  readonly modelStep: number;
-  readonly thinkingKind: 'text' | 'summary';
-  readonly text: string;
-  readonly complete: boolean;
-}
-
-export interface PresentationRestoredConversation {
-  readonly messages: readonly PresentationMessage[];
-  readonly messageTurns?: readonly number[];
-  readonly omitted: number;
-  readonly thinking?: readonly PresentationRestoredThinking[];
-}
-
 export interface PresentationOutcome {
   readonly ok: boolean;
   readonly task: string;
@@ -323,7 +307,6 @@ export type PresentationIntentResult =
   | Readonly<{
     readonly kind: 'binding';
     readonly position: PresentationPosition;
-    readonly restored?: PresentationRestoredConversation;
   }>
   | Readonly<{
     readonly kind: 'model_selection';
@@ -434,13 +417,6 @@ export type PresentationEvent =
     readonly kind: 'notice';
     readonly generation: number;
     readonly text: string;
-  }>
-  | Readonly<{
-    readonly kind: 'restored_log';
-    readonly messages: readonly PresentationMessage[];
-    readonly messageTurns?: readonly number[];
-    readonly omitted: number;
-    readonly thinking?: readonly PresentationRestoredThinking[];
   }>
   | Readonly<{
     readonly kind: 'session_binding_replaced';

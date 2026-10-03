@@ -30,7 +30,6 @@ import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
-import { FakeWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import {
   builtinProviderDeclarations,
@@ -1348,7 +1347,8 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
   const configRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-113-provider-',
   });
-  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const stateRoot = `${configRoot}/state`;
+  const reader = new SqliteHistoryV7ProductionStore(stateRoot, configRoot, { readOnly: true });
   const builtin = builtinProviderDeclarations().find((item) =>
     item.providerId === 'openrouter-chat'
   );
@@ -1368,13 +1368,14 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
       resolveBuiltinAgent(),
       {
         configRoot,
+        stateRoot,
+        workspaceRoot: configRoot,
         dataRoot: configRoot,
         physicalIoMode: 'provider-free',
-        executionArtifactStore: artifacts,
       },
     );
     assert(result.outcome.ok);
-    const stored = await artifacts.list();
+    const stored = await reader.executionArtifacts.list();
     assertEquals(stored.length, 1);
     assertEquals(stored[0].manifest?.rootModel, {
       provider: 'openrouter-chat',
@@ -1384,6 +1385,7 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
       effort: 'auto',
     });
   } finally {
+    reader.close();
     setActiveProviderDeclarations([]);
     await Deno.remove(configRoot, { recursive: true });
   }
@@ -1432,6 +1434,7 @@ Deno.test('Increment 113 Host and Worker share the TUI-resolved provider snapsho
     );
     created = await createWorkerSession({
       workspaceRoot: Deno.cwd(),
+      stateRoot: `${configRoot}/state`,
       configRoot,
       dataRoot: configRoot,
       persistence: 'none',

@@ -1,39 +1,55 @@
 # Handoff
 
-再開時の入口。現在地と次の一手をここで確認し、要件・計画・結果はリンク先の正本を参照する。
+再開時の入口。現在地・次の一手・正本へのpointer・承認境界だけを保持する。
 
-## 現在地（2026-10-01）
+## 現在地（2026-10-03）
 
-Increment 168まで完了。利用者の「同期して168まで完了してるし」により完了承認を記録した。
-構想・Host/Worker architecture・provider/auth architecture・roadmapを168完了時点のsourceへ同期した。
-通常利用メモのA10とS8は利用者指示で削除済み。
+[Increment 170](../docs/increments/increment-170.md)のS1〜S4はlocal実装、focused検証、通常／批判的reviewと
+採用指摘修正が完了。S5のcompiled
+TUI/standalone/既存v7コピーと、実provider自然完了・途中cancelが成立した。
+旧fixture差分と保存Session選択regressionも修正し、最終compiled候補とownerの最終gate（517件pass）を確認済み。
+170のlocal実装・検証は完了。利用者の「常用配置して」により169/170を含む検証済みbuild
+`94fd1fe9…`を常用配置済み。
+配置先の隔離Core/TUI起動・editor・shutdownを確認した。169/170のcommit/pushは利用者指示により承認済み。
+公開と利用者の完了承認は未実施。
+実providerの予定2 requestsは実施済み。隔離standalone
+probeの不完全なselection設定により、ダミーキーの
+401外部requestが別途1回あり、170に記録した。詳細・結果・性能・証拠は170を参照する。
 
-常用配置は[Increment 168](../docs/increments/increment-168.md)のsource `a692c10a`、build `4db6bd68…`。
-配置の適用はTUIを開き直す。既存Core・Session・credentialは保持している。
-168までの実装commitのpushは完了。JSR公開済み版は`@henji/harness@0.8.0`で、
-その後の167・168は常用配置済み・追加公開未実施。
-今回の正本同期と完了記録、およびA10/S8削除はlocal文書変更である。
+[Increment 169](../docs/increments/increment-169.md)も170とともに常用配置済み。 常用binaryはsource
+`27f15428+dirty`、build `94fd1fe9…`。配置前の旧168 binaryは170の配置artifactへ退避した。
+実config・Session・credential・既に起動中のCore/TUIは保持した。新しいCore/TUIの通常起動から適用する。
 
 ## 次の一手
 
-採用済みincrementの残作業はない。次の対象は利用者の指示に従う。
-未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)、機能の未実装範囲は
-[roadmap](../docs/roadmap.md)を参照する。
+170の常用動作を確認する際は新しいCore/TUIを起動する。
+169/170のcommit/pushを完了し、常用動作の観測へ進む。完了承認・公開は利用者の指示に従う。
+構想・architecture・roadmapは、170に記載した反映案の変更対象・理由・意味を別途提示し、
+明示承認を得るまで変更しない。
+未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)、未実装範囲は[roadmap](../docs/roadmap.md)を参照する。
 
 ## 承認境界
 
-- 168までの完了承認と、構想・architecture・roadmapの現行sourceへの同期は指示済み。
-- 今回の文書同期のcommit/push・公開、追加provider probe、計画外の実装、実data削除は未指示。
-- 正本の新たな意味変更は[AGENTS.md](../AGENTS.md#product正本の変更承認)に従う。
+- 2026-10-03の「寝るから
+  インクリメント可能な限り進めて」により、170の継続local作業・検証と最低限の実provider利用を承認。
+  自然完了1回・途中cancel1回を実施し、追加実provider確認は終了した。
+- slice単位の実装・test・通常／批判的reviewは承認済み。token利用枠に伴うS2停止は2026-10-03の再開指示で解除済み。
+- 2026-10-03の「常用配置して」により検証済み169/170 binaryの常用配置を承認・実施済み。
+- 2026-10-03の「ではまず 170をコミットプッシュ」により、169を含む170までのcommit/pushを承認。
+  171のcommit/push・常用配置、release/公開・実data削除、計画外機能の実装は未指示。
+- 構想・architecture・roadmapの意味変更は[AGENTS.md](../AGENTS.md#product正本の変更承認)による別途承認が必要。
 
 ## 正本への入口
 
-- [構想](../docs/concepts/experience-driven-self-revision.md): productの目的と人間による採用境界。
-- [Host/Worker architecture](../docs/architecture/henji-host-agent-worker.md): 責務・状態所有・component境界。
-- [Provider/auth architecture](../docs/architecture/multi-provider-routing-and-auth.md): route、model一覧、認証、account/replay境界。
-- [roadmap](../docs/roadmap.md): 必要機能・実装状態・未実装範囲。
+- [Increment 170](../docs/increments/increment-170.md):
+  採用要件、slice計画、レビューと実装・検証結果、反映案。
+- [Increment 169](../docs/increments/increment-169.md): provider failureへの軽いrecall案内。
+- [構想](../docs/concepts/experience-driven-self-revision.md): 目的・Why・人間の採用境界。
+- [Host/Worker architecture](../docs/architecture/henji-host-agent-worker.md):
+  責務・状態所有・component境界。
+- [Provider/auth architecture](../docs/architecture/multi-provider-routing-and-auth.md):
+  provider/account/modelの境界。
+- [実provider観測](../docs/research/a28-real-provider-observation-2026-10-02.md):
+  旧run-2のbaseline。
 - [通常利用メモ](../docs/experience/normal-use-inbox.md): 未採用候補。
-- [個別increment](../docs/increments/): 採用済みの要件・計画・検証・配置・完了承認。
-- [公開手順](../docs/operations/jsr-publish.md): JSR公開時の操作。
-
-状態が変わったら該当箇所を置き換える。計画・検証詳細・完了履歴をここへ積み増さない。
+- [roadmap](../docs/roadmap.md): 機能・実装状態・未実装範囲。

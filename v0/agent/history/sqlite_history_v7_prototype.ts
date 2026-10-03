@@ -1,11 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { JsonValue } from '../core/contracts.ts';
+import type { StoredExecutionEvent } from './history_store_contract.ts';
 import { exactByteDigest } from './exact_byte_plan.ts';
 import {
   emptyHistoryV7OperationCost,
   encodeHistoryV7Payload,
   HISTORY_V7_SCHEMA_VERSION,
   type HistoryV7AppendBatchInput,
+  type HistoryV7AssistantTextKey,
   type HistoryV7AssistantTextState,
   type HistoryV7OperationCost,
   type HistoryV7SemanticOccurrence,
@@ -16,7 +18,11 @@ import {
 type SqlValue = string | number | bigint | Uint8Array | null;
 type Row = Record<string, SqlValue>;
 
-const requiredRow = (db: DatabaseSync, sql: string, ...params: readonly SqlValue[]): Row => {
+const requiredRow = (
+  db: DatabaseSync,
+  sql: string,
+  ...params: readonly SqlValue[]
+): Row => {
   const row = db.prepare(sql).get(...params) as Row | undefined;
   if (row === undefined) throw new Error('history v7 row not found');
   return row;
@@ -179,7 +185,9 @@ VALUES(1, ${HISTORY_V7_SCHEMA_VERSION}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 PRAGMA user_version = ${HISTORY_V7_SCHEMA_VERSION};
 `;
 
-export type HistoryV7PrototypeFaultPhase = 'after_occurrences' | 'before_commit';
+export type HistoryV7PrototypeFaultPhase =
+  | 'after_occurrences'
+  | 'before_commit';
 
 export interface HistoryV7PrototypeOptions {
   readonly fault?: (phase: HistoryV7PrototypeFaultPhase) => void;
@@ -214,7 +222,12 @@ export interface HistoryV7ExecutionState {
   readonly sessionId: string;
   readonly baseRevision: number;
   readonly lifecycle: 'active' | 'settled';
-  readonly outcome: 'unknown' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  readonly outcome:
+    | 'unknown'
+    | 'completed'
+    | 'cancelled'
+    | 'failed'
+    | 'interrupted';
   readonly adoption: 'non_canonical' | 'canonical';
   readonly latestOrdinal: number;
   readonly occurrenceCount: number;
@@ -229,7 +242,10 @@ export class SqliteHistoryV7Prototype {
   readonly #fault?: (phase: HistoryV7PrototypeFaultPhase) => void;
   readonly #readOnly: boolean;
 
-  constructor(readonly databasePath: string, options: HistoryV7PrototypeOptions = {}) {
+  constructor(
+    readonly databasePath: string,
+    options: HistoryV7PrototypeOptions = {},
+  ) {
     if (!databasePath.startsWith('/') || databasePath.includes('\0')) {
       throw new TypeError('history v7 prototype path must be absolute');
     }
@@ -260,7 +276,9 @@ export class SqliteHistoryV7Prototype {
         );
         if (currentVersion === 0) this.#db.exec(SCHEMA);
         else if (currentVersion !== HISTORY_V7_SCHEMA_VERSION) {
-          throw new Error(`unsupported history v7 prototype schema: ${currentVersion}`);
+          throw new Error(
+            `unsupported history v7 prototype schema: ${currentVersion}`,
+          );
         }
         this.#db.exec('COMMIT;');
       } catch (error) {
@@ -398,7 +416,12 @@ export class SqliteHistoryV7Prototype {
 
   /** Commit latest text, semantic facts and observation progress on the same connection. */
   appendBatch(input: HistoryV7AppendBatchInput): HistoryV7OperationCost {
-    const { executionId, expectedLatestOrdinal, occurrences, terminalOccurrenceId } = input;
+    const {
+      executionId,
+      expectedLatestOrdinal,
+      occurrences,
+      terminalOccurrenceId,
+    } = input;
     const encoded = occurrences.map((occurrence, index) => {
       validateHistoryV7Occurrence(occurrence);
       if (occurrence.ordinal !== expectedLatestOrdinal + index + 1) {
@@ -408,7 +431,10 @@ export class SqliteHistoryV7Prototype {
     });
     let cost = emptyHistoryV7OperationCost();
     this.#transaction(() => {
-      const state = this.#row('SELECT * FROM executions WHERE execution_id=?', executionId);
+      const state = this.#row(
+        'SELECT * FROM executions WHERE execution_id=?',
+        executionId,
+      );
       if (
         state.lifecycle !== 'active' ||
         Number(state.latest_ordinal) !== expectedLatestOrdinal ||
@@ -427,7 +453,11 @@ export class SqliteHistoryV7Prototype {
           this.#db.prepare(`
             INSERT INTO immutable_contents(content_digest, byte_length, content_bytes)
             VALUES(?, ?, ?) ON CONFLICT(content_digest) DO NOTHING
-          `).run(contentDigest, occurrence.content.byteLength, occurrence.content);
+          `).run(
+            contentDigest,
+            occurrence.content.byteLength,
+            occurrence.content,
+          );
           const stored = this.#row(
             'SELECT byte_length FROM immutable_contents WHERE content_digest=?',
             contentDigest,
@@ -439,7 +469,9 @@ export class SqliteHistoryV7Prototype {
           const stored = this.#db.prepare(
             'SELECT byte_length FROM immutable_contents WHERE content_digest=?',
           ).get(occurrence.contentDigest) as Row | undefined;
-          if (stored === undefined) throw new Error('history v7 content reference missing');
+          if (stored === undefined) {
+            throw new Error('history v7 content reference missing');
+          }
           contentDigest = occurrence.contentDigest;
         }
         this.#db.prepare(`
@@ -507,8 +539,10 @@ export class SqliteHistoryV7Prototype {
         cost = {
           ...cost,
           serializedBytes: cost.serializedBytes + payloadBytes.byteLength,
-          contentBytesHashed: cost.contentBytesHashed + (occurrence.content?.byteLength ?? 0),
-          contentDigestCalls: cost.contentDigestCalls + (occurrence.content === undefined ? 0 : 1),
+          contentBytesHashed: cost.contentBytesHashed +
+            (occurrence.content?.byteLength ?? 0),
+          contentDigestCalls: cost.contentDigestCalls +
+            (occurrence.content === undefined ? 0 : 1),
           newOccurrences: cost.newOccurrences + 1,
           newRelations: cost.newRelations + (occurrence.relations?.length ?? 0),
         };
@@ -516,26 +550,42 @@ export class SqliteHistoryV7Prototype {
       for (const update of input.assistantTextUpdates ?? []) {
         const key = update.kind === 'put' ? update.state.key : update.key;
         // Optional attribution is represented distinctly; it is not an inferred provider lane.
-        const params = [executionId, key.lane ?? '', key.modelStep, key.requestOrdinal ?? -1];
+        const params = [
+          executionId,
+          key.lane ?? '',
+          key.modelStep,
+          key.requestOrdinal ?? -1,
+        ];
         if (update.kind === 'remove') {
           this.#db.prepare(`
             DELETE FROM assistant_text_states
             WHERE execution_id=? AND lane=? AND model_step=? AND request_ordinal=?
           `).run(...params);
         } else {
-          const eventBytes = encodeHistoryV7Payload(update.state.event as unknown as JsonValue);
+          const eventBytes = encodeHistoryV7Payload(
+            update.state.event as unknown as JsonValue,
+          );
           this.#db.prepare(`
             INSERT INTO assistant_text_states(
               execution_id, lane, model_step, request_ordinal, first_event_ordinal, event_json
             ) VALUES(?, ?, ?, ?, ?, ?)
             ON CONFLICT(execution_id, lane, model_step, request_ordinal)
             DO UPDATE SET event_json=excluded.event_json
-          `).run(...params, update.state.firstEventOrdinal, new TextDecoder().decode(eventBytes));
-          cost = { ...cost, serializedBytes: cost.serializedBytes + eventBytes.byteLength };
+          `).run(
+            ...params,
+            update.state.firstEventOrdinal,
+            new TextDecoder().decode(eventBytes),
+          );
+          cost = {
+            ...cost,
+            serializedBytes: cost.serializedBytes + eventBytes.byteLength,
+          };
         }
       }
       if (input.eventCount !== undefined) {
-        this.#db.prepare('UPDATE execution_admissions SET event_count=? WHERE execution_id=?')
+        this.#db.prepare(
+          'UPDATE execution_admissions SET event_count=? WHERE execution_id=?',
+        )
           .run(input.eventCount, executionId);
       }
       this.#fault?.('after_occurrences');
@@ -558,12 +608,60 @@ export class SqliteHistoryV7Prototype {
     return cost;
   }
 
+  /** Persist small ordered control facts without changing semantic state or terminal adoption. */
+  appendControlEvents(
+    executionId: string,
+    inputs: readonly Omit<StoredExecutionEvent, 'ordinal'>[],
+  ): readonly StoredExecutionEvent[] {
+    if (inputs.length === 0) return [];
+    let events: StoredExecutionEvent[] = [];
+    this.#transaction(() => {
+      const admission = this.#row(
+        'SELECT event_count FROM execution_admissions WHERE execution_id=?',
+        executionId,
+      );
+      const firstOrdinal = Number(admission.event_count) + 1;
+      events = inputs.map((input, index) => ({
+        ...input,
+        ordinal: firstOrdinal + index,
+      }));
+      const insert = this.#db.prepare(`
+        INSERT INTO derived_documents(document_kind, document_id, execution_id, value_json)
+        VALUES('execution_control', ?, ?, ?)
+      `);
+      for (const event of events) {
+        if (event.executionId !== executionId) {
+          throw new Error('history v7 control event execution mismatch');
+        }
+        const documentId = `${executionId}:${String(event.ordinal).padStart(12, '0')}`;
+        insert.run(documentId, executionId, JSON.stringify(event));
+      }
+      this.#db.prepare(
+        'UPDATE execution_admissions SET event_count=? WHERE execution_id=?',
+      ).run(firstOrdinal + events.length - 1, executionId);
+    });
+    return events;
+  }
+
+  listControlEvents(executionId: string): readonly StoredExecutionEvent[] {
+    return (this.#db.prepare(`
+      SELECT value_json FROM derived_documents
+      WHERE document_kind='execution_control' AND execution_id=?
+      ORDER BY CAST(json_extract(value_json, '$.ordinal') AS INTEGER)
+    `).all(executionId) as Row[]).map((row) =>
+      JSON.parse(String(row.value_json)) as StoredExecutionEvent
+    );
+  }
+
   settleExecution(
     executionId: string,
     outcome: Exclude<HistoryV7ExecutionState['outcome'], 'unknown'>,
   ): HistoryV7OperationCost {
     this.#transaction(() => {
-      const state = this.#row('SELECT * FROM executions WHERE execution_id=?', executionId);
+      const state = this.#row(
+        'SELECT * FROM executions WHERE execution_id=?',
+        executionId,
+      );
       if (
         state.lifecycle !== 'active' || state.terminal_occurrence_id === null ||
         Number(state.unresolved_mandatory_count) !== 0 ||
@@ -578,7 +676,10 @@ export class SqliteHistoryV7Prototype {
 
   adoptCanonical(executionId: string): void {
     this.#transaction(() => {
-      const state = this.#row('SELECT * FROM executions WHERE execution_id=?', executionId);
+      const state = this.#row(
+        'SELECT * FROM executions WHERE execution_id=?',
+        executionId,
+      );
       if (state.lifecycle !== 'settled' || state.outcome !== 'completed') {
         throw new Error('history v7 execution is not adoptable');
       }
@@ -600,7 +701,10 @@ export class SqliteHistoryV7Prototype {
   }
 
   readExecution(executionId: string): HistoryV7ExecutionState {
-    const row = this.#row('SELECT * FROM executions WHERE execution_id=?', executionId);
+    const row = this.#row(
+      'SELECT * FROM executions WHERE execution_id=?',
+      executionId,
+    );
     return {
       executionId: String(row.execution_id),
       sessionId: String(row.session_id),
@@ -666,8 +770,43 @@ export class SqliteHistoryV7Prototype {
         }),
       },
       firstEventOrdinal: Number(row.first_event_ordinal),
-      event: JSON.parse(String(row.event_json)) as HistoryV7AssistantTextState['event'],
+      event: JSON.parse(
+        String(row.event_json),
+      ) as HistoryV7AssistantTextState['event'],
     }));
+  }
+
+  /** Look up one request's current text state without scanning other requests. */
+  readAssistantTextState(
+    executionId: string,
+    key: HistoryV7AssistantTextKey,
+    db: DatabaseSync = this.#db,
+  ): HistoryV7AssistantTextState | undefined {
+    const row = db.prepare(`
+      SELECT * FROM assistant_text_states
+      WHERE execution_id=? AND lane=? AND model_step=? AND request_ordinal=?
+    `).get(
+      executionId,
+      key.lane ?? '',
+      key.modelStep,
+      key.requestOrdinal ?? -1,
+    ) as Row | undefined;
+    if (row === undefined) return undefined;
+    return {
+      key: {
+        modelStep: Number(row.model_step),
+        ...(row.lane === '' ? {} : {
+          lane: String(row.lane) as HistoryV7AssistantTextState['key']['lane'],
+        }),
+        ...(Number(row.request_ordinal) === -1 ? {} : {
+          requestOrdinal: Number(row.request_ordinal),
+        }),
+      },
+      firstEventOrdinal: Number(row.first_event_ordinal),
+      event: JSON.parse(
+        String(row.event_json),
+      ) as HistoryV7AssistantTextState['event'],
+    };
   }
 
   readContent(contentDigest: string, db: DatabaseSync = this.#db): Uint8Array {

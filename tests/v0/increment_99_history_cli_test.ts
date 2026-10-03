@@ -4,9 +4,10 @@ import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_hi
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
-import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
-import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
-import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
+import {
+  conversationFixtureRows,
+  fixtureExecutionId,
+} from './helpers/increment_170_conversation_fixture.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -85,58 +86,48 @@ Deno.test('Increment 99 session view places mixed assistant final as resume does
         : message
     ),
   };
-  const restoredConversation = restoredConversationFromSnapshot(sessionSnapshotFixture({
-    messages: [
-      {
-        id: 'user-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'user',
-        text: 'do it',
-      },
-      {
-        id: 'assistant-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'assistant',
-        text: 'checking the file',
-        toolOccurrenceIds: ['c1'],
-      },
-      {
-        id: 'tool-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'tool',
-        toolOccurrenceIds: ['c1'],
-      },
-      {
-        id: 'assistant-2',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'assistant',
-        text: 'done',
-      },
-    ],
-    tools: [{
-      toolOccurrenceId: 'c1',
-      executionId: 'execution-1',
+  const rows = conversationFixtureRows('do it', [
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-1',
+      executionId: fixtureExecutionId,
       turn: 1,
+      eventOrdinal: 2,
+      request: { modelStep: 1 },
+      text: 'checking the file',
+      declaredCalls: [{ callId: 'c1', name: 'bash', arguments: { command: 'echo hi' } }],
+    },
+    {
+      kind: 'tool_call',
+      semanticOccurrenceId: 'fixture-tool-1',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      callIndex: 0,
+      callId: 'c1',
       name: 'bash',
       arguments: { command: 'echo hi' },
-      result: { text: 'hi', outcome: 'success' },
-    }],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
-  }));
-  const restored = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    ...restoredConversation,
-  });
-  const expected = `${
-    restored.log.entries.map((entry) => `${entry.label} ${entry.text}`).join('\n')
-  }\n`;
+    },
+    {
+      kind: 'tool_result',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      result: { callId: 'c1', name: 'bash', text: 'hi', outcome: 'success' },
+    },
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-2',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 4,
+      request: { modelStep: 2 },
+      text: 'done',
+    },
+  ]);
+  const expected = `${rows.map((entry) => `${entry.label} ${entry.text}`).join('\n')}\n`;
   assertEquals(renderSessionView(mixed), expected);
   assertEquals(
     expected,

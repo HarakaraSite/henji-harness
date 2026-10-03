@@ -18,6 +18,11 @@ import type {
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { AgentDataPortClientImpl } from '../../v0/agent/data/agent_data_client.ts';
+import type {
+  WorkerReadyMessage,
+  WorkerTurnFailedMessage,
+} from '../../v0/agent/worker/worker_protocol.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -33,7 +38,10 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 };
 
 const request: ModelRequest = {
-  transcript: [{ role: 'user', content: { kind: 'text', text: 'cancel streaming response' } }],
+  transcript: [{
+    role: 'user',
+    content: { kind: 'text', text: 'cancel streaming response' },
+  }],
   tools: [],
 };
 
@@ -69,7 +77,9 @@ Deno.test('Increment 39 treats abort-error SSE read rejection as settled cancell
             'data: {"id":"cancel-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"working"},"finish_reason":null}]}\n\n',
           ));
           signal?.addEventListener('abort', () => {
-            controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+            controller.error(
+              new DOMException('The operation was aborted.', 'AbortError'),
+            );
           }, { once: true });
         },
       });
@@ -131,7 +141,9 @@ Deno.test('Increment 39 preserves a real active-reader cleanup failure', async (
 Deno.test('Increment 39 treats bounded body read rejection as terminally settled', async () => {
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+      controller.error(
+        new DOMException('The operation was aborted.', 'AbortError'),
+      );
     },
   });
   assertEquals(await readResponseBody(new Response(body)), {
@@ -141,8 +153,11 @@ Deno.test('Increment 39 treats bounded body read rejection as terminally settled
 });
 
 class CleanupFailureCapsule implements WorkerHostCapsule {
-  private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
+  private readonly listeners = new Set<
+    (message: WorkerToHostMessage) => void
+  >();
   terminated = false;
+  private data: AgentDataPortClientImpl | undefined;
 
   private emit(message: WorkerToHostMessage): void {
     for (const listener of this.listeners) listener(message);
@@ -150,7 +165,9 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
 
   send(command: WorkerHostCommand): void {
     if (command.kind === 'start') {
-      this.emit({
+      assert(command.dataPort !== undefined);
+      this.data = new AgentDataPortClientImpl(command.dataPort);
+      const ready: WorkerReadyMessage = {
         kind: 'ready',
         correlation: command.correlation,
         manifest: {
@@ -173,11 +190,23 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
           authProfile: 'openrouter-api-key',
           status: 'unknown',
         },
-      });
+      };
+      void this.data.ready(ready).then(
+        () => this.emit(ready),
+        (error: unknown) =>
+          this.emit({
+            kind: 'worker_error',
+            correlation: command.correlation,
+            stage: 'composition',
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      );
       return;
     }
     if (command.kind === 'turn') {
-      this.emit({
+      assert(this.data !== undefined && command.executionId !== undefined);
+      this.data.beginExecution(command.executionId, command.correlation);
+      const failure: WorkerTurnFailedMessage = {
         kind: 'turn_failed',
         correlation: command.correlation,
         outcome: {
@@ -203,10 +232,18 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
             retryCount: 0,
           },
         },
+      };
+      const barrier = this.data.sendFailure(failure);
+      this.emit({
+        kind: 'failure_ready',
+        executionId: command.executionId,
+        ...barrier,
       });
+      this.emit({ kind: 'turn_settled', correlation: command.correlation });
       return;
     }
     if (command.kind === 'close') {
+      this.data?.close();
       this.emit({ kind: 'closed', correlation: command.correlation });
     }
   }
@@ -218,11 +255,14 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
 
   terminate(): void {
     this.terminated = true;
+    this.data?.close();
   }
 }
 
 Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after persistence', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-39-worker-' });
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-increment-39-worker-',
+  });
   const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let capsule: CleanupFailureCapsule | undefined;
@@ -256,6 +296,7 @@ Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after
     assert(retryRejected);
   } finally {
     await created?.close();
+    history.close();
     await Deno.remove(stateRoot, { recursive: true });
   }
 });

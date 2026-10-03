@@ -148,7 +148,9 @@ Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', as
   let inject = true;
   const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`, {
     fault: (phase) => {
-      if (inject && phase === 'after_occurrences') throw new Error('injected crash');
+      if (inject && phase === 'after_occurrences') {
+        throw new Error('injected crash');
+      }
     },
   });
   try {
@@ -160,7 +162,9 @@ Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', as
     let failed = false;
     try {
       store.appendSemantic('execution-crash', 0, [
-        occurrence('rolled-back', 1, 'assistant_message', { text: 'not durable' }),
+        occurrence('rolled-back', 1, 'assistant_message', {
+          text: 'not durable',
+        }),
       ]);
     } catch {
       failed = true;
@@ -171,7 +175,9 @@ Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', as
     store.appendSemantic('execution-crash', 0, [
       occurrence('committed', 1, 'assistant_message', { text: 'durable' }),
     ]);
-    assertEquals(store.readOccurrence('committed').payload, { text: 'durable' });
+    assertEquals(store.readOccurrence('committed').payload, {
+      text: 'durable',
+    });
   } finally {
     store.close();
   }
@@ -191,14 +197,21 @@ Deno.test('Increment 94 v7 same delta cost is independent of existing Session le
       const initial = Array.from(
         { length: prefix },
         (_, index) =>
-          occurrence(`${name}-prefix-${index + 1}`, index + 1, 'assistant_message', {
-            text: `prefix-${index + 1}`,
-          }),
+          occurrence(
+            `${name}-prefix-${index + 1}`,
+            index + 1,
+            'assistant_message',
+            {
+              text: `prefix-${index + 1}`,
+            },
+          ),
       );
       store.appendSemantic(name, 0, initial);
       costs.push(store.appendSemantic(name, prefix, [
         {
-          ...occurrence(`${name}-delta`, prefix + 1, 'tool_result', { ok: true }),
+          ...occurrence(`${name}-delta`, prefix + 1, 'tool_result', {
+            ok: true,
+          }),
           content: new TextEncoder().encode('same-content'),
         },
       ]));
@@ -225,9 +238,9 @@ Deno.test('Increment 94 v7 schema omits obsolete storage and history projections
     assert(!schema.includes('history_segments'));
     assert(!schema.includes('encoded_record_digest'));
     assert(!schema.includes('representation_digest'));
-    const tables =
-      (db.prepare("SELECT name FROM sqlite_schema WHERE type='table'").all() as { name: string }[])
-        .map((row) => row.name);
+    const tables = (db.prepare("SELECT name FROM sqlite_schema WHERE type='table'")
+      .all() as { name: string }[])
+      .map((row) => row.name);
     for (
       const name of [
         'projection_outbox',
@@ -253,8 +266,13 @@ Deno.test('Increment 94 v7 mandatory relation and terminal fences reject incompl
       baseRevision: 0,
     });
     store.appendSemantic('execution-fences', 0, [{
-      ...occurrence('terminal-fences', 1, 'host_decision', { outcome: 'failed' }),
-      relations: [{ relation: 'caused_by', targetOccurrenceId: 'missing-input' }],
+      ...occurrence('terminal-fences', 1, 'host_decision', {
+        outcome: 'failed',
+      }),
+      relations: [{
+        relation: 'caused_by',
+        targetOccurrenceId: 'missing-input',
+      }],
     }], 'terminal-fences');
     let incomplete = false;
     try {
@@ -289,7 +307,9 @@ Deno.test('Increment 94 v7 adoption fences concurrent base revision and reopens 
         baseRevision: 0,
       });
       store.appendSemantic(executionId, 0, [
-        occurrence(`${executionId}-terminal`, 1, 'host_decision', { outcome: 'completed' }),
+        occurrence(`${executionId}-terminal`, 1, 'host_decision', {
+          outcome: 'completed',
+        }),
       ], `${executionId}-terminal`);
       store.settleExecution(executionId, 'completed');
     }
@@ -310,17 +330,25 @@ Deno.test('Increment 94 v7 adoption fences concurrent base revision and reopens 
     const stale = reopened.readExecution('stale');
     assert(winner.adoption === 'canonical');
     assert(stale.adoption === 'non_canonical');
-    assertEquals(reopened.readOccurrence('winner-terminal').payload, { outcome: 'completed' });
+    assertEquals(reopened.readOccurrence('winner-terminal').payload, {
+      outcome: 'completed',
+    });
   } finally {
     reopened.close();
   }
 });
 
 Deno.test('Increment 94 v7 facade settles non-canonical semantic history without diagnostic cost', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-facade-normal-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i94-v7-facade-normal-',
+  });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot, {});
+  const store = new SqliteHistoryV7ProductionStore(
+    `${root}/state`,
+    workspaceRoot,
+    {},
+  );
   const executionId = '94000000-0000-4000-8000-000000000001';
   const input = {
     taskId: '94000000-0000-4000-8000-000000000002',
@@ -369,7 +397,11 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
         effect: {
           kind: 'tool_call',
           turn: 1,
-          call: { callId: 'read-1', name: 'read', arguments: { path: 'README.md' } },
+          call: {
+            callId: 'read-1',
+            name: 'read',
+            arguments: { path: 'README.md' },
+          },
         },
       },
     });
@@ -465,10 +497,14 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
       !store.listExecutionEvents(executionId).some((event) => event.kind === 'turn_dispatch_sent'),
     );
     const paths = await sessionPaths(`${root}/state`, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
+    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+      readOnly: true,
+    });
     try {
       assertEquals(
-        db.prepare("SELECT name FROM sqlite_schema WHERE name='diagnostic_attachments'").get(),
+        db.prepare(
+          "SELECT name FROM sqlite_schema WHERE name='diagnostic_attachments'",
+        ).get(),
         undefined,
       );
     } finally {
@@ -496,7 +532,11 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
     resourceId: 'builtin/default',
     revision: { algorithm: 'sha256' as const, digest: '6'.repeat(64) },
   };
-  const appendContext = async (executionId: string, session: string, occurrenceId: string) => {
+  const appendContext = async (
+    executionId: string,
+    session: string,
+    occurrenceId: string,
+  ) => {
     await store.beginExecution({
       taskId: crypto.randomUUID().toLowerCase(),
       executionId,
@@ -540,7 +580,10 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
             splices: [{
               start: 0,
               deleteCount: 0,
-              insertions: [{ occurrenceId, occurrenceDigest: `sha256:${'2'.repeat(64)}` }],
+              insertions: [{
+                occurrenceId,
+                occurrenceDigest: `sha256:${'2'.repeat(64)}`,
+              }],
             }],
             occurrences: [{
               occurrenceId,
@@ -562,8 +605,16 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
   try {
     const firstExecution = '94000000-0000-4000-8000-000000000031';
     const secondExecution = '94000000-0000-4000-8000-000000000032';
-    await appendContext(firstExecution, 'detached-v7-context-1', 'context-occurrence-1');
-    await appendContext(secondExecution, 'detached-v7-context-2', 'context-occurrence-2');
+    await appendContext(
+      firstExecution,
+      'detached-v7-context-1',
+      'context-occurrence-1',
+    );
+    await appendContext(
+      secondExecution,
+      'detached-v7-context-2',
+      'context-occurrence-2',
+    );
     const restored = store.listExecutionEvents(secondExecution).find((event) =>
       event.kind === 'context_observation'
     );
@@ -573,13 +624,16 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
     assertEquals(restoredOccurrences[0].bytesBase64, content.toBase64());
 
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
+    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+      readOnly: true,
+    });
     try {
       assertEquals(
         Number(
-          (db.prepare('SELECT count(*) AS count FROM immutable_contents').get() as {
-            count: number;
-          }).count,
+          (db.prepare('SELECT count(*) AS count FROM immutable_contents')
+            .get() as {
+              count: number;
+            }).count,
         ),
         1,
       );
@@ -603,7 +657,9 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
         SELECT payload_json FROM semantic_occurrences WHERE kind='model_request'
       `).all() as { payload_json: string }[];
       assert(requests.length === 2);
-      assert(requests.every((row) => !row.payload_json.includes('bytesBase64')));
+      assert(
+        requests.every((row) => !row.payload_json.includes('bytesBase64')),
+      );
       assert(requests.every((row) => row.payload_json.length < 2_000));
     } finally {
       db.close();
@@ -614,7 +670,9 @@ Deno.test('Increment 94 v7 facade stores context bytes once and request item ref
 });
 
 Deno.test('Increment 94 v7 facade reconciles an admitted restart prefix without payload scan', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-facade-restart-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i94-v7-facade-restart-',
+  });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
@@ -644,15 +702,22 @@ Deno.test('Increment 94 v7 facade reconciles an admitted restart prefix without 
   await reopened.initialize();
   try {
     const execution = reopened.readExecution(executionId);
-    assert(execution.lifecycle === 'settled' && execution.outcome === 'interrupted');
-    assert(reopened.listExecutionEvents(executionId).at(-1)?.kind === 'execution_reconciled');
+    assert(
+      execution.lifecycle === 'settled' && execution.outcome === 'interrupted',
+    );
+    assert(
+      reopened.listExecutionEvents(executionId).at(-1)?.kind ===
+        'execution_reconciled',
+    );
   } finally {
     reopened.close();
   }
 });
 
 Deno.test('Increment 94 v7 settlement transaction rolls back its terminal before a crash', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-settlement-atomic-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i94-v7-settlement-atomic-',
+  });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
@@ -706,18 +771,27 @@ Deno.test('Increment 94 v7 settlement transaction rolls back its terminal before
   await reopened.initialize();
   try {
     const execution = reopened.readExecution(executionId);
-    assert(execution.lifecycle === 'settled' && execution.outcome === 'interrupted');
-    const terminals = reopened.listExecutionEvents(executionId).filter((event) =>
-      event.kind === 'execution_settled' || event.kind === 'execution_reconciled'
+    assert(
+      execution.lifecycle === 'settled' && execution.outcome === 'interrupted',
     );
-    assertEquals(terminals.map((event) => event.kind), ['execution_reconciled']);
+    const terminals = reopened.listExecutionEvents(executionId).filter((
+      event,
+    ) =>
+      event.kind === 'execution_settled' ||
+      event.kind === 'execution_reconciled'
+    );
+    assertEquals(terminals.map((event) => event.kind), [
+      'execution_reconciled',
+    ]);
   } finally {
     reopened.close();
   }
 });
 
 Deno.test('Increment 94 v7 reopen closes an active legacy prefix that already has a terminal', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-terminal-prefix-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i94-v7-terminal-prefix-',
+  });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
@@ -760,7 +834,9 @@ Deno.test('Increment 94 v7 reopen closes an active legacy prefix that already ha
       executionId,
       ordinal,
       '2026-09-21T02:56:00.000Z',
-      JSON.stringify({ event: { kind: 'execution_settled', payload: { outcome: 'completed' } } }),
+      JSON.stringify({
+        event: { kind: 'execution_settled', payload: { outcome: 'completed' } },
+      }),
     );
     db.prepare(`
       UPDATE executions SET latest_ordinal=?, occurrence_count=occurrence_count+1,
@@ -775,10 +851,13 @@ Deno.test('Increment 94 v7 reopen closes an active legacy prefix that already ha
   await reopened.initialize();
   try {
     const execution = reopened.readExecution(executionId);
-    assert(execution.lifecycle === 'settled' && execution.outcome === 'interrupted');
+    assert(
+      execution.lifecycle === 'settled' && execution.outcome === 'interrupted',
+    );
     assertEquals(
       reopened.listExecutionEvents(executionId).filter((event) =>
-        event.kind === 'execution_settled' || event.kind === 'execution_reconciled'
+        event.kind === 'execution_settled' ||
+        event.kind === 'execution_reconciled'
       ).map((event) => event.kind),
       ['execution_settled', 'execution_reconciled'],
     );
@@ -808,23 +887,37 @@ Deno.test('Increment 94 detail export holds one snapshot across a later Worker c
       readOnly: true,
     });
     await reader.initialize();
-    const exportIterator = reader.streamHumanHistoryExport(sessionId)[Symbol.iterator]();
+    const exportIterator = reader.streamHumanHistoryExport(sessionId)
+      [Symbol.iterator]();
     const header = exportIterator.next();
     const session = exportIterator.next();
     assert(!header.done && header.value.kind === 'header');
     assert(!session.done && session.value.kind === 'session');
     assert((await created.session.submit('second snapshot turn')).ok);
     const remaining: typeof header.value[] = [];
-    for (let next = exportIterator.next(); !next.done; next = exportIterator.next()) {
+    for (
+      let next = exportIterator.next();
+      !next.done;
+      next = exportIterator.next()
+    ) {
       remaining.push(next.value);
     }
     const records = [header.value, session.value, ...remaining];
     const metadata = session.value.value as Record<string, unknown>;
     assertEquals(metadata.messageCount, 2);
     assertEquals(metadata.nextTurn, 2);
-    assertEquals(records.filter((entry) => entry.kind === 'session_message').length, 2);
-    assertEquals(records.filter((entry) => entry.kind === 'session_turn').length, 1);
-    assertEquals(records.filter((entry) => entry.kind === 'execution').length, 1);
+    assertEquals(
+      records.filter((entry) => entry.kind === 'session_message').length,
+      2,
+    );
+    assertEquals(
+      records.filter((entry) => entry.kind === 'session_turn').length,
+      1,
+    );
+    assertEquals(
+      records.filter((entry) => entry.kind === 'execution').length,
+      1,
+    );
     assertEquals((await reader.readWorker(sessionId)).nextTurn, 3);
 
     const early = reader.streamHumanHistoryExport(sessionId)[Symbol.iterator]();
@@ -863,10 +956,13 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
     const original = await store.readWorker(sessionId);
     const executionIds = store.listExecutionsForSession(sessionId).map((item) => item.executionId);
     assertEquals(executionIds.length, 2);
-    const firstTranscript = store.readExecution(executionIds[0]).outcomeJson?.transcript;
+    const firstTranscript = store.readExecution(executionIds[0]).outcomeJson
+      ?.transcript;
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const readAttribution = () => {
-      const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
+      const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+        readOnly: true,
+      });
       try {
         return {
           messageTurns: (db.prepare(`
@@ -906,7 +1002,10 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
     }
     assertEquals(await store.readWorker(sessionId), original);
     assertEquals(readAttribution(), before);
-    assertEquals(store.readExecution(executionIds[0]).outcomeJson?.transcript, firstTranscript);
+    assertEquals(
+      store.readExecution(executionIds[0]).outcomeJson?.transcript,
+      firstTranscript,
+    );
   } finally {
     store?.close();
     await created?.close();
@@ -1000,11 +1099,36 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     const executions = store.listExecutionsForSession(sessionId!);
     assert(executions.length === 2);
     assert(executions.every((item) => item.adoption === 'canonical'));
-    assert(executions.every((item) => item.outcomeJson?.transcript.length === 0));
+    assert(
+      executions.every((item) => item.outcomeJson?.transcript.length === 0),
+    );
     for (const execution of executions) {
-      const artifact = await store.executionArtifacts.read(execution.executionId);
-      assertEquals(artifact.protocolTrace.length, 0);
-      const proposal = store.listExecutionEvents(execution.executionId).find((event) =>
+      const artifact = await store.executionArtifacts.read(
+        execution.executionId,
+      );
+      assert(
+        artifact.protocolTrace.some((entry) =>
+          entry.direction === 'host_to_worker' && entry.kind === 'turn'
+        ),
+        'the execution trace retains the small turn command',
+      );
+      assert(
+        artifact.protocolTrace.some((entry) =>
+          entry.direction === 'worker_to_host' &&
+          entry.kind === 'proposal_ready'
+        ),
+        'the execution trace retains the small proposal barrier',
+      );
+      assert(
+        store.listExecutionEvents(execution.executionId).some((event) =>
+          event.kind === 'acknowledgement_sent' &&
+          (event.payload as { accepted?: unknown }).accepted === true
+        ),
+        'the execution control history retains the accepted acknowledgement',
+      );
+      const proposal = store.listExecutionEvents(execution.executionId).find((
+        event,
+      ) =>
         event.kind === 'runtime_event' &&
         (event.payload as { kind?: unknown }).kind === 'commit_proposal'
       );
@@ -1017,7 +1141,9 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       assert((payload.outcome?.transcript?.length ?? 0) <= 2);
     }
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
+    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
+      readOnly: true,
+    });
     try {
       const contextItems = Number(
         (db.prepare(`
@@ -1038,7 +1164,9 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
         WHERE kind='model_request' AND payload_json LIKE '%context_observation%'
       `).all() as { bytes: number; payload_json: string }[];
       assert(storedContextRequests.length > 0);
-      assert(storedContextRequests.every((row) => !row.payload_json.includes('bytesBase64')));
+      assert(
+        storedContextRequests.every((row) => !row.payload_json.includes('bytesBase64')),
+      );
       assert(storedContextRequests.every((row) => Number(row.bytes) < 20_000));
       const rawProposals = db.prepare(`
         SELECT payload_json FROM semantic_occurrences
@@ -1063,7 +1191,8 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     assert(exportedContents.length > 0);
     assert(
       exportedContents.every((item) =>
-        typeof (item.value as { contentBase64?: unknown }).contentBase64 === 'string'
+        typeof (item.value as { contentBase64?: unknown }).contentBase64 ===
+          'string'
       ),
     );
     const sourceInput = {
@@ -1110,7 +1239,10 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
         kind: 'runtime_event',
         correlation,
         sequence: 3,
-        event: { kind: 'agent_event', event: { kind: 'user_message', turn: 3, message: user } },
+        event: {
+          kind: 'agent_event',
+          event: { kind: 'user_message', turn: 3, message: user },
+        },
       },
     }, {
       executionId: sourceExecutionId,
@@ -1154,9 +1286,13 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     physicalIoMode: 'provider-free',
   });
   try {
-    const selected = await recalled.session.prepareRecall(sourceExecutionId.slice(0, 8));
+    const selected = await recalled.session.prepareRecall(
+      sourceExecutionId.slice(0, 8),
+    );
     assert(selected.sourceExecutionId === sourceExecutionId);
-    const outcome = await recalled.session.submit('use the recalled observation');
+    const outcome = await recalled.session.submit(
+      'use the recalled observation',
+    );
     assert(outcome.ok, JSON.stringify(outcome));
   } finally {
     await recalled.close();
@@ -1166,9 +1302,9 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
   try {
     const source = verified.readExecution(sourceExecutionId);
     assert(source.adoption === 'non_canonical' && source.outcome === 'failed');
-    const targets = verified.listExecutionsForSession(sessionId!).filter((item) =>
-      item.turn === 3 && item.adoption === 'canonical'
-    );
+    const targets = verified.listExecutionsForSession(sessionId!).filter((
+      item,
+    ) => item.turn === 3 && item.adoption === 'canonical');
     assert(targets.length === 1);
     const relations = verified.listRecallRelations(targets[0].executionId);
     assert(
@@ -1183,10 +1319,13 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     const recalledExport = [...verified.streamHumanHistoryExport(sessionId!)];
     assert(recalledExport.some((item) =>
       item.kind === 'recall_relation' &&
-      (item.value as { sourceExecutionId?: unknown }).sourceExecutionId === sourceExecutionId
+      (item.value as { sourceExecutionId?: unknown }).sourceExecutionId ===
+        sourceExecutionId
     ));
     await verified.delete(sessionId!);
-    assert(!(await verified.listWorker()).sessions.some((item) => item.id === sessionId));
+    assert(
+      !(await verified.listWorker()).sessions.some((item) => item.id === sessionId),
+    );
   } finally {
     verified.close();
   }

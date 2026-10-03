@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { ApiSelection, CoreOperationName, SessionSnapshot } from '../../v0/api/contract.ts';
@@ -30,7 +31,7 @@ let selected: ApiSelection = {
 };
 
 const snapshot = (): SessionSnapshot => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   cursor: { coreEpoch, sessionId, revision: 1 },
   session: {
     id: sessionId,
@@ -55,12 +56,12 @@ const snapshot = (): SessionSnapshot => ({
     operations: ['task.submit', 'selection.change', 'credential.register'],
   },
   conversation: {
-    messages: [],
-    tools: [],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
+    schemaVersion: 2,
+    sessionId,
+    cut: 0,
+    storeRevision: 0,
+    entities: {},
+    order: [],
   },
   pending: { kind: 'core-owned', followUps: [] },
   credentialAvailability: { status: 'missing' },
@@ -73,7 +74,7 @@ const snapshotFor = (
   credentialStatus: 'present' | 'missing' | 'unknown',
   revision = 1,
 ): SessionSnapshot => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   cursor: { coreEpoch, sessionId: targetSessionId, revision },
   session: {
     id: targetSessionId,
@@ -100,12 +101,12 @@ const snapshotFor = (
       : ['credential.register'],
   },
   conversation: {
-    messages: [],
-    tools: [],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
+    schemaVersion: 2,
+    sessionId: targetSessionId,
+    cut: 0,
+    storeRevision: 0,
+    entities: {},
+    order: [],
   },
   pending: { kind: 'core-owned', followUps: [] },
   credentialAvailability: { status: credentialStatus },
@@ -200,7 +201,7 @@ class FakeTerminal implements TerminalPort {
     return () => {};
   }
   text(): string {
-    return this.output.join('');
+    return stripVTControlCharacters(this.output.join(''));
   }
 }
 
@@ -663,6 +664,7 @@ Deno.test('Increment 159 keeps credential presence inside login and permits save
     terminal.pushInput('\x04');
     strictEqual(await run, 0);
   } finally {
+    terminal.pushInput('\x04');
     await server.shutdown();
   }
 });

@@ -12,9 +12,9 @@ import { isTurnCancelledError, TurnCancelledError } from '../../v0/agent/core/ca
 import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
+import type { DataService } from '../../v0/agent/data/data_contract.ts';
 import {
   bundledToolDefinitionLoadRequests,
-  readDefinitionRevision,
   workerBuiltinModulePath,
 } from '../../v0/agent/worker/worker_definition_revision.ts';
 import { readWorkerModuleRevision } from '../../v0/agent/worker/worker_capsule.ts';
@@ -22,17 +22,18 @@ import type {
   WorkerDefinitionLoadRequest,
   WorkerToolDefinitionLoadRequest,
 } from '../../v0/agent/worker/worker_protocol.ts';
-import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
 import type { DefinitionRevisionRef } from '../../v0/agent/session/session_store.ts';
-import type {
-  HistoryPersistencePort,
-  NonCanonicalExecutionInput,
-} from '../../v0/agent/history/history_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
+import type { WorkerHostSessionOptions } from '../../v0/agent/worker/worker_host_contract.ts';
+import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import type { StoredWorkerExecutionArtifact } from '../../v0/agent/worker/worker_execution_artifact.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import {
+  childDataTest,
+  closeChildDataTests,
+  createChildDataTestRegistry,
+} from './helpers/increment_170_child_data.ts';
+import { createIncrement170FoundationDataHarness } from './helpers/increment_170_foundation_data.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -47,15 +48,6 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-const handle = (): WorkerSessionHandle => ({
-  id: crypto.randomUUID().toLowerCase(),
-  commit: () => {},
-  rollback: () => {},
-  installCheckpoint: () => {},
-  rollbackCheckpoint: () => {},
-  close: () => Promise.resolve(),
-});
-
 const managedRef = (resourceId: string): DefinitionRevisionRef => ({
   schemaVersion: 1,
   resourceKind: 'agent-definition',
@@ -63,26 +55,100 @@ const managedRef = (resourceId: string): DefinitionRevisionRef => ({
   revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
 });
 
+type RegistryDataOverrides = {
+  readonly executionAdmit?: (
+    base: DataService['executionAdmit'],
+    ...args: Parameters<DataService['executionAdmit']>
+  ) => ReturnType<DataService['executionAdmit']>;
+  readonly settleChildExecution?: (
+    base: DataService['settleChildExecution'],
+    ...args: Parameters<DataService['settleChildExecution']>
+  ) => ReturnType<DataService['settleChildExecution']>;
+  readonly sealGeneration?: (
+    base: DataService['sealGeneration'],
+    ...args: Parameters<DataService['sealGeneration']>
+  ) => ReturnType<DataService['sealGeneration']>;
+};
+
+const registryWithOptions = async (input: {
+  readonly childRef: DefinitionRevisionRef;
+  readonly childName?: string;
+  readonly dataOverrides?: RegistryDataOverrides;
+  readonly store?: SqliteHistoryV7ProductionStore;
+  readonly cancelSettlementGraceMs?: number;
+  readonly resolveModule?: (
+    ref: DefinitionRevisionRef,
+  ) => Promise<WorkerDefinitionLoadRequest>;
+  readonly capsuleFactory?: WorkerHostSessionOptions['capsuleFactory'];
+  readonly toolDefinitions?: Awaited<
+    ReturnType<typeof bundledToolDefinitionLoadRequests>
+  >;
+}): Promise<ChildRunRegistry> => {
+  const overrides = input.dataOverrides ?? {};
+  const transformData = (baseData: DataService): DataService =>
+    new Proxy(baseData, {
+      get(target, property) {
+        if (
+          property === 'executionAdmit' &&
+          overrides.executionAdmit !== undefined
+        ) {
+          const base = target.executionAdmit.bind(target);
+          return (...args: Parameters<DataService['executionAdmit']>) =>
+            overrides.executionAdmit!(base, ...args);
+        }
+        if (
+          property === 'settleChildExecution' &&
+          overrides.settleChildExecution !== undefined
+        ) {
+          const base = target.settleChildExecution.bind(target);
+          return (...args: Parameters<DataService['settleChildExecution']>) =>
+            overrides.settleChildExecution!(base, ...args);
+        }
+        if (
+          property === 'sealGeneration' &&
+          overrides.sealGeneration !== undefined
+        ) {
+          const base = target.sealGeneration.bind(target);
+          return (...args: Parameters<DataService['sealGeneration']>) =>
+            overrides.sealGeneration!(base, ...args);
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  const result = await createChildDataTestRegistry({
+    options: {
+      physicalIoMode: 'provider-free',
+      toolDefinitions: input.toolDefinitions ??
+        await bundledToolDefinitionLoadRequests(),
+      ...(input.capsuleFactory === undefined ? {} : { capsuleFactory: input.capsuleFactory }),
+      ...(input.cancelSettlementGraceMs === undefined
+        ? {}
+        : { cancelSettlementGraceMs: input.cancelSettlementGraceMs }),
+    },
+    catalog: [{ name: input.childName ?? 'probe-child', ref: input.childRef }],
+    resolveManagedModule: input.resolveModule ?? managedChildModule,
+    ...(input.store === undefined ? {} : { store: input.store }),
+    ...(input.dataOverrides === undefined ? {} : { transformData }),
+  });
+  return result.registry;
+};
+
 const builtinRegistry = async (
-  history?: HistoryPersistencePort,
+  dataOverrides: RegistryDataOverrides = {},
   cancelSettlementGraceMs?: number,
   resolveModule = managedChildModule,
+  childName = 'probe-child',
+  store?: SqliteHistoryV7ProductionStore,
 ): Promise<ChildRunRegistry> => {
   const plannerRef = managedChildRef();
-  return new ChildRunRegistry({
-    options: {
-      handle: handle(),
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition: plannerRef,
-      physicalIoMode: 'provider-free',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
-      ...(cancelSettlementGraceMs === undefined ? {} : { cancelSettlementGraceMs }),
-    },
-    catalog: [{ name: 'probe-child', ref: plannerRef }],
-    resolveManagedModule: resolveModule,
-    ...(history === undefined ? {} : { history }),
-    build: buildManifest(),
+  return await registryWithOptions({
+    childRef: plannerRef,
+    dataOverrides,
+    childName,
+    ...(store === undefined ? {} : { store }),
+    ...(cancelSettlementGraceMs === undefined ? {} : { cancelSettlementGraceMs }),
+    resolveModule,
   });
 };
 
@@ -123,15 +189,17 @@ const waitForChannelKind = (
     `BroadcastChannel ${kind}`,
   );
 
-Deno.test('Increment 110 uses managed planner provenance and exact tool binding', async () => {
-  const root = await Deno.makeTempDir({
-    prefix: 'henji-i110-managed-planner-',
-  });
-  try {
-    const toolPath = `${root}/bound_read.ts`;
-    await Deno.writeTextFile(
-      toolPath,
-      `export default () => ({
+childDataTest(
+  'Increment 110 uses managed planner provenance and exact tool binding',
+  async () => {
+    const root = await Deno.makeTempDir({
+      prefix: 'henji-i110-managed-planner-',
+    });
+    try {
+      const toolPath = `${root}/bound_read.ts`;
+      await Deno.writeTextFile(
+        toolPath,
+        `export default () => ({
         identity: 'tool:read',
         materialize: () => ({
           name: 'read',
@@ -146,333 +214,466 @@ Deno.test('Increment 110 uses managed planner provenance and exact tool binding'
           }),
         }),
       });\n`,
-    );
-    const exactToolRef = {
-      schemaVersion: 1 as const,
-      resourceKind: 'tool-definition' as const,
-      resourceId: 'test/bound-read',
-      revision: { algorithm: 'sha256' as const, digest: 'b'.repeat(64) },
-    };
-    const toolModule = await readWorkerModuleRevision(toolPath);
-    const toolDefinitions: WorkerToolDefinitionLoadRequest[] = (
-      await bundledToolDefinitionLoadRequests()
-    ).map((request) =>
-      request.toolIdentity === 'tool:read'
-        ? { toolIdentity: 'tool:read', ref: exactToolRef, module: toolModule }
-        : request
-    );
-    const ref = managedRef('test/managed-planner');
-    const definitionModule = await readWorkerModuleRevision(
-      workerBuiltinModulePath('default'),
-    );
-    const resolverRefs: DefinitionRevisionRef[] = [];
-    const registry = new ChildRunRegistry({
-      options: {
-        handle: handle(),
-        workspaceRoot: Deno.cwd(),
-        agent: 'default',
-        definition: ref,
-        physicalIoMode: 'provider-free',
+      );
+      const exactToolRef = {
+        schemaVersion: 1 as const,
+        resourceKind: 'tool-definition' as const,
+        resourceId: 'test/bound-read',
+        revision: { algorithm: 'sha256' as const, digest: 'b'.repeat(64) },
+      };
+      const toolModule = await readWorkerModuleRevision(toolPath);
+      const toolDefinitions: WorkerToolDefinitionLoadRequest[] = (
+        await bundledToolDefinitionLoadRequests()
+      ).map((request) =>
+        request.toolIdentity === 'tool:read'
+          ? { toolIdentity: 'tool:read', ref: exactToolRef, module: toolModule }
+          : request
+      );
+      const ref = managedRef('test/managed-planner');
+      const definitionModule = await readWorkerModuleRevision(
+        workerBuiltinModulePath('default'),
+      );
+      const resolverRefs: DefinitionRevisionRef[] = [];
+      const registry = await registryWithOptions({
+        childRef: ref,
         toolDefinitions,
-      },
-      catalog: [{ name: 'probe-child', ref }],
-      resolveManagedModule: (
-        requested,
-      ): Promise<WorkerDefinitionLoadRequest> => {
-        resolverRefs.push(structuredClone(requested));
-        return Promise.resolve(definitionModule);
-      },
-      build: buildManifest(),
+        resolveModule: (
+          requested,
+        ): Promise<WorkerDefinitionLoadRequest> => {
+          resolverRefs.push(structuredClone(requested));
+          return Promise.resolve(definitionModule);
+        },
+      });
+      try {
+        const parentExecutionId = 'parent-managed-planner';
+        registry.openParent(parentExecutionId);
+        const spawned = await registry.handle(
+          { kind: 'spawn', agent: 'probe-child', task: 'read bound tool' },
+          'managed-planner-call',
+          parentExecutionId,
+        );
+        assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
+        const collected = await registry.handle(
+          { kind: 'collect', runId: spawned.runId },
+          undefined,
+          parentExecutionId,
+        );
+        assert(
+          collected.ok && collected.kind === 'collect',
+          JSON.stringify(collected),
+        );
+        assertEquals(collected.result.finalText, 'BOUND_READ');
+        assertEquals(
+          collected.result.definitionRef,
+          `${ref.resourceId}@sha256:${ref.revision.digest}`,
+        );
+        assertEquals(resolverRefs, [ref]);
+        await registry.cleanupParent(parentExecutionId);
+      } finally {
+        await registry.cleanupAll();
+      }
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+);
+
+childDataTest(
+  'Increment 110 cleanup joins in-flight durable admission',
+  async () => {
+    const root = await Deno.makeTempDir({
+      prefix: 'henji-i110-admission-join-',
     });
-    const parentExecutionId = 'parent-managed-planner';
-    registry.openParent(parentExecutionId);
-    const spawned = await registry.handle(
-      { kind: 'spawn', agent: 'probe-child', task: 'read bound tool' },
-      'managed-planner-call',
-      parentExecutionId,
+    const workspaceRoot = `${root}/workspace`;
+    await Deno.mkdir(workspaceRoot);
+    const history = new SqliteHistoryV7ProductionStore(
+      `${root}/state`,
+      workspaceRoot,
     );
-    assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
-    const collected = await registry.handle(
-      { kind: 'collect', runId: spawned.runId },
-      undefined,
-      parentExecutionId,
-    );
-    assert(
-      collected.ok && collected.kind === 'collect',
-      JSON.stringify(collected),
-    );
-    assertEquals(collected.result.finalText, 'BOUND_READ');
-    assertEquals(
-      collected.result.definitionRef,
-      `${ref.resourceId}@sha256:${ref.revision.digest}`,
-    );
-    assertEquals(resolverRefs, [ref]);
-    await registry.cleanupParent(parentExecutionId);
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-Deno.test('Increment 110 cleanup joins in-flight durable admission', async () => {
-  let releaseAdmission!: () => void;
-  let markAdmissionStarted!: () => void;
-  const admissionStarted = new Promise<void>((resolve) => markAdmissionStarted = resolve);
-  const admissionBarrier = new Promise<void>((resolve) => releaseAdmission = resolve);
-  const history = {
-    beginExecution: async () => {
-      markAdmissionStarted();
-      await admissionBarrier;
-    },
-    settleNonCanonicalExecution: () => ({}),
-  } as unknown as HistoryPersistencePort;
-  const ref = managedRef('test/admission-barrier');
-  let resolverCalls = 0;
-  const registry = new ChildRunRegistry({
-    options: {
-      handle: handle(),
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition: ref,
-      physicalIoMode: 'provider-free',
-    },
-    catalog: [{ name: 'researcher', ref }],
-    resolveManagedModule: () => {
-      resolverCalls += 1;
-      throw new Error('resolver must not run after parent cleanup');
-    },
-    history,
-    build: buildManifest(),
-  });
-  const parentExecutionId = 'parent-admission-barrier';
-  registry.openParent(parentExecutionId);
-  const spawn = registry.handle(
-    { kind: 'spawn', agent: 'researcher', task: 'never start' },
-    'admission-call',
-    parentExecutionId,
-  );
-  await admissionStarted;
-  let cleanupSettled = false;
-  const cleanup = registry.cleanupParent(parentExecutionId).then((value) => {
-    cleanupSettled = true;
-    return value;
-  });
-  await Promise.resolve();
-  assert(!cleanupSettled, 'cleanup must join the in-flight admission');
-  releaseAdmission();
-  const [spawned, observation] = await Promise.all([spawn, cleanup]);
-  assert(!spawned.ok, 'late admission must not return spawn success');
-  assertEquals(resolverCalls, 0);
-  assertEquals(observation?.runs.map((run) => [run.state, run.durability]), [
-    ['cancelled', 'yes'],
-  ]);
-});
-
-Deno.test('Increment 110 hides a terminal result when durable settlement fails', async () => {
-  const history = {
-    beginExecution: () => {},
-    settleNonCanonicalExecution: () => {
-      throw new Error('settlement unavailable');
-    },
-  } as unknown as HistoryPersistencePort;
-  const registry = await builtinRegistry(history);
-  const parentExecutionId = 'parent-settlement-failure';
-  registry.openParent(parentExecutionId);
-  const spawned = await registry.handle(
-    { kind: 'spawn', agent: 'probe-child', task: 'child terminal durability' },
-    undefined,
-    parentExecutionId,
-  );
-  assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
-  const collected = await registry.handle(
-    { kind: 'collect', runId: spawned.runId },
-    undefined,
-    parentExecutionId,
-  );
-  assert(!collected.ok && collected.error.includes('settlement unavailable'));
-  const status = await registry.handle(
-    { kind: 'status', runId: spawned.runId },
-    undefined,
-    parentExecutionId,
-  );
-  assert(!status.ok && status.error.includes('settlement unavailable'));
-  const cleanup = await registry.cleanupParent(parentExecutionId);
-  assertEquals(cleanup?.runs[0].durability, 'failed');
-});
-
-Deno.test('Increment 110 fences child addressability to its parent execution', async () => {
-  const registry = await builtinRegistry();
-  const parentExecutionId = 'parent-fence-a';
-  registry.openParent(parentExecutionId);
-  const spawned = await registry.handle(
-    { kind: 'spawn', agent: 'probe-child', task: 'parent fenced child' },
-    undefined,
-    parentExecutionId,
-  );
-  assert(spawned.ok && spawned.kind === 'spawn');
-  const wrongParent = await registry.handle(
-    { kind: 'status', runId: spawned.runId },
-    undefined,
-    'parent-fence-b',
-  );
-  assert(!wrongParent.ok);
-  const collected = await registry.handle(
-    { kind: 'collect', runId: spawned.runId },
-    undefined,
-    parentExecutionId,
-  );
-  assert(collected.ok && collected.kind === 'collect');
-  await registry.cleanupParent(parentExecutionId);
-  const closedParent = await registry.handle(
-    { kind: 'collect', runId: spawned.runId },
-    undefined,
-    parentExecutionId,
-  );
-  assert(
-    !closedParent.ok,
-    'settled parent must not become a cross-turn mailbox',
-  );
-});
-
-Deno.test('Increment 110 releases completed parent scopes without retaining tombstones', async () => {
-  const registry = await builtinRegistry();
-  const parentExecutionId = 'parent-reusable-scope';
-  for (let index = 0; index < 3; index += 1) {
-    registry.openParent(parentExecutionId);
-    await registry.cleanupParent(parentExecutionId);
-    const closed = await registry.handle(
-      { kind: 'spawn', agent: 'probe-child', task: 'must remain closed' },
-      undefined,
-      parentExecutionId,
-    );
-    assert(!closed.ok);
-    registry.releaseParent(parentExecutionId);
-  }
-});
-
-Deno.test('Increment 110 settles an admitted child after parent cleanup during managed module resolution', async () => {
-  let admissions = 0;
-  let settlements = 0;
-  const history = {
-    beginExecution: () => admissions += 1,
-    settleNonCanonicalExecution: () => settlements += 1,
-  } as unknown as HistoryPersistencePort;
-  const registry = await builtinRegistry(history, undefined, async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return await managedChildModule();
-  });
-  const parentExecutionId = 'parent-ref-resolution';
-  for (let index = 0; index < 3; index += 1) {
+    let releaseAdmission!: () => void;
+    let markAdmissionStarted!: () => void;
+    const admissionStarted = new Promise<void>((resolve) => markAdmissionStarted = resolve);
+    const admissionBarrier = new Promise<void>((resolve) => releaseAdmission = resolve);
+    const ref = managedRef('test/admission-barrier');
+    let resolverCalls = 0;
+    let turnDispatches = 0;
+    const registry = await registryWithOptions({
+      childRef: ref,
+      childName: 'researcher',
+      store: history,
+      cancelSettlementGraceMs: 25,
+      dataOverrides: {
+        executionAdmit: async (base, ...args) => {
+          markAdmissionStarted();
+          await admissionBarrier;
+          return await base(...args);
+        },
+      },
+      capsuleFactory: (url) => {
+        const capsule = new WorkerCapsule(url);
+        return {
+          send(command, transfer) {
+            if (command.kind === 'turn') turnDispatches += 1;
+            capsule.send(command, transfer);
+          },
+          subscribe(listener) {
+            return capsule.subscribe(listener);
+          },
+          terminate() {
+            capsule.terminate();
+          },
+        };
+      },
+      resolveModule: async (requested) => {
+        resolverCalls += 1;
+        assertEquals(requested, ref);
+        return await managedChildModule();
+      },
+    });
+    const parentExecutionId = 'parent-admission-barrier';
     registry.openParent(parentExecutionId);
     const spawn = registry.handle(
-      { kind: 'spawn', agent: 'probe-child', task: 'must not start' },
-      undefined,
+      { kind: 'spawn', agent: 'researcher', task: 'never start' },
+      'admission-call',
       parentExecutionId,
     );
-    const cleanup = await registry.cleanupParent(parentExecutionId);
-    registry.releaseParent(parentExecutionId);
-    const response = await spawn;
-    assertEquals(cleanup?.runs.map((run) => run.state), ['cancelled']);
-    assertEquals(response, {
-      ok: false,
-      error: 'parent execution settled before child start',
-    });
-    assertEquals(admissions, index + 1);
-    assertEquals(settlements, index + 1);
-    assertEquals(
-      (Reflect.get(registry, 'runs') as Map<string, unknown>).size,
-      0,
-    );
-  }
-});
+    try {
+      await withTimeout(admissionStarted, 'Data execution admission start');
+      let cleanupSettled = false;
+      const cleanup = registry.cleanupParent(parentExecutionId).then(
+        (value) => {
+          cleanupSettled = true;
+          return value;
+        },
+      );
+      await Promise.resolve();
+      assert(!cleanupSettled, 'cleanup must join the in-flight admission');
+      releaseAdmission();
+      const [spawned, observation] = await Promise.all([spawn, cleanup]);
+      assert(!spawned.ok, 'late admission must not return spawn success');
+      assertEquals(resolverCalls, 1);
+      assertEquals(turnDispatches, 0);
+      assertEquals(
+        observation?.runs.map((run) => [run.state, run.durability]),
+        [
+          ['cancelled', 'yes'],
+        ],
+      );
+      await history.initialize();
+      const rows = history.listExecutions().filter((row) =>
+        row.parentExecutionId === parentExecutionId
+      );
+      assertEquals(rows.length, 1);
+      assertEquals(rows[0].lifecycle, 'settled');
+      assertEquals(rows[0].outcome, 'cancelled');
+    } finally {
+      releaseAdmission();
+      await closeChildDataTests(history);
+      history.close();
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+);
 
-Deno.test('Increment 110 records startup failure as interrupted', async () => {
-  const stateRoot = await Deno.makeTempDir({
-    prefix: 'henji-i110-startup-failure-',
-  });
-  const workspaceRoot = `${stateRoot}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  await history.initialize();
-  try {
-    const ref = managedRef('test/startup-failure');
-    const registry = new ChildRunRegistry({
-      options: {
-        handle: handle(),
-        workspaceRoot,
-        agent: 'default',
-        definition: ref,
-        physicalIoMode: 'provider-free',
+childDataTest(
+  'Increment 110 hides a terminal result when durable settlement fails',
+  async () => {
+    const registry = await builtinRegistry({
+      settleChildExecution: () => {
+        throw new Error('settlement unavailable');
       },
-      catalog: [{ name: 'researcher', ref }],
-      resolveManagedModule: () => Promise.reject(new Error('managed module unavailable')),
-      history,
-      build: buildManifest(),
     });
-    const parentExecutionId = 'parent-startup-failure';
-    registry.openParent(parentExecutionId);
-    const spawned = await registry.handle(
-      { kind: 'spawn', agent: 'researcher', task: 'cannot start' },
-      'startup-call',
-      parentExecutionId,
-    );
-    assert(!spawned.ok && spawned.error.includes('managed module unavailable'));
-    const rows = history.listExecutions().filter((row) =>
-      row.parentExecutionId === parentExecutionId
-    );
-    assertEquals(rows.length, 1);
-    assertEquals(rows[0].lifecycle, 'settled');
-    assertEquals(rows[0].outcome, 'interrupted');
-    assertEquals(rows[0].definition, ref);
-    await registry.cleanupParent(parentExecutionId);
-  } finally {
-    history.close();
-    await Deno.remove(stateRoot, { recursive: true });
-  }
-});
+    try {
+      const parentExecutionId = 'parent-settlement-failure';
+      registry.openParent(parentExecutionId);
+      const spawned = await registry.handle(
+        {
+          kind: 'spawn',
+          agent: 'probe-child',
+          task: 'child terminal durability',
+        },
+        undefined,
+        parentExecutionId,
+      );
+      assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
+      const collected = await registry.handle(
+        { kind: 'collect', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(
+        !collected.ok && collected.error.includes('settlement unavailable'),
+      );
+      const status = await registry.handle(
+        { kind: 'status', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(!status.ok && status.error.includes('settlement unavailable'));
+      const cleanup = await registry.cleanupParent(parentExecutionId);
+      assertEquals(cleanup?.runs[0].durability, 'failed');
+    } finally {
+      await registry.cleanupAll();
+    }
+  },
+);
 
-Deno.test('Increment 110 terminates and durably interrupts a child after cleanup deadline', async () => {
-  const stateRoot = await Deno.makeTempDir({
-    prefix: 'henji-i110-child-timeout-',
-  });
-  const workspaceRoot = `${stateRoot}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  await history.initialize();
-  const channelName = `henji-i110-timeout-${crypto.randomUUID()}`;
-  const barrier = new BroadcastChannel(channelName);
-  try {
-    const started = waitForChannelKind(barrier, 'started');
-    const registry = await builtinRegistry(history, 25);
-    const parentExecutionId = 'parent-child-timeout';
-    registry.openParent(parentExecutionId);
-    const spawned = await registry.handle(
+childDataTest(
+  'Increment 110 fences child addressability to its parent execution',
+  async () => {
+    const registry = await builtinRegistry();
+    try {
+      const parentExecutionId = 'parent-fence-a';
+      registry.openParent(parentExecutionId);
+      const spawned = await registry.handle(
+        { kind: 'spawn', agent: 'probe-child', task: 'parent fenced child' },
+        undefined,
+        parentExecutionId,
+      );
+      assert(spawned.ok && spawned.kind === 'spawn');
+      const wrongParent = await registry.handle(
+        { kind: 'status', runId: spawned.runId },
+        undefined,
+        'parent-fence-b',
+      );
+      assert(!wrongParent.ok);
+      const collected = await registry.handle(
+        { kind: 'collect', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(collected.ok && collected.kind === 'collect');
+      await registry.cleanupParent(parentExecutionId);
+      const closedParent = await registry.handle(
+        { kind: 'collect', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(
+        !closedParent.ok,
+        'settled parent must not become a cross-turn mailbox',
+      );
+    } finally {
+      await registry.cleanupAll();
+    }
+  },
+);
+
+childDataTest(
+  'Increment 110 releases completed parent scopes without retaining tombstones',
+  async () => {
+    const registry = await builtinRegistry();
+    try {
+      const parentExecutionId = 'parent-reusable-scope';
+      for (let index = 0; index < 3; index += 1) {
+        registry.openParent(parentExecutionId);
+        await registry.cleanupParent(parentExecutionId);
+        const closed = await registry.handle(
+          { kind: 'spawn', agent: 'probe-child', task: 'must remain closed' },
+          undefined,
+          parentExecutionId,
+        );
+        assert(!closed.ok);
+        registry.releaseParent(parentExecutionId);
+      }
+    } finally {
+      await registry.cleanupAll();
+    }
+  },
+);
+
+childDataTest(
+  'Increment 110 settles an admitted child after parent cleanup during managed module resolution',
+  async () => {
+    const root = await Deno.makeTempDir({
+      prefix: 'henji-i110-parent-cleanup-resolution-',
+    });
+    const workspaceRoot = `${root}/workspace`;
+    await Deno.mkdir(workspaceRoot);
+    const history = new SqliteHistoryV7ProductionStore(
+      `${root}/state`,
+      workspaceRoot,
+    );
+    let markResolverStarted!: () => void;
+    const resolverStarted = new Promise<void>((resolve) => markResolverStarted = resolve);
+    let releaseResolver!: () => void;
+    const resolverBarrier = new Promise<void>((resolve) => releaseResolver = resolve);
+    let resolverCalls = 0;
+    let admissions = 0;
+    let settlements = 0;
+    const registry = await builtinRegistry(
       {
-        kind: 'spawn',
-        agent: 'probe-child',
-        task: `stubborn-barrier-child:${channelName}:T`,
+        executionAdmit: async (base, ...args) => {
+          const admitted = await base(...args);
+          admissions += 1;
+          return admitted;
+        },
+        sealGeneration: async (base, ...args) => {
+          const settled = await base(...args);
+          settlements += 1;
+          return settled;
+        },
       },
-      undefined,
-      parentExecutionId,
+      25,
+      async () => {
+        resolverCalls += 1;
+        markResolverStarted();
+        await resolverBarrier;
+        return await managedChildModule();
+      },
+      'probe-child',
+      history,
     );
-    assert(spawned.ok && spawned.kind === 'spawn');
-    await started;
-    const cleanup = await withTimeout(
-      registry.cleanupParent(parentExecutionId),
-      'child cleanup deadline',
+    try {
+      const parentExecutionId = 'parent-ref-resolution';
+      registry.openParent(parentExecutionId);
+      const spawn = registry.handle(
+        { kind: 'spawn', agent: 'probe-child', task: 'must not start' },
+        undefined,
+        parentExecutionId,
+      );
+      await withTimeout(resolverStarted, 'managed child module resolution');
+      const cleanup = registry.cleanupParent(parentExecutionId);
+      await Promise.resolve();
+      releaseResolver();
+      const [response, observation] = await Promise.all([spawn, cleanup]);
+      assertEquals(
+        observation?.runs.map((run) => [run.state, run.durability]),
+        [
+          ['cancelled', 'yes'],
+        ],
+      );
+      assertEquals(response, {
+        ok: false,
+        error: 'parent execution settled before child start',
+      });
+      assertEquals(resolverCalls, 1);
+      assertEquals(settlements, 1);
+      await history.initialize();
+      const rows = history.listExecutions().filter((row) =>
+        row.parentExecutionId === parentExecutionId
+      );
+      assertEquals(rows.length, 1);
+      assertEquals(rows[0].lifecycle, 'settled');
+      assertEquals(rows[0].outcome, 'cancelled');
+      assertEquals(admissions, 1);
+      registry.releaseParent(parentExecutionId);
+      assertEquals(
+        (Reflect.get(registry, 'runs') as Map<string, unknown>).size,
+        0,
+      );
+    } finally {
+      releaseResolver();
+      await closeChildDataTests(history);
+      history.close();
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+);
+
+childDataTest(
+  'Increment 110 records startup failure as interrupted',
+  async () => {
+    const root = await Deno.makeTempDir({
+      prefix: 'henji-i110-startup-failure-',
+    });
+    const workspaceRoot = `${root}/workspace`;
+    await Deno.mkdir(workspaceRoot);
+    const history = new SqliteHistoryV7ProductionStore(
+      `${root}/state`,
+      workspaceRoot,
     );
-    assertEquals(cleanup?.runs.map((run) => [run.state, run.durability]), [
-      ['interrupted', 'yes'],
-    ]);
-    const row = history.readExecution(spawned.runId);
-    assertEquals(row.lifecycle, 'settled');
-    assertEquals(row.outcome, 'interrupted');
-  } finally {
-    barrier.postMessage({ kind: 'release' });
-    barrier.close();
-    history.close();
-    await Deno.remove(stateRoot, { recursive: true });
-  }
-});
+    const ref = managedRef('test/startup-failure');
+    const registry = await registryWithOptions({
+      childRef: ref,
+      childName: 'researcher',
+      resolveModule: () => Promise.reject(new Error('managed module unavailable')),
+      store: history,
+    });
+    try {
+      const parentExecutionId = 'parent-startup-failure';
+      registry.openParent(parentExecutionId);
+      const spawned = await registry.handle(
+        { kind: 'spawn', agent: 'researcher', task: 'cannot start' },
+        'startup-call',
+        parentExecutionId,
+      );
+      assert(
+        !spawned.ok && spawned.error.includes('managed module unavailable'),
+      );
+      await history.initialize();
+      const rows = history.listExecutions().filter((row) =>
+        row.parentExecutionId === parentExecutionId
+      );
+      assertEquals(rows.length, 1);
+      assertEquals(rows[0].lifecycle, 'settled');
+      assertEquals(rows[0].outcome, 'interrupted');
+      assertEquals(rows[0].definition, ref);
+      await registry.cleanupParent(parentExecutionId);
+    } finally {
+      await closeChildDataTests(history);
+      history.close();
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+);
+
+childDataTest(
+  'Increment 110 terminates and durably interrupts a child after cleanup deadline',
+  async () => {
+    const root = await Deno.makeTempDir({
+      prefix: 'henji-i110-child-timeout-',
+    });
+    const workspaceRoot = `${root}/workspace`;
+    await Deno.mkdir(workspaceRoot);
+    const history = new SqliteHistoryV7ProductionStore(
+      `${root}/state`,
+      workspaceRoot,
+    );
+    const registry = await builtinRegistry(
+      {},
+      25,
+      managedChildModule,
+      'probe-child',
+      history,
+    );
+    const channelName = `henji-i110-timeout-${crypto.randomUUID()}`;
+    const barrier = new BroadcastChannel(channelName);
+    try {
+      const started = waitForChannelKind(barrier, 'started');
+      const parentExecutionId = 'parent-child-timeout';
+      registry.openParent(parentExecutionId);
+      const spawned = await registry.handle(
+        {
+          kind: 'spawn',
+          agent: 'probe-child',
+          task: `stubborn-barrier-child:${channelName}:T`,
+        },
+        undefined,
+        parentExecutionId,
+      );
+      assert(spawned.ok && spawned.kind === 'spawn');
+      await started;
+      const cleanup = await withTimeout(
+        registry.cleanupParent(parentExecutionId),
+        'child cleanup deadline',
+      );
+      assertEquals(cleanup?.runs.map((run) => [run.state, run.durability]), [
+        ['interrupted', 'yes'],
+      ]);
+      await history.initialize();
+      const row = history.readExecution(spawned.runId);
+      assertEquals(row.lifecycle, 'settled');
+      assertEquals(row.outcome, 'interrupted');
+    } finally {
+      barrier.postMessage({ kind: 'release' });
+      barrier.close();
+      await closeChildDataTests(history);
+      history.close();
+      await Deno.remove(root, { recursive: true });
+    }
+  },
+);
 
 Deno.test('Increment 110 propagates async RPC abort as turn cancellation', async () => {
   let markStarted!: () => void;
@@ -512,6 +713,7 @@ Deno.test('Increment 110 propagates async RPC abort as turn cancellation', async
 Deno.test('Increment 110 parent cancel releases a pending collect RPC', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i110-collect-cancel-' });
   const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   const channelName = `henji-i110-collect-${crypto.randomUUID()}`;
   const barrier = new BroadcastChannel(channelName);
@@ -520,7 +722,7 @@ Deno.test('Increment 110 parent cancel releases a pending collect RPC', async ()
     await installManagedProbeChild(`${root}/data`, `${root}/config`);
     const created = await createWorkerSession({
       workspaceRoot,
-      stateRoot: `${root}/state`,
+      stateRoot,
       dataRoot: `${root}/data`,
       configRoot: `${root}/config`,
       persistence: 'new',
@@ -538,7 +740,18 @@ Deno.test('Increment 110 parent cancel releases a pending collect RPC', async ()
         'pending collect cancellation',
       );
       assertEquals(outcome.stopReason, 'cancelled');
-      assertEquals(created.session.transcriptSnapshot(), []);
+      const history = new SqliteHistoryV7ProductionStore(
+        stateRoot,
+        workspaceRoot,
+      );
+      await history.initialize();
+      try {
+        const record = await history.readWorker(created.session.sessionId);
+        assertEquals(record.nextTurn, 1);
+        assertEquals(record.transcript, []);
+      } finally {
+        history.close();
+      }
     } finally {
       barrier.postMessage({ kind: 'release' });
       await created.close();
@@ -552,7 +765,7 @@ Deno.test('Increment 110 parent cancel releases a pending collect RPC', async ()
 const runUncollectedBarrierTurn = async (
   cancelParent: boolean,
 ): Promise<{
-  readonly outcome: LoopOutcome;
+  readonly outcome: Omit<LoopOutcome, 'transcript'>;
   readonly artifacts: readonly StoredWorkerExecutionArtifact[];
 }> => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i110-precommit-' });
@@ -573,7 +786,7 @@ const runUncollectedBarrierTurn = async (
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 1_000,
     });
-    let outcome!: LoopOutcome;
+    let outcome!: Omit<LoopOutcome, 'transcript'>;
     try {
       const submitted = created.session.submit(
         `async-spawn-uncollected:${channelName}`,
@@ -624,89 +837,139 @@ Deno.test('Increment 110 records normal uncollected-child cleanup before commit'
   );
 });
 
-Deno.test('Increment 110 retains a valid parent result when child settlement fails', async () => {
-  const root = await Deno.makeTempDir({
+Deno.test('Increment 110 rejects a parent proposal when child terminal commit is unavailable', async () => {
+  const harness = await createIncrement170FoundationDataHarness({
+    persistence: 'none',
+    agent: 'default',
     prefix: 'henji-i110-cleanup-failure-',
   });
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const history = new SqliteHistoryV7ProductionStore(
-    `${root}/state`,
-    workspaceRoot,
-  );
-  await history.initialize();
-  const historyPort = new Proxy(history, {
+  const childExecutionIds = new Set<string>();
+  const data: DataService = new Proxy(harness.data, {
     get(target, property) {
-      if (property === 'settleNonCanonicalExecution') {
-        return (input: NonCanonicalExecutionInput) => {
-          if (input.parentExecutionId !== undefined) {
+      if (property === 'executionAdmit') {
+        const base = target.executionAdmit.bind(target);
+        return async (...args: Parameters<DataService['executionAdmit']>) => {
+          if (args[1].parentExecutionId !== undefined) {
+            childExecutionIds.add(args[1].executionId);
+          }
+          return await base(...args);
+        };
+      }
+      if (property === 'settleChildExecution') {
+        const base = target.settleChildExecution.bind(target);
+        return async (
+          ...args: Parameters<DataService['settleChildExecution']>
+        ) => {
+          if (childExecutionIds.has(args[1].executionId)) {
             throw new Error('child settlement unavailable');
           }
-          return target.settleNonCanonicalExecution(input);
+          return await base(...args);
         };
       }
       const value = Reflect.get(target, property);
       return typeof value === 'function' ? value.bind(target) : value;
     },
-  }) as HistoryPersistencePort;
+  });
   const channelName = `henji-i110-cleanup-failure-${crypto.randomUUID()}`;
   const barrier = new BroadcastChannel(channelName);
-  let session: WorkerHostSession | undefined;
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  let history: SqliteHistoryV7ProductionStore | undefined;
   try {
-    const rootDefinition = await readDefinitionRevision(
-      '',
-      'builtin',
-      'default',
+    await installManagedProbeChild(
+      `${harness.root}/data`,
+      `${harness.root}/config`,
     );
-    const plannerDefinition = managedChildRef();
-    session = await WorkerHostSession.open({
-      handle: handle(),
-      workspaceRoot,
-      agent: 'default',
-      definition: rootDefinition,
-      modulePath: workerBuiltinModulePath('default'),
-      asyncAgents: [{ name: 'probe-child', ref: plannerDefinition }],
-      resolveAsyncAgentModule: managedChildModule,
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+    created = await createWorkerSession({
+      workspaceRoot: harness.workspaceRoot,
+      stateRoot: harness.stateRoot,
+      dataRoot: `${harness.root}/data`,
+      configRoot: `${harness.root}/config`,
+      data,
+      persistence: 'new',
       physicalIoMode: 'provider-free',
-      historyPersistence: historyPort,
       cancelSettlementGraceMs: 1_000,
     });
     const cancelObserved = waitForChannelKind(barrier, 'cancel_observed');
-    const submitted = session.submit(`async-spawn-uncollected:${channelName}`);
+    const submitted = created.session.submit(
+      `async-spawn-uncollected:${channelName}`,
+    );
     await cancelObserved;
     barrier.postMessage({ kind: 'release' });
     const outcome = await withTimeout(
       submitted,
       'cleanup failure parent result',
     );
-    assert(outcome.ok, JSON.stringify(outcome));
-    assertEquals(outcome.finalText, 'parent proposal with uncollected child');
-    const artifacts = await history.executionArtifacts.list();
-    const parent = artifacts.find((value) =>
-      value.outcome?.finalText === 'parent proposal with uncollected child'
+    assert(!outcome.ok, JSON.stringify(outcome));
+    assertEquals(outcome.stopReason, 'contract_failure');
+    assertEquals(outcome.error, 'child cleanup failed');
+    assertEquals(created.session.currentPosition().committedTurn, 0);
+    history = new SqliteHistoryV7ProductionStore(
+      harness.stateRoot,
+      harness.workspaceRoot,
     );
+    await history.initialize();
+    const parentRows = history.listExecutionsForSession(
+      created.session.sessionId,
+    );
+    assertEquals(parentRows.length, 1);
+    const parentRow = parentRows[0];
+    assert(parentRow !== undefined);
+    assertEquals(parentRow.lifecycle, 'settled');
+    assertEquals(parentRow.outcome, 'failed');
+    assertEquals(parentRow.adoption, 'non_canonical');
+    assertEquals(parentRow.committedRevision, undefined);
+    const canonical = await history.readWorker(created.session.sessionId);
+    assertEquals(canonical.nextTurn, 1);
+    assertEquals(canonical.transcript, []);
+    const parentEvents = history.listExecutionEvents(parentRow.executionId);
+    const parentAck = parentEvents.find((event) => event.kind === 'acknowledgement_sent');
+    assert(parentAck !== undefined);
+    assertEquals(
+      (parentAck.payload as { readonly accepted?: unknown }).accepted,
+      false,
+    );
+    const childRows = history.listExecutions().filter((row) =>
+      row.parentExecutionId === parentRow.executionId
+    );
+    assertEquals(childRows.length, 1);
+    const childRow = childRows[0];
+    assert(childRow !== undefined);
+    assertEquals(childRow.lifecycle, 'active');
+    assertEquals(childRow.outcome, 'unknown');
+    assert(
+      !history.listExecutionEvents(childRow.executionId).some((
+        event,
+      ) => event.kind === 'acknowledgement_sent'),
+    );
+    const artifacts = await history.executionArtifacts.list();
+    const parent = artifacts.find((value) => value.executionId === parentRow.executionId);
     assert(
       parent !== undefined && parent.schemaVersion === 7 &&
         parent.childCleanup !== undefined,
-      'parent artifact must retain failed child cleanup',
+      'noncanonical parent artifact must retain the child commit failure',
     );
+    assertEquals(parent.normalizedOutcome, 'failed');
+    assertEquals(parent.adoption, 'non_canonical');
+    assertEquals(parent.storeResult, 'not_attempted');
     assertEquals(
       parent.childCleanup.runs.map((
         run,
       ) => [run.state, run.durability, run.error]),
       [
-        ['cancelled', 'failed', 'child settlement unavailable'],
+        ['interrupted', 'failed', 'child settlement unavailable'],
       ],
     );
   } finally {
     barrier.postMessage({ kind: 'release' });
     barrier.close();
     try {
-      if (session !== undefined) await session.close();
+      await created?.close();
     } finally {
-      history.close();
-      await Deno.remove(root, { recursive: true });
+      try {
+        history?.close();
+      } finally {
+        await harness.close();
+      }
     }
   }
 });

@@ -1,6 +1,12 @@
 import type { EntryLayout, EntryLayoutCache } from './entry_layout_cache.ts';
 import { type EditorSnapshot } from './input.ts';
-import { type UiLogEntry, type UiState } from './state.ts';
+import {
+  uiConversationCount,
+  uiConversationIndexOf,
+  uiConversationWindow,
+  type UiLogEntry,
+  type UiState,
+} from './state.ts';
 import {
   type AssistantContentRenderer,
   type AssistantSpan,
@@ -241,12 +247,12 @@ const historyViewport = (
   );
   const entryId = rows[visibleRow]?.entryId;
   if (entryId === undefined) return { kind: 'start' };
-  const entryIndex = state.log.entries.findIndex((entry) => entry.id === entryId);
+  const entryIndex = uiConversationIndexOf(state, entryId);
   if (entryIndex < 0) return { kind: 'start' };
   return {
     kind: 'entry',
     entry: entryIndex + 1,
-    totalEntries: state.log.entries.length,
+    totalEntries: uiConversationCount(state),
   };
 };
 
@@ -752,12 +758,11 @@ const logRows = (
   let seenTurnStart = false;
   const awaitingUserOutput = new Set<number>();
   let previousEntryKind: UiLogEntry['kind'] | undefined;
-  const visibleEntries = state.historyWindow === undefined
-    ? state.log.entries
-    : state.log.entries.slice(
-      state.historyWindow.start,
-      state.historyWindow.end,
-    );
+  const visibleEntries = uiConversationWindow(
+    state,
+    state.historyWindow?.start ?? 0,
+    state.historyWindow?.end ?? uiConversationCount(state),
+  );
   cache?.retain(visibleEntries);
   for (const entry of visibleEntries) {
     const turnStart = entry.kind === 'user' && entry.label === 'user>';

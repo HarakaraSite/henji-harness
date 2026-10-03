@@ -1,11 +1,6 @@
 import type { AgentEventSink } from '../core/events.ts';
-import type {
-  DefinitionRevisionRef,
-  SessionRecord,
-  WorkerSessionHandle,
-} from '../session/session_store.ts';
-import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
+import type { DataService } from '../data/data_contract.ts';
+import type { DataSessionDescriptor } from '../data/session_data_owner.ts';
 import type {
   WorkerAsyncAgentCatalogEntry,
   WorkerDefinitionLoadRequest,
@@ -13,22 +8,19 @@ import type {
   WorkerToHostMessage,
   WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
-import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
-import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type { ApplicationObservationSink } from '../host/application_port.ts';
 import type { SessionActivation } from '../../api/contract.ts';
 
 export interface WorkerHostSessionOptions {
-  readonly handle: WorkerSessionHandle;
+  readonly data: DataService;
+  readonly descriptor: DataSessionDescriptor;
   readonly workspaceRoot: string;
   /** User config root propagated to Workers for the shared credential store. */
   readonly configRoot?: string;
   /** Child-spawn account snapshot carried through this run, independent of its provider. */
   readonly chatgptRegistrationId?: string | null;
-  readonly agent: SessionRecord['agent'];
-  readonly definition: DefinitionRevisionRef;
   readonly modulePath?: string;
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
   /** Host-resolved async child agent catalog (`agent:<name>` -> exact ref). */
@@ -37,7 +29,7 @@ export interface WorkerHostSessionOptions {
   readonly toolFilter?: readonly string[];
   /** Resolve a managed async agent ref to a process-local load descriptor. */
   readonly resolveAsyncAgentModule?: (
-    ref: DefinitionRevisionRef,
+    ref: DataSessionDescriptor['definition'],
   ) => Promise<WorkerDefinitionLoadRequest>;
   /** Host-resolved tool Definition slots for declared tool identities. */
   readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
@@ -54,19 +46,14 @@ export interface WorkerHostSessionOptions {
   readonly auxiliaryStageGapMs?: number;
   readonly eventSink?: AgentEventSink;
   readonly applicationObservationSink?: ApplicationObservationSink;
-  readonly diagnosticPersistence?: FailureDiagnosticPersister;
-  readonly executionArtifactStore?: WorkerExecutionArtifactStore;
-  readonly historyPersistence?: HistoryPersistencePort;
-  readonly durableCanonicalHistory?: boolean;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
-  readonly initialModelSelection?: ModelSelection;
   readonly baseInstruction?: SelectedHenjiBaseInstruction;
   /** Host-validated data-only provider declarations; never contains credential values. */
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
 }
 
 export interface WorkerHostCapsule {
-  send(command: WorkerHostCommand): void;
+  send(command: WorkerHostCommand, transfer?: Transferable[]): void;
   subscribe(listener: (message: WorkerToHostMessage) => void): () => void;
   terminate(): void;
 }

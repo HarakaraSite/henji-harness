@@ -1,30 +1,29 @@
 import type { AgentEvent } from '../core/events.ts';
-import type { LoopOutcome, Message } from '../core/contracts.ts';
-import { indexSessionHistory } from '../session/session_history.ts';
-import {
-  type DefinitionRevisionRef,
-  normalizeSessionTitle,
-  type SemanticContextCheckpointV1,
-  type SessionModelChange,
-  type SessionRecord,
-  type SessionRecordV6,
-  type SessionTurnExecutionAttribution,
-  type SessionTurnModelAttribution,
-  validateSemanticContextCheckpoint,
-  validateSessionRecordV6,
-} from '../session/session_store.ts';
-import {
-  createFailureDiagnostic,
-  type FailureDiagnosticV1,
-} from '../session/failure_diagnostic.ts';
 import type {
-  WorkerCheckpointProposalMessage,
-  WorkerCommitProposalMessage,
+  ApiPosition,
+  ContextView,
+  EffectiveRuntimeConfig,
+  ExecutionView,
+  SessionActivation,
+} from '../../api/contract.ts';
+import type { SessionModelChange } from '../session/session_store.ts';
+import type {
+  DataExecutionControlInput,
+  DataSessionDescriptor,
+  DataSessionTerminalResult,
+} from '../data/data_contract.ts';
+import { DataRecallSelectionError } from '../data/session_data_owner.ts';
+import type {
   WorkerCorrelation,
   WorkerErrorMessage,
+  WorkerFailureReadyMessage,
   WorkerModelSelectedMessage,
+  WorkerProposalReadyMessage,
   WorkerReadyMessage,
+  WorkerRequestCountMessage,
+  WorkerRequestStartedMessage,
   WorkerToHostMessage,
+  WorkerTurnSettledMessage,
 } from './worker_protocol.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
 import { credentialAvailabilityFor } from '../provider/credential_file.ts';
@@ -35,40 +34,24 @@ import {
   type ModelSelection,
   sameModelSelection,
 } from '../provider/model_selection.ts';
-import {
-  type WorkerExecutionArtifactV7,
-  workerExecutionOutcome,
-} from './worker_execution_artifact.ts';
-import {
-  type RecalledExecutionContext,
-  recalledExecutionProjectionText,
-  resolveRecalledExecutionContext,
-} from './recalled_execution_context.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
-import type { EffectiveRuntimeConfig, SessionActivation } from '../../api/contract.ts';
 import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
-import { ExecutionJournal } from './worker_host_journal.ts';
-import { SessionAuthority } from './worker_host_authority.ts';
 import { ChildRunRegistry } from './worker_host_children.ts';
-import { type ActiveWorkerExecution, createJournalFailureSignal } from './worker_host_types.ts';
 import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
-import {
-  diagnosticPersistenceCodes,
-  failedOutcome,
-  interruptedOutcome,
-  persistenceCode,
-  proposalOutcome,
-  sameCorrelation,
-  turnEndFromOutcome,
-} from './worker_host_outcome.ts';
-import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
-import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
-import { historyCaptureDurability } from './worker_history_projection.ts';
+import { sameCorrelation, turnEndFromOutcome } from './worker_host_outcome.ts';
+import type { DataCommitDecision } from '../data/session_data_owner.ts';
+import type { WorkerExecutionTraceEntry } from './worker_execution_artifact.ts';
+import type {
+  ActiveWorkerExecution as ActiveExecution,
+  PendingWorkerAdmission as PendingAdmission,
+  WorkerAdmission as Admission,
+  WorkerSmallOutcome as SmallOutcome,
+} from './worker_host_types.ts';
 
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
-const AUXILIARY_STAGE_GAP_MS = 1_000;
-/** Private provider state belongs only to the current uninterrupted provider/model segment. */
+
+/** Kept as a small pure helper for provider-switching callers and tests. */
 export const privateStateFromTurn = (
   changes: readonly SessionModelChange[],
 ): number => {
@@ -78,13 +61,11 @@ export const privateStateFromTurn = (
       changes[index - 1].selection.provider !==
         changes[index].selection.provider ||
       changes[index - 1].selection.modelId !== changes[index].selection.modelId
-    ) {
-      boundary = changes[index].effectiveFromTurn;
-    }
+    ) boundary = changes[index].effectiveFromTurn;
   }
   return boundary;
 };
-const profileIdPattern = /^[^\0]+$/u;
+
 export type WorkerRecallSelectionErrorCode =
   | 'unavailable'
   | 'busy'
@@ -98,66 +79,110 @@ export class WorkerRecallSelectionError extends Error {
     this.name = 'WorkerRecallSelectionError';
   }
 }
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const smallFailure = (
+  task: string,
+  message: string,
+  cancelled = false,
+): SmallOutcome => ({
+  ok: false,
+  task,
+  outcome: cancelled ? 'cancelled' : 'contract_failure',
+  stopReason: cancelled ? 'cancelled' : 'contract_failure',
+  ...(cancelled ? {} : { error: message }),
+  steps: 0,
+  toolCallCount: 0,
+  toolResultCount: 0,
+});
+
+const admissionError = (outcome: SmallOutcome): Error =>
+  Object.assign(new Error(outcome.error ?? 'execution admission failed'), {
+    code: 'admission_failed',
+    outcome,
+  });
+
+const decodeAgentEvent = (
+  bytes: Uint8Array<ArrayBuffer>,
+): AgentEvent | undefined => {
+  try {
+    const value: unknown = JSON.parse(
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+    );
+    if (
+      typeof value !== 'object' || value === null || Array.isArray(value) ||
+      typeof (value as { kind?: unknown }).kind !== 'string'
+    ) return undefined;
+    return value as AgentEvent;
+  } catch {
+    return undefined;
+  }
+};
+
+type DataExecutionControlFact = DataExecutionControlInput extends infer Input
+  ? Input extends { controlSequence: number } ? Omit<Input, 'controlSequence'>
+  : never
+  : never;
+
+/**
+ * Core-side execution control. Session data, transcript, context, proposal payloads, and durable
+ * observations remain in Data; this class keeps only the current descriptor and execution index.
+ */
 export class ExecutionCoordinator {
-  private readonly authority: SessionAuthority;
   private readonly supervisor: WorkerSupervisor;
-  private readonly journal: ExecutionJournal;
   private readonly children: ChildRunRegistry;
   private chatgptAuth: ChatGPTAuthService | undefined;
+  private descriptorValue: DataSessionDescriptor;
   private runtimeRequestCount = 0;
   private generationRequestBase = 0;
+  private generationRequestCount = 0;
   private active = false;
   private closed = false;
-  private activeExecution: ActiveWorkerExecution | undefined;
-  private pendingRecall: RecalledExecutionContext | undefined;
-  private lastAuxiliaryContextRequestOrdinal: number | undefined;
-  private auxiliaryStageWatchdog: {
-    readonly executionId: string;
-    readonly contextRequestOrdinal: number;
-    readonly timer: ReturnType<typeof setTimeout>;
-  } | undefined;
-  private cancellationWatchdog: {
-    readonly executionId: string;
-    readonly timer: ReturnType<typeof setTimeout>;
-  } | undefined;
-  private cancellationRequestedExecutionId: string | undefined;
-  private forcedInterruptionExecutionId: string | undefined;
+  private pendingAdmission: PendingAdmission | undefined;
+  private activeExecution: ActiveExecution | undefined;
+  private admissionCompletion: Promise<SmallOutcome> | undefined;
+  private unsubscribeWatch: (() => void) | undefined;
+  private unsubscribeAgentEvents: (() => void) | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
-    const record = options.handle.record;
-    if (
-      record !== undefined &&
-      (record.workspaceRoot !== options.workspaceRoot ||
-        record.agent !== options.agent)
-    ) {
-      throw new Error('session binding does not match the opened session');
-    }
-    this.authority = new SessionAuthority(options, record);
+    this.descriptorValue = structuredClone(options.descriptor);
     this.supervisor = new WorkerSupervisor({
       options,
       handleWorkerMessage: (message) => this.receive(message),
-      projection: () => this.supervisorProjection(),
-      onGenerationReplaced: () => this.onGenerationReplaced(),
-    });
-    this.journal = new ExecutionJournal({
-      options,
-      activeExecution: () => this.activeExecution,
-      supervisor: () => this.supervisor,
-      lastAuxiliaryContextRequestOrdinal: () => this.lastAuxiliaryContextRequestOrdinal,
-      onPreCommitJournalFailure: () => this.markUnavailableForReplacement(),
+      projection: () => ({
+        stateRevision: this.descriptorValue.stateRevision,
+        modelSelection: this.descriptorValue.modelSelection,
+      }),
+      attachGeneration: (correlation) =>
+        this.options.data.attachGeneration(this.sessionId, correlation),
+      onGenerationReplaced: () => {
+        this.generationRequestBase = this.runtimeRequestCount;
+        this.generationRequestCount = 0;
+      },
     });
     this.children = new ChildRunRegistry({
       options,
       catalog: options.asyncAgents ?? [],
-      currentModelSelection: () => this.authority.projection.modelSelection,
+      currentModelSelection: () => this.descriptorValue.modelSelection,
       chatgptAuth: {
         selectedRegistrationId: () => this.chatgptAuthService().selectedRegistrationId(),
       },
       ...(options.resolveAsyncAgentModule === undefined
         ? {}
         : { resolveManagedModule: options.resolveAsyncAgentModule }),
-      ...(options.historyPersistence === undefined ? {} : { history: options.historyPersistence }),
     });
+    if (this.options.eventSink !== undefined) {
+      this.unsubscribeAgentEvents = this.options.data.subscribeAgentEvents(
+        (sessionId, eventBytes) => {
+          if (sessionId !== this.sessionId) return;
+          const event = decodeAgentEvent(eventBytes);
+          if (event === undefined || event.kind === 'turn_end') return;
+          this.deliver(event);
+        },
+      );
+    }
   }
 
   private chatgptAuthService(): ChatGPTAuthService {
@@ -166,160 +191,42 @@ export class ExecutionCoordinator {
     });
   }
 
-  private supervisorProjection(): {
-    readonly transcript: readonly Message[];
-    readonly nextTurn: number;
-    readonly stateRevision: number;
-    readonly checkpoint?: SemanticContextCheckpointV1;
-    readonly modelSelection: ModelSelection;
-    readonly privateStateFromTurn: number;
-  } {
-    return {
-      transcript: this.authority.projection.transcript,
-      nextTurn: this.authority.projection.nextTurn,
-      stateRevision: this.authority.projection.stateRevision,
-      ...(this.authority.projection.checkpoint === undefined
-        ? {}
-        : { checkpoint: this.authority.projection.checkpoint }),
-      modelSelection: this.authority.projection.modelSelection,
-      privateStateFromTurn: privateStateFromTurn(
-        this.authority.projection.modelChanges,
-      ),
-    };
-  }
-
-  private onGenerationReplaced(): void {
-    this.generationRequestBase = this.runtimeRequestCount;
-    this.lastAuxiliaryContextRequestOrdinal = undefined;
-  }
-
-  private workerResponseTimeoutMs(): number {
-    return this.supervisor.workerResponseTimeoutMs();
-  }
-
-  private clearAuxiliaryStageWatchdog(
-    executionId?: string,
-    contextRequestOrdinal?: number,
-  ): void {
-    const watchdog = this.auxiliaryStageWatchdog;
-    if (
-      watchdog === undefined ||
-      (executionId !== undefined && watchdog.executionId !== executionId) ||
-      (contextRequestOrdinal !== undefined &&
-        watchdog.contextRequestOrdinal !== contextRequestOrdinal)
-    ) return;
-    clearTimeout(watchdog.timer);
-    this.auxiliaryStageWatchdog = undefined;
-  }
-
-  private scheduleAuxiliaryStageWatchdog(contextRequestOrdinal: number): void {
-    const execution = this.activeExecution;
-    if (execution === undefined) return;
-    this.clearAuxiliaryStageWatchdog();
-    this.lastAuxiliaryContextRequestOrdinal = contextRequestOrdinal;
-    const executionId = execution.executionId;
-    const timer = setTimeout(() => {
-      const current = this.auxiliaryStageWatchdog;
-      if (
-        current === undefined || current.executionId !== executionId ||
-        current.contextRequestOrdinal !== contextRequestOrdinal
-      ) return;
-      this.auxiliaryStageWatchdog = undefined;
-      this.journal.recordWorkerStageSnapshot(
-        'auxiliary_gap',
-        contextRequestOrdinal,
-      );
-    }, this.options.auxiliaryStageGapMs ?? AUXILIARY_STAGE_GAP_MS);
-    this.auxiliaryStageWatchdog = {
-      executionId,
-      contextRequestOrdinal,
-      timer,
-    };
-  }
-
-  private noteWorkerSequenceReceived(message: WorkerToHostMessage): void {
-    this.supervisor.noteWorkerSequenceReceived(message);
-  }
-
-  private clearCancellationWatchdog(executionId?: string): void {
-    const watchdog = this.cancellationWatchdog;
-    if (
-      watchdog === undefined ||
-      (executionId !== undefined && watchdog.executionId !== executionId)
-    ) return;
-    clearTimeout(watchdog.timer);
-    this.cancellationWatchdog = undefined;
-  }
-
-  private markUnavailableForReplacement(): void {
-    this.supervisor.markUnavailableForReplacement(() => this.journal.clearBuffer());
-  }
-
-  private async ensureGeneration(): Promise<void> {
-    if (this.supervisor.generationNeedsReplacement) {
-      const cleanup = await this.children.cleanupAll();
-      if (cleanup?.runs.some((run) => run.durability === 'failed')) {
-        throw new Error('async child cleanup failed before Worker replacement');
-      }
-    }
-    await this.supervisor.ensureGeneration(() => this.journal.clearBuffer());
-  }
-
-  private async settleChildren(
-    execution: ActiveWorkerExecution,
-  ): Promise<void> {
-    const cleanup = await this.children.cleanupParent(execution.executionId);
-    if (cleanup !== undefined) execution.childCleanup = cleanup;
-  }
-
-  private escalateCancellation(executionId: string): void {
-    const execution = this.activeExecution;
-    if (
-      execution === undefined || execution.executionId !== executionId ||
-      !this.active
-    ) return;
-    this.clearCancellationWatchdog(executionId);
-    this.journal.recordWorkerStageSnapshot('cancel_escalated');
-    this.journal.appendJournal({
-      executionId,
-      direction: 'host_to_worker',
-      source: 'host',
-      kind: 'cancel_escalated',
-      payload: {
-        command: 'terminate',
-        reason: 'settlement_deadline_exceeded',
-      },
-    });
-    this.journal.flushObservationBuffer();
-    if (execution.committedStateRevision === undefined) {
-      this.forcedInterruptionExecutionId = executionId;
-    }
-    this.markUnavailableForReplacement();
-  }
-
   static async open(
     options: WorkerHostSessionOptions,
   ): Promise<ExecutionCoordinator> {
     const coordinator = new ExecutionCoordinator(options);
     try {
-      await coordinator.supervisor.start(() => coordinator.journal.clearBuffer());
+      const watch = await options.data.watchSession(
+        options.descriptor.id,
+        (update) => coordinator.acceptDescriptor(update.descriptor),
+      );
+      coordinator.unsubscribeWatch = watch.unsubscribe;
+      await coordinator.supervisor.start();
       return coordinator;
     } catch (error) {
-      await coordinator.close();
+      coordinator.unsubscribeWatch?.();
+      coordinator.unsubscribeAgentEvents?.();
+      await coordinator.supervisor.terminate().catch(() => {});
       throw error;
     }
   }
 
-  get definition(): DefinitionRevisionRef {
-    return structuredClone(this.options.definition);
+  private acceptDescriptor(descriptor: DataSessionDescriptor): void {
+    if (descriptor.id !== this.sessionId) return;
+    this.descriptorValue = structuredClone(descriptor);
+    this.publishRuntimeState();
+  }
+
+  get definition(): DataSessionDescriptor['definition'] {
+    return structuredClone(this.descriptorValue.definition);
   }
 
   get sessionId(): string {
-    return this.authority.sessionId;
+    return this.descriptorValue.id;
   }
 
   modelSelectionSnapshot(): ModelSelection {
-    return this.authority.modelSelectionSnapshot();
+    return structuredClone(this.descriptorValue.modelSelection);
   }
 
   startupSnapshot(): NonNullable<WorkerReadyMessage['startupSnapshot']> {
@@ -330,7 +237,7 @@ export class ExecutionCoordinator {
   }
 
   effectiveConfigSnapshot(): EffectiveRuntimeConfig {
-    const definition = this.options.definition;
+    const definition = this.descriptorValue.definition;
     const manifestMaxSteps = this.supervisor.currentManifest?.maxSteps;
     const builtinMaxSteps = definition.resourceId === 'builtin/default' ||
         definition.resourceId === 'builtin/generic'
@@ -370,36 +277,41 @@ export class ExecutionCoordinator {
     };
   }
 
-  pendingRecallSnapshot():
-    | Readonly<{
-      sourceExecutionId: string;
-      evidence: 'available' | 'unavailable';
-    }>
-    | undefined {
-    const recall = this.pendingRecall;
-    return recall === undefined ? undefined : {
-      sourceExecutionId: recall.sourceExecutionId,
-      evidence: recall.evidence,
+  pendingRecallSnapshot(): ContextView['pendingRecall'] {
+    const recall = this.descriptorValue.context.pendingRecall;
+    return recall === undefined ? undefined : structuredClone(recall);
+  }
+
+  contextSnapshot(): ContextView {
+    return structuredClone(this.descriptorValue.context);
+  }
+
+  executionSnapshot(): ExecutionView | undefined {
+    const latest = this.descriptorValue.latestExecution;
+    const active = this.activeExecution;
+    if (
+      latest === undefined || active === undefined ||
+      latest.executionId !== active.executionId
+    ) {
+      return latest === undefined ? undefined : structuredClone(latest);
+    }
+    return {
+      ...structuredClone(latest),
+      processSettlement: active.settling ? 'settling' : 'running',
+      requestCount: active.requestCount,
     };
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
-    return this.supervisor.credentialAvailability === undefined
-      ? undefined
-      : structuredClone(this.supervisor.credentialAvailability);
+    const credential = this.supervisor.credentialAvailability;
+    return credential === undefined ? undefined : structuredClone(credential);
   }
 
-  /**
-   * Recompute presence-only availability for the current selection's auth profile and reflect it
-   * into the existing display snapshot. This is a Host-local display refresh: no Worker command,
-   * model transaction, or credential value is involved, and the request resolver keeps reading the
-   * fixed credential file.
-   */
   async refreshCredentialAvailability(): Promise<
     CredentialAvailability | undefined
   > {
     if (this.closed) return undefined;
-    const selection = this.authority.modelSelectionSnapshot();
+    const selection = this.descriptorValue.modelSelection;
     const profile = selection.authProfile;
     const registrationId = 'registrationId' in selection ? selection.registrationId : undefined;
     const status = profile === 'openai-chatgpt'
@@ -408,351 +320,11 @@ export class ExecutionCoordinator {
         : await this.chatgptAuthService().presence(registrationId)
       : (await credentialAvailabilityFor(profile)).status;
     const availability = Object.freeze({ authProfile: profile, status });
-    if (this.closed) return undefined;
-    if (this.authority.modelSelectionSnapshot().authProfile !== profile) {
-      return undefined;
-    }
+    if (
+      this.closed || this.descriptorValue.modelSelection.authProfile !== profile
+    ) return undefined;
     this.supervisor.setCredentialAvailability(structuredClone(availability));
     return availability;
-  }
-
-  private send(
-    command: import('./worker_protocol.ts').WorkerHostCommand,
-  ): void {
-    this.supervisor.send(
-      command,
-      this.activeExecution?.protocolTrace ?? this.supervisor.bootstrapTrace,
-    );
-  }
-
-  private sendCommitAcknowledgement(
-    execution: ActiveWorkerExecution,
-    correlation: WorkerCorrelation,
-    accepted: boolean,
-  ): boolean {
-    // A successful commit has already installed `execution_settled`, the final fact in the
-    // execution ledger. Its acknowledgement attempt/result remains durable in the protocol
-    // trace and final execution artifact; it must not be appended behind the terminal fact.
-    // Rejections happen before settlement and remain ordinary journal facts.
-    const journalAcknowledgement = execution.settlement === 'uncommitted';
-    if (journalAcknowledgement) {
-      this.journal.appendJournal({
-        executionId: execution.executionId,
-        direction: 'host_to_worker',
-        source: 'host',
-        kind: 'acknowledgement_requested',
-        payload: { accepted },
-      });
-    }
-    try {
-      this.send({ kind: 'commit_acknowledgement', correlation, accepted });
-      execution.acknowledgement = accepted ? 'accepted_sent' : 'rejected_sent';
-      if (journalAcknowledgement) {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'acknowledgement_sent',
-          payload: { accepted },
-        });
-      }
-      return true;
-    } catch {
-      execution.acknowledgement = 'delivery_failed';
-      if (journalAcknowledgement) {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'acknowledgement_failed',
-          payload: { accepted },
-        });
-      }
-      return false;
-    }
-  }
-
-  private receiveTrace(message: WorkerToHostMessage): void {
-    this.supervisor.receiveTrace(
-      message,
-      this.activeExecution?.protocolTrace ?? this.supervisor.bootstrapTrace,
-    );
-  }
-
-  private receive(message: WorkerToHostMessage): void {
-    if (message.kind === 'async_agent_request') {
-      void this.handleAsyncAgentRequest(message);
-      return;
-    }
-    this.noteWorkerSequenceReceived(message);
-    try {
-      this.receiveTrace(message);
-    } catch {
-      // A structured-clone payload can still be shape-invalid at runtime. Do not let a
-      // malformed Worker envelope reach the Surface; retain the same admission/post-commit
-      // distinction used by journal validation before making the generation unavailable.
-      if (this.activeExecution !== undefined) {
-        if (this.activeExecution.settlement === 'uncommitted') {
-          this.journal.handleJournalFailure({ code: 'history_invalid' });
-        } else {
-          this.activeExecution.postCommitObservationFailure = true;
-          this.activeExecution.postCommitObservationError = 'history_invalid';
-        }
-      }
-      if (this.activeExecution?.settlement !== 'uncommitted') {
-        this.markUnavailable();
-      }
-      return;
-    }
-    // The acknowledgement response is observed after `execution_settled`, so its terminal
-    // runtime event belongs to the post-commit protocol trace/artifact rather than the fenced
-    // execution ledger. All provider/tool/context facts still have to cross the journal before
-    // settlement and are rejected here if they arrive late.
-    const postCommitTerminal = this.activeExecution !== undefined &&
-      this.activeExecution.settlement !== 'uncommitted' &&
-      (message.kind === 'worker_error' ||
-        message.kind === 'runtime_event' &&
-          message.event.kind === 'agent_event' &&
-          message.event.event.kind === 'turn_end');
-    // A malformed Worker fact must never be projected to the Surface after the journal
-    // boundary rejected it. `appendJournal` also records whether this was a pre- or
-    // post-commit observation failure so the committed outcome remains distinguishable.
-    if (!postCommitTerminal && !this.journal.appendWorkerObservation(message)) {
-      // A final proposal with a malformed/missing context manifest still needs the dedicated
-      // normal contract-failure settlement. The proposal is not projected to the Surface; it is
-      // handed to the turn waiter after the failed journal append has poisoned pre-commit state.
-      if (
-        this.activeExecution?.settlement === 'uncommitted' &&
-        (message.kind === 'commit_proposal' || message.kind === 'turn_failed')
-      ) {
-        this.journal.flushObservationBuffer();
-        this.supervisor.messages.publish(message);
-        return;
-      }
-      this.markUnavailable();
-      return;
-    }
-    if (
-      message.kind === 'provider_observation' &&
-      message.observation.kind === 'request_start' &&
-      message.observation.request.contextRequestOrdinal !== undefined
-    ) {
-      this.clearAuxiliaryStageWatchdog(
-        this.activeExecution?.executionId,
-        message.observation.request.contextRequestOrdinal,
-      );
-    }
-    if (message.kind === 'cancel_received') return;
-    if (
-      message.kind === 'commit_proposal' || message.kind === 'turn_failed' ||
-      message.kind === 'worker_error' ||
-      message.kind === 'runtime_event' &&
-        message.event.kind === 'agent_event' &&
-        message.event.event.kind === 'turn_end'
-    ) this.clearCancellationWatchdog();
-    if (message.kind === 'runtime_event') {
-      if (
-        message.event.kind === 'agent_event' &&
-        message.event.event.kind === 'turn_end'
-      ) {
-        this.journal.flushObservationBuffer();
-        this.supervisor.messages.publish(message);
-      } else if (message.event.kind === 'agent_event') {
-        try {
-          this.options.applicationObservationSink?.({
-            kind: 'agent_event',
-            ...(this.activeExecution === undefined
-              ? {}
-              : { executionId: this.activeExecution.executionId }),
-            event: structuredClone(message.event.event),
-          });
-        } catch {
-          // Read-model observation does not change the Worker event path.
-        }
-        this.deliver(message.event.event);
-      }
-      return;
-    }
-    if (message.kind === 'effect_observation') {
-      this.deliver(message.effect);
-      return;
-    }
-    if (
-      message.kind === 'provider_observation' &&
-      message.observation.kind === 'runtime_event'
-    ) {
-      const event = message.observation.event;
-      const turn = message.turn;
-      try {
-        if (this.activeExecution !== undefined) {
-          this.options.applicationObservationSink?.({
-            kind: 'provider_runtime_event',
-            executionId: this.activeExecution.executionId,
-            workerSequence: message.sequence,
-            turn,
-            event: structuredClone(event),
-          });
-        }
-      } catch {
-        // Read-model observation does not change the Worker event path.
-      }
-      if (event.kind === 'assistant_progress') {
-        this.deliver({
-          kind: 'assistant_progress',
-          turn,
-          text: event.text,
-          requestKey: {
-            executionId: this.activeExecution?.executionId ?? '',
-            ...(event.lane === undefined ? {} : { lane: event.lane }),
-            modelStep: event.modelStep,
-            ...(event.requestOrdinal === undefined ? {} : {
-              requestOrdinal: event.requestOrdinal,
-            }),
-          },
-        });
-      } else if (event.kind === 'model_result') {
-        const result = event.result;
-        this.deliver({
-          kind: 'assistant_message',
-          turn,
-          requestKey: {
-            executionId: this.activeExecution?.executionId ?? '',
-            ...(event.lane === undefined ? {} : { lane: event.lane }),
-            modelStep: event.modelStep,
-            ...(event.requestOrdinal === undefined ? {} : {
-              requestOrdinal: event.requestOrdinal,
-            }),
-          },
-          message: result.kind === 'final'
-            ? {
-              role: 'assistant',
-              content: { kind: 'text', text: result.text },
-              ...(result.providerState === undefined ? {} : {
-                providerState: structuredClone(result.providerState),
-              }),
-            }
-            : {
-              role: 'assistant',
-              content: result.calls.map((call) => ({
-                kind: 'tool_call' as const,
-                ...structuredClone(call),
-              })),
-              ...(result.text === undefined ? {} : { text: result.text }),
-              ...(result.providerState === undefined ? {} : {
-                providerState: structuredClone(result.providerState),
-              }),
-            },
-        });
-      } else if (event.kind === 'tool_call') {
-        this.deliver({
-          kind: 'tool_call',
-          turn,
-          call: structuredClone(event.call),
-          executionId: this.activeExecution?.executionId,
-          workerSequence: message.sequence,
-          requestKey: {
-            executionId: this.activeExecution?.executionId ?? '',
-            ...(event.lane === undefined ? {} : { lane: event.lane }),
-            modelStep: event.modelStep,
-            ...(event.requestOrdinal === undefined ? {} : {
-              requestOrdinal: event.requestOrdinal,
-            }),
-          },
-        });
-      } else if (event.kind === 'tool_progress') {
-        this.deliver({
-          kind: 'tool_progress',
-          turn,
-          callId: event.callId,
-          name: event.name,
-          text: event.text,
-          executionId: this.activeExecution?.executionId,
-          workerSequence: message.sequence,
-          requestKey: {
-            executionId: this.activeExecution?.executionId ?? '',
-            ...(event.lane === undefined ? {} : { lane: event.lane }),
-            modelStep: event.modelStep,
-            ...(event.requestOrdinal === undefined ? {} : {
-              requestOrdinal: event.requestOrdinal,
-            }),
-          },
-        });
-      } else if (event.kind === 'tool_result') {
-        this.deliver({
-          kind: 'tool_result',
-          turn,
-          result: structuredClone(event.result),
-          executionId: this.activeExecution?.executionId,
-          workerSequence: message.sequence,
-          requestKey: {
-            executionId: this.activeExecution?.executionId ?? '',
-            ...(event.lane === undefined ? {} : { lane: event.lane }),
-            modelStep: event.modelStep,
-            ...(event.requestOrdinal === undefined ? {} : {
-              requestOrdinal: event.requestOrdinal,
-            }),
-          },
-        });
-      }
-      return;
-    }
-    if (message.kind === 'provider_observation') {
-      this.journal.flushObservationBuffer();
-      return;
-    }
-    if (message.kind === 'context_observation') {
-      const delta = message.observation.delta;
-      if (delta.purpose === 'web_search') {
-        this.scheduleAuxiliaryStageWatchdog(delta.requestOrdinal);
-      }
-      return;
-    }
-    if (message.kind === 'checkpoint_proposal') {
-      void this.installCheckpoint(message);
-      return;
-    }
-    this.journal.flushObservationBuffer();
-    this.supervisor.messages.publish(message);
-  }
-
-  private deliver(event: AgentEvent): void {
-    if (event.kind === 'turn_end') {
-      try {
-        this.options.applicationObservationSink?.({
-          kind: 'agent_event',
-          ...(this.activeExecution === undefined
-            ? {}
-            : { executionId: this.activeExecution.executionId }),
-          event: structuredClone(event),
-        });
-      } catch {
-        // Read-model observation does not change the Host settlement path.
-      }
-    }
-    if (this.options.eventSink === undefined) return;
-    try {
-      this.options.eventSink(structuredClone(event));
-    } catch {
-      // A pre-commit projection failure must stop the generation before it can propose or
-      // continue effects. After durable commit, the caller still owns the committed outcome.
-      this.markUnavailable();
-    }
-  }
-
-  private markUnavailable(): void {
-    this.supervisor.markUnavailable(() => this.journal.clearBuffer());
-  }
-
-  private observeRequestCount(outcome: LoopOutcome): LoopOutcome {
-    const count = outcome.runtimeProviderRequestCount;
-    if (
-      count !== undefined && Number.isSafeInteger(count) && count >= 0
-    ) {
-      const total = this.generationRequestBase + count;
-      if (total >= this.runtimeRequestCount) this.runtimeRequestCount = total;
-      return { ...outcome, runtimeProviderRequestCount: total };
-    }
-    return outcome;
   }
 
   requestCount(): number {
@@ -771,21 +343,21 @@ export class ExecutionCoordinator {
     if (!this.active) {
       return {
         active: false,
-        phase: this.closed || this.supervisor.isUnavailable ? 'unavailable' : 'idle',
+        phase: this.closed ||
+            (this.supervisor.isUnavailable &&
+              !this.supervisor.generationNeedsReplacement)
+          ? 'unavailable'
+          : 'idle',
       };
     }
     const execution = this.activeExecution;
-    const cancelling = execution !== undefined && (
-      this.cancellationRequestedExecutionId === execution.executionId ||
-      this.forcedInterruptionExecutionId === execution.executionId
-    );
+    const reservation = this.pendingAdmission;
+    const cancelling = execution?.cancelled === true ||
+      reservation?.cancelled === true ||
+      execution?.forced === true;
     return {
       active: true,
-      phase: cancelling
-        ? 'cancelling'
-        : execution !== undefined && execution.settlement !== 'uncommitted'
-        ? 'settling'
-        : 'running',
+      phase: cancelling ? 'cancelling' : execution?.settling === true ? 'settling' : 'running',
     };
   }
 
@@ -797,550 +369,43 @@ export class ExecutionCoordinator {
         ...this.runtimeSnapshot(),
       });
     } catch {
-      // Read-model observation does not change Host settlement.
+      // Runtime read-model updates do not alter Data settlement.
     }
   }
 
-  consumeAutoCompactionNotice(): {
-    readonly coveredThroughTurn: number;
-    readonly retainedFromTurn: number;
-  } | null {
-    return this.authority.consumeAutoCompactionNotice();
-  }
-
-  private async persistArtifacts(
-    outcome: LoopOutcome,
-    diagnostic: FailureDiagnosticV1 | undefined,
-  ): Promise<LoopOutcome> {
-    let diagnosticDurability = outcome.diagnosticDurability;
-    let diagnosticError = outcome.diagnosticPersistenceError;
-    if (diagnostic !== undefined) {
-      if (this.options.diagnosticPersistence === undefined) {
-        diagnosticDurability = 'unknown';
-      } else {
-        try {
-          await this.options.diagnosticPersistence(diagnostic);
-          diagnosticDurability = 'yes';
-          diagnosticError = undefined;
-        } catch (error) {
-          diagnosticDurability = 'failed';
-          diagnosticError = persistenceCode(
-            error,
-            diagnosticPersistenceCodes,
-            'diagnostic_io_failure',
-          );
-        }
-      }
-    }
-    const settled = {
-      ...outcome,
-      ...(diagnostic === undefined ? {} : { diagnostic }),
-      ...(diagnosticDurability === undefined ? {} : { diagnosticDurability }),
-      ...(diagnosticError === undefined ? {} : {
-        diagnosticPersistenceError: diagnosticError,
-      }),
-    };
-    return this.observeRequestCount(settled);
-  }
-
-  private historyExecutionAttribution() {
-    return {
-      agent: this.options.agent,
-      model: structuredClone(this.authority.projection.modelSelection),
-      build: structuredClone(this.authority.build),
-      definition: structuredClone(this.options.definition),
-      ...(this.supervisor.currentManifest === undefined ? {} : {
-        manifest: structuredClone(this.supervisor.currentManifest),
-      }),
-      instanceCorrelation: this.supervisor.instanceCorrelation,
-      workerGeneration: this.supervisor.workerGeneration,
-    };
-  }
-
-  private applyHistoryCapture(
-    outcome: LoopOutcome,
-    diagnostic: FailureDiagnosticV1 | undefined,
-    capture: HistoryCaptureResult,
-  ): LoopOutcome {
-    const settled: LoopOutcome = {
-      ...outcome,
-      ...historyCaptureDurability(capture),
-      ...(diagnostic === undefined ? {} : { diagnostic }),
-    };
-    return this.observeRequestCount(settled);
-  }
-
-  private async persistExecutionArtifact(
-    execution: ActiveWorkerExecution,
-    outcome: LoopOutcome,
-  ): Promise<LoopOutcome> {
-    if (execution.artifactWritten) {
-      return this.withObservationFailure(execution, outcome);
-    }
-    execution.artifactWritten = true;
-    const store = this.options.executionArtifactStore;
-    const history = this.options.historyPersistence;
-    if (
-      (store === undefined && history === undefined) ||
-      this.supervisor.currentManifest === undefined
-    ) {
-      return this.withObservationFailure(execution, outcome);
-    }
-    const artifact = this.executionArtifact(execution, outcome);
-    try {
-      if (history !== undefined) history.recordPostCommitObservation(artifact);
-      else await store!.write(artifact);
-      return this.withObservationFailure(execution, {
-        ...outcome,
-        executionArtifactId: execution.executionId,
-        // After a failed history settlement, an artifact alone is absent from /recall's row list.
-        ...(history === undefined ? { recallableExecutionId: execution.executionId } : {}),
-        executionArtifactDurability: 'yes',
-        executionArtifactPersistenceError: undefined,
-      });
-    } catch (error) {
-      const code = typeof error === 'object' && error !== null &&
-          (error as { readonly code?: unknown }).code ===
-            'worker_execution_artifact_invalid'
-        ? 'worker_execution_artifact_invalid' as const
-        : 'worker_execution_artifact_io_failure' as const;
-      return this.withObservationFailure(execution, {
-        ...outcome,
-        executionArtifactId: execution.executionId,
-        executionArtifactDurability: 'failed',
-        executionArtifactPersistenceError: code,
-      });
-    }
-  }
-
-  private withObservationFailure(
-    execution: ActiveWorkerExecution,
-    outcome: LoopOutcome,
-  ): LoopOutcome {
-    return execution.postCommitObservationFailure !== true ? outcome : {
-      ...outcome,
-      executionObservationDurability: 'failed',
-      executionObservationPersistenceError: execution.postCommitObservationError ??
-        'history_io_failure',
-    };
-  }
-
-  private executionArtifact(
-    execution: ActiveWorkerExecution,
-    outcome: LoopOutcome,
-  ): WorkerExecutionArtifactV7 {
-    if (this.supervisor.currentManifest === undefined) {
-      throw new Error('Worker manifest unavailable for execution artifact');
-    }
-    const canonicalAdoption = (this.options.historyPersistence === undefined ||
-      this.options.durableCanonicalHistory === true) &&
-      execution.committedStateRevision !== undefined;
-    return {
-      schemaVersion: 7,
-      ...(this.supervisor.currentManifest.tools === undefined ? {} : {
-        tools: structuredClone(this.supervisor.currentManifest.tools),
-      }),
-      contextCapture: execution.journalFailure === true
-        ? 'failed'
-        : execution.contextCapture ?? 'none',
-      executionId: execution.executionId,
-      createdAt: execution.createdAt,
-      settledAt: new Date().toISOString(),
-      sessionId: this.sessionId,
-      turn: execution.turn,
-      agent: this.options.agent,
-      instanceCorrelation: this.supervisor.instanceCorrelation,
-      workerGeneration: this.supervisor.workerGeneration,
-      build: structuredClone(this.authority.build),
-      definition: structuredClone(this.options.definition),
-      manifest: structuredClone(this.supervisor.currentManifest),
-      command: structuredClone(execution.command),
-      ...(execution.recalledContext === undefined ? {} : {
-        recall: {
-          schemaVersion: 1,
-          sourceExecutionId: execution.recalledContext.sourceExecutionId,
-          projectedContext: recalledExecutionProjectionText(
-            execution.recalledContext,
-          ),
-        },
-      }),
-      baseStateRevision: execution.baseStateRevision,
-      ...(execution.proposedStateRevision === undefined ? {} : {
-        proposedStateRevision: execution.proposedStateRevision,
-      }),
-      ...(!canonicalAdoption ? {} : {
-        committedStateRevision: execution.committedStateRevision,
-      }),
-      // The bootstrap prefix is shared by generations, while an artifact's sequence is
-      // deliberately local to this admitted turn. Preserve the observed order and correlation
-      // without leaking the Host-wide trace counter into the durable per-turn contract.
-      protocolTrace: execution.protocolTrace.map((entry, index) => ({
-        ...structuredClone(entry),
-        sequence: index + 1,
-      })),
-      ...(execution.childCleanup === undefined ? {} : {
-        childCleanup: structuredClone(execution.childCleanup),
-      }),
-      storeResult: execution.storeResult,
-      ...(execution.storeError === undefined ? {} : { storeError: execution.storeError }),
-      acknowledgement: execution.acknowledgement,
-      settlement: execution.settlement,
-      lifecycle: 'settled',
-      normalizedOutcome: outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal'
-        ? 'completed'
-        : outcome.stopReason === 'cancelled'
-        ? 'cancelled'
-        : outcome.stopReason === 'interrupted'
-        ? 'interrupted'
-        : 'failed',
-      adoption: canonicalAdoption ? 'canonical' : 'non_canonical',
-      outcome: workerExecutionOutcome(outcome),
-      effectCommitRelation: 'not_transactional',
-      automaticReplay: false,
-    };
-  }
-
-  /**
-   * Keep an admitted execution inspectable when normal settlement rejects the Worker manifest.
-   * The canonical transaction has not committed in this path, so the row is deliberately
-   * settled as failed/non-canonical with a Host-owned contract outcome; no untrusted evidence
-   * or malformed final manifest is reused.
-   */
-  private settleHistoryFailure(
-    execution: ActiveWorkerExecution,
-    outcome: LoopOutcome,
-    diagnostic: FailureDiagnosticV1 | undefined,
-  ): LoopOutcome | undefined {
-    const history = this.options.historyPersistence;
-    if (history === undefined) return undefined;
-    execution.journalFailure = true;
-    execution.contextCapture = 'failed';
-    try {
-      let capturedOutcome: LoopOutcome | undefined;
-      const capture = history.settleNonCanonicalExecution({
-        taskId: execution.taskId,
-        executionId: execution.executionId,
-        createdAt: execution.createdAt,
-        sessionCorrelation: this.sessionId,
-        ...(this.options.durableCanonicalHistory === true
-          ? { canonicalSessionId: this.sessionId }
-          : {}),
-        turn: execution.turn,
-        task: execution.command.task,
-        baseStateRevision: execution.baseStateRevision,
-        ...this.historyExecutionAttribution(),
-        outcome,
-        ...(diagnostic === undefined ? {} : { diagnostic }),
-        artifactForCapture: (captured) => {
-          capturedOutcome = this.applyHistoryCapture(
-            outcome,
-            diagnostic,
-            captured,
-          );
-          return this.executionArtifact(execution, capturedOutcome);
-        },
-      });
-      const settled = capturedOutcome ?? this.applyHistoryCapture(
-        outcome,
-        diagnostic,
-        capture,
-      );
-      execution.artifactWritten = true;
-      return {
-        ...settled,
-        executionArtifactId: execution.executionId,
-        recallableExecutionId: execution.executionId,
-        executionArtifactDurability: 'yes',
-        executionArtifactPersistenceError: undefined,
-      };
-    } catch {
-      return undefined;
-    }
-  }
-
-  private contextContractDiagnostic(
-    execution: ActiveWorkerExecution,
-    outcome?: LoopOutcome,
-  ): FailureDiagnosticV1 {
-    const providerRequestCount = outcome?.turnProviderRequestCount ??
-      this.runtimeRequestCount;
-    return createFailureDiagnostic({
-      stage: 'session_commit',
-      code: 'commit_error',
-      lane: 'parent',
-      providerRequestCount,
-      turnNumber: execution.turn,
-      modelStep: 0,
-      retryCount: 0,
-    });
-  }
-
-  private async settleExecution(
-    execution: ActiveWorkerExecution,
-    outcome: LoopOutcome,
-    diagnostic: FailureDiagnosticV1 | undefined,
-    contextManifest?: ExecutionContextManifestV2,
-  ): Promise<LoopOutcome> {
-    await this.settleChildren(execution);
-    await this.supervisor.waitForProcessCleanup(execution.executionId);
-    const terminalSnapshotDurable = this.journal.recordWorkerStageSnapshot(
-      'terminal',
-    );
-    const effectiveOutcome = !terminalSnapshotDurable &&
-        execution.settlement === 'uncommitted'
-      ? this.journalFailureOutcome(execution, outcome.task)
-      : outcome;
-    if (this.options.historyPersistence !== undefined) {
-      try {
-        let capturedOutcome: LoopOutcome | undefined;
-        const capture = this.options.historyPersistence
-          .settleNonCanonicalExecution({
-            taskId: execution.taskId,
-            executionId: execution.executionId,
-            createdAt: execution.createdAt,
-            sessionCorrelation: this.sessionId,
-            ...(this.options.durableCanonicalHistory === true
-              ? { canonicalSessionId: this.sessionId }
-              : {}),
-            turn: execution.turn,
-            task: execution.command.task,
-            baseStateRevision: execution.baseStateRevision,
-            ...this.historyExecutionAttribution(),
-            ...(execution.recalledContext === undefined ? {} : {
-              recalledContext: execution.recalledContext,
-            }),
-            ...(contextManifest === undefined ? {} : { contextManifest }),
-            ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
-              contextSnapshot: this.supervisor.currentStartupSnapshot.context,
-            }),
-            outcome: effectiveOutcome,
-            ...(diagnostic === undefined ? {} : { diagnostic }),
-            artifactForCapture: (captured) => {
-              capturedOutcome = this.applyHistoryCapture(
-                effectiveOutcome,
-                diagnostic,
-                captured,
-              );
-              execution.contextCapture = captured.contextDurability === 'partial'
-                ? 'failed'
-                : captured.contextDurability;
-              return this.executionArtifact(execution, capturedOutcome);
-            },
-          });
-        const settled = capturedOutcome ?? this.applyHistoryCapture(
-          effectiveOutcome,
-          diagnostic,
-          capture,
-        );
-        execution.artifactWritten = true;
-        return {
-          ...settled,
-          executionArtifactId: execution.executionId,
-          recallableExecutionId: execution.executionId,
-          executionArtifactDurability: 'yes',
-          executionArtifactPersistenceError: undefined,
-        };
-      } catch (error) {
-        const busy = typeof error === 'object' && error !== null &&
-          (error as { readonly code?: unknown }).code === 'history_busy';
-        if (
-          typeof error === 'object' && error !== null &&
-          (error as { readonly code?: unknown }).code === 'history_invalid'
-        ) {
-          const failedSettlement = this.settleHistoryFailure(
-            execution,
-            failedOutcome(
-              effectiveOutcome.task,
-              this.authority.projection.transcript,
-              'durable execution settlement failed',
-            ),
-            diagnostic ??
-              this.contextContractDiagnostic(
-                execution,
-                effectiveOutcome,
-              ),
-          );
-          if (failedSettlement !== undefined) return failedSettlement;
-        }
-        const failed: LoopOutcome = {
-          ...effectiveOutcome,
-          ...(diagnostic === undefined ? {} : {
-            diagnostic,
-            diagnosticDurability: 'failed',
-            diagnosticPersistenceError: busy ? 'diagnostic_busy' : 'diagnostic_io_failure',
-          }),
-        };
-        return await this.persistExecutionArtifact(execution, failed);
-      }
-    }
-    const settled = await this.persistArtifacts(
-      effectiveOutcome,
-      diagnostic,
-    );
-    return await this.persistExecutionArtifact(execution, settled);
-  }
-
-  private journalFailureOutcome(
-    execution: ActiveWorkerExecution,
-    task: string,
-  ): LoopOutcome {
-    const code = execution.journalFailureCode ?? 'history_io_failure';
-    return {
-      ...failedOutcome(
-        task,
-        this.authority.projection.transcript,
-        `durable execution journal failed: ${code}`,
-      ),
-      executionJournalDurability: 'failed',
-      executionJournalPersistenceError: code,
-    };
-  }
-
-  private async finishJournalFailure(
-    execution: ActiveWorkerExecution,
-    task: string,
-    diagnostic?: FailureDiagnosticV1,
-    contextManifest?: ExecutionContextManifestV2,
-  ): Promise<LoopOutcome> {
-    const settled = await this.settleExecution(
-      execution,
-      this.journalFailureOutcome(execution, task),
-      diagnostic,
-      contextManifest,
-    );
-    this.deliver(
-      turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
-    );
-    return settled;
-  }
-
-  private correlation(command: string): WorkerCorrelation {
-    return this.supervisor.correlation(command);
-  }
-
-  private installCheckpoint(message: WorkerCheckpointProposalMessage): void {
-    let accepted = false;
-    try {
-      if (
-        this.supervisor.currentCorrelation === undefined || !this.active ||
-        !sameCorrelation(
-          message.correlation,
-          this.supervisor.currentCorrelation,
-        ) ||
-        !validateSemanticContextCheckpoint(message.checkpoint) ||
-        this.supervisor.currentManifest === undefined ||
-        !profileIdPattern.test(this.supervisor.currentManifest.profileId) ||
-        message.checkpoint.sessionId !== this.sessionId ||
-        message.checkpoint.sourceProfileId !==
-          this.supervisor.currentManifest.profileId
-      ) throw new Error('checkpoint correlation invalid');
-      const completedTurns = indexSessionHistory(this.authority.projection.transcript)?.turns
-        .length ?? 0;
-      if (
-        message.checkpoint.coveredThroughTurn < 1 ||
-        message.checkpoint.coveredThroughTurn >= completedTurns ||
-        message.checkpoint.retainedFromTurn !==
-          message.checkpoint.coveredThroughTurn + 1
-      ) throw new Error('checkpoint boundary invalid');
-      this.options.handle.installCheckpoint(message.checkpoint);
-      this.authority.projection.checkpoint = structuredClone(
-        message.checkpoint,
-      );
-      const notice = {
-        coveredThroughTurn: message.checkpoint.coveredThroughTurn,
-        retainedFromTurn: message.checkpoint.retainedFromTurn,
-      };
-      accepted = true;
-      try {
-        this.send({
-          kind: 'checkpoint_acknowledgement',
-          correlation: message.correlation,
-          accepted,
-        });
-        // Only an acknowledgement that was delivered to the generation may publish the
-        // notice. The held turn has not started when this method returns.
-        this.authority.recordCheckpointNotice(notice);
-      } catch {
-        this.authority.clearCheckpointNotice();
-        this.markUnavailable();
-      }
-      return;
-    } catch {
-      accepted = false;
-    }
-    try {
-      this.send({
-        kind: 'checkpoint_acknowledgement',
-        correlation: message.correlation,
-        accepted,
-      });
-    } catch {
-      this.authority.clearCheckpointNotice();
-      this.markUnavailable();
-    }
+  async consumeAutoCompactionNotice(): Promise<
+    {
+      readonly coveredThroughTurn: number;
+      readonly retainedFromTurn: number;
+    } | null
+  > {
+    return await this.options.data.consumeAutoCompactionNotice(this.sessionId);
   }
 
   async selectModel(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
-    if (this.closed) return 'unavailable';
-    try {
-      await this.ensureGeneration();
-    } catch {
-      return 'unavailable';
-    }
+    if (this.closed || this.supervisor.isUnavailable) return 'unavailable';
     if (this.active || this.supervisor.currentCorrelation !== undefined) {
       return 'busy';
     }
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
     }
-    if (
-      sameModelSelection(this.authority.projection.modelSelection, selection)
-    ) {
+    if (sameModelSelection(this.descriptorValue.modelSelection, selection)) {
       return 'unchanged';
     }
-    const changedAt = new Date().toISOString();
-    const nextChanges: SessionModelChange[] = [
-      ...structuredClone(this.authority.projection.modelChanges),
-      {
-        effectiveFromTurn: this.authority.projection.nextTurn,
-        changedAt,
-        selection: structuredClone(selection),
-      },
-    ];
-    const nextRevision = this.authority.projection.stateRevision + 1;
-    const persisted: SessionRecordV6 = {
-      schemaVersion: 6,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
-      createdAt: this.authority.createdAt,
-      updatedAt: changedAt,
-      title: this.authority.projection.title,
-      stateRevision: nextRevision,
-      nextTurn: this.authority.projection.nextTurn,
-      transcript: structuredClone(this.authority.projection.transcript),
-      definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(selection),
-      modelChanges: nextChanges,
-      turnModels: structuredClone(this.authority.projection.turnModels),
-      turnExecutions: structuredClone(this.authority.projection.turnExecutions),
-    };
-    if (!validateSessionRecordV6(persisted)) {
-      throw new Error('model selection record invalid');
-    }
-    this.options.handle.commit(persisted);
-    const correlation: WorkerCorrelation = {
-      ...this.correlation('select-model-' + crypto.randomUUID().toLowerCase()),
-      baseStateRevision: nextRevision,
-    };
-    this.supervisor.setCurrentCorrelation(correlation);
     try {
+      await this.ensureGeneration();
+      const correlation: WorkerCorrelation = {
+        ...this.supervisor.correlation(
+          `select-model-${crypto.randomUUID().toLowerCase()}`,
+        ),
+        baseStateRevision: this.descriptorValue.stateRevision,
+      };
+      this.supervisor.setCurrentCorrelation(correlation);
       const response = this.supervisor.messages.wait(
-        (
-          value,
-        ): value is WorkerModelSelectedMessage | WorkerErrorMessage =>
+        (value): value is WorkerModelSelectedMessage | WorkerErrorMessage =>
           (value.kind === 'model_selected' || value.kind === 'worker_error') &&
           (value.kind === 'worker_error' ||
             sameCorrelation(value.correlation, correlation)),
@@ -1350,7 +415,7 @@ export class ExecutionCoordinator {
         kind: 'select_model',
         correlation,
         selection,
-        privateStateFromTurn: privateStateFromTurn(nextChanges),
+        privateStateFromTurn: this.descriptorValue.privateStateFromTurn,
       });
       const message = await response;
       if (
@@ -1360,972 +425,83 @@ export class ExecutionCoordinator {
         message.manifest.profileId !== modelRouteProfileId(selection) ||
         !validCredentialAvailability(message.credentialAvailability, selection)
       ) throw new Error('Worker rejected model selection');
+      const mutation = await this.options.data.updateModelSelection(
+        this.sessionId,
+        selection,
+      );
+      this.acceptDescriptor(mutation.descriptor);
       this.supervisor.setManifest(message.manifest);
-      this.supervisor.setCredentialAvailability(structuredClone(
-        message.credentialAvailability,
-      ));
-      this.authority.projection.modelSelection = structuredClone(selection);
-      this.authority.projection.modelChanges = nextChanges;
-      this.authority.projection.stateRevision = nextRevision;
-      return 'selected';
-    } catch (error) {
-      this.options.handle.rollback();
-      this.markUnavailableForReplacement();
-      await this.supervisor.waitForProcessCleanup();
-      throw error;
+      this.supervisor.setCredentialAvailability(
+        structuredClone(message.credentialAvailability),
+      );
+      return mutation.result;
+    } catch {
+      this.supervisor.markUnavailableForReplacement();
+      return 'unavailable';
     } finally {
       this.supervisor.setCurrentCorrelation(undefined);
     }
   }
 
-  renameTitle(
+  async renameTitle(
     value: string,
-  ): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
+  ): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'> {
     if (this.closed || this.supervisor.isUnavailable) return 'unavailable';
     if (this.active || this.supervisor.currentCorrelation !== undefined) {
       return 'busy';
     }
-    const title = normalizeSessionTitle(value);
-    if (title.length === 0 || title === this.authority.projection.title) {
-      return 'unchanged';
+    try {
+      const result = await this.options.data.updateTitle(this.sessionId, value);
+      this.acceptDescriptor(result.descriptor);
+      return result.result;
+    } catch {
+      return 'unavailable';
     }
-    const changedAt = new Date().toISOString();
-    const nextRevision = this.authority.projection.stateRevision + 1;
-    const persisted: SessionRecordV6 = {
-      schemaVersion: 6,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
-      createdAt: this.authority.createdAt,
-      updatedAt: changedAt,
-      title,
-      stateRevision: nextRevision,
-      nextTurn: this.authority.projection.nextTurn,
-      transcript: structuredClone(this.authority.projection.transcript),
-      definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.authority.projection.modelSelection),
-      modelChanges: structuredClone(this.authority.projection.modelChanges),
-      turnModels: structuredClone(this.authority.projection.turnModels),
-      turnExecutions: structuredClone(this.authority.projection.turnExecutions),
-    };
-    if (!validateSessionRecordV6(persisted)) {
-      throw new Error('session title record invalid');
-    }
-    this.options.handle.commit(persisted);
-    this.authority.projection.title = title;
-    this.authority.projection.stateRevision = nextRevision;
-    return 'renamed';
   }
 
   async prepareRecall(id?: string): Promise<{
     readonly sourceExecutionId: string;
     readonly evidence: 'available' | 'unavailable';
   }> {
-    if (
-      this.closed || this.supervisor.isUnavailable ||
-      this.options.executionArtifactStore === undefined &&
-        this.options.historyPersistence === undefined
-    ) {
+    if (this.closed || this.supervisor.isUnavailable) {
       throw new WorkerRecallSelectionError('unavailable');
     }
     if (this.active || this.supervisor.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
-    let selectedExecutionId: string | undefined;
     try {
-      if (this.options.historyPersistence !== undefined) {
-        const sourceRows = this.options.historyPersistence.listExecutionsForSession?.(
-          this.sessionId,
-        ) ?? this.options.historyPersistence.listExecutions();
-        const rows = sourceRows.filter((
-          row,
-        ) =>
-          row.lifecycle === 'settled' && row.adoption === 'non_canonical' &&
-          ['cancelled', 'failed', 'interrupted', 'unknown'].includes(
-            row.outcome,
-          ) &&
-          (row.canonicalSessionId === this.sessionId ||
-            (row.canonicalSessionId === undefined &&
-              row.sessionCorrelation === this.sessionId))
-        );
-        const eligible = [...rows].sort((left, right) => {
-          const leftAt = left.settledAt ?? left.createdAt;
-          const rightAt = right.settledAt ?? right.createdAt;
-          return leftAt === rightAt
-            ? left.executionId.localeCompare(right.executionId)
-            : leftAt.localeCompare(rightAt);
-        });
-        if (id === undefined) {
-          selectedExecutionId = eligible.at(-1)?.executionId;
-        } else {
-          const matches = eligible.filter((row) => row.executionId.startsWith(id));
-          if (matches.length > 1) {
-            throw new WorkerRecallSelectionError('ambiguous');
-          }
-          selectedExecutionId = matches[0]?.executionId;
-        }
-      } else {
-        const artifacts = await this.options.executionArtifactStore!.list();
-        const eligible = artifacts.filter((artifact) =>
-          artifact.sessionId === this.sessionId &&
-          (artifact.settlement === 'uncommitted' ||
-            artifact.settlement === 'interrupted' ||
-            artifact.settlement === 'unknown')
-        );
-        let selected: (typeof eligible)[number] | undefined;
-        if (id === undefined) {
-          selected = [...eligible].sort((left, right) =>
-            left.settledAt === right.settledAt
-              ? left.executionId.localeCompare(right.executionId)
-              : left.settledAt.localeCompare(right.settledAt)
-          ).at(-1);
-        } else {
-          const matches = eligible.filter((artifact) => artifact.executionId.startsWith(id));
-          if (matches.length > 1) {
-            throw new WorkerRecallSelectionError('ambiguous');
-          }
-          selected = matches[0];
-        }
-        selectedExecutionId = selected?.executionId;
-      }
+      const result = await this.options.data.prepareRecall(this.sessionId, id);
+      this.acceptDescriptor(
+        await this.options.data.sessionDescriptor(this.sessionId),
+      );
+      return result;
     } catch (error) {
-      if (error instanceof WorkerRecallSelectionError) throw error;
-      throw new WorkerRecallSelectionError('failed');
-    }
-    if (this.closed || this.supervisor.isUnavailable) {
-      throw new WorkerRecallSelectionError('unavailable');
-    }
-    if (this.active || this.supervisor.currentCorrelation !== undefined) {
-      throw new WorkerRecallSelectionError('busy');
-    }
-    if (selectedExecutionId === undefined) {
-      throw new WorkerRecallSelectionError('not_found');
-    }
-    let recalled: RecalledExecutionContext;
-    try {
-      recalled = await resolveRecalledExecutionContext({
-        sessionId: this.sessionId,
-        executionId: selectedExecutionId,
-        ...(this.options.executionArtifactStore === undefined ? {} : {
-          executionArtifactStore: this.options.executionArtifactStore,
-        }),
-        ...(this.options.historyPersistence === undefined ? {} : {
-          historyPersistence: this.options.historyPersistence,
-        }),
-      });
-    } catch {
-      throw new WorkerRecallSelectionError('failed');
-    }
-    if (this.closed || this.supervisor.isUnavailable) {
-      throw new WorkerRecallSelectionError('unavailable');
-    }
-    if (this.active || this.supervisor.currentCorrelation !== undefined) {
-      throw new WorkerRecallSelectionError('busy');
-    }
-    this.pendingRecall = structuredClone(recalled);
-    return {
-      sourceExecutionId: recalled.sourceExecutionId,
-      evidence: recalled.evidence,
-    };
-  }
-
-  clearPendingRecall(): boolean {
-    const present = this.pendingRecall !== undefined;
-    this.pendingRecall = undefined;
-    return present;
-  }
-
-  async submit(
-    task: string,
-    recalledContext?: RecalledExecutionContext,
-  ): Promise<LoopOutcome> {
-    return await this.executeTask(task, recalledContext);
-  }
-
-  /** Resolve after durable admission; completion retains the existing full cleanup boundary. */
-  admit(
-    task: string,
-    recalledContext?: RecalledExecutionContext,
-  ): Promise<
-    { readonly executionId: string; readonly completion: Promise<LoopOutcome> }
-  > {
-    return new Promise((resolve, reject) => {
-      let admitted = false;
-      const completion = this.executeTask(
-        task,
-        recalledContext,
-        (executionId) => {
-          admitted = true;
-          resolve({ executionId, completion });
-        },
-      );
-      completion.then((outcome) => {
-        if (!admitted) {
-          reject(
-            Object.assign(
-              new Error(outcome.error ?? 'execution admission failed'),
-              {
-                code: 'admission_failed',
-                outcome,
-              },
-            ),
-          );
-        }
-      }, reject);
-    });
-  }
-
-  private async executeTask(
-    task: string,
-    recalledContext?: RecalledExecutionContext,
-    onAdmitted?: (executionId: string) => void,
-  ): Promise<LoopOutcome> {
-    if (this.closed) {
-      throw new Error('agent session unavailable');
-    }
-    await this.ensureGeneration();
-    if (this.active) throw new Error('agent session is busy');
-    if (typeof task !== 'string' || task.trim().length === 0) {
-      throw new RangeError('user text must not be blank');
-    }
-    const admittedRecall = recalledContext ?? this.pendingRecall;
-    if (
-      admittedRecall !== undefined &&
-      (admittedRecall.sessionId !== this.sessionId ||
-        (admittedRecall.schemaVersion === 1
-          ? admittedRecall.settlement !== 'uncommitted'
-          : admittedRecall.lifecycle !== 'settled'))
-    ) {
-      throw new RangeError(
-        'recalled execution context does not match current Session',
+      const code = error instanceof DataRecallSelectionError
+        ? error.code
+        : typeof error === 'object' && error !== null && 'code' in error &&
+            typeof error.code === 'string'
+        ? error.code
+        : 'failed';
+      throw new WorkerRecallSelectionError(
+        code === 'unavailable' || code === 'busy' || code === 'not_found' ||
+          code === 'ambiguous'
+          ? code
+          : 'failed',
       );
     }
-    if (recalledContext === undefined) this.pendingRecall = undefined;
-    const currentModel = this.authority.modelSelectionSnapshot();
-    const chatgptRegistrationId = currentModel.provider !== 'openai-chatgpt'
-      ? null
-      : Object.hasOwn(this.options, 'chatgptRegistrationId')
-      ? this.options.chatgptRegistrationId ?? null
-      : (await this.chatgptAuthService().selectedRegistrationId().catch(() => undefined)) ?? null;
-    this.clearAuxiliaryStageWatchdog();
-    this.lastAuxiliaryContextRequestOrdinal = undefined;
-    this.active = true;
-    const correlation = this.correlation(
-      `turn-${this.authority.projection.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
+  }
+
+  async clearPendingRecall(): Promise<boolean> {
+    if (this.closed) return false;
+    const cleared = await this.options.data.clearPendingRecall(this.sessionId);
+    this.acceptDescriptor(
+      await this.options.data.sessionDescriptor(this.sessionId),
     );
-    this.supervisor.setCurrentCorrelation(correlation);
-    this.supervisor.beginTurnStageProbeEpoch();
-    const execution: ActiveWorkerExecution = {
-      taskId: crypto.randomUUID().toLowerCase(),
-      executionId: crypto.randomUUID().toLowerCase(),
-      createdAt: new Date().toISOString(),
-      turn: this.authority.projection.nextTurn,
-      command: {
-        kind: 'turn',
-        correlation: structuredClone(correlation),
-        task,
-      },
-      ...(admittedRecall === undefined ? {} : {
-        recalledContext: structuredClone(admittedRecall),
-      }),
-      baseStateRevision: this.authority.projection.stateRevision,
-      stageProbeEpoch: this.supervisor.stageProbeEpoch,
-      protocolTrace: [...this.supervisor.bootstrapTrace],
-      storeResult: 'not_attempted',
-      acknowledgement: 'not_sent',
-      settlement: 'uncommitted',
-      artifactWritten: false,
-      journalFailureSignal: createJournalFailureSignal(),
-      stageSnapshotKeys: new Set(),
-    };
-    this.children.openParent(execution.executionId, chatgptRegistrationId);
-    this.activeExecution = execution;
-    this.publishRuntimeState();
-    try {
-      if (this.options.historyPersistence !== undefined) {
-        try {
-          await this.options.historyPersistence.beginExecution({
-            taskId: execution.taskId,
-            executionId: execution.executionId,
-            createdAt: execution.createdAt,
-            sessionCorrelation: this.sessionId,
-            sessionMode: this.options.durableCanonicalHistory === true
-              ? 'persistent'
-              : 'no_session',
-            ...(this.options.durableCanonicalHistory === true
-              ? { canonicalSessionId: this.sessionId }
-              : {}),
-            turn: execution.turn,
-            task,
-            baseStateRevision: execution.baseStateRevision,
-            ...this.historyExecutionAttribution(),
-            ...(this.authority.admissionSessionRecord() === undefined
-              ? {}
-              : { sessionRecord: this.authority.admissionSessionRecord() }),
-            ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
-              contextSnapshot: this.supervisor.currentStartupSnapshot.context,
-            }),
-          });
-        } catch (error) {
-          const historyFailure = typeof error === 'object' && error !== null &&
-              ((error as { readonly code?: unknown }).code === 'history_busy' ||
-                (error as { readonly code?: unknown }).code ===
-                  'history_invalid' ||
-                (error as { readonly code?: unknown }).code ===
-                  'history_io_failure')
-            ? (error as {
-              readonly code:
-                | 'history_busy'
-                | 'history_invalid'
-                | 'history_io_failure';
-            }).code
-            : 'history_io_failure' as const;
-          execution.storeResult = 'failed';
-          execution.storeError = historyFailure === 'history_busy'
-            ? 'history_busy'
-            : historyFailure === 'history_invalid'
-            ? 'session_invalid'
-            : 'session_io_failure';
-          const failed: LoopOutcome = {
-            ...failedOutcome(
-              task,
-              this.authority.projection.transcript,
-              `durable execution admission failed: ${historyFailure}`,
-            ),
-            executionAdmissionDurability: 'failed',
-            executionAdmissionPersistenceError: historyFailure,
-          };
-          this.deliver(
-            turnEndFromOutcome(
-              this.authority.projection.nextTurn,
-              failed,
-              false,
-            ),
-          );
-          return failed;
-        }
-      }
-      onAdmitted?.(execution.executionId);
-      try {
-        this.send({
-          kind: 'turn',
-          correlation,
-          executionId: execution.executionId,
-          task,
-          chatgptRegistrationId,
-          ...(admittedRecall === undefined ? {} : {
-            recalledContext: structuredClone(admittedRecall),
-          }),
-        });
-        const dispatchJournaled = this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'turn_dispatch_sent',
-          payload: { task },
-        });
-        if (!dispatchJournaled) {
-          return await this.finishJournalFailure(execution, task);
-        }
-      } catch {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'turn_dispatch_failed',
-          payload: { task },
-        });
-        this.markUnavailable();
-        const outcome = failedOutcome(
-          task,
-          this.authority.projection.transcript,
-          'Worker transport unavailable',
-        );
-        const settled = await this.settleExecution(
-          execution,
-          outcome,
-          undefined,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      const terminal = await Promise.race([
-        this.supervisor.messages.wait((
-          value,
-        ): value is
-          | WorkerCommitProposalMessage
-          | Extract<WorkerToHostMessage, { kind: 'turn_failed' }>
-          | WorkerErrorMessage =>
-          (value.kind === 'commit_proposal' || value.kind === 'turn_failed' ||
-            value.kind === 'worker_error') &&
-          (value.kind === 'worker_error' ||
-            sameCorrelation(value.correlation, correlation))
-        ).then((message) => ({ kind: 'worker' as const, message })),
-        execution.journalFailureSignal.promise.then((code) => ({
-          kind: 'journal_failure' as const,
-          code,
-        })),
-      ]);
-      if (terminal.kind === 'journal_failure') {
-        return await this.finishJournalFailure(execution, task);
-      }
-      const message = terminal.message;
-      if (message.kind === 'turn_failed') {
-        const diagnostic = message.diagnostic ?? message.outcome.diagnostic;
-        const settled = await this.settleExecution(
-          execution,
-          message.outcome,
-          diagnostic,
-          message.contextManifest,
-        );
-        if (
-          diagnostic?.stage === 'cancellation_cleanup' &&
-          diagnostic.code === 'cleanup_error'
-        ) this.markUnavailable();
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      if (message.kind === 'worker_error') {
-        this.markUnavailable();
-        const outcome = failedOutcome(
-          task,
-          this.authority.projection.transcript,
-          message.message,
-        );
-        const settled = await this.settleExecution(
-          execution,
-          outcome,
-          undefined,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      if (!sameCorrelation(message.correlation, correlation)) {
-        throw new Error('commit proposal correlation invalid');
-      }
-      if (execution.journalFailureCode !== undefined) {
-        // A pre-commit observation gap must not be promoted to canonical history.
-        this.sendCommitAcknowledgement(execution, correlation, false);
-        return await this.finishJournalFailure(
-          execution,
-          task,
-          message.diagnostic,
-          message.contextManifest,
-        );
-      }
-      const record = this.authority.proposalRecord(message);
-      if (record === undefined) {
-        if (!this.sendCommitAcknowledgement(execution, correlation, false)) {
-          this.markUnavailable();
-        }
-        const outcome = failedOutcome(
-          task,
-          this.authority.projection.transcript,
-          'commit proposal invalid',
-        );
-        const settled = await this.settleExecution(
-          execution,
-          outcome,
-          message.diagnostic,
-          message.contextManifest,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      const proposedOutcome = message.outcome === undefined
-        ? proposalOutcome(task, message.transcript, undefined)
-        : {
-          ...structuredClone(message.outcome),
-          task,
-          transcript: structuredClone(message.transcript),
-        };
-      const diagnostic = message.diagnostic ?? proposedOutcome.diagnostic;
-      execution.proposedStateRevision = record.stateRevision;
-      await this.settleChildren(execution);
-      if (execution.journalFailureCode !== undefined) {
-        this.sendCommitAcknowledgement(execution, correlation, false);
-        return await this.finishJournalFailure(
-          execution,
-          task,
-          diagnostic,
-          message.contextManifest,
-        );
-      }
-      const cancellationRequested = this.cancellationRequestedExecutionId === execution.executionId;
-      const forcedInterruption = this.forcedInterruptionExecutionId === execution.executionId;
-      const proposalStillCurrent = this.activeExecution === execution &&
-        this.active &&
-        this.supervisor.workerGeneration ===
-          message.correlation.workerGeneration &&
-        this.supervisor.currentCorrelation !== undefined &&
-        sameCorrelation(this.supervisor.currentCorrelation, correlation);
-      if (
-        cancellationRequested || forcedInterruption || !proposalStillCurrent
-      ) {
-        this.sendCommitAcknowledgement(execution, correlation, false);
-        const outcome = forcedInterruption || !proposalStillCurrent
-          ? interruptedOutcome(
-            task,
-            this.authority.projection.transcript,
-            'Parent execution changed while async children were settling',
-          )
-          : failedOutcome(
-            task,
-            this.authority.projection.transcript,
-            'Parent execution was cancelled while async children were settling',
-            true,
-          );
-        const settled = await this.settleExecution(
-          execution,
-          outcome,
-          diagnostic,
-          message.contextManifest,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      let committed: LoopOutcome;
-      try {
-        if (
-          this.options.historyPersistence !== undefined &&
-          this.options.durableCanonicalHistory === true
-        ) {
-          if (!this.journal.recordWorkerStageSnapshot('terminal')) {
-            return await this.finishJournalFailure(
-              execution,
-              task,
-              diagnostic,
-              message.contextManifest,
-            );
-          }
-          const capture = this.options.historyPersistence.commitCanonicalTurn({
-            taskId: execution.taskId,
-            executionId: execution.executionId,
-            createdAt: execution.createdAt,
-            sessionCorrelation: this.sessionId,
-            canonicalSessionId: this.sessionId,
-            turn: execution.turn,
-            task,
-            baseStateRevision: execution.baseStateRevision,
-            ...this.historyExecutionAttribution(),
-            ...(execution.recalledContext === undefined ? {} : {
-              recalledContext: execution.recalledContext,
-            }),
-            contextManifest: message.contextManifest,
-            ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
-              contextSnapshot: this.supervisor.currentStartupSnapshot.context,
-            }),
-            record,
-            outcome: proposedOutcome,
-            ...(diagnostic === undefined ? {} : { diagnostic }),
-            artifactForCapture: (captured) => {
-              const capturedOutcome = this.applyHistoryCapture(
-                proposedOutcome,
-                diagnostic,
-                captured,
-              );
-              execution.contextCapture = captured.contextDurability === 'partial'
-                ? 'failed'
-                : captured.contextDurability;
-              return this.executionArtifact({
-                ...execution,
-                contextCapture: captured.contextDurability === 'partial'
-                  ? 'failed'
-                  : captured.contextDurability,
-                committedStateRevision: record.stateRevision,
-                storeResult: 'committed',
-                acknowledgement: 'not_sent',
-                settlement: 'committed_observation_pending',
-              }, capturedOutcome);
-            },
-          });
-          if (this.options.handle.acceptCommitted === undefined) {
-            throw new Error(
-              'SQLite history handle cannot accept an atomic commit',
-            );
-          }
-          this.options.handle.acceptCommitted(record);
-          execution.settlement = 'committed_observation_pending';
-          committed = this.applyHistoryCapture(
-            proposedOutcome,
-            diagnostic,
-            capture,
-          );
-        } else {
-          this.options.handle.commit(record);
-          if (this.options.historyPersistence !== undefined) {
-            let capturedOutcome: LoopOutcome | undefined;
-            const capture = this.options.historyPersistence
-              .settleNonCanonicalExecution({
-                taskId: execution.taskId,
-                executionId: execution.executionId,
-                createdAt: execution.createdAt,
-                sessionCorrelation: this.sessionId,
-                turn: execution.turn,
-                task,
-                baseStateRevision: execution.baseStateRevision,
-                ...this.historyExecutionAttribution(),
-                ...(execution.recalledContext === undefined ? {} : {
-                  recalledContext: execution.recalledContext,
-                }),
-                contextManifest: message.contextManifest,
-                ...(this.supervisor.currentStartupSnapshot?.context ===
-                    undefined
-                  ? {}
-                  : {
-                    contextSnapshot: this.supervisor.currentStartupSnapshot.context,
-                  }),
-                outcome: proposedOutcome,
-                ...(diagnostic === undefined ? {} : { diagnostic }),
-                artifactForCapture: (captured) => {
-                  capturedOutcome = this.applyHistoryCapture(
-                    proposedOutcome,
-                    diagnostic,
-                    captured,
-                  );
-                  execution.contextCapture = captured.contextDurability === 'partial'
-                    ? 'failed'
-                    : captured.contextDurability;
-                  return this.executionArtifact(execution, capturedOutcome);
-                },
-              });
-            committed = capturedOutcome ?? this.applyHistoryCapture(
-              proposedOutcome,
-              diagnostic,
-              capture,
-            );
-          } else {
-            committed = await this.persistArtifacts(
-              proposedOutcome,
-              diagnostic,
-            );
-          }
-          // Session/evidence settlement is durable before acknowledgement delivery. Any
-          // later journal loss is therefore post-commit observation failure, not a rollback.
-          execution.settlement = 'committed_observation_pending';
-        }
-        execution.storeResult = 'committed';
-      } catch (error) {
-        if (!this.sendCommitAcknowledgement(execution, correlation, false)) {
-          this.markUnavailable();
-        }
-        execution.storeResult = 'failed';
-        execution.storeError = typeof error === 'object' && error !== null &&
-            (error as { readonly code?: unknown }).code === 'history_busy'
-          ? 'history_busy'
-          : 'session_io_failure';
-        const outcome = failedOutcome(
-          task,
-          this.authority.projection.transcript,
-          'durable session commit failed',
-        );
-        if (
-          typeof error === 'object' && error !== null &&
-          (error as { readonly code?: unknown }).code === 'history_invalid'
-        ) {
-          const failedSettlement = await this.settleHistoryFailure(
-            execution,
-            outcome,
-            diagnostic ?? this.contextContractDiagnostic(
-              execution,
-              proposedOutcome,
-            ),
-          );
-          if (failedSettlement !== undefined) {
-            this.deliver(
-              turnEndFromOutcome(
-                this.authority.projection.nextTurn,
-                failedSettlement,
-                false,
-              ),
-            );
-            return failedSettlement;
-          }
-        }
-        const settled = await this.settleExecution(
-          execution,
-          outcome,
-          diagnostic,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      this.authority.projection.transcript = structuredClone(
-        record.transcript,
-      ) as Message[];
-      this.authority.projection.nextTurn = record.nextTurn;
-      this.authority.projection.stateRevision = record.stateRevision;
-      this.authority.projection.turnModels = structuredClone(
-        record.turnModels,
-      ) as SessionTurnModelAttribution[];
-      this.authority.projection.turnExecutions = structuredClone(
-        record.turnExecutions,
-      ) as SessionTurnExecutionAttribution[];
-      if (
-        this.options.historyPersistence === undefined ||
-        this.options.durableCanonicalHistory === true
-      ) {
-        execution.committedStateRevision = record.stateRevision;
-      }
-      const ackSent = this.sendCommitAcknowledgement(
-        execution,
-        correlation,
-        true,
-      );
-      if (!ackSent) {
-        execution.settlement = 'committed_generation_unavailable';
-        this.markUnavailableForReplacement();
-        await this.supervisor.waitForProcessCleanup(execution.executionId);
-        const settled = await this.persistExecutionArtifact(
-          execution,
-          committed,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn - 1,
-            settled,
-            true,
-          ),
-        );
-        return settled;
-      }
-      let workerError: WorkerErrorMessage | undefined;
-      try {
-        const settled = await this.supervisor.messages.wait(
-          (
-            value,
-          ): value is
-            | Extract<WorkerToHostMessage, { kind: 'runtime_event' }>
-            | WorkerErrorMessage =>
-            (value.kind === 'runtime_event' || value.kind === 'worker_error') &&
-            (value.kind === 'worker_error' ||
-              sameCorrelation(value.correlation, correlation)),
-          this.workerResponseTimeoutMs(),
-        );
-        if (settled.kind === 'worker_error') workerError = settled;
-      } catch {
-        this.markUnavailableForReplacement();
-      }
-      if (workerError !== undefined) {
-        this.markUnavailableForReplacement();
-      }
-      await this.supervisor.waitForProcessCleanup(execution.executionId);
-      execution.settlement = workerError === undefined && !this.supervisor.isUnavailable
-        ? 'committed'
-        : 'committed_generation_unavailable';
-      const settled = await this.persistExecutionArtifact(execution, committed);
-      this.deliver(
-        turnEndFromOutcome(
-          this.authority.projection.nextTurn - 1,
-          settled,
-          true,
-        ),
-      );
-      return settled;
-    } catch (error) {
-      if (execution.journalFailureCode !== undefined) {
-        return await this.finishJournalFailure(execution, task);
-      }
-      if (this.forcedInterruptionExecutionId === execution.executionId) {
-        const outcome = interruptedOutcome(
-          task,
-          this.authority.projection.transcript,
-          'Worker generation was terminated after cancellation did not settle',
-        );
-        const settled = await this.settleExecution(
-          execution,
-          outcome,
-          undefined,
-        );
-        this.deliver(
-          turnEndFromOutcome(
-            this.authority.projection.nextTurn,
-            settled,
-            false,
-          ),
-        );
-        return settled;
-      }
-      const outcome = failedOutcome(
-        task,
-        this.authority.projection.transcript,
-        error instanceof Error ? error.message : String(error),
-      );
-      execution.settlement = 'uncommitted';
-      const settled = await this.settleExecution(
-        execution,
-        outcome,
-        undefined,
-      );
-      this.deliver(
-        turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
-      );
-      return settled;
-    } finally {
-      this.clearAuxiliaryStageWatchdog(execution.executionId);
-      this.clearCancellationWatchdog(execution.executionId);
-      if (this.cancellationRequestedExecutionId === execution.executionId) {
-        this.cancellationRequestedExecutionId = undefined;
-      }
-      if (this.forcedInterruptionExecutionId === execution.executionId) {
-        this.forcedInterruptionExecutionId = undefined;
-      }
-      try {
-        await this.settleChildren(execution);
-        await this.supervisor.waitForProcessCleanup(execution.executionId);
-      } finally {
-        this.supervisor.finishProcessExecution(execution.executionId);
-        this.children.releaseParent(execution.executionId);
-        this.activeExecution = undefined;
-        this.active = false;
-        this.supervisor.setCurrentCorrelation(undefined);
-        this.lastAuxiliaryContextRequestOrdinal = undefined;
-        this.publishRuntimeState();
-      }
-    }
+    return cleared;
   }
 
-  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
-    if (!this.active || this.supervisor.currentCorrelation === undefined) {
-      return 'idle';
-    }
-    const execution = this.activeExecution;
-    if (
-      execution !== undefined &&
-      this.cancellationRequestedExecutionId === execution.executionId
-    ) return 'already_requested';
-    if (execution !== undefined) {
-      this.cancellationRequestedExecutionId = execution.executionId;
-      this.publishRuntimeState();
-      this.supervisor.cancelProcessExecution(execution.executionId);
-      this.journal.recordWorkerStageSnapshot('cancel_requested');
-      const journaled = this.journal.appendJournal({
-        executionId: execution.executionId,
-        direction: 'host_to_worker',
-        source: 'host',
-        kind: 'cancel_requested',
-        payload: { command: 'cancel' },
-      });
-      if (!journaled) return 'requested';
-    }
-    try {
-      this.send({
-        kind: 'cancel',
-        correlation: this.supervisor.currentCorrelation,
-      });
-      if (execution !== undefined) {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'cancel_sent',
-          payload: { command: 'cancel' },
-        });
-      }
-      if (execution !== undefined) {
-        const executionId = execution.executionId;
-        const timer = setTimeout(
-          () => this.escalateCancellation(executionId),
-          this.options.cancelSettlementGraceMs ?? WORKER_SETTLEMENT_GRACE_MS,
-        );
-        this.cancellationWatchdog = { executionId, timer };
-      }
-      return 'requested';
-    } catch {
-      if (execution !== undefined) {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'cancel_failed',
-          payload: { command: 'cancel' },
-        });
-      }
-      this.markUnavailableForReplacement();
-      return 'requested';
-    }
-  }
-
-  steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
-    if (!this.active || this.supervisor.currentCorrelation === undefined) {
-      return 'idle';
-    }
-    const execution = this.activeExecution;
-    if (execution !== undefined) {
-      const journaled = this.journal.appendJournal({
-        executionId: execution.executionId,
-        direction: 'host_to_worker',
-        source: 'host',
-        kind: 'steer_requested',
-        payload: { text },
-      });
-      if (!journaled) return 'accepted';
-    }
-    try {
-      this.send({
-        kind: 'steer',
-        correlation: this.supervisor.currentCorrelation,
-        text,
-      });
-      if (execution !== undefined) {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'steer_sent',
-          payload: { text },
-        });
-      }
-      return 'accepted';
-    } catch {
-      if (execution !== undefined) {
-        this.journal.appendJournal({
-          executionId: execution.executionId,
-          direction: 'host_to_worker',
-          source: 'host',
-          kind: 'steer_failed',
-          payload: { text },
-        });
-      }
-      this.markUnavailable();
-      return 'accepted';
-    }
+  currentPosition(): ApiPosition {
+    return structuredClone(this.descriptorValue.currentPosition);
   }
 
   isAvailable(): boolean {
@@ -2335,65 +511,763 @@ export class ExecutionCoordinator {
       !this.active;
   }
 
-  transcriptSnapshot(): readonly Message[] {
-    return this.authority.transcriptSnapshot();
+  async submit(task: string): Promise<SmallOutcome> {
+    if (
+      this.closed ||
+      (this.supervisor.isUnavailable &&
+        !this.supervisor.generationNeedsReplacement)
+    ) throw new Error('agent session unavailable');
+    try {
+      const admission = await this.admit(task);
+      return await admission.completion;
+    } catch (error) {
+      if (
+        typeof error === 'object' && error !== null && 'code' in error &&
+        error.code === 'admission_failed' && 'outcome' in error
+      ) return error.outcome as SmallOutcome;
+      return smallFailure(task, errorText(error));
+    }
   }
 
-  currentPosition(): {
-    readonly sessionId: string;
-    readonly createdAt: string;
-    readonly title?: string;
-    readonly agent: SessionRecord['agent'];
-    readonly committedTurn: number;
-    readonly messageCount: number;
-    readonly checkpoint?: Pick<
-      SemanticContextCheckpointV1,
-      'coveredThroughTurn' | 'retainedFromTurn'
-    >;
-  } {
-    return {
-      sessionId: this.sessionId,
-      createdAt: this.authority.createdAt,
-      ...(this.authority.projection.title === null
-        ? {}
-        : { title: this.authority.projection.title }),
-      agent: this.options.agent,
-      committedTurn: this.authority.projection.nextTurn - 1,
-      messageCount: this.authority.projection.transcript.length,
-      ...(this.authority.projection.checkpoint === undefined ? {} : {
-        checkpoint: {
-          coveredThroughTurn: this.authority.projection.checkpoint.coveredThroughTurn,
-          retainedFromTurn: this.authority.projection.checkpoint.retainedFromTurn,
-        },
-      }),
+  admit(
+    task: string,
+    executionId = crypto.randomUUID().toLowerCase(),
+    initiallyCancelled = false,
+  ): Promise<Admission> {
+    if (this.pendingAdmission !== undefined || this.active) {
+      return Promise.reject(new Error('agent session is busy'));
+    }
+    if (
+      this.closed ||
+      (this.supervisor.isUnavailable &&
+        !this.supervisor.generationNeedsReplacement)
+    ) {
+      return Promise.reject(new Error('agent session unavailable'));
+    }
+    if (typeof task !== 'string' || task.trim().length === 0) {
+      return Promise.reject(new RangeError('user text must not be blank'));
+    }
+    const reservation: PendingAdmission = {
+      task,
+      taskId: crypto.randomUUID().toLowerCase(),
+      executionId,
+      createdAt: new Date().toISOString(),
+      cancelled: initiallyCancelled,
+      admitted: false,
+      controlSequence: 0,
+      controlWrites: Promise.resolve(),
+      pendingControlFacts: [],
+      processCleanupRecorded: false,
+    };
+    this.pendingAdmission = reservation;
+    this.active = true;
+    this.publishRuntimeState();
+    const receipt = new Promise<Admission>((resolve, reject) => {
+      reservation.resolve = resolve;
+      reservation.reject = reject;
+    });
+    const completion = this.runReservation(reservation);
+    reservation.completion = completion;
+    this.admissionCompletion = completion;
+    void completion.then((outcome) => {
+      if (!reservation.admitted) reservation.reject?.(admissionError(outcome));
+    }, (error) => {
+      if (!reservation.admitted) {
+        reservation.reject?.(new Error(errorText(error)));
+      }
+    });
+    void completion.catch(() => {});
+    return receipt;
+  }
+
+  private async runReservation(
+    reservation: PendingAdmission,
+  ): Promise<SmallOutcome> {
+    let execution: ActiveExecution | undefined;
+    try {
+      await this.ensureGeneration();
+      const correlation = this.supervisor.correlation(
+        `turn-${this.descriptorValue.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
+      );
+      reservation.correlation = correlation;
+      this.supervisor.setCurrentCorrelation(correlation);
+      const admission = await this.options.data.executionAdmit(this.sessionId, {
+        executionId: reservation.executionId,
+        taskId: reservation.taskId,
+        task: reservation.task,
+        correlation,
+        createdAt: reservation.createdAt,
+      });
+      this.acceptDescriptor(admission.descriptor);
+      reservation.admitted = true;
+      execution = {
+        executionId: reservation.executionId,
+        turn: admission.descriptor.latestExecution?.turn ??
+          Math.max(1, this.descriptorValue.nextTurn),
+        correlation,
+        protocolTrace: [...this.supervisor.bootstrapTrace],
+        reservation,
+        requestCount: 0,
+        settling: false,
+        cancelled: reservation.cancelled,
+        forced: false,
+        dispatched: false,
+      };
+      this.activeExecution = execution;
+      this.flushPendingControlFacts(reservation);
+      this.supervisor.beginTurnStageProbeEpoch();
+      this.children.openParent(
+        execution.executionId,
+        this.childChatGPTRegistrationId(),
+      );
+      const completion = reservation.completion!;
+      reservation.resolve?.({ executionId: execution.executionId, completion });
+      this.publishRuntimeState();
+
+      if (reservation.cancelled || execution.forced) {
+        return await this.seal(
+          execution,
+          execution.forced ? 'interrupted' : 'cancelled',
+          'cancelled during preparation',
+        );
+      }
+
+      this.send({
+        kind: 'turn',
+        correlation,
+        executionId: execution.executionId,
+        task: reservation.task,
+        ...(this.options.chatgptRegistrationId === undefined ? {} : {
+          chatgptRegistrationId: this.options.chatgptRegistrationId,
+        }),
+      });
+      execution.dispatched = true;
+      this.publishRuntimeState();
+      const terminal = await this.supervisor.messages.wait(
+        (
+          message,
+        ): message is
+          | WorkerProposalReadyMessage
+          | WorkerFailureReadyMessage
+          | WorkerErrorMessage =>
+          (message.kind === 'proposal_ready' ||
+            message.kind === 'failure_ready' ||
+            message.kind === 'worker_error') &&
+          (message.kind === 'worker_error'
+            ? message.correlation === undefined ||
+              sameCorrelation(message.correlation, correlation)
+            : sameCorrelation(message.correlation, correlation)),
+      );
+      if (terminal.kind === 'worker_error') {
+        execution.settling = true;
+        this.supervisor.markUnavailableForReplacement();
+        await this.finishProcessCleanup(execution);
+        await this.children.cleanupParent(execution.executionId);
+        const outcome = await this.seal(
+          execution,
+          'interrupted',
+          terminal.message,
+        );
+        return outcome;
+      }
+      execution.settling = true;
+      if (terminal.kind === 'failure_ready') {
+        const cleanup = await this.children.cleanupParent(
+          execution.executionId,
+        );
+        await this.options.data.updateExecutionArtifactMetadata(
+          this.sessionId,
+          execution.executionId,
+          {
+            protocolTrace: this.trace(execution),
+            ...(cleanup === undefined ? {} : { childCleanup: cleanup }),
+          },
+        );
+        const result = await this.options.data.settleFailure(this.sessionId, {
+          executionId: execution.executionId,
+          finalDataSequence: terminal.finalDataSequence,
+        });
+        this.acceptTerminal(result);
+        await this.waitForTurnSettled(execution);
+        await this.finishProcessCleanup(execution);
+        this.finishExecution(execution);
+        if (
+          result.outcome.diagnostic?.stage === 'cancellation_cleanup' &&
+          result.outcome.diagnostic.code === 'cleanup_error'
+        ) this.supervisor.markUnavailable();
+        this.deliverTerminal(execution, result, false);
+        return this.terminalOutcome(result);
+      }
+      return await this.settleProposal(execution, terminal, reservation);
+    } catch (error) {
+      if (execution === undefined) {
+        return smallFailure(
+          reservation.task,
+          errorText(error),
+          reservation.cancelled,
+        );
+      }
+      if (execution.forced) {
+        await this.finishProcessCleanup(execution);
+        return await this.seal(
+          execution,
+          'interrupted',
+          'Worker generation was terminated after cancellation did not settle',
+        );
+      }
+      if (execution.cancelled || reservation.cancelled) {
+        return await this.seal(execution, 'cancelled', 'execution cancelled');
+      }
+      this.supervisor.markUnavailableForReplacement();
+      await this.finishProcessCleanup(execution);
+      const outcome = await this.seal(
+        execution,
+        'interrupted',
+        errorText(error),
+      );
+      return outcome;
+    } finally {
+      this.clearCancellationWatchdog(reservation);
+      if (execution !== undefined) {
+        await this.children.cleanupParent(execution.executionId).catch(() => undefined);
+        await this.finishProcessCleanup(execution);
+        this.supervisor.finishProcessExecution(execution.executionId);
+        this.children.releaseParent(execution.executionId);
+        await execution.reservation.controlWrites;
+        if (this.activeExecution === execution) {
+          this.activeExecution = undefined;
+        }
+      }
+      if (this.pendingAdmission === reservation) {
+        this.pendingAdmission = undefined;
+      }
+      this.active = false;
+      this.admissionCompletion = undefined;
+      this.supervisor.setCurrentCorrelation(undefined);
+      this.publishRuntimeState();
+    }
+  }
+
+  private childChatGPTRegistrationId(): string | null {
+    if (this.options.chatgptRegistrationId !== undefined) {
+      return this.options.chatgptRegistrationId;
+    }
+    const selection = this.descriptorValue.modelSelection;
+    return 'registrationId' in selection ? selection.registrationId ?? null : null;
+  }
+
+  private async settleProposal(
+    execution: ActiveExecution,
+    barrier: WorkerProposalReadyMessage,
+    reservation: PendingAdmission,
+  ): Promise<SmallOutcome> {
+    const token = await this.options.data.prepareProposal(this.sessionId, {
+      proposalId: barrier.proposalId,
+      executionId: execution.executionId,
+      finalDataSequence: barrier.finalDataSequence,
+    });
+    if (execution.terminalPromise !== undefined) {
+      return await execution.terminalPromise;
+    }
+    const cleanup = await this.children.cleanupParent(execution.executionId);
+    if (execution.terminalPromise !== undefined) {
+      return await execution.terminalPromise;
+    }
+    await this.options.data.updateExecutionArtifactMetadata(
+      this.sessionId,
+      execution.executionId,
+      {
+        protocolTrace: this.trace(execution),
+        ...(cleanup === undefined ? {} : { childCleanup: cleanup }),
+      },
+    );
+    const stillCurrent = this.activeExecution === execution &&
+      sameCorrelation(
+        this.supervisor.currentCorrelation ?? execution.correlation,
+        execution.correlation,
+      ) &&
+      !this.supervisor.isUnavailable;
+    const decision: DataCommitDecision = execution.cancelled || reservation.cancelled
+      ? {
+        accepted: false,
+        settlement: 'cancelled',
+        reason: 'execution cancelled before commit',
+      }
+      : execution.forced || !stillCurrent
+      ? {
+        accepted: false,
+        settlement: 'interrupted',
+        reason: 'execution changed before commit',
+      }
+      : cleanup?.runs.some((run) => run.durability === 'failed')
+      ? {
+        accepted: false,
+        settlement: 'rejected',
+        reason: 'child cleanup failed',
+      }
+      : { accepted: true };
+    execution.settling = true;
+    this.publishRuntimeState();
+    execution.terminalPromise = (async () => {
+      const result = await this.options.data.authorizeCommit(
+        this.sessionId,
+        token,
+        decision,
+      );
+      this.acceptTerminal(result);
+      const accepted = result.accepted && result.durable;
+      try {
+        this.send({
+          kind: 'commit_acknowledgement',
+          correlation: execution.correlation,
+          accepted,
+        });
+        this.recordExecutionControl(execution.reservation, {
+          kind: 'acknowledgement_requested',
+          accepted,
+        });
+        this.recordExecutionControl(execution.reservation, {
+          kind: 'acknowledgement_sent',
+          accepted,
+        });
+      } catch {
+        this.recordExecutionControl(execution.reservation, {
+          kind: 'acknowledgement_requested',
+          accepted,
+        });
+        this.recordExecutionControl(execution.reservation, {
+          kind: 'acknowledgement_failed',
+          accepted,
+        });
+        this.supervisor.markUnavailableForReplacement();
+      }
+      await this.waitForTurnSettled(execution);
+      await this.finishProcessCleanup(execution);
+      this.finishExecution(execution);
+      this.deliverTerminal(execution, result, accepted);
+      return this.terminalOutcome(result);
+    })();
+    return await execution.terminalPromise;
+  }
+
+  private async seal(
+    execution: ActiveExecution,
+    decision: 'cancelled' | 'interrupted',
+    reason: string,
+  ): Promise<SmallOutcome> {
+    if (execution.terminalPromise !== undefined) {
+      return await execution.terminalPromise;
+    }
+    execution.settling = true;
+    execution.terminalPromise = (async () => {
+      this.supervisor.markUnavailableForReplacement();
+      await this.finishProcessCleanup(execution);
+      const cleanup = await this.children.cleanupParent(execution.executionId)
+        .catch(() => undefined);
+      try {
+        await this.options.data.updateExecutionArtifactMetadata(
+          this.sessionId,
+          execution.executionId,
+          {
+            protocolTrace: this.trace(execution),
+            ...(cleanup === undefined ? {} : { childCleanup: cleanup }),
+          },
+        );
+      } catch {
+        // Sealing the durable prefix is the terminal decision; metadata is auxiliary.
+      }
+      const result = await this.options.data.sealGeneration(this.sessionId, {
+        executionId: execution.executionId,
+        decision,
+        reason,
+      });
+      this.acceptTerminal(result);
+      this.deliverTerminal(execution, result, false);
+      this.finishExecution(execution);
+      return this.terminalOutcome(result);
+    })();
+    return await execution.terminalPromise;
+  }
+
+  private acceptTerminal(result: DataSessionTerminalResult): void {
+    this.acceptDescriptor(result.descriptor);
+  }
+
+  private terminalOutcome(result: DataSessionTerminalResult): SmallOutcome {
+    const runtimeCount = result.outcome.runtimeProviderRequestCount;
+    return runtimeCount === undefined ? result.outcome : {
+      ...result.outcome,
+      runtimeProviderRequestCount: this.runtimeRequestCount,
     };
   }
 
-  checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
-    return this.authority.checkpointSnapshot();
+  private finishExecution(execution: ActiveExecution): void {
+    if (this.activeExecution === execution) execution.settling = true;
+    this.clearCancellationWatchdog(execution.reservation);
+  }
+
+  private deliverTerminal(
+    execution: ActiveExecution,
+    result: DataSessionTerminalResult,
+    committed: boolean,
+  ): void {
+    if (!result.durable) return;
+    const outcome = this.terminalOutcome(result);
+    this.recordExecutionControl(execution.reservation, {
+      kind: 'post_commit_turn_end',
+      correlation: execution.correlation,
+      turn: execution.turn,
+      outcome: outcome.stopReason,
+      committed,
+      generationUnavailable: this.supervisor.isUnavailable ||
+        this.supervisor.generationNeedsReplacement,
+    });
+    this.deliver(turnEndFromOutcome(execution.turn, outcome, committed));
+  }
+
+  private deliver(event: AgentEvent): void {
+    try {
+      this.options.eventSink?.(structuredClone(event));
+    } catch {
+      // Data owns durable event state; a display callback cannot change settlement.
+    }
+  }
+
+  private send(
+    command: import('./worker_protocol.ts').WorkerHostCommand,
+  ): void {
+    this.supervisor.send(
+      command,
+      this.activeExecution?.protocolTrace ?? this.supervisor.bootstrapTrace,
+    );
+  }
+
+  private trace(
+    execution: ActiveExecution,
+  ): readonly WorkerExecutionTraceEntry[] {
+    return execution.protocolTrace.map((entry, index) => ({
+      ...structuredClone(entry),
+      sequence: index + 1,
+    }));
+  }
+
+  private receive(message: WorkerToHostMessage): void {
+    this.supervisor.noteWorkerSequenceReceived(message);
+    this.supervisor.receiveTrace(message, this.activeExecution?.protocolTrace);
+    if (message.kind === 'async_agent_request') {
+      void this.handleAsyncAgentRequest(message);
+      return;
+    }
+    if (message.kind === 'request_count') {
+      this.acceptRequestCount(message);
+      return;
+    }
+    if (message.kind === 'request_started') {
+      this.acceptRequestStarted(message);
+      return;
+    }
+    if (message.kind === 'steering_applied') {
+      const execution = this.activeExecution;
+      if (
+        execution !== undefined &&
+        sameCorrelation(message.correlation, execution.correlation)
+      ) {
+        try {
+          this.options.applicationObservationSink?.({
+            kind: 'steering_applied',
+            executionId: execution.executionId,
+          });
+        } catch {
+          // The task service observation is advisory; the stored Agent event is in Data.
+        }
+      }
+      return;
+    }
+    if (message.kind === 'cancel_received') {
+      const reservation = this.pendingAdmission;
+      if (
+        reservation !== undefined &&
+        reservation.correlation !== undefined &&
+        sameCorrelation(message.correlation, reservation.correlation)
+      ) {
+        this.recordExecutionControl(reservation, {
+          kind: 'cancel_received',
+          correlation: message.correlation,
+          workerSequence: message.sequence,
+          result: message.result,
+          observedAt: message.observedAt,
+        });
+      }
+      return;
+    }
+    this.supervisor.messages.publish(message);
+  }
+
+  private recordExecutionControl(
+    reservation: PendingAdmission,
+    fact: DataExecutionControlFact,
+  ): void {
+    const input = {
+      ...fact,
+      observedAt: fact.observedAt ?? new Date().toISOString(),
+      controlSequence: ++reservation.controlSequence,
+    } as DataExecutionControlInput;
+    if (!reservation.admitted) {
+      reservation.pendingControlFacts.push(input);
+      return;
+    }
+    this.persistExecutionControl(reservation, input);
+  }
+
+  private flushPendingControlFacts(reservation: PendingAdmission): void {
+    for (const input of reservation.pendingControlFacts.splice(0)) {
+      this.persistExecutionControl(reservation, input);
+    }
+  }
+
+  private persistExecutionControl(
+    reservation: PendingAdmission,
+    input: DataExecutionControlInput,
+  ): void {
+    reservation.controlWrites = reservation.controlWrites.catch(() => undefined)
+      .then(async () => {
+        try {
+          const descriptor = await this.options.data.recordExecutionControl(
+            this.sessionId,
+            reservation.executionId,
+            input,
+          );
+          const latest = descriptor.latestExecution;
+          if (latest?.executionId !== reservation.executionId) return;
+          this.descriptorValue = {
+            ...this.descriptorValue,
+            latestExecution: structuredClone(latest),
+          };
+          this.publishRuntimeState();
+        } catch {
+          // Post-terminal control facts cannot change the saved execution outcome.
+        }
+      });
+  }
+
+  private async waitForTurnSettled(
+    execution: ActiveExecution,
+  ): Promise<boolean> {
+    try {
+      await this.supervisor.messages.wait(
+        (message): message is WorkerTurnSettledMessage =>
+          message.kind === 'turn_settled' &&
+          sameCorrelation(message.correlation, execution.correlation),
+        this.workerResponseTimeoutMs(),
+      );
+      this.recordExecutionControl(execution.reservation, {
+        kind: 'turn_settled',
+        correlation: execution.correlation,
+      });
+      return true;
+    } catch {
+      this.supervisor.markUnavailableForReplacement();
+      return false;
+    }
+  }
+
+  private async finishProcessCleanup(
+    execution: ActiveExecution,
+  ): Promise<void> {
+    if (execution.reservation.processCleanupRecorded) return;
+    let result: 'complete' | 'failed' = 'complete';
+    try {
+      await this.supervisor.waitForProcessCleanup(execution.executionId);
+    } catch {
+      result = 'failed';
+    }
+    execution.reservation.processCleanupRecorded = true;
+    this.recordExecutionControl(execution.reservation, {
+      kind: 'process_cleanup_finished',
+      result,
+    });
+  }
+
+  private acceptRequestStarted(message: WorkerRequestStartedMessage): void {
+    const execution = this.activeExecution;
+    if (
+      execution !== undefined &&
+      sameCorrelation(message.correlation, execution.correlation)
+    ) {
+      execution.latestRequestOrdinal = message.requestOrdinal;
+      execution.latestModelStep = message.modelStep;
+      execution.requestCount += 1;
+    }
+    this.generationRequestCount += 1;
+    this.runtimeRequestCount = this.generationRequestBase +
+      this.generationRequestCount;
+  }
+
+  private acceptRequestCount(message: WorkerRequestCountMessage): void {
+    if (
+      message.runtimeProviderRequestCount !== undefined &&
+      Number.isSafeInteger(message.runtimeProviderRequestCount) &&
+      message.runtimeProviderRequestCount >= 0
+    ) {
+      this.generationRequestCount = Math.max(
+        this.generationRequestCount,
+        message.runtimeProviderRequestCount,
+      );
+      const total = this.generationRequestBase +
+        message.runtimeProviderRequestCount;
+      if (total >= this.runtimeRequestCount) this.runtimeRequestCount = total;
+    }
+    const execution = this.activeExecution;
+    if (
+      execution !== undefined &&
+      (message.executionId === undefined ||
+        message.executionId === execution.executionId) &&
+      message.turnProviderRequestCount !== undefined &&
+      Number.isSafeInteger(message.turnProviderRequestCount) &&
+      message.turnProviderRequestCount >= 0
+    ) {
+      execution.requestCount = message.turnProviderRequestCount;
+    }
+  }
+
+  private workerResponseTimeoutMs(): number {
+    return this.options.workerResponseTimeoutMs ?? 5_000;
+  }
+
+  private async ensureGeneration(): Promise<void> {
+    if (this.supervisor.generationNeedsReplacement) {
+      const cleanup = await this.children.cleanupAll();
+      if (cleanup?.runs.some((run) => run.durability === 'failed')) {
+        throw new Error('async child cleanup failed before Worker replacement');
+      }
+    }
+    await this.supervisor.ensureGeneration();
+  }
+
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    const reservation = this.pendingAdmission;
+    const execution = this.activeExecution;
+    const target = execution ?? (reservation === undefined ? undefined : {
+      executionId: reservation.executionId,
+      correlation: reservation.correlation ??
+        this.supervisor.currentCorrelation,
+    });
+    if (target === undefined || !this.active) return 'idle';
+    if (execution?.cancelled || reservation?.cancelled) {
+      return 'already_requested';
+    }
+    if (execution !== undefined) execution.cancelled = true;
+    if (reservation !== undefined) reservation.cancelled = true;
+    this.supervisor.cancelProcessExecution(target.executionId);
+    let cancelSent = false;
+    if (target.correlation !== undefined) {
+      try {
+        this.send({ kind: 'cancel', correlation: target.correlation });
+        cancelSent = true;
+      } catch {
+        this.supervisor.markUnavailableForReplacement();
+      }
+    }
+    if (execution !== undefined) {
+      void this.children.cleanupParent(execution.executionId).catch(() => {});
+    }
+    if (reservation !== undefined) {
+      this.scheduleCancellationWatchdog(reservation);
+    }
+    const activeReservation = reservation ?? execution?.reservation;
+    if (activeReservation !== undefined) {
+      this.recordExecutionControl(activeReservation, {
+        kind: 'cancel_requested',
+      });
+      if (target.correlation !== undefined) {
+        this.recordExecutionControl(activeReservation, {
+          kind: cancelSent ? 'cancel_sent' : 'cancel_failed',
+        });
+      }
+    }
+    this.publishRuntimeState();
+    return 'requested';
+  }
+
+  private scheduleCancellationWatchdog(reservation: PendingAdmission): void {
+    if (reservation.watchdog !== undefined) clearTimeout(reservation.watchdog);
+    reservation.watchdog = setTimeout(() => {
+      void this.escalateCancellation(reservation);
+    }, this.options.cancelSettlementGraceMs ?? WORKER_SETTLEMENT_GRACE_MS);
+  }
+
+  private clearCancellationWatchdog(
+    reservation: PendingAdmission | undefined,
+  ): void {
+    if (reservation?.watchdog === undefined) return;
+    clearTimeout(reservation.watchdog);
+    reservation.watchdog = undefined;
+  }
+
+  private async escalateCancellation(
+    reservation: PendingAdmission,
+  ): Promise<void> {
+    if (!reservation.cancelled) return;
+    const execution = this.activeExecution;
+    if (
+      execution !== undefined &&
+      execution.executionId === reservation.executionId
+    ) {
+      execution.forced = true;
+    }
+    this.supervisor.markUnavailableForReplacement();
+    await this.supervisor.waitForProcessCleanup(reservation.executionId).catch(
+      () => {},
+    );
+    this.recordExecutionControl(reservation, { kind: 'cancel_escalated' });
+    if (
+      execution !== undefined &&
+      execution.executionId === reservation.executionId
+    ) {
+      if (execution.terminalPromise !== undefined) {
+        await execution.terminalPromise.catch(() => {});
+      } else {
+        await this.seal(
+          execution,
+          'interrupted',
+          'Worker generation was terminated after cancellation did not settle',
+        ).catch(() => {});
+      }
+    }
+  }
+
+  steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
+    const execution = this.activeExecution;
+    if (
+      execution === undefined || !this.active || !execution.dispatched ||
+      this.supervisor.currentCorrelation === undefined || execution.cancelled
+    ) return 'idle';
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      throw new RangeError('steering text must not be blank');
+    }
+    try {
+      this.send({ kind: 'steer', correlation: execution.correlation, text });
+    } catch {
+      this.supervisor.markUnavailableForReplacement();
+    }
+    return 'accepted';
   }
 
   private async handleAsyncAgentRequest(
     message: Extract<WorkerToHostMessage, { kind: 'async_agent_request' }>,
   ): Promise<void> {
-    const parentExecutionId = this.activeExecution?.executionId;
+    const execution = this.activeExecution;
     let response: import('../tools/async_agents.ts').AsyncAgentResponse;
     try {
       response = await this.children.handle(
         message.request,
         message.callId,
-        parentExecutionId,
+        execution?.executionId,
       );
     } catch (error) {
-      response = {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      response = { ok: false, error: errorText(error) };
     }
-    if (
-      parentExecutionId === undefined ||
-      this.activeExecution?.executionId !== parentExecutionId
-    ) return;
+    if (execution === undefined || this.activeExecution !== execution) return;
     try {
       this.send({
         kind: 'async_agent_response',
@@ -2402,69 +1276,24 @@ export class ExecutionCoordinator {
         response,
       });
     } catch {
-      // Parent cleanup owns any child run after its Worker generation becomes unavailable.
+      // The parent terminal path owns any child left by a failed response send.
     }
+  }
+
+  private correlation(command: string): WorkerCorrelation {
+    return this.supervisor.correlation(command);
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    let cleanupError: Error | undefined;
-    try {
-      const activeCleanup = this.activeExecution === undefined
-        ? undefined
-        : await this.children.cleanupParent(this.activeExecution.executionId);
-      const remainingCleanup = await this.children.cleanupAll();
-      const failed = [
-        ...(activeCleanup?.runs ?? []),
-        ...(remainingCleanup?.runs ?? []),
-      ].filter((run, index, runs) =>
-        run.durability === 'failed' &&
-        runs.findIndex((candidate) => candidate.runId === run.runId) === index
-      );
-      if (failed.length > 0) {
-        cleanupError = new Error(
-          `async child cleanup failed: ${failed.map((run) => run.runId).join(', ')}`,
-        );
-      }
-    } catch (error) {
-      cleanupError = error instanceof Error ? error : new Error(String(error));
-    }
-    this.pendingRecall = undefined;
-    this.clearAuxiliaryStageWatchdog();
-    this.journal.flushObservationBuffer();
-    try {
-      if (
-        this.supervisor.currentManifest !== undefined &&
-        !this.supervisor.isUnavailable &&
-        !this.supervisor.generationNeedsReplacement
-      ) {
-        const correlation = this.correlation('close');
-        const closed = this.supervisor.messages.wait((
-          value,
-        ): value is
-          | Extract<WorkerToHostMessage, { kind: 'closed' }>
-          | WorkerErrorMessage =>
-          (value.kind === 'closed' || value.kind === 'worker_error') &&
-          (value.kind === 'worker_error' ||
-            sameCorrelation(value.correlation, correlation)), 5_000);
-        this.send({ kind: 'close', correlation });
-        const settled = await closed;
-        if (settled.kind === 'worker_error') throw new Error(settled.message);
-      }
-    } catch {
-      // The generation is already unavailable.
-    } finally {
-      try {
-        await this.supervisor.terminate();
-      } finally {
-        try {
-          await this.options.handle.close();
-        } finally {
-          await this.chatgptAuth?.close();
-        }
-      }
-    }
-    if (cleanupError !== undefined) throw cleanupError;
+    if (this.active) this.cancelActiveTurn();
+    await this.admissionCompletion?.catch(() => {});
+    await this.children.cleanupAll().catch(() => undefined);
+    this.unsubscribeWatch?.();
+    this.unsubscribeAgentEvents?.();
+    await this.supervisor.terminate();
+    await this.chatgptAuth?.close().catch(() => {});
+    this.publishRuntimeState();
   }
 }

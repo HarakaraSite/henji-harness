@@ -8,20 +8,12 @@ import {
   ParentTurnExecutionContext,
   TurnRequestBudget,
 } from '../../v0/agent/core/execution_context.ts';
-import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import {
-  type ExecutionEventInput,
-  HistoryStoreError,
-} from '../../v0/agent/history/history_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import {
-  createWorkerSession,
-  workerBuiltinModulePath,
-  WorkerHostSession,
-} from '../../v0/agent/worker/worker_host.ts';
+import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import type {
   WorkerHostCommand,
@@ -108,11 +100,15 @@ class AuxiliaryGapCapsule implements WorkerHostCapsule {
     (message: WorkerToHostMessage) => void
   >();
   private stageBuffer: SharedArrayBuffer | undefined;
+  private auxiliaryStageGapMs: number | undefined;
   private activeTurn: Extract<WorkerHostCommand, { kind: 'turn' }> | undefined;
+  private agentData: ReturnType<typeof createAgentDataPortClient> | undefined;
+  private startup: Promise<void> | undefined;
 
   constructor(
     private readonly delta: ContextModelRequestDelta,
     private readonly emitProviderStart = false,
+    private readonly settleOnCancel = true,
   ) {}
 
   private emit(message: WorkerToHostMessage): void {
@@ -122,86 +118,134 @@ class AuxiliaryGapCapsule implements WorkerHostCapsule {
   send(command: WorkerHostCommand): void {
     if (command.kind === 'start') {
       this.stageBuffer = command.diagnosticStageBuffer;
-      this.emit({
-        kind: 'ready',
-        correlation: command.correlation,
-        manifest: {
-          role: 'parent',
-          maxSteps: 8,
-          profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
-          resources: [],
-          rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-          ...(command.baseInstruction === undefined ? {} : {
-            baseInstruction: {
-              slot: command.baseInstruction.slot,
-              selectionSource: command.baseInstruction.selectionSource,
-              ref: command.baseInstruction.ref,
-              contentDigest: command.baseInstruction.contentDigest,
-            },
-          }),
-        },
-        startupSnapshot: { skillNames: [] },
-        credentialAvailability: {
-          authProfile: 'openrouter-api-key',
-          status: 'unknown',
-        },
-      });
+      this.auxiliaryStageGapMs = command.auxiliaryStageGapMs;
+      this.startup = (async () => {
+        if (command.dataPort === undefined) {
+          throw new Error('Core did not transfer the Agent Data port');
+        }
+        const data = createAgentDataPortClient(command.dataPort);
+        this.agentData = data;
+        const basis = await data.generationContext(command.correlation);
+        const rootModel = command.modelSelection ?? basis.modelSelection ??
+          ROOT_DEFAULT_MODEL_SELECTION;
+        const ready = {
+          kind: 'ready',
+          correlation: command.correlation,
+          manifest: {
+            role: 'parent',
+            maxSteps: command.rootMaxSteps ?? 8,
+            profileId: modelRouteProfileId(rootModel),
+            resources: [],
+            rootModel,
+            ...(command.baseInstruction === undefined ? {} : {
+              baseInstruction: {
+                slot: command.baseInstruction.slot,
+                selectionSource: command.baseInstruction.selectionSource,
+                ref: command.baseInstruction.ref,
+                contentDigest: command.baseInstruction.contentDigest,
+              },
+            }),
+          },
+          startupSnapshot: { skillNames: [] },
+          credentialAvailability: {
+            authProfile: rootModel.authProfile,
+            status: 'unknown',
+          },
+        } as const;
+        await data.ready(ready);
+        this.emit(ready);
+      })();
+      void this.startup.catch((error) =>
+        this.emit({
+          kind: 'worker_error',
+          correlation: command.correlation,
+          stage: 'composition',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      );
       return;
     }
     if (command.kind === 'turn') {
       this.activeTurn = command;
-      assert(this.stageBuffer !== undefined);
-      recordWorkerStage(this.stageBuffer, 'aux_context_post_entered', 1);
-      this.emit({
-        kind: 'context_observation',
-        correlation: command.correlation,
-        sequence: 1,
-        observation: { kind: 'model_request_delta', delta: this.delta },
-      });
-      recordWorkerStage(this.stageBuffer, 'aux_context_post_returned', 1);
-      recordWorkerStage(this.stageBuffer, 'aux_context_await_resumed');
-      recordWorkerStage(this.stageBuffer, 'evidence_start_entered');
-      recordWorkerStage(this.stageBuffer, 'provider_start_post_entered', 2);
-      recordWorkerStage(this.stageBuffer, 'provider_start_post_returned', 2);
-      if (this.emitProviderStart) {
-        this.emit({
-          kind: 'provider_observation',
+      void (async () => {
+        await this.startup;
+        const data = this.agentData;
+        if (data === undefined || command.executionId === undefined) {
+          throw new Error('Agent Data execution identity is unavailable');
+        }
+        data.beginExecution(
+          command.executionId,
+          command.correlation,
+          this.stageBuffer,
+          this.auxiliaryStageGapMs,
+        );
+        assert(this.stageBuffer !== undefined);
+        const contextSequence = this.emitProviderStart ? 1 : 7;
+        const expectedProviderSequence = this.emitProviderStart ? 2 : 8;
+        // The first direct DataPort message has Data sequence 1 while the Worker
+        // observation sequence is 7; stage snapshots must preserve the latter axis.
+        recordWorkerStage(
+          this.stageBuffer,
+          'aux_context_post_entered',
+          contextSequence,
+        );
+        data.observation({
+          kind: 'context_observation',
           correlation: command.correlation,
-          sequence: 2,
-          turn: 1,
-          observation: {
-            kind: 'request_start',
-            request: {
-              ordinal: 1,
-              contextRequestOrdinal: 1,
-              lane: 'parent',
-              phase: 'user_turn',
-              modelStep: 1,
-              endpoint: 'https://example.invalid/provider',
-              method: 'POST',
-              requestMetadata: {
-                origin: 'web_search',
-                responseMode: 'json',
+          sequence: contextSequence,
+          observation: { kind: 'model_request_delta', delta: this.delta },
+        });
+        recordWorkerStage(
+          this.stageBuffer,
+          'aux_context_post_returned',
+          contextSequence,
+        );
+        recordWorkerStage(this.stageBuffer, 'aux_context_await_resumed');
+        recordWorkerStage(this.stageBuffer, 'evidence_start_entered');
+        recordWorkerStage(
+          this.stageBuffer,
+          'provider_start_post_entered',
+          expectedProviderSequence,
+        );
+        recordWorkerStage(
+          this.stageBuffer,
+          'provider_start_post_returned',
+          expectedProviderSequence,
+        );
+        if (this.emitProviderStart) {
+          data.observation({
+            kind: 'provider_observation',
+            correlation: command.correlation,
+            sequence: 2,
+            turn: 1,
+            observation: {
+              kind: 'request_start',
+              request: {
+                ordinal: 1,
+                contextRequestOrdinal: 1,
+                lane: 'parent',
+                phase: 'user_turn',
+                modelStep: 1,
+                endpoint: 'https://example.invalid/provider',
+                method: 'POST',
+                requestMetadata: {
+                  origin: 'web_search',
+                  responseMode: 'json',
+                },
               },
             },
-          },
-        });
-        recordWorkerStage(this.stageBuffer, 'aux_request_provider_entered');
+          });
+          recordWorkerStage(this.stageBuffer, 'aux_request_provider_entered');
+          this.sendCancelledFailure(command, data);
+        }
+      })().catch((error) =>
         this.emit({
-          kind: 'turn_failed',
+          kind: 'worker_error',
           correlation: command.correlation,
-          outcome: {
-            ok: false,
-            task: command.task,
-            outcome: 'cancelled',
-            stopReason: 'cancelled',
-            steps: 0,
-            toolCallCount: 0,
-            toolResultCount: 0,
-            transcript: [],
-          },
-        });
-      }
+          stage: 'turn',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      );
       return;
     }
     if (command.kind === 'cancel' && this.activeTurn !== undefined) {
@@ -209,133 +253,39 @@ class AuxiliaryGapCapsule implements WorkerHostCapsule {
         kind: 'cancel_received',
         correlation: command.correlation,
         sequence: 3,
+        observedAt: new Date().toISOString(),
         result: 'requested',
       });
-      this.emit({
-        kind: 'turn_failed',
-        correlation: this.activeTurn.correlation,
-        outcome: {
-          ok: false,
-          task: this.activeTurn.task,
-          outcome: 'cancelled',
-          stopReason: 'cancelled',
-          steps: 0,
-          toolCallCount: 0,
-          toolResultCount: 0,
-          transcript: [],
-        },
+      const turn = this.activeTurn;
+      void this.startup?.then(() => {
+        const data = this.agentData;
+        if (data === undefined || turn.executionId === undefined) return;
+        if (this.settleOnCancel) this.sendCancelledFailure(turn, data);
       });
       return;
     }
     if (command.kind === 'close') {
       this.emit({ kind: 'closed', correlation: command.correlation });
-    }
-  }
-
-  subscribe(listener: (message: WorkerToHostMessage) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  terminate(): void {}
-}
-
-const journalDefinition = {
-  schemaVersion: 1 as const,
-  resourceKind: 'agent-definition' as const,
-  resourceId: 'builtin/default',
-  revision: { algorithm: 'sha256' as const, digest: '9'.repeat(64) },
-};
-
-type JournalCapsuleMode = 'silent' | 'effect' | 'proposal' | 'failed';
-
-class JournalFailureCapsule implements WorkerHostCapsule {
-  private readonly listeners = new Set<
-    (message: WorkerToHostMessage) => void
-  >();
-  terminated = false;
-  turnDispatches = 0;
-
-  constructor(private readonly mode: JournalCapsuleMode) {}
-
-  private emit(message: WorkerToHostMessage): void {
-    for (const listener of this.listeners) listener(message);
-  }
-
-  send(command: WorkerHostCommand): void {
-    if (command.kind === 'start') {
-      this.emit({
-        kind: 'ready',
-        correlation: command.correlation,
-        manifest: {
-          role: 'parent',
-          maxSteps: 8,
-          profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
-          resources: [],
-          rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-        },
-        startupSnapshot: { skillNames: [] },
-        credentialAvailability: {
-          authProfile: 'openrouter-api-key',
-          status: 'unknown',
-        },
-      });
       return;
     }
-    if (command.kind === 'turn') {
-      this.turnDispatches += 1;
-      if (this.mode === 'effect') {
-        queueMicrotask(() =>
-          this.emit({
-            kind: 'effect_observation',
-            correlation: command.correlation,
-            sequence: 1,
-            effect: {
-              kind: 'tool_progress',
+    if (command.kind === 'commit_acknowledgement') {
+      if (!command.accepted && this.activeTurn !== undefined) {
+        this.agentData?.observation({
+          kind: 'runtime_event',
+          correlation: command.correlation,
+          sequence: 4,
+          event: {
+            kind: 'agent_event',
+            event: {
+              kind: 'turn_end',
               turn: 1,
-              callId: 'journal-failure-tool',
-              name: 'web_search',
-              text: 'buffered before journal failure',
-            },
-          })
-        );
-      } else if (this.mode === 'proposal') {
-        queueMicrotask(() =>
-          this.emit({
-            kind: 'commit_proposal',
-            correlation: command.correlation,
-            nextTurn: 2,
-            transcript: [
-              { role: 'user', content: { kind: 'text', text: command.task } },
-              {
-                role: 'assistant',
-                content: { kind: 'text', text: 'must not commit' },
-              },
-            ],
-          })
-        );
-      } else if (this.mode === 'failed') {
-        queueMicrotask(() =>
-          this.emit({
-            kind: 'turn_failed',
-            correlation: command.correlation,
-            outcome: {
-              ok: false,
-              task: command.task,
               outcome: 'cancelled',
-              stopReason: 'cancelled',
-              steps: 0,
-              toolCallCount: 0,
-              toolResultCount: 0,
-              transcript: [],
+              committed: false,
             },
-          })
-        );
+          },
+        });
       }
-      return;
-    }
-    if (command.kind === 'close') {
-      this.emit({ kind: 'closed', correlation: command.correlation });
+      queueMicrotask(() => this.emit({ kind: 'turn_settled', correlation: command.correlation }));
     }
   }
 
@@ -345,84 +295,35 @@ class JournalFailureCapsule implements WorkerHostCapsule {
   }
 
   terminate(): void {
-    this.terminated = true;
+    this.agentData?.close();
+  }
+
+  private sendCancelledFailure(
+    command: Extract<WorkerHostCommand, { kind: 'turn' }>,
+    data: ReturnType<typeof createAgentDataPortClient>,
+  ): void {
+    const barrier = data.sendFailure({
+      kind: 'turn_failed',
+      correlation: command.correlation,
+      outcome: {
+        ok: false,
+        task: command.task,
+        outcome: 'cancelled',
+        stopReason: 'cancelled',
+        steps: 0,
+        toolCallCount: 0,
+        toolResultCount: 0,
+        transcript: [],
+      },
+    });
+    this.emit({
+      kind: 'failure_ready',
+      executionId: command.executionId!,
+      correlation: command.correlation,
+      finalDataSequence: barrier.finalDataSequence,
+    });
   }
 }
-
-class InjectedJournalFailureStore extends SqliteHistoryV7ProductionStore {
-  private failed = false;
-
-  constructor(
-    stateRoot: string,
-    workspaceRoot: string,
-    private readonly code:
-      | 'history_busy'
-      | 'history_invalid'
-      | 'history_io_failure',
-    private readonly failureKind: ExecutionEventInput['kind'],
-  ) {
-    super(stateRoot, workspaceRoot);
-  }
-
-  private shouldFail(input: ExecutionEventInput): boolean {
-    if (this.failed || input.kind !== this.failureKind) return false;
-    if (
-      input.kind === 'worker_stage_snapshot' &&
-      (input.payload as { trigger?: string }).trigger !== 'terminal'
-    ) return false;
-    this.failed = true;
-    return true;
-  }
-
-  override appendExecutionEvent(input: ExecutionEventInput) {
-    if (this.shouldFail(input)) throw new HistoryStoreError(this.code);
-    return super.appendExecutionEvent(input);
-  }
-
-  override appendExecutionEvents(inputs: readonly ExecutionEventInput[]) {
-    if (inputs.some((input) => this.shouldFail(input))) {
-      throw new HistoryStoreError(this.code);
-    }
-    return super.appendExecutionEvents(inputs);
-  }
-
-  override appendExecutionEventsWithSemanticIds(inputs: readonly ExecutionEventInput[]) {
-    if (inputs.some((input) => this.shouldFail(input))) {
-      throw new HistoryStoreError(this.code);
-    }
-    return super.appendExecutionEventsWithSemanticIds(inputs);
-  }
-}
-
-class InvalidObservationStore extends SqliteHistoryV7ProductionStore {
-  override validateExecutionEvent(input: ExecutionEventInput): boolean {
-    return input.kind === 'effect_observation' ? false : super.validateExecutionEvent(input);
-  }
-}
-
-const openJournalFailureHost = async (
-  store: SqliteHistoryV7ProductionStore,
-  workspaceRoot: string,
-  capsules: JournalFailureCapsule[],
-  events: AgentEvent[],
-): Promise<WorkerHostSession> => {
-  await store.initialize();
-  const handle = await store.allocateWorker('default', journalDefinition);
-  let generation = 0;
-  return await WorkerHostSession.open({
-    handle,
-    workspaceRoot,
-    agent: 'default',
-    definition: journalDefinition,
-    modulePath: workerBuiltinModulePath('default'),
-    physicalIoMode: 'provider-free',
-    historyPersistence: store,
-    executionArtifactStore: store.executionArtifacts,
-    durableCanonicalHistory: true,
-    eventSink: (event) => events.push(event),
-    capsuleFactory: () => capsules[Math.min(generation++, capsules.length - 1)],
-  });
-};
 
 Deno.test('Increment 92 reads Worker atomic stages without a return message', async () => {
   const source = `
@@ -527,7 +428,9 @@ Deno.test('Increment 92 classifies each observed source-to-durability boundary',
 Deno.test('Increment 92 records production auxiliary I/O stage order without payloads', async () => {
   const stages: WorkerStageName[] = [];
   const io = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('test-credential'),
+    },
     reportAuxiliaryStage: (stage) => stages.push(stage),
     fetcher: () => Promise.resolve(new Response('ok')),
   });
@@ -639,10 +542,10 @@ Deno.test('Increment 92 persists an auxiliary gap with receive buffer and durabl
     assert(gap !== undefined);
     const snapshot = gap.payload as unknown as WorkerStageHistorySnapshot;
     assertEquals(snapshot.stage, 'provider_start_post_returned');
-    assertEquals(snapshot.expectedWorkerSequence, 2);
-    assertEquals(snapshot.lastWorkerSequenceReceived, 1);
-    assertEquals(snapshot.lastWorkerSequenceBuffered, 1);
-    assertEquals(snapshot.lastWorkerSequenceDurable, 1);
+    assertEquals(snapshot.expectedWorkerSequence, 8);
+    assertEquals(snapshot.lastWorkerSequenceReceived, 7);
+    assertEquals(snapshot.lastWorkerSequenceBuffered, 7);
+    assertEquals(snapshot.lastWorkerSequenceDurable, 7);
     assertEquals(
       classifyWorkerStageSnapshot(snapshot),
       'worker_message_delivery',
@@ -650,6 +553,19 @@ Deno.test('Increment 92 persists an auxiliary gap with receive buffer and durabl
 
     assertEquals(created.session.cancelActiveTurn(), 'requested');
     assertEquals((await pending).stopReason, 'cancelled');
+    const settledEvents = history.listExecutionEvents(row.executionId);
+    assert(
+      settledEvents.some((event) =>
+        event.kind === 'worker_stage_snapshot' &&
+        (event.payload as { trigger?: string }).trigger === 'cancel_requested'
+      ),
+    );
+    assert(
+      settledEvents.some((event) =>
+        event.kind === 'worker_stage_snapshot' &&
+        (event.payload as { trigger?: string }).trigger === 'terminal'
+      ),
+    );
   } finally {
     await created?.close();
     await Deno.remove(stateRoot, { recursive: true });
@@ -698,170 +614,43 @@ Deno.test('Increment 92 cancels the gap watchdog when provider start reaches Hos
   }
 });
 
-const withinOneSecond = async <T>(pending: Promise<T>): Promise<T> =>
-  await Promise.race([
-    pending,
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(
-        () => reject(new Error('execution did not settle within one second')),
-        1_000,
-      )
-    ),
-  ]);
-
-Deno.test('Increment 92 latches pre-wait journal failures and replaces the generation', async () => {
-  for (
-    const [index, code] of (['history_busy', 'history_invalid', 'history_io_failure'] as const)
-      .entries()
-  ) {
-    const root = await Deno.makeTempDir({
-      prefix: `henji-i92-prewait-${index}-`,
+Deno.test('Increment 92 persists escalation and terminal stage snapshots', async () => {
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-increment-92-escalation-',
+  });
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  try {
+    const delta = await auxiliaryDelta();
+    created = await createWorkerSession({
+      stateRoot,
+      persistence: 'new',
+      agent: 'default',
+      physicalIoMode: 'provider-free',
+      cancelSettlementGraceMs: 10,
+      auxiliaryStageGapMs: 10,
+      capsuleFactory: () => new AuxiliaryGapCapsule(delta, false, false),
     });
-    const workspaceRoot = `${root}/workspace`;
-    await Deno.mkdir(workspaceRoot);
-    const store = new InjectedJournalFailureStore(
-      `${root}/state`,
-      workspaceRoot,
-      code,
-      'turn_dispatch_sent',
-    );
-    const first = new JournalFailureCapsule('silent');
-    const replacement = new JournalFailureCapsule('failed');
-    const events: AgentEvent[] = [];
-    let host: WorkerHostSession | undefined;
-    try {
-      host = await openJournalFailureHost(store, workspaceRoot, [
-        first,
-        replacement,
-      ], events);
-      const outcome = await withinOneSecond(host.submit(`pre-wait ${code}`));
-      assert(!outcome.ok);
-      assertEquals(outcome.executionJournalDurability, 'failed');
-      assertEquals(outcome.executionJournalPersistenceError, code);
-      assert(first.terminated);
-      assertEquals(
-        events.filter((event) => event.kind === 'turn_end').length,
-        1,
-      );
-      const turnEnd = events.find((event) => event.kind === 'turn_end');
-      assert(turnEnd?.kind === 'turn_end');
-      assertEquals(turnEnd.executionJournalDurability, 'failed');
-      assertEquals(turnEnd.executionJournalPersistenceError, code);
-      const firstArtifact = (await store.executionArtifacts.list()).find((artifact) =>
-        artifact.outcome?.executionJournalPersistenceError === code
-      );
-      assert(firstArtifact !== undefined, 'typed journal failure was not retained in v6');
+    const pending = created.session.submit('stage probe escalation');
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    assertEquals(created.session.cancelActiveTurn(), 'requested');
+    assertEquals((await pending).stopReason, 'interrupted');
 
-      const next = await withinOneSecond(
-        host.submit('replacement generation turn'),
+    await history.initialize();
+    const row = history.listExecutionsForSession(created.session.sessionId)[0];
+    assert(row !== undefined);
+    const events = history.listExecutionEvents(row.executionId);
+    for (const trigger of ['cancel_requested', 'cancel_escalated', 'terminal']) {
+      assert(
+        events.some((event) =>
+          event.kind === 'worker_stage_snapshot' &&
+          (event.payload as { trigger?: string }).trigger === trigger
+        ),
+        `missing ${trigger} stage snapshot`,
       );
-      assertEquals(next.stopReason, 'cancelled');
-      assertEquals(replacement.turnDispatches, 1);
-      const rows = store.listExecutionsForSession(host.sessionId);
-      assertEquals(rows[0].adoption, 'non_canonical');
-      assertEquals(rows[0].lifecycle, 'settled');
-    } finally {
-      await host?.close();
-      await Deno.remove(root, { recursive: true });
     }
-  }
-});
-
-Deno.test('Increment 92 wakes an existing waiter when a buffered append fails', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i92-buffer-failure-' });
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const store = new InjectedJournalFailureStore(
-    `${root}/state`,
-    workspaceRoot,
-    'history_io_failure',
-    'effect_observation',
-  );
-  const capsule = new JournalFailureCapsule('effect');
-  const events: AgentEvent[] = [];
-  let host: WorkerHostSession | undefined;
-  try {
-    host = await openJournalFailureHost(
-      store,
-      workspaceRoot,
-      [capsule],
-      events,
-    );
-    const outcome = await withinOneSecond(host.submit('buffer append failure'));
-    assertEquals(outcome.executionJournalDurability, 'failed');
-    assertEquals(
-      outcome.executionJournalPersistenceError,
-      'history_io_failure',
-    );
-    assert(capsule.terminated);
-    assertEquals(events.filter((event) => event.kind === 'turn_end').length, 1);
   } finally {
-    await host?.close();
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-Deno.test('Increment 92 blocks canonical commit when the terminal snapshot append fails', async () => {
-  const root = await Deno.makeTempDir({
-    prefix: 'henji-i92-terminal-failure-',
-  });
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const store = new InjectedJournalFailureStore(
-    `${root}/state`,
-    workspaceRoot,
-    'history_busy',
-    'worker_stage_snapshot',
-  );
-  const capsule = new JournalFailureCapsule('proposal');
-  const events: AgentEvent[] = [];
-  let host: WorkerHostSession | undefined;
-  try {
-    host = await openJournalFailureHost(
-      store,
-      workspaceRoot,
-      [capsule],
-      events,
-    );
-    const outcome = await withinOneSecond(
-      host.submit('terminal snapshot failure'),
-    );
-    assertEquals(outcome.executionJournalDurability, 'failed');
-    assertEquals(outcome.executionJournalPersistenceError, 'history_busy');
-    const row = store.listExecutionsForSession(host.sessionId)[0];
-    assertEquals(row.adoption, 'non_canonical');
-    assertEquals(row.lifecycle, 'settled');
-    assertEquals(events.filter((event) => event.kind === 'turn_end').length, 1);
-  } finally {
-    await host?.close();
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-Deno.test('Increment 92 converts validation false into a typed journal failure', async () => {
-  const root = await Deno.makeTempDir({
-    prefix: 'henji-i92-validation-failure-',
-  });
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const store = new InvalidObservationStore(`${root}/state`, workspaceRoot);
-  const capsule = new JournalFailureCapsule('effect');
-  const events: AgentEvent[] = [];
-  let host: WorkerHostSession | undefined;
-  try {
-    host = await openJournalFailureHost(
-      store,
-      workspaceRoot,
-      [capsule],
-      events,
-    );
-    const outcome = await withinOneSecond(host.submit('invalid observed fact'));
-    assertEquals(outcome.executionJournalDurability, 'failed');
-    assertEquals(outcome.executionJournalPersistenceError, 'history_invalid');
-    assert(capsule.terminated);
-    assertEquals(events.filter((event) => event.kind === 'turn_end').length, 1);
-  } finally {
-    await host?.close();
-    await Deno.remove(root, { recursive: true });
+    await created?.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });

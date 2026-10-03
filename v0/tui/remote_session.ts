@@ -36,9 +36,7 @@ import { DenoTerminal, TerminalLifecycle, type TerminalPort } from './terminal.t
 import {
   presentationPositionFromSnapshot,
   presentationStartupFromSnapshot,
-  type SnapshotConversationProjectionHint,
   SnapshotConversationProjector,
-  snapshotThinkingIdentity,
 } from './snapshot_presentation.ts';
 
 export interface RemoteTuiDependencies {
@@ -329,7 +327,7 @@ const resolveStartupSession = async (
     );
     return undefined;
   }
-  if (!('snapshot' in command.value)) {
+  if (!('sessionId' in command.value)) {
     await stderr(
       dependencies,
       'session open unconfirmed · command #' + commandId + '\n',
@@ -337,14 +335,20 @@ const resolveStartupSession = async (
     return undefined;
   }
   return {
-    sessionId: command.value.snapshot.session.id,
-    snapshot: command.value.snapshot,
+    sessionId: command.value.sessionId,
+    snapshot: await client.sessionRead(command.value.sessionId),
   };
 };
 
-const presentationLifecycle = (
+export const presentationLifecycle = (
   snapshot: SessionSnapshot,
+  cancellingExecutionId?: string,
 ): PresentationLifecycle => {
+  if (
+    cancellingExecutionId !== undefined && snapshot.runtime.active &&
+    (snapshot.runtime.reservation?.executionId === cancellingExecutionId ||
+      snapshot.runtime.execution?.executionId === cancellingExecutionId)
+  ) return 'cancelling';
   switch (snapshot.runtime.phase) {
     case 'preparing':
     case 'running':
@@ -359,11 +363,26 @@ const presentationLifecycle = (
   }
 };
 
+export const cancelTargetExecutionId = (snapshot: SessionSnapshot): string | undefined => {
+  if (
+    !snapshot.runtime.active || snapshot.runtime.activeSessionId !== snapshot.session.id
+  ) return undefined;
+  if (snapshot.runtime.reservation !== undefined) return snapshot.runtime.reservation.executionId;
+  const execution = snapshot.runtime.execution;
+  if (
+    execution !== null && execution.sessionId === snapshot.session.id &&
+    (execution.lifecycle === 'active' ||
+      snapshot.pending.activeTask?.executionId === execution.executionId)
+  ) return execution.executionId;
+  return undefined;
+};
+
 const projectionFromSnapshot = (
   snapshot: SessionSnapshot,
   workspace: string,
+  cancellingExecutionId?: string,
 ): PresentationProjection => ({
-  lifecycle: presentationLifecycle(snapshot),
+  lifecycle: presentationLifecycle(snapshot, cancellingExecutionId),
   agentId: snapshot.session.position.agent,
   sessionId: snapshot.session.id,
   committedTurn: snapshot.session.position.committedTurn,
@@ -449,25 +468,17 @@ const contextPanelLines = (snapshot: SessionSnapshot): readonly string[] => [
   ...effectiveConfigLines(snapshot),
 ];
 
-const isConversationChange = (frame: SessionStreamFrame): boolean =>
-  frame.kind === 'session.snapshot' ||
-  frame.changes.some((change) =>
-    change.kind.startsWith('message.') || change.kind.startsWith('tool.') ||
-    change.kind.startsWith('thinking.') || change.kind.startsWith('request.') ||
-    change.kind === 'conversation.omitted.replace' || change.kind === 'executions.replace' ||
-    change.kind === 'pending.replace' || change.kind === 'runtime.replace'
-  );
-
 const renderSessionOrientation = (
   renderer: TuiRenderer,
   snapshot: SessionSnapshot,
   workspace: string,
+  cancellingExecutionId?: string,
 ): void => {
   const position = presentationPositionFromSnapshot(snapshot);
   renderer.setCurrentPosition(position);
   const execution = snapshot.runtime.execution;
   renderer.setProjection(
-    projectionFromSnapshot(snapshot, workspace),
+    projectionFromSnapshot(snapshot, workspace, cancellingExecutionId),
     snapshot.runtime.active && execution !== null ? Date.parse(execution.createdAt) : undefined,
   );
   renderer.renderCompactStartup(
@@ -476,133 +487,38 @@ const renderSessionOrientation = (
   );
 };
 
-interface PendingConversationProjection {
-  scope?: string;
-  readonly messageIds: Set<string>;
-  readonly toolOccurrenceIds: Set<string>;
-  readonly thinkingIds: Set<string>;
-  resetScroll: boolean;
-  resync: boolean;
-}
-
-const mergeProjectionWork = (
-  pending: PendingConversationProjection,
-  scope: string,
-  hint: SnapshotConversationProjectionHint,
-  resetScroll: boolean,
-): void => {
-  if (pending.scope !== scope) {
-    pending.scope = scope;
-    pending.messageIds.clear();
-    pending.toolOccurrenceIds.clear();
-    pending.thinkingIds.clear();
-    pending.resetScroll = false;
-    pending.resync = false;
-  }
-  for (const id of hint.messageIds ?? []) pending.messageIds.add(id);
-  for (const id of hint.toolOccurrenceIds ?? []) {
-    pending.toolOccurrenceIds.add(id);
-  }
-  for (const id of hint.thinkingIds ?? []) pending.thinkingIds.add(id);
-  pending.resetScroll ||= resetScroll;
-  pending.resync ||= hint.resync === true;
-};
-
-const takeProjectionWork = (
-  pending: PendingConversationProjection,
-): Readonly<
-  { hint: SnapshotConversationProjectionHint; resetScroll: boolean }
-> => {
-  const hint: SnapshotConversationProjectionHint = Object.freeze({
-    ...(pending.messageIds.size === 0 ? {} : { messageIds: [...pending.messageIds] }),
-    ...(pending.toolOccurrenceIds.size === 0
-      ? {}
-      : { toolOccurrenceIds: [...pending.toolOccurrenceIds] }),
-    ...(pending.thinkingIds.size === 0 ? {} : { thinkingIds: [...pending.thinkingIds] }),
-    ...(pending.resync ? { resync: true } : {}),
-  });
-  const resetScroll = pending.resetScroll;
-  pending.messageIds.clear();
-  pending.toolOccurrenceIds.clear();
-  pending.thinkingIds.clear();
-  pending.resetScroll = false;
-  pending.resync = false;
-  return Object.freeze({ hint, resetScroll });
-};
-
-const projectionHintFromFrame = (
-  frame: SessionStreamFrame,
-): SnapshotConversationProjectionHint => {
-  if (frame.kind === 'session.snapshot') return Object.freeze({ resync: true });
-  const messageIds: string[] = [];
-  const toolOccurrenceIds: string[] = [];
-  const thinkingIds: string[] = [];
-  for (const change of frame.changes) {
-    switch (change.kind) {
-      case 'message.upsert':
-        messageIds.push(change.message.id);
-        break;
-      case 'message.remove':
-        messageIds.push(change.id);
-        break;
-      case 'tool.upsert':
-        toolOccurrenceIds.push(change.tool.toolOccurrenceId);
-        break;
-      case 'tool.remove':
-        toolOccurrenceIds.push(change.toolOccurrenceId);
-        break;
-      case 'thinking.upsert':
-        thinkingIds.push(
-          snapshotThinkingIdentity(
-            change.thinking.requestKey,
-            change.thinking.thinkingKind,
-          ),
-        );
-        break;
-      case 'thinking.remove':
-        thinkingIds.push(
-          snapshotThinkingIdentity(change.requestKey, change.thinkingKind),
-        );
-        break;
-    }
-  }
-  return Object.freeze({
-    ...(messageIds.length === 0 ? {} : { messageIds }),
-    ...(toolOccurrenceIds.length === 0 ? {} : { toolOccurrenceIds }),
-    ...(thinkingIds.length === 0 ? {} : { thinkingIds }),
-  });
-};
-
 const renderSnapshot = (
   renderer: TuiRenderer,
-  snapshot: SessionSnapshot,
+  client: SessionClientState,
   workspace: string,
   preserveScroll: boolean,
   projector: SnapshotConversationProjector,
-  pending: PendingConversationProjection,
-  hint: SnapshotConversationProjectionHint,
   notices: RemoteSystemNotices,
+  cancellingExecutionId?: string,
 ): void => {
+  const snapshot = client.snapshot;
   if (!preserveScroll) {
     renderer.clearModal();
     renderer.latest();
   }
-  renderSessionOrientation(renderer, snapshot, workspace);
+  renderSessionOrientation(renderer, snapshot, workspace, cancellingExecutionId);
   const scope = JSON.stringify([
     snapshot.cursor.coreEpoch,
     snapshot.session.id,
   ]);
   renderer.setDisplayScope(scope);
-  mergeProjectionWork(pending, scope, hint, !preserveScroll);
-  renderer.updateConversation(() => {
-    const work = takeProjectionWork(pending);
-    const projected = projector.project(snapshot, scope, work.hint);
-    renderer.setConversationEntries(
-      notices.merge(snapshot, projected.entries),
-      projected.omitted,
-      work.resetScroll,
-    );
+  const projected = projector.project(client, scope);
+  const noticeUpdate = notices.sync(client, projected.store, {
+    reset: projected.reset,
+    structureChanged: projected.structureChanged,
   });
+  const structureChanged = projected.structureChanged || noticeUpdate.structureChanged;
+  renderer.setKeyedConversationStore(
+    projected.store,
+    !preserveScroll || projected.reset,
+    structureChanged,
+    projected.previousIds ?? noticeUpdate.previousIds,
+  );
 };
 
 const isEditorTextMutation = (event: InputEvent): boolean =>
@@ -751,13 +667,6 @@ export const runRemoteTui = async (
   const renderer = new TuiRenderer(terminal);
   const conversationProjector = new SnapshotConversationProjector();
   const systemNotices = new RemoteSystemNotices();
-  const pendingConversationProjection: PendingConversationProjection = {
-    messageIds: new Set(),
-    toolOccurrenceIds: new Set(),
-    thinkingIds: new Set(),
-    resetScroll: false,
-    resync: false,
-  };
   const editor = new TuiEditor();
   const editorHistory = new TuiEditorHistory();
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -821,11 +730,15 @@ export const runRemoteTui = async (
       ? execution
       : undefined;
   };
+  const activeExecutionId = (): string | undefined => {
+    const current = snapshot();
+    return cancelTargetExecutionId(current);
+  };
   const canSubmit = (): boolean =>
     connected && targetsActiveSession() && !unconfirmedSubmissions.has(snapshot().session.id) &&
     hasOperation('task.submit');
   const canCancel = (): boolean =>
-    connected && activeExecution() !== undefined &&
+    connected && activeExecutionId() !== undefined &&
     hasOperation('execution.cancel');
 
   const updateStatus = (): void => {
@@ -858,8 +771,8 @@ export const runRemoteTui = async (
       ) {
         if (hasOperation('followUp.queue')) controls.push('F2 queue');
         if (hasOperation('execution.steer')) controls.push('F3 steer');
-        if (canCancel() && !cancellationRequested) controls.push('Esc cancel');
       }
+      if (canCancel() && !cancellationRequested) controls.push('Esc cancel');
       controls.push('/ commands');
     }
     renderer.setRemoteFooter({
@@ -879,16 +792,19 @@ export const runRemoteTui = async (
     systemNotices.retain(sessionId, identity, text, failureWord, executionId);
     if (snapshot().session.id === sessionId) {
       notice = undefined;
-      renderSnapshot(
-        renderer,
-        snapshot(),
-        core.workspace,
-        true,
-        conversationProjector,
-        pendingConversationProjection,
-        {},
-        systemNotices,
-      );
+      const store = renderer.stateSnapshot().keyedConversation;
+      if (store !== undefined) {
+        const noticeUpdate = systemNotices.refresh(sessionId, store);
+        if (noticeUpdate.changedIds.size > 0) {
+          renderer.setKeyedConversationStore(
+            store,
+            false,
+            noticeUpdate.structureChanged,
+            noticeUpdate.previousIds,
+          );
+        }
+      }
+      renderer.redraw();
       updateStatus();
     }
   };
@@ -1060,6 +976,7 @@ export const runRemoteTui = async (
     ) return true;
     return current.runtime.execution?.submittedByCommandId ===
         receipt.commandId ||
+      current.runtime.reservation?.commandId === receipt.commandId ||
       current.pending.steering?.commandId === receipt.commandId ||
       current.pending.followUp?.commandId === receipt.commandId ||
       current.pending.followUps.some((record) => record.commandId === receipt.commandId);
@@ -1079,13 +996,13 @@ export const runRemoteTui = async (
         (unconfirmed.cursor !== undefined && receiptIsObserved(unconfirmed))
       )
     ) unconfirmedSubmissions.delete(current.session.id);
-    const execution = activeExecution();
-    if (current.runtime.phase === 'cancelling' && execution !== undefined) {
+    const executionId = activeExecutionId();
+    if (current.runtime.phase === 'cancelling' && executionId !== undefined) {
       cancellationRequested = true;
-      cancellationExecutionId = execution.executionId;
+      cancellationExecutionId = executionId;
     } else if (
       !current.runtime.active ||
-      execution?.executionId !== cancellationExecutionId
+      executionId !== cancellationExecutionId
     ) {
       cancellationRequested = false;
       cancellationExecutionId = undefined;
@@ -1209,7 +1126,7 @@ export const runRemoteTui = async (
             JSON.stringify(text)
           } · draft kept · Session operation still pending · check the current command receipt before retrying`,
           'REJECTED',
-          activeExecution()?.executionId,
+          activeExecutionId(),
         );
       } else {
         notice = 'Session operation still pending';
@@ -1361,37 +1278,39 @@ export const runRemoteTui = async (
   const cancelActiveExecution = (): void => {
     if (pendingCancellation !== undefined) return;
     const targetSessionId = snapshot().session.id;
-    if (pendingSubmission !== undefined || acceptedSubmission !== undefined) {
+    const executionId = activeExecutionId();
+    if (
+      executionId === undefined &&
+      (pendingSubmission !== undefined || acceptedSubmission !== undefined)
+    ) {
       retainLocalFailure(
         targetSessionId,
         'execution.cancel',
-        'submission admission is still pending; check its command receipt first',
-        activeExecution()?.executionId,
+        'submission reservation is not available yet; check its command state',
       );
       return;
     }
-    if (!canCancel()) {
+    if (!canCancel() || executionId === undefined) {
       retainLocalFailure(
         targetSessionId,
         'execution.cancel',
         'unavailable for this Session; check execution state and available operations',
-        activeExecution()?.executionId,
+        executionId,
       );
       return;
     }
-    const execution = activeExecution()!;
     const cancellation: PendingCancellation = {
       sessionId: targetSessionId,
       commandId: crypto.randomUUID(),
-      executionId: execution.executionId,
+      executionId,
       processing: false,
     };
     pendingCancellation = cancellation;
     cancellationRequested = true;
-    cancellationExecutionId = execution.executionId;
+    cancellationExecutionId = executionId;
     notice = undefined;
     updateStatus();
-    void client.executionCancel(cancellation.sessionId, execution.executionId, {
+    void client.executionCancel(cancellation.sessionId, executionId, {
       commandId: cancellation.commandId,
     }).then(
       (command) => finalizeCancelCommand(command, cancellation),
@@ -1497,13 +1416,12 @@ export const runRemoteTui = async (
     syncCoreObservations();
     renderSnapshot(
       renderer,
-      snapshot(),
+      state!,
       core.workspace,
       false,
       conversationProjector,
-      pendingConversationProjection,
-      projectionHintFromFrame(first.value),
       systemNotices,
+      cancellationRequested ? cancellationExecutionId : undefined,
     );
     renderEditor();
     notice = undefined;
@@ -1675,7 +1593,7 @@ export const runRemoteTui = async (
           );
           return;
         }
-        if (!('snapshot' in command.value)) {
+        if (!('sessionId' in command.value)) {
           retainNotice(
             sourceSessionId,
             commandId,
@@ -1685,7 +1603,7 @@ export const runRemoteTui = async (
           return;
         }
         await switchDisplayedSession(
-          command.value.snapshot.session.id,
+          command.value.sessionId,
           generation,
           sourceSessionId,
           commandId,
@@ -2214,13 +2132,12 @@ export const runRemoteTui = async (
     acquired = true;
     renderSnapshot(
       renderer,
-      snapshot(),
+      state!,
       core.workspace,
       false,
       conversationProjector,
-      pendingConversationProjection,
-      projectionHintFromFrame(firstFrame.value),
       systemNotices,
+      cancellationRequested ? cancellationExecutionId : undefined,
     );
     updateStatus();
     await dependencies.afterAcquire?.();
@@ -2364,7 +2281,7 @@ export const runRemoteTui = async (
           } else if (event.kind === 'escape') {
             if (renderer.stateSnapshot().scroll.kind !== 'followLatest') {
               renderer.latest();
-            } else if (activeExecution() !== undefined) {
+            } else if (activeExecutionId() !== undefined) {
               if (!cancellationRequested) cancelActiveExecution();
             } else {
               renderer.clearModal();
@@ -2422,13 +2339,12 @@ export const runRemoteTui = async (
         syncCoreObservations();
         renderSnapshot(
           renderer,
-          snapshot(),
+          state!,
           core.workspace,
           true,
           conversationProjector,
-          pendingConversationProjection,
-          projectionHintFromFrame(ready.frame),
           systemNotices,
+          cancellationRequested ? cancellationExecutionId : undefined,
         );
         updateStatus();
         frameWait = nextFrameWait();
@@ -2450,20 +2366,15 @@ export const runRemoteTui = async (
       }
       selectedModel = snapshot().session.selection;
       syncCoreObservations();
-      if (isConversationChange(frame)) {
-        renderSnapshot(
-          renderer,
-          snapshot(),
-          core.workspace,
-          true,
-          conversationProjector,
-          pendingConversationProjection,
-          projectionHintFromFrame(frame),
-          systemNotices,
-        );
-      } else {
-        renderSessionOrientation(renderer, snapshot(), core.workspace);
-      }
+      renderSnapshot(
+        renderer,
+        state!,
+        core.workspace,
+        true,
+        conversationProjector,
+        systemNotices,
+        cancellationRequested ? cancellationExecutionId : undefined,
+      );
       updateStatus();
       frameWait = nextFrameWait();
     }

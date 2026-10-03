@@ -4,8 +4,12 @@ import {
   reduceUiAction,
   reduceUiEvent,
   setUiProjection,
+  uiConversationCount,
+  uiConversationWindow,
 } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
+import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentation.ts';
 import { ImmediateTuiRenderer as TuiRenderer } from './tui_renderer_fixture.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
 import {
@@ -18,6 +22,24 @@ import type {
   PresentationPosition,
   PresentationStartupState,
 } from '../../v0/presentation/contract.ts';
+import { conversationPosition, tuiClientState, tuiSnapshot } from './tui_entity_fixture.ts';
+
+const projectEntities = (
+  renderer: TuiRenderer,
+  entities: Readonly<Record<string, ConversationEntity>>,
+  order: readonly string[],
+): void => {
+  const update = new SnapshotConversationProjector().project(
+    tuiClientState(tuiSnapshot(entities, order)),
+    'presentation-test',
+  );
+  renderer.setKeyedConversationStore(update.store, true, update.structureChanged);
+};
+
+const rendererEntries = (renderer: TuiRenderer) => {
+  const state = renderer.stateSnapshot();
+  return uiConversationWindow(state, 0, uiConversationCount(state));
+};
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -450,45 +472,40 @@ Deno.test('conversation presentation retains assistant text accompanying a tool 
     ['tool>', 'read README.md …', true],
   ]);
 
-  const restoredMessages = [
-    {
-      role: 'assistant' as const,
-      content: [{
-        kind: 'tool_call' as const,
-        callId: 'read-1',
-        name: 'read',
-        arguments: { path: 'README.md' },
-      }],
+  const executionId = 'saved-execution';
+  const entities: Record<string, ConversationEntity> = {
+    note: {
+      kind: 'message',
+      id: 'note',
+      executionId,
+      turn: 1,
+      version: 0,
+      position: conversationPosition(0, 1, 1),
+      role: 'assistant',
       text: 'I will inspect the current source.',
+      complete: true,
+      toolIds: ['read-result'],
     },
-    {
-      role: 'tool' as const,
-      content: [{
-        kind: 'tool_result' as const,
-        callId: 'read-1',
-        name: 'read',
-        text: 'full file contents',
-        outcome: 'success' as const,
-      }],
+    'read-result': {
+      kind: 'tool',
+      id: 'read-result',
+      started: true,
+      executionId,
+      turn: 1,
+      requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+      version: 1,
+      position: conversationPosition(0, 1, 2),
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md' },
+      result: { text: 'full file contents', outcome: 'success' },
     },
-  ];
-  const restored = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    omitted: 2,
-    messages: restoredMessages,
-  });
-  assertEquals(restored.log.entries.map((entry) => [entry.label, entry.text]), [
-    ['assistant note>', 'I will inspect the current source.'],
-    ['tool>', 'read README.md ✓'],
-    ['history>', '2 messages omitted'],
-  ]);
-
+  };
   const renderer = new TuiRenderer(new FakeTerminal());
-  renderer.renderRestored(restoredMessages, 2);
-  assertEquals(renderer.stateSnapshot().log.entries.map((entry) => [entry.label, entry.text]), [
+  projectEntities(renderer, entities, ['note', 'read-result']);
+  assertEquals(rendererEntries(renderer).map((entry) => [entry.label, entry.text]), [
     ['assistant note>', 'I will inspect the current source.'],
     ['tool>', 'read README.md ✓'],
-    ['history>', '2 messages omitted'],
   ]);
 });
 
@@ -837,54 +854,62 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   assert(layout.footer[2].text.includes(' / qwen/qwen3.8-max-0902 '));
   assert(layout.footer[2].text.endsWith('   xhigh'));
 
-  const restored = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    omitted: 0,
-    messages: [
-      { role: 'user', content: { kind: 'text', text: 'first' } },
-      {
-        role: 'assistant',
-        content: [
-          {
-            kind: 'tool_call',
-            callId: 'read-1',
-            name: 'read',
-            arguments: { path: 'README.md', limit: 200 },
-          },
-          {
-            kind: 'tool_call',
-            callId: 'bash-1',
-            name: 'bash',
-            arguments: { command: 'git status --short' },
-          },
-        ],
-      },
-      {
-        role: 'tool',
-        content: [
-          {
-            kind: 'tool_result',
-            callId: 'read-1',
-            name: 'read',
-            text: 'body',
-            outcome: 'success',
-          },
-          {
-            kind: 'tool_result',
-            callId: 'bash-1',
-            name: 'bash',
-            text: '',
-            outcome: 'success',
-          },
-        ],
-      },
-      {
-        role: 'assistant',
-        content: { kind: 'text', text: 'first answer' },
-      },
-    ],
-  });
-  assertEquals(layoutUi(restored, 80, 24).allLog.map((row) => row.text), [
+  const executionId = 'first-execution';
+  const entities: Record<string, ConversationEntity> = {
+    first: {
+      kind: 'message',
+      id: 'first',
+      executionId,
+      turn: 1,
+      version: 0,
+      position: conversationPosition(0, -1, -1),
+      role: 'user',
+      text: 'first',
+      complete: true,
+    },
+    read: {
+      kind: 'tool',
+      id: 'read',
+      started: true,
+      executionId,
+      turn: 1,
+      requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+      version: 1,
+      position: conversationPosition(0, 1, 2, 0, 0),
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md', limit: 200 },
+      result: { text: 'body', outcome: 'success' },
+    },
+    bash: {
+      kind: 'tool',
+      id: 'bash',
+      started: true,
+      executionId,
+      turn: 1,
+      requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
+      version: 1,
+      position: conversationPosition(0, 1, 2, 0, 1),
+      callId: 'bash-1',
+      name: 'bash',
+      arguments: { command: 'git status --short' },
+      result: { text: '', outcome: 'success' },
+    },
+    answer: {
+      kind: 'message',
+      id: 'answer',
+      executionId,
+      turn: 1,
+      version: 0,
+      position: conversationPosition(0, 2, 1),
+      role: 'assistant',
+      text: 'first answer',
+      complete: true,
+    },
+  };
+  const renderer = new TuiRenderer(new FakeTerminal());
+  projectEntities(renderer, entities, ['first', 'read', 'bash', 'answer']);
+  assertEquals(layoutUi(renderer.stateSnapshot(), 80, 24).allLog.map((row) => row.text), [
     'user> first',
     '',
     'tool> read README.md lines 1–200 ✓',

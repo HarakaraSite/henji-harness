@@ -5,6 +5,15 @@ import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
 import type { SessionSnapshot, SessionStreamFrame } from '../../v0/api/contract.ts';
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
+
+const entities = <K extends ConversationEntity['kind']>(
+  snapshot: SessionSnapshot,
+  kind: K,
+): Extract<ConversationEntity, { kind: K }>[] =>
+  snapshot.conversation.order.map((id) => snapshot.conversation.entities[id]).filter(
+    (entity): entity is Extract<ConversationEntity, { kind: K }> => entity.kind === kind,
+  );
 
 const deferred = () => {
   let resolve!: () => void;
@@ -62,7 +71,7 @@ const assertSteeringPosition = (
   snapshot: SessionSnapshot,
   executionId: string,
 ): void => {
-  const messages = snapshot.conversation.messages.filter((message) =>
+  const messages = entities(snapshot, 'message').filter((message) =>
     message.executionId === executionId
   );
   const secondStep = messages.findIndex((message) =>
@@ -258,7 +267,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
     });
     strictEqual(firstSession.kind, 'accepted');
     if (firstSession.kind !== 'accepted') return;
-    const firstSessionId = firstSession.value.snapshot.session.id;
+    const firstSessionId = firstSession.value.sessionId;
     detached = client.sessionSubscribe(firstSessionId)[Symbol.asyncIterator]();
     const initial = await detached.next();
     ok(!initial.done);
@@ -327,9 +336,9 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
     await parentFinalStarted.promise;
     await waitFor(async () => {
       const snapshot = await client.sessionRead(firstSessionId);
-      return snapshot.conversation.messages.some((message) =>
+      return entities(snapshot, 'message').some((message) =>
         message.executionId === parentExecutionId && message.text === parentFinalPartial
-      ) && snapshot.conversation.messages.some((message) =>
+      ) && entities(snapshot, 'message').some((message) =>
         message.executionId === parentExecutionId &&
         message.role === 'user' && message.text === steeringText
       );
@@ -345,7 +354,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
     strictEqual(parentSnapshot.pending.followUp?.queueId, queueId);
     strictEqual(parentSnapshot.pending.followUp?.text, queuedText);
     assertSteeringPosition(parentSnapshot, parentExecutionId);
-    const parentTool = parentSnapshot.conversation.tools.find((tool) =>
+    const parentTool = entities(parentSnapshot, 'tool').find((tool) =>
       tool.executionId === parentExecutionId
     );
     ok(parentTool !== undefined);
@@ -395,7 +404,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
       queueId,
     );
 
-    const cancelSubmit = await client.taskSubmit(secondSession.value.snapshot.session.id, {
+    const cancelSubmit = await client.taskSubmit(secondSession.value.sessionId, {
       commandId: crypto.randomUUID(),
       text: 'Wait for cancellation',
     });
@@ -403,7 +412,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
     if (cancelSubmit.kind !== 'accepted') return;
     const cancelExecutionId = cancelSubmit.value.executionId;
     await cancelResponseStarted.promise;
-    const discarded = await client.followUpQueue(secondSession.value.snapshot.session.id, {
+    const discarded = await client.followUpQueue(secondSession.value.sessionId, {
       commandId: crypto.randomUUID(),
       afterExecutionId: cancelExecutionId,
       text: discardedText,
@@ -412,7 +421,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
     if (discarded.kind !== 'accepted') return;
     const discardedQueueId = discarded.value.queueId;
     const cancel = await client.executionCancel(
-      secondSession.value.snapshot.session.id,
+      secondSession.value.sessionId,
       cancelExecutionId,
       { commandId: crypto.randomUUID() },
     );
@@ -424,7 +433,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
       (await client.executionRead(cancelExecutionId)).execution.processSettlement === 'complete'
     );
     const discardedRecord = await client.followUpRead(
-      secondSession.value.snapshot.session.id,
+      secondSession.value.sessionId,
       discardedQueueId,
     );
     strictEqual(discardedRecord.followUp.status, 'discarded');
@@ -435,7 +444,7 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
       commandId: crypto.randomUUID(),
       selection: { kind: 'new' },
     });
-    const oldSecondSession = await client.sessionRead(secondSession.value.snapshot.session.id);
+    const oldSecondSession = await client.sessionRead(secondSession.value.sessionId);
     const retainedDiscard = oldSecondSession.pending.followUps.find((record) =>
       record.queueId === discardedQueueId
     );

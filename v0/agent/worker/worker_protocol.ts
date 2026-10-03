@@ -6,7 +6,6 @@ import type { ProviderEvidenceObservation } from '../provider/provider_evidence.
 import type { SemanticContextCheckpointV1 } from '../session/session_store.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
-import type { RecalledExecutionContext } from './recalled_execution_context.ts';
 import type {
   ContextModelRequestDelta,
   ExecutionContextManifestV2,
@@ -19,7 +18,11 @@ import type {
   HenjiInstructionRevisionRef,
   ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
-import type { AsyncAgentRequest, AsyncAgentResponse } from '../tools/async_agents.ts';
+import type {
+  AsyncAgentProgress,
+  AsyncAgentRequest,
+  AsyncAgentResponse,
+} from '../tools/async_agents.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -87,6 +90,8 @@ export type WorkerHostCommand =
   | {
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
+    /** Direct Agent-to-Data port transferred by the Core control owner. */
+    readonly dataPort?: MessagePort;
     readonly module?: WorkerDefinitionLoadRequest;
     /** User config root shared by the Host and Worker credential resolvers. */
     readonly configRoot?: string;
@@ -100,6 +105,8 @@ export type WorkerHostCommand =
     readonly providerTimeoutMs?: number;
     /** Process-local fixed-size diagnostic latch; contains no request or credential data. */
     readonly diagnosticStageBuffer?: SharedArrayBuffer;
+    /** Focused-test seam; Data uses the production 1000 ms gap when omitted. */
+    readonly auxiliaryStageGapMs?: number;
     readonly initialTranscript?: readonly Message[];
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
@@ -121,7 +128,6 @@ export type WorkerHostCommand =
     readonly task: string;
     /** Captured ChatGPT account registration for this turn; null freezes no selected account. */
     readonly chatgptRegistrationId?: string | null;
-    readonly recalledContext?: RecalledExecutionContext;
   }
   | {
     readonly kind: 'steer';
@@ -284,6 +290,8 @@ export interface WorkerCancelReceivedMessage {
   readonly kind: 'cancel_received';
   readonly correlation: WorkerCorrelation;
   readonly sequence: number;
+  /** Agent receipt time, independent of the later Data control-fact write. */
+  readonly observedAt: string;
   readonly result: 'requested' | 'already_requested' | 'idle';
 }
 
@@ -330,6 +338,64 @@ export interface WorkerTurnFailedMessage {
   readonly diagnostic?: FailureDiagnosticV1;
 }
 
+/** Small control-channel barrier; the full proposal lives on the Agent Data port. */
+export interface WorkerProposalReadyMessage {
+  readonly kind: 'proposal_ready';
+  readonly proposalId: string;
+  readonly correlation: WorkerCorrelation;
+  readonly finalDataSequence: number;
+}
+
+/** Small control-channel barrier; the full failure outcome lives on the Agent Data port. */
+export interface WorkerFailureReadyMessage {
+  readonly kind: 'failure_ready';
+  readonly executionId: string;
+  readonly correlation: WorkerCorrelation;
+  readonly finalDataSequence: number;
+}
+
+/** Provider request totals needed by Core without forwarding the full Agent outcome. */
+export interface WorkerRequestCountMessage {
+  readonly kind: 'request_count';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly executionId?: string;
+  readonly turnProviderRequestCount?: number;
+  readonly runtimeProviderRequestCount?: number;
+}
+
+/** Compact progress emitted when a provider request starts; the request body stays on Data. */
+export interface WorkerRequestStartedMessage {
+  readonly kind: 'request_started';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly requestOrdinal: number;
+  readonly modelStep: number;
+}
+
+/** Small child-only progress update; full effect observations stay on the Agent Data port. */
+export interface WorkerChildProgressMessage {
+  readonly kind: 'child_progress';
+  readonly correlation: WorkerCorrelation;
+  readonly progress: Omit<AsyncAgentProgress, 'updatedAt' | 'phase'> & {
+    readonly phase: 'model' | 'tool' | 'between_steps';
+  };
+}
+
+/** Steering is stored as a Data observation; Core receives this small receipt to clear pending UI. */
+export interface WorkerSteeringAppliedMessage {
+  readonly kind: 'steering_applied';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly text: string;
+}
+
+/** Emitted after runtime turn cleanup has cleared its active execution state. */
+export interface WorkerTurnSettledMessage {
+  readonly kind: 'turn_settled';
+  readonly correlation: WorkerCorrelation;
+}
+
 export type WorkerErrorStage =
   | 'module_pre_read'
   | 'module_import'
@@ -365,8 +431,15 @@ export type WorkerToHostMessage =
   | WorkerProviderObservationMessage
   | WorkerContextObservationMessage
   | WorkerCommitProposalMessage
+  | WorkerProposalReadyMessage
   | WorkerCheckpointProposalMessage
   | WorkerTurnFailedMessage
+  | WorkerFailureReadyMessage
+  | WorkerRequestCountMessage
+  | WorkerRequestStartedMessage
+  | WorkerChildProgressMessage
+  | WorkerSteeringAppliedMessage
+  | WorkerTurnSettledMessage
   | WorkerCancelReceivedMessage
   | WorkerClosedMessage
   | WorkerAsyncAgentRequestMessage

@@ -125,7 +125,8 @@ Deno.test('Increment 147 none Session completes accepted follow-up and later tas
     });
     strictEqual(opened.kind, 'accepted');
     if (opened.kind !== 'accepted') return;
-    const sessionId = opened.value.snapshot.session.id;
+    const sessionId = opened.value.sessionId;
+    deepStrictEqual((await client.contextRead(sessionId)).context, {});
     const parent = await client.taskSubmit(sessionId, {
       commandId: crypto.randomUUID(),
       text: 'Complete the none Session parent',
@@ -180,24 +181,28 @@ Deno.test('Increment 147 none Session completes accepted follow-up and later tas
     strictEqual(snapshot.session.canonicalSessionId, null);
     for (const text of outputs) {
       strictEqual(
-        snapshot.conversation.messages.filter((message) => message.text === text).length,
+        Object.values(snapshot.conversation.entities).filter((entity) =>
+          entity.kind === 'message' && entity.text === text
+        ).length,
         1,
       );
     }
     for (const text of outputs) {
-      ok(snapshot.conversation.thinking.some((item) => item.text === `Thinking about ${text}`));
+      ok(
+        Object.values(snapshot.conversation.entities).some((entity) =>
+          entity.kind === 'thinking' && entity.text === `Thinking about ${text}`
+        ),
+      );
     }
-    const parentTool = snapshot.conversation.tools.find((tool) =>
-      tool.executionId === parent.value.executionId
+    const parentTool = Object.values(snapshot.conversation.entities).find((entity) =>
+      entity.kind === 'tool' && entity.executionId === parent.value.executionId
     );
-    ok(parentTool !== undefined);
+    ok(parentTool !== undefined && parentTool.kind === 'tool');
     ok(parentTool.result?.text.includes('NONE_PARENT_TOOL_RESULT'));
-    ok(
-      snapshot.conversation.messages.some((message) =>
-        message.role === 'tool' && message.executionId === parent.value.executionId &&
-        message.toolOccurrenceIds?.includes(parentTool.toolOccurrenceId)
-      ),
-    );
+    ok(parentTool.started);
+    ok(parentTool.semanticOccurrenceId);
+    ok(snapshot.conversation.order.includes(parentTool.id));
+    deepStrictEqual((await client.contextRead(sessionId)).context, snapshot.context);
     strictEqual(inputs.length, 4);
     ok(inputs[2].includes(outputs[0]));
     ok(inputs[3].includes(outputs[1]));

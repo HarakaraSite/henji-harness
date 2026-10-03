@@ -3,7 +3,7 @@ import type { HostActiveSession } from '../worker/worker_tui_session.ts';
 import type { ApplicationObservation } from './application_port.ts';
 import type { FollowUpRecord, PendingView } from '../../api/contract.ts';
 
-type Completion = Promise<LoopOutcome>;
+type Completion = Promise<Omit<LoopOutcome, 'transcript'>>;
 export interface TaskAdmission {
   readonly executionId: string;
   readonly completion: Completion;
@@ -55,11 +55,13 @@ export class ApplicationTaskService {
     return this.preparing;
   }
   canSteer(): boolean {
-    return this.active !== undefined && !this.steeringAccepted &&
+    return this.active !== undefined && !this.preparing &&
+      !this.steeringAccepted &&
       !this.cancellationRequested;
   }
   canQueueFollowUp(): boolean {
-    return this.active !== undefined && this.queued === undefined &&
+    return this.active !== undefined && !this.preparing &&
+      this.queued === undefined &&
       !this.cancellationRequested;
   }
   activeExecutionId(): string | undefined {
@@ -102,30 +104,22 @@ export class ApplicationTaskService {
   async admit(
     text: string,
     commandId: string,
-    recalledContext?: Parameters<HostActiveSession['admit']>[1],
   ): Promise<TaskAdmission> {
     if (this.isBusy()) throw new Error('task already active');
-    this.preparing = true;
-    this.publish();
-    return await this.begin(text, commandId, recalledContext);
+    return await this.begin(text, commandId);
   }
   async submit(
     text: string,
-    recalledContext?: Parameters<HostActiveSession['admit']>[1],
-  ): Promise<LoopOutcome> {
+  ): Promise<Omit<LoopOutcome, 'transcript'>> {
     try {
-      const admission = await this.admit(
-        text,
-        crypto.randomUUID(),
-        recalledContext,
-      );
+      const admission = await this.admit(text, crypto.randomUUID());
       return await admission.untilIdle;
     } catch (error) {
       if (
         typeof error === 'object' && error !== null &&
         'code' in error && error.code === 'admission_failed' &&
         'outcome' in error
-      ) return error.outcome as LoopOutcome;
+      ) return error.outcome as Omit<LoopOutcome, 'transcript'>;
       throw error;
     }
   }
@@ -138,7 +132,7 @@ export class ApplicationTaskService {
     const active = this.active;
     if (
       active === undefined || active.executionId !== executionId ||
-      this.cancellationRequested
+      this.preparing || this.cancellationRequested
     ) {
       return { kind: 'rejected', reason: 'idle' };
     }
@@ -173,7 +167,7 @@ export class ApplicationTaskService {
     const active = this.active;
     if (
       active === undefined || active.executionId !== afterExecutionId ||
-      this.cancellationRequested
+      this.preparing || this.cancellationRequested
     ) {
       return { kind: 'rejected', reason: 'idle' };
     }
@@ -205,11 +199,9 @@ export class ApplicationTaskService {
   }
   observe(observation: ApplicationObservation): void {
     if (
-      observation.kind === 'agent_event' &&
-      observation.event.kind === 'steering_message' &&
+      observation.kind === 'steering_applied' &&
       this.active !== undefined &&
-      (observation.executionId === undefined ||
-        observation.executionId === this.active.executionId)
+      observation.executionId === this.active.executionId
     ) {
       this.steering = undefined;
       // The accepted marker stays true until this execution settles.
@@ -224,48 +216,57 @@ export class ApplicationTaskService {
   private async begin(
     text: string,
     commandId: string,
-    recalledContext?: Parameters<HostActiveSession['admit']>[1],
     reservation?: MutableFollowUp,
   ): Promise<TaskAdmission> {
     const host = this.currentSession();
-    let admission: Awaited<ReturnType<HostActiveSession['admit']>>;
-    try {
-      admission = await host.admit(text, recalledContext);
-    } catch (error) {
-      this.preparing = false;
-      if (reservation !== undefined) {
-        reservation.status = 'startRejected';
-        reservation.reason = 'admissionFailed';
-        this.queued = undefined;
-      }
-      this.publish();
-      throw error;
-    }
-    this.active = {
-      sessionId: host.sessionId,
-      executionId: admission.executionId,
-      commandId,
-      text,
-    };
-    this.executions.set(admission.executionId, {
+    const executionId = crypto.randomUUID();
+    this.active = { sessionId: host.sessionId, executionId, commandId, text };
+    this.executions.set(executionId, {
       sessionId: host.sessionId,
       submittedByCommandId: commandId,
       processSettlement: 'running',
     });
-    this.preparing = false;
-    this.steeringAccepted = false;
+    this.preparing = true;
     this.cancellationRequested = false;
+    this.steeringAccepted = false;
     this.steering = undefined;
-    if (reservation !== undefined) {
-      reservation.status = 'started';
-      reservation.executionId = admission.executionId;
-      this.queued = undefined;
+    this.publish();
+
+    let admission: Awaited<ReturnType<HostActiveSession['admit']>>;
+    try {
+      admission = await host.admit(text, executionId);
+    } catch (error) {
+      if (this.active?.executionId === executionId) this.active = undefined;
+      this.preparing = false;
+      this.executions.delete(executionId);
+      if (reservation !== undefined) {
+        if (this.cancellationRequested) {
+          this.discard(reservation, 'cancelled');
+        } else if (reservation.status === 'queued') {
+          reservation.status = 'startRejected';
+          reservation.reason = 'admissionFailed';
+          if (this.queued === reservation) this.queued = undefined;
+        }
+      }
+      this.cancellationRequested = false;
+      this.publish();
+      throw error;
     }
-    const untilIdle = this.settle(admission);
+
+    this.preparing = false;
+    if (reservation !== undefined) {
+      reservation.executionId = admission.executionId;
+      if (reservation.status === 'queued') {
+        reservation.status = 'started';
+      }
+      if (this.queued === reservation) this.queued = undefined;
+    }
+    const accepted = { ...admission, executionId };
+    const untilIdle = this.settle(accepted);
     this.chain = untilIdle;
     void untilIdle.catch(() => {});
     this.publish();
-    return { ...admission, untilIdle };
+    return { ...accepted, untilIdle };
   }
 
   private discard(record: MutableFollowUp, reason: string): void {
@@ -275,9 +276,9 @@ export class ApplicationTaskService {
   }
   private async settle(
     admission: Awaited<ReturnType<HostActiveSession['admit']>>,
-  ): Promise<LoopOutcome> {
+  ): Promise<Omit<LoopOutcome, 'transcript'>> {
     const tracked = this.executions.get(admission.executionId)!;
-    let outcome: LoopOutcome;
+    let outcome: Omit<LoopOutcome, 'transcript'>;
     try {
       outcome = await admission.completion;
     } catch (error) {
@@ -285,6 +286,7 @@ export class ApplicationTaskService {
       this.active = undefined;
       this.steering = undefined;
       this.steeringAccepted = false;
+      this.cancellationRequested = false;
       if (this.queued !== undefined) this.discard(this.queued, 'failed');
       this.publish();
       throw error;
@@ -293,6 +295,7 @@ export class ApplicationTaskService {
     this.active = undefined;
     this.steering = undefined;
     this.steeringAccepted = false;
+    this.cancellationRequested = false;
     const reservation = this.queued;
     if (reservation !== undefined) {
       if (
@@ -300,15 +303,12 @@ export class ApplicationTaskService {
         (outcome.stopReason === 'final' ||
           outcome.stopReason === 'tool_terminal')
       ) {
-        // Claim the handoff before any await: ordinary submit and navigation still see busy.
-        this.preparing = true;
-        this.publish();
+        // begin publishes the child reservation before its first admission await.
         let child: TaskAdmission;
         try {
           child = await this.begin(
             reservation.text,
             reservation.commandId,
-            undefined,
             reservation,
           );
         } catch {

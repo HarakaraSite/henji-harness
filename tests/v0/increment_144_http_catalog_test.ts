@@ -8,10 +8,10 @@ import type { CommandResult, SessionOpenValue } from '../../v0/api/contract.ts';
 
 const encoder = new TextEncoder();
 const frame = (value: unknown): Uint8Array => encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
-const opened = (result: CommandResult<SessionOpenValue>) => {
+const opened = async (client: HenjiApiClient, result: CommandResult<SessionOpenValue>) => {
   strictEqual(result.kind, 'accepted', JSON.stringify(result));
   if (result.kind !== 'accepted') throw new Error('Session was not opened');
-  return result.value.snapshot;
+  return await client.sessionRead(result.value.sessionId);
 };
 const waitFor = async (
   predicate: () => boolean | Promise<boolean>,
@@ -118,7 +118,10 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
         );
       },
     );
-    const providerDeclarations = builtinProviderDeclarations().map((
+    // This API-key catalog scenario has no ChatGPT account registration.
+    const providerDeclarations = builtinProviderDeclarations().filter(
+      (entry) => entry.providerId !== 'openai-chatgpt',
+    ).map((
       declaration,
     ) =>
       declaration.providerId === 'openrouter-responses'
@@ -187,7 +190,8 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
     );
     strictEqual(removedPathRead.status, 404);
 
-    const openedSession = opened(
+    const openedSession = await opened(
+      client,
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'new' },
@@ -346,7 +350,8 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
       },
     });
     strictEqual(remembered.kind, 'accepted');
-    const explicitProviderSession = opened(
+    const explicitProviderSession = await opened(
+      client,
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'new' },
@@ -377,7 +382,8 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
       (await reconnected.sessionRead(sessionId)).session.selection.provider,
       'openrouter-responses',
     );
-    const nextSession = opened(
+    const nextSession = await opened(
+      reconnected,
       await reconnected.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'new' },

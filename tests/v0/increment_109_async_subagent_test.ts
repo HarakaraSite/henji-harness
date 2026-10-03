@@ -1,3 +1,8 @@
+import {
+  childDataTest,
+  closeChildDataTests,
+  createChildDataTestRegistry,
+} from './helpers/increment_170_child_data.ts';
 import { managedChildModule, managedChildRef } from './managed_child_fixture.ts';
 import {
   type AsyncAgentRequest,
@@ -5,13 +10,11 @@ import {
   createAsyncAgentTools,
 } from '../../v0/agent/tools/async_agents.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
-import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
+import type { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import {
   bundledToolDefinitionLoadRequests,
 } from '../../v0/agent/worker/worker_definition_revision.ts';
-import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -26,7 +29,7 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-Deno.test('Increment 109 async agent tools expose a fixed four-operation surface', async () => {
+childDataTest('Increment 109 async agent tools expose a fixed four-operation surface', async () => {
   const requests: AsyncAgentRequest[] = [];
   const callIds: (string | undefined)[] = [];
   const rpc = (
@@ -132,7 +135,7 @@ Deno.test('Increment 109 async agent tools expose a fixed four-operation surface
   });
 });
 
-Deno.test('Increment 109 spawn rejects an undeclared agent name', async () => {
+childDataTest('Increment 109 spawn rejects an undeclared agent name', async () => {
   const registry = new Registry([
     ...createAsyncAgentTools(
       ['probe-child'],
@@ -151,7 +154,7 @@ Deno.test('Increment 109 spawn rejects an undeclared agent name', async () => {
   );
 });
 
-Deno.test('Increment 109 child failure is reported without throwing', async () => {
+childDataTest('Increment 109 child failure is reported without throwing', async () => {
   const registry = new Registry([
     ...createAsyncAgentTools(['probe-child'], (request) => {
       if (request.kind === 'collect') {
@@ -182,96 +185,78 @@ Deno.test('Increment 109 child failure is reported without throwing', async () =
   });
 });
 
-Deno.test('Increment 109 child run registry spawns, collects, and cancels a planner child', async () => {
-  const plannerRef = managedChildRef();
-  const handle: WorkerSessionHandle = {
-    id: 'parent-session',
-    commit: () => {},
-    rollback: () => {},
-    installCheckpoint: () => {},
-    rollbackCheckpoint: () => {},
-    close: () => Promise.resolve(),
-  };
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i109-durable-' });
-  const workspaceRoot = `${stateRoot}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  await history.initialize();
-  const registry = new ChildRunRegistry({
-    options: {
-      handle,
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition: plannerRef,
-      physicalIoMode: 'provider-free',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
-    },
-    catalog: [{ name: 'probe-child', ref: plannerRef }],
-    resolveManagedModule: managedChildModule,
-    history,
-    build: buildManifest(),
-  });
-  registry.openParent('parent-execution-42');
+childDataTest(
+  'Increment 109 child run registry spawns, collects, and cancels a planner child',
+  async () => {
+    const plannerRef = managedChildRef();
+    const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i109-durable-' });
+    const workspaceRoot = `${stateRoot}/workspace`;
+    await Deno.mkdir(workspaceRoot);
+    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    await history.initialize();
+    const { registry } = await createChildDataTestRegistry({
+      options: {
+        physicalIoMode: 'provider-free',
+        toolDefinitions: await bundledToolDefinitionLoadRequests(),
+      },
+      catalog: [{ name: 'probe-child', ref: plannerRef }],
+      resolveManagedModule: managedChildModule,
+      store: history,
+    });
+    registry.openParent('parent-execution-42');
 
-  const spawned = await registry.handle(
-    { kind: 'spawn', agent: 'probe-child', task: 'child planning task' },
-    'spawn-call-9',
-    'parent-execution-42',
-  );
-  assert(spawned.ok && spawned.kind === 'spawn', 'spawn should return a runId');
-  const runId = spawned.runId;
+    const spawned = await registry.handle(
+      { kind: 'spawn', agent: 'probe-child', task: 'child planning task' },
+      'spawn-call-9',
+      'parent-execution-42',
+    );
+    assert(spawned.ok && spawned.kind === 'spawn', 'spawn should return a runId');
+    const runId = spawned.runId;
 
-  const collected = await registry.handle(
-    { kind: 'collect', runId },
-    undefined,
-    'parent-execution-42',
-  );
-  assert(
-    collected.ok && collected.kind === 'collect',
-    'collect should succeed',
-  );
-  assertEquals(collected.result.state, 'completed');
-  assert(
-    collected.result.finalText === 'worker child result',
-    `unexpected finalText: ${collected.result.finalText}`,
-  );
-  assertEquals(collected.result.parentExecutionId, 'parent-execution-42');
-  assertEquals(collected.result.spawnCallId, 'spawn-call-9');
+    const collected = await registry.handle(
+      { kind: 'collect', runId },
+      undefined,
+      'parent-execution-42',
+    );
+    assert(
+      collected.ok && collected.kind === 'collect',
+      'collect should succeed',
+    );
+    assertEquals(collected.result.state, 'completed');
+    assert(
+      collected.result.finalText === 'worker child result',
+      `unexpected finalText: ${collected.result.finalText}`,
+    );
+    assertEquals(collected.result.parentExecutionId, 'parent-execution-42');
+    assertEquals(collected.result.spawnCallId, 'spawn-call-9');
 
-  const status = await registry.handle(
-    { kind: 'status', runId },
-    undefined,
-    'parent-execution-42',
-  );
-  assert(status.ok && status.kind === 'status', 'status should succeed');
-  assertEquals(status.state, 'completed');
+    const status = await registry.handle(
+      { kind: 'status', runId },
+      undefined,
+      'parent-execution-42',
+    );
+    assert(status.ok && status.kind === 'status', 'status should succeed');
+    assertEquals(status.state, 'completed');
 
-  const unknown = await registry.handle(
-    { kind: 'collect', runId: 'missing-run' },
-    undefined,
-    'parent-execution-42',
-  );
-  assert(!unknown.ok, 'collect of an unknown run should fail');
+    const unknown = await registry.handle(
+      { kind: 'collect', runId: 'missing-run' },
+      undefined,
+      'parent-execution-42',
+    );
+    assert(!unknown.ok, 'collect of an unknown run should fail');
 
-  const row = history.listExecutions().find((item) => item.executionId === runId);
-  assert(row !== undefined, 'child execution evidence should be durable');
-  assertEquals(row.parentExecutionId, 'parent-execution-42');
-  assertEquals(row.spawnCallId, 'spawn-call-9');
-  assertEquals(row.definition, plannerRef);
-  assertEquals(row.lifecycle, 'settled');
-  assertEquals(row.adoption, 'non_canonical');
-  history.close();
-  await Deno.remove(stateRoot, { recursive: true });
-});
-
-const makeParentHandle = (): WorkerSessionHandle => ({
-  id: 'parent-session',
-  commit: () => {},
-  rollback: () => {},
-  installCheckpoint: () => {},
-  rollbackCheckpoint: () => {},
-  close: () => Promise.resolve(),
-});
+    const row = history.listExecutions().find((item) => item.executionId === runId);
+    assert(row !== undefined, 'child execution evidence should be durable');
+    assertEquals(row.parentExecutionId, 'parent-execution-42');
+    assertEquals(row.spawnCallId, 'spawn-call-9');
+    assertEquals(row.definition, plannerRef);
+    assertEquals(row.lifecycle, 'settled');
+    assertEquals(row.adoption, 'non_canonical');
+    await closeChildDataTests(history);
+    history.close();
+    await Deno.remove(stateRoot, { recursive: true });
+  },
+);
 
 const makePlannerRegistry = async (
   history?: SqliteHistoryV7ProductionStore,
@@ -279,24 +264,19 @@ const makePlannerRegistry = async (
   { registry: ChildRunRegistry; plannerRef: ReturnType<typeof managedChildRef> }
 > => {
   const plannerRef = managedChildRef();
-  const registry = new ChildRunRegistry({
+  const { registry } = await createChildDataTestRegistry({
     options: {
-      handle: makeParentHandle(),
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition: plannerRef,
       physicalIoMode: 'provider-free',
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
     },
     catalog: [{ name: 'probe-child', ref: plannerRef }],
     resolveManagedModule: managedChildModule,
-    ...(history === undefined ? {} : { history }),
-    build: buildManifest(),
+    ...(history === undefined ? {} : { store: history }),
   });
   return { registry, plannerRef };
 };
 
-Deno.test('Increment 109 two child runs progress concurrently', async () => {
+childDataTest('Increment 109 two child runs progress concurrently', async () => {
   const { registry } = await makePlannerRegistry();
   const parentExecutionId = 'parent-concurrent';
   registry.openParent(parentExecutionId);
@@ -380,7 +360,7 @@ Deno.test('Increment 109 two child runs progress concurrently', async () => {
   }
 });
 
-Deno.test('Increment 109 cancel targets only the requested child run', async () => {
+childDataTest('Increment 109 cancel targets only the requested child run', async () => {
   const { registry } = await makePlannerRegistry();
   const parentExecutionId = 'parent-cancel-one';
   registry.openParent(parentExecutionId);
@@ -422,7 +402,7 @@ Deno.test('Increment 109 cancel targets only the requested child run', async () 
   assertEquals(keptResult.result.state, 'completed');
 });
 
-Deno.test('Increment 109 parent cleanup settles unfinished children durably', async () => {
+childDataTest('Increment 109 parent cleanup settles unfinished children durably', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i109-cancelall-' });
   const workspaceRoot = `${stateRoot}/workspace`;
   await Deno.mkdir(workspaceRoot);
@@ -448,6 +428,7 @@ Deno.test('Increment 109 parent cleanup settles unfinished children durably', as
     assertEquals(row.lifecycle, 'settled');
     assertEquals(row.outcome, 'cancelled');
   } finally {
+    await closeChildDataTests(history);
     history.close();
     await Deno.remove(stateRoot, { recursive: true });
   }

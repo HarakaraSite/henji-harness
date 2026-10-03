@@ -204,7 +204,7 @@ export const decodeCoreCommandValue = (value: unknown): CoreCommandValue => {
   if (!isRecord(value)) throw new ApiCodecError();
   if ('deleted' in value) return decodeSessionDeleteValue(value);
   if (value.result === 'requested') return decodeCoreShutdownValue(value);
-  if ('snapshot' in value) return decodeSessionOpenValue(value);
+  if ('sessionId' in value && !('executionId' in value)) return decodeSessionOpenValue(value);
   if ('selection' in value) return decodeSelectionChangeValue(value);
   if (value.result === 'renamed' || value.result === 'unchanged') {
     return { result: value.result } satisfies SessionRenameValue;
@@ -246,8 +246,8 @@ export const decodeCoreShutdownValue = (
 };
 
 export const decodeSessionOpenValue = (value: unknown): SessionOpenValue => {
-  if (!isRecord(value) || !('snapshot' in value)) throw new ApiCodecError();
-  return { snapshot: decodeSessionSnapshot(value.snapshot) };
+  if (!isRecord(value) || !isText(value.sessionId)) throw new ApiCodecError();
+  return { sessionId: value.sessionId };
 };
 
 export const decodeSessionDeleteValue = (value: unknown): SessionDeleteValue => {
@@ -424,7 +424,7 @@ export const encodeSessionSnapshot = (snapshot: SessionSnapshot): string =>
   JSON.stringify(snapshot);
 
 export const decodeSessionSnapshot = (value: unknown): SessionSnapshot => {
-  if (!isRecord(value) || value.schemaVersion !== 1) throw new ApiCodecError();
+  if (!isRecord(value) || value.schemaVersion !== 2) throw new ApiCodecError();
   const cursor = value.cursor;
   const session = value.session;
   const runtime = value.runtime;
@@ -453,11 +453,11 @@ export const decodeSessionSnapshot = (value: unknown): SessionSnapshot => {
     !runtime.operations.every((item) => typeof item === 'string') ||
     (runtime.effectiveConfig !== undefined &&
       !isEffectiveRuntimeConfig(runtime.effectiveConfig)) ||
-    !isRecord(conversation) || !Array.isArray(conversation.executions) ||
-    !conversation.executions.every(isExecutionView) || !Array.isArray(conversation.messages) ||
-    !Array.isArray(conversation.tools) ||
-    !Array.isArray(conversation.thinking) ||
-    !Array.isArray(conversation.requests) || !isPendingView(value.pending) ||
+    !isRecord(conversation) || conversation.schemaVersion !== 2 ||
+    !isText(conversation.sessionId) || !isCount(conversation.cut) ||
+    !isCount(conversation.storeRevision) || !isRecord(conversation.entities) ||
+    !Array.isArray(conversation.order) || !conversation.order.every(isText) ||
+    !isPendingView(value.pending) ||
     !isRecord(value.credentialAvailability) ||
     !['present', 'missing', 'unknown'].includes(
       String(value.credentialAvailability.status),
@@ -547,24 +547,6 @@ const validChange = (value: unknown): value is SessionChange => {
       );
     case 'pending.replace':
       return isPendingView(value.pending);
-    case 'executions.replace':
-      return Array.isArray(value.executions) && value.executions.every(isExecutionView);
-    case 'message.upsert':
-    case 'tool.upsert':
-    case 'thinking.upsert':
-    case 'request.upsert':
-      return isRecord(
-        value.message ?? value.tool ?? value.thinking ?? value.request,
-      );
-    case 'message.remove':
-      return isText(value.id);
-    case 'tool.remove':
-      return isText(value.toolOccurrenceId);
-    case 'thinking.remove':
-    case 'request.remove':
-      return isRecord(value.requestKey);
-    case 'conversation.omitted.replace':
-      return isCount(value.omitted);
     default:
       return false;
   }
@@ -584,7 +566,12 @@ export const decodeSessionStreamFrame = (
     value.kind !== 'session.update' || !isRecord(value.cursor) ||
     !isText(value.cursor.coreEpoch) || !isText(value.cursor.sessionId) ||
     !isCount(value.cursor.revision) || !isCount(value.previousRevision) ||
-    !Array.isArray(value.changes) || !value.changes.every(validChange)
+    !Array.isArray(value.changes) || !value.changes.every(validChange) ||
+    (value.conversationDelta !== undefined && (!isRecord(value.conversationDelta) ||
+      value.conversationDelta.schemaVersion !== 2 || value.conversationDelta.kind !== 'delta' ||
+      !isText(value.conversationDelta.sessionId) || !isCount(value.conversationDelta.cut) ||
+      !isCount(value.conversationDelta.storeRevision) ||
+      !Array.isArray(value.conversationDelta.changes)))
   ) throw new ApiCodecError();
   return value as unknown as SessionStreamFrame;
 };

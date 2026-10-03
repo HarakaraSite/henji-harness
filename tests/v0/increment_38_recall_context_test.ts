@@ -15,9 +15,7 @@ import type {
   WorkerExecutionArtifactV2,
   WorkerExecutionArtifactV3,
 } from '../../v0/agent/worker/worker_execution_artifact.ts';
-import {
-  FakeWorkerExecutionArtifactStore,
-} from '../../v0/agent/worker/worker_execution_artifact_store.ts';
+import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
 import {
   type RecalledExecutionContextV1,
   recalledExecutionProjectionText,
@@ -63,10 +61,17 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
       if (requests === 1) {
         return {
           kind: 'tool_calls',
-          calls: [{ callId: 'read-1', name: 'read', arguments: { path: 'source.txt' } }],
+          calls: [{
+            callId: 'read-1',
+            name: 'read',
+            arguments: { path: 'source.txt' },
+          }],
         };
       }
-      return { kind: 'final', text: requests === 2 ? 'saved answer' : 'next answer' };
+      return {
+        kind: 'final',
+        text: requests === 2 ? 'saved answer' : 'next answer',
+      };
     },
   };
   const registry = new Registry([{
@@ -74,7 +79,10 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
     description: 'read source',
     inputSchema: {},
     execute: () => {
-      assertEquals(generation.steerActiveTurn('use the new instruction'), 'accepted');
+      assertEquals(
+        generation.steerActiveTurn('use the new instruction'),
+        'accepted',
+      );
       return 'source contents';
     },
   }]);
@@ -96,7 +104,12 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
     registry,
     maxSteps: 3,
     systemInstruction: undefined,
-    manifest: { role: 'parent', maxSteps: 3, profileId: 'i113-steering', resources: [] },
+    manifest: {
+      role: 'parent',
+      maxSteps: 3,
+      profileId: 'i113-steering',
+      resources: [],
+    },
     resolved: { model: { profile: { id: 'i113-steering' } } },
   } as unknown as WorkerAgentComposition;
   const generation = new WorkerGeneration(composition, SESSION_ID, port);
@@ -104,7 +117,8 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
   assert(committedTranscript !== undefined);
   assert(
     committedTranscript.some((message) =>
-      message.role === 'user' && message.content.text === 'use the new instruction'
+      message.role === 'user' &&
+      message.content.text === 'use the new instruction'
     ),
   );
   await generation.runTurn(correlation('next-turn'), 'next task');
@@ -149,7 +163,11 @@ const sourceArtifact = async (
       resources: [],
       rootModel: ROOT_DEFAULT_MODEL_SELECTION,
     },
-    command: { kind: 'turn', correlation: correlation('source-turn'), task: 'inspect source' },
+    command: {
+      kind: 'turn',
+      correlation: correlation('source-turn'),
+      task: 'inspect source',
+    },
     baseStateRevision: 1,
     protocolTrace: [{
       direction: 'host_to_worker',
@@ -175,41 +193,73 @@ const sourceArtifact = async (
   return schemaVersion === 2 ? { schemaVersion: 2, ...base } : { schemaVersion: 3, ...base };
 };
 
-const sourceArtifactFor = async (
-  sessionId: string,
+const seedCancelledSource = async (
+  created: Awaited<ReturnType<typeof createWorkerSession>>,
   executionId: string,
-  settledAt: string,
-): Promise<WorkerExecutionArtifactV3> => {
-  const source = await sourceArtifact(3);
+  createdAt: string,
+): Promise<void> => {
+  const sessionId = created.session.sessionId;
+  const descriptor = await created.data.sessionDescriptor(sessionId);
   const sourceCorrelation = {
-    ...source.command.correlation,
     session: sessionId,
-    command: `source-${executionId.slice(0, 8)}`,
+    instanceCorrelation: crypto.randomUUID(),
+    workerGeneration: crypto.randomUUID(),
+    baseStateRevision: descriptor.stateRevision,
+    command: crypto.randomUUID(),
   };
-  return {
-    ...source,
-    schemaVersion: 3,
-    executionId,
-    settledAt,
-    sessionId,
-    command: {
-      kind: 'turn',
+  const client = createAgentDataPortClient(
+    await created.data.attachGeneration(sessionId, sourceCorrelation),
+  );
+  try {
+    await client.ready({
+      kind: 'ready',
       correlation: sourceCorrelation,
-      task: `source task ${executionId.slice(0, 8)}`,
-    },
-    protocolTrace: source.protocolTrace.map((entry) => ({
-      ...entry,
+      manifest: {
+        role: 'parent',
+        maxSteps: 8,
+        profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
+        resources: [],
+        rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+      },
+    });
+    await created.data.executionAdmit(sessionId, {
+      executionId,
+      taskId: executionId,
+      createdAt,
+      task: `source task ${executionId}`,
       correlation: sourceCorrelation,
-    })),
-  };
+    });
+    await created.data.sealGeneration(sessionId, {
+      executionId,
+      decision: 'cancelled',
+      reason: 'cancelled source execution',
+    });
+  } finally {
+    client.close();
+  }
 };
 
 Deno.test('Increment 38 retains latest accepted semantic progress', () => {
-  const recorder = new ProviderEvidenceRecorder(EVIDENCE_ID, 1, '2026-09-12T00:00:00.000Z');
+  const recorder = new ProviderEvidenceRecorder(
+    EVIDENCE_ID,
+    1,
+    '2026-09-12T00:00:00.000Z',
+  );
   recorder.recordAssistantProgress('first assistant prefix', 1, 'parent');
   recorder.recordAssistantProgress('latest assistant prefix', 1, 'parent');
-  recorder.recordToolProgress({ callId: 'call-1', name: 'search' }, 'first tool prefix', 1);
-  recorder.recordToolProgress({ callId: 'call-1', name: 'search' }, 'latest tool prefix', 1);
+  const attribution = Object.freeze({ modelStep: 1 });
+  recorder.recordToolProgress(
+    { callId: 'call-1', name: 'search' },
+    'first tool prefix',
+    0,
+    attribution,
+  );
+  recorder.recordToolProgress(
+    { callId: 'call-1', name: 'search' },
+    'latest tool prefix',
+    0,
+    attribution,
+  );
   assertEquals(recorder.snapshot().runtimeEvents, [
     {
       kind: 'assistant_progress',
@@ -222,6 +272,7 @@ Deno.test('Increment 38 retains latest accepted semantic progress', () => {
       callId: 'call-1',
       name: 'search',
       text: 'latest tool prefix',
+      callIndex: 0,
       modelStep: 1,
     },
   ]);
@@ -318,7 +369,11 @@ Deno.test('Increment 38 projects recall for one Worker turn without transcript a
   } as unknown as WorkerAgentComposition;
   const generation = new WorkerGeneration(composition, SESSION_ID, port);
 
-  await generation.runTurn(correlation('target-turn'), 'use recalled facts', recalled);
+  await generation.runTurn(
+    correlation('target-turn'),
+    'use recalled facts',
+    recalled,
+  );
   await generation.runTurn(correlation('next-turn'), 'ordinary next turn');
 
   const marker = '[henji-recalled-execution:v1]';
@@ -329,19 +384,30 @@ Deno.test('Increment 38 projects recall for one Worker turn without transcript a
     );
     assert(taskIndex > 0);
     const projected = request.transcript[taskIndex - 1];
-    assert(projected?.role === 'user' && projected.content.text.startsWith(marker));
+    assert(
+      projected?.role === 'user' && projected.content.text.startsWith(marker),
+    );
   }
   assert(!JSON.stringify(requests[2]).includes(marker));
-  assertEquals({ sourceDispatches, newDispatches }, { sourceDispatches: 0, newDispatches: 1 });
+  assertEquals({ sourceDispatches, newDispatches }, {
+    sourceDispatches: 0,
+    newDispatches: 1,
+  });
   assertEquals(proposals.length, 2);
   assert(!JSON.stringify(proposals).includes(marker));
 });
 
 Deno.test('Increment 38 recalls consumed steering without provider replay state from persisted Worker facts', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i38-recall-journal-' });
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-i38-recall-journal-',
+  });
   const workspaceRoot = `${stateRoot}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
+  const store = new SqliteHistoryV7ProductionStore(
+    stateRoot,
+    workspaceRoot,
+    {},
+  );
   try {
     const artifact = await sourceArtifact();
     const task = 'inspect source with steering';
@@ -360,7 +426,9 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
     };
     await store.beginExecution({ ...input, sessionMode: 'no_session' });
     let sequence = 0;
-    let failedOutcome: import('../../v0/agent/core/contracts.ts').LoopOutcome | undefined;
+    let failedOutcome:
+      | import('../../v0/agent/core/contracts.ts').LoopOutcome
+      | undefined;
     const sourceRequests: ModelRequest[] = [];
     const sourceModel: Model = {
       generate(request): ModelResult {
@@ -368,7 +436,11 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
         if (sourceRequests.length === 1) {
           return {
             kind: 'tool_calls',
-            calls: [{ callId: 'source-read', name: 'read', arguments: { path: 'src.ts' } }],
+            calls: [{
+              callId: 'source-read',
+              name: 'read',
+              arguments: { path: 'src.ts' },
+            }],
             text: 'I will read the source.',
             providerState: {
               provider: 'openrouter-chat',
@@ -384,7 +456,10 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
       description: 'read source',
       inputSchema: {},
       execute: () => {
-        assertEquals(sourceGeneration.steerActiveTurn('use the new instruction'), 'accepted');
+        assertEquals(
+          sourceGeneration.steerActiveTurn('use the new instruction'),
+          'accepted',
+        );
         return 'exact source contents';
       },
     }]);
@@ -414,7 +489,12 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
           source: 'worker',
           kind: 'effect_observation',
           workerSequence: sequence,
-          payload: { kind: 'effect_observation', correlation: eventCorrelation, sequence, effect },
+          payload: {
+            kind: 'effect_observation',
+            correlation: eventCorrelation,
+            sequence,
+            effect,
+          },
         });
         return sequence;
       },
@@ -430,14 +510,25 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
       registry,
       maxSteps: 2,
       systemInstruction: undefined,
-      manifest: { role: 'parent', maxSteps: 2, profileId: 'i38-source', resources: [] },
+      manifest: {
+        role: 'parent',
+        maxSteps: 2,
+        profileId: 'i38-source',
+        resources: [],
+      },
       resolved: { model: { profile: { id: 'i38-source' } } },
     } as unknown as WorkerAgentComposition;
-    const sourceGeneration = new WorkerGeneration(sourceComposition, SESSION_ID, sourcePort);
+    const sourceGeneration = new WorkerGeneration(
+      sourceComposition,
+      SESSION_ID,
+      sourcePort,
+    );
     await sourceGeneration.runTurn(correlation('persisted-source'), task);
     assert(failedOutcome !== undefined);
     assert(sourceRequests.length === 2);
-    assert(JSON.stringify(sourceRequests[1]).includes('use the new instruction'));
+    assert(
+      JSON.stringify(sourceRequests[1]).includes('use the new instruction'),
+    );
     store.settleNonCanonicalExecution({ ...input, outcome: failedOutcome });
 
     const journal = JSON.stringify(store.listExecutionEvents(SOURCE_ID));
@@ -481,11 +572,12 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
         throw new Error(`unexpected target failure: ${outcome.stopReason}`);
       },
     };
-    await new WorkerGeneration(targetComposition, SESSION_ID, targetPort).runTurn(
-      correlation('recalled-target'),
-      'what happened?',
-      recalled,
-    );
+    await new WorkerGeneration(targetComposition, SESSION_ID, targetPort)
+      .runTurn(
+        correlation('recalled-target'),
+        'what happened?',
+        recalled,
+      );
     assert(targetRequest !== undefined);
     const targetText = JSON.stringify(targetRequest);
     assertEquals(targetText.split('use the new instruction').length - 1, 1);
@@ -575,11 +667,16 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
     },
   );
 
-  await generation.runTurn(correlation('checkpoint-target'), 'current checkpoint task', recalled);
+  await generation.runTurn(
+    correlation('checkpoint-target'),
+    'current checkpoint task',
+    recalled,
+  );
 
   assert(request !== undefined);
   const taskIndex = request.transcript.findIndex((message) =>
-    message.role === 'user' && message.content.text === 'current checkpoint task'
+    message.role === 'user' &&
+    message.content.text === 'current checkpoint task'
   );
   assert(taskIndex > 0);
   const projectedRecall = request.transcript[taskIndex - 1];
@@ -589,7 +686,9 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
   );
   assert(
     request.transcript[0]?.role === 'user' &&
-      request.transcript[0].content.text.startsWith('[henji-context-checkpoint:v1]'),
+      request.transcript[0].content.text.startsWith(
+        '[henji-context-checkpoint:v1]',
+      ),
   );
   assert(proposal !== undefined);
   assertEquals(proposal.slice(0, initialTranscript.length), initialTranscript);
@@ -597,8 +696,12 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
 });
 
 Deno.test('Increment 38 target artifact retains exact recall attribution', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-attribution-' });
-  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-recall-attribution-',
+  });
+  const reader = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd(), {
+    readOnly: true,
+  });
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({
@@ -607,45 +710,71 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
       persistence: 'none',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
     });
     const sessionId = created.session.currentPosition().sessionId;
-    const context: RecalledExecutionContextV1 = {
-      schemaVersion: 1,
-      sourceExecutionId: SOURCE_ID,
+    await seedCancelledSource(created, SOURCE_ID, '2026-09-12T00:00:01.000Z');
+    await created.session.prepareRecall(SOURCE_ID);
+    await reader.initialize();
+    const context = await resolveRecalledExecutionContext({
       sessionId,
-      turn: 1,
-      settlement: 'uncommitted',
-      stopReason: 'cancelled',
-      task: 'source task',
-      evidence: 'unavailable',
-      observations: [],
-      effectCommitRelation: 'not_transactional',
-      automaticReplay: false,
-    };
-    const outcome = await created.session.submit('read worker protocol', context);
+      executionId: SOURCE_ID,
+      historyPersistence: reader,
+    });
+    const outcome = await created.session.submit('read worker protocol');
     assert(outcome.ok);
-    const artifact = (await artifacts.list())[0];
-    assert(artifact?.schemaVersion === 7);
+    const artifact = (await reader.executionArtifacts.list()).find((item) =>
+      item.command.task === 'read worker protocol'
+    );
+    assert(
+      artifact?.schemaVersion === 7,
+      JSON.stringify(
+        reader.listExecutions().map((row) => ({
+          task: row.task,
+          capture: row.artifactCapture,
+        })),
+      ),
+    );
     assertEquals(artifact.recall, {
       schemaVersion: 1,
       sourceExecutionId: SOURCE_ID,
       projectedContext: recalledExecutionProjectionText(context),
     });
-    assert(
-      !JSON.stringify(created.session.transcriptSnapshot()).includes(
-        '[henji-recalled-execution:v1]',
-      ),
+    const descriptor = await created.data.sessionDescriptor(sessionId);
+    const currentCorrelation = {
+      session: sessionId,
+      instanceCorrelation: crypto.randomUUID(),
+      workerGeneration: crypto.randomUUID(),
+      baseStateRevision: descriptor.stateRevision,
+      command: crypto.randomUUID(),
+    };
+    const basisReader = createAgentDataPortClient(
+      await created.data.attachGeneration(sessionId, currentCorrelation),
     );
+    try {
+      const basis = await basisReader.generationContext(currentCorrelation);
+      assert(
+        !JSON.stringify(basis.initialTranscript).includes(
+          '[henji-recalled-execution:v',
+        ),
+      );
+      assert(basis.recalledContext === undefined);
+    } finally {
+      basisReader.close();
+    }
   } finally {
     await created?.close();
+    reader.close();
     await Deno.remove(stateRoot, { recursive: true });
   }
 });
 
 Deno.test('Increment 38 selects latest or explicit current-Session execution and consumes once', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-selection-' });
-  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-recall-selection-',
+  });
+  const reader = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd(), {
+    readOnly: true,
+  });
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({
@@ -654,25 +783,11 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
       persistence: 'none',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
     });
-    const sessionId = created.session.sessionId;
     const olderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const latestId = 'aaaaaaaa-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-    await artifacts.write(
-      await sourceArtifactFor(
-        sessionId,
-        olderId,
-        '2026-09-12T00:00:01.000Z',
-      ),
-    );
-    await artifacts.write(
-      await sourceArtifactFor(
-        sessionId,
-        latestId,
-        '2026-09-12T00:00:02.000Z',
-      ),
-    );
+    await seedCancelledSource(created, olderId, '2026-09-12T00:00:01.000Z');
+    await seedCancelledSource(created, latestId, '2026-09-12T00:00:02.000Z');
     assertEquals(await created.session.prepareRecall(), {
       sourceExecutionId: latestId,
       evidence: 'unavailable',
@@ -681,14 +796,16 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     try {
       await created.session.prepareRecall('aaaaaaaa');
     } catch (error) {
-      ambiguous = error instanceof WorkerRecallSelectionError && error.code === 'ambiguous';
+      ambiguous = error instanceof WorkerRecallSelectionError &&
+        error.code === 'ambiguous';
+      if (!ambiguous) throw error;
     }
     assert(ambiguous, 'ambiguous execution prefix was accepted');
     const first = await created.session.submit('use latest source');
     assert(first.ok);
-    const firstTarget = (await artifacts.list()).find((artifact) =>
-      artifact.command.task === 'use latest source'
-    );
+    const firstTarget = (await reader.executionArtifacts.list()).find((
+      artifact,
+    ) => artifact.command.task === 'use latest source');
     assert(firstTarget?.schemaVersion === 7);
     assertEquals(firstTarget.recall?.sourceExecutionId, latestId);
 
@@ -698,17 +815,17 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     });
     const second = await created.session.submit('use explicit source');
     assert(second.ok);
-    const secondTarget = (await artifacts.list()).find((artifact) =>
-      artifact.command.task === 'use explicit source'
-    );
+    const secondTarget = (await reader.executionArtifacts.list()).find((
+      artifact,
+    ) => artifact.command.task === 'use explicit source');
     assert(secondTarget?.schemaVersion === 7);
     assertEquals(secondTarget.recall?.sourceExecutionId, olderId);
 
     const third = await created.session.submit('ordinary next task');
     assert(third.ok);
-    const thirdTarget = (await artifacts.list()).find((artifact) =>
-      artifact.command.task === 'ordinary next task'
-    );
+    const thirdTarget = (await reader.executionArtifacts.list()).find((
+      artifact,
+    ) => artifact.command.task === 'ordinary next task');
     assert(thirdTarget?.schemaVersion === 7);
     assertEquals(thirdTarget.recall, undefined);
 
@@ -716,16 +833,17 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
       sourceExecutionId: latestId,
       evidence: 'unavailable',
     });
-    assert(created.session.clearPendingRecall());
+    assert(await created.session.clearPendingRecall());
     const afterClear = await created.session.submit('task after recall clear');
     assert(afterClear.ok);
-    const clearedTarget = (await artifacts.list()).find((artifact) =>
-      artifact.command.task === 'task after recall clear'
-    );
+    const clearedTarget = (await reader.executionArtifacts.list()).find((
+      artifact,
+    ) => artifact.command.task === 'task after recall clear');
     assert(clearedTarget?.schemaVersion === 7);
     assertEquals(clearedTarget.recall, undefined);
   } finally {
     await created?.close();
+    reader.close();
     await Deno.remove(stateRoot, { recursive: true });
   }
 });

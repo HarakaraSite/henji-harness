@@ -5,12 +5,10 @@ import {
   type PresentationDiagnosticPersistenceError,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
-  type PresentationMessage,
   type PresentationNavigationListing,
   type PresentationOutcome,
   type PresentationPosition,
   type PresentationProjection,
-  type PresentationRestoredThinking,
   type PresentationStartupState,
 } from '../presentation/contract.ts';
 import {
@@ -41,8 +39,8 @@ import {
   reduceUiAction,
   reduceUiEvent,
   setUiProjection,
+  uiConversationCount,
   type UiFooter,
-  type UiLogEntry,
   type UiState,
 } from './state.ts';
 import {
@@ -208,7 +206,6 @@ export class TuiRenderer implements TerminalRendererGate {
   private readonly cancelTimeout: (id: unknown) => void;
   private renderTimer: unknown;
   private lastRenderStarted: number | undefined;
-  private conversationUpdate: (() => void) | undefined;
   private displayScope = 'local';
   private geometryGeneration = 0;
   private displayedLayout: UiLayout | undefined;
@@ -280,7 +277,6 @@ export class TuiRenderer implements TerminalRendererGate {
     columns = this.lastSize.columns,
     rows = this.lastSize.rows,
   ): ScreenFrame {
-    this.applyConversationUpdate();
     const layout = this.layoutSnapshot(columns, rows);
     return this.frameFromLayout(layout);
   }
@@ -363,7 +359,6 @@ export class TuiRenderer implements TerminalRendererGate {
   close(): void {
     if (this.renderTimer !== undefined) this.cancelTimeout(this.renderTimer);
     this.renderTimer = undefined;
-    this.conversationUpdate = undefined;
     this.stopBusyElapsed();
     this.closing = true;
   }
@@ -573,7 +568,6 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       }
       case 'session_binding_replaced':
-      case 'restored_log':
       case 'context_preview':
       case 'context_result':
         this.redraw();
@@ -649,7 +643,6 @@ export class TuiRenderer implements TerminalRendererGate {
     const oldAnchor = this.ui.scroll.kind === 'anchored' && oldLayout !== undefined
       ? oldLayout.allLog[oldLayout.logStart]
       : undefined;
-    this.applyConversationUpdate();
     this.lastSize = {
       columns: Number.isSafeInteger(columns) && columns > 0 ? columns : this.lastSize.columns,
       rows: Number.isSafeInteger(rows) && rows > 0 ? rows : this.lastSize.rows,
@@ -705,7 +698,6 @@ export class TuiRenderer implements TerminalRendererGate {
       ? this.displayedLayout ?? this.layoutSnapshot()
       : this.layoutSnapshot();
     this.navigationGeneration += 1;
-    this.applyConversationUpdate();
     const rows = layout.allLog;
     if (rows.length === 0) return;
     const viewport = Math.max(1, layout.log.length);
@@ -755,7 +747,7 @@ export class TuiRenderer implements TerminalRendererGate {
     if (
       direction === 'down' && currentStart >= maxStart &&
       history !== undefined &&
-      history.end < this.ui.log.entries.length
+      history.end < uiConversationCount(this.ui)
     ) {
       this.ui = pageHistoryWindow(this.ui, 'down');
       this.redraw();
@@ -764,7 +756,7 @@ export class TuiRenderer implements TerminalRendererGate {
     if (maxStart === 0) {
       if (
         direction === 'up' && history?.start === 0 &&
-        history.end < this.ui.log.entries.length &&
+        history.end < uiConversationCount(this.ui) &&
         this.ui.scroll.kind !== 'oldest'
       ) {
         this.ui = reduceUiAction(this.ui, {
@@ -787,7 +779,7 @@ export class TuiRenderer implements TerminalRendererGate {
       ),
     );
     if (direction === 'down' && nextStart === maxStart) {
-      if (history === undefined || history.end >= this.ui.log.entries.length) {
+      if (history === undefined || history.end >= uiConversationCount(this.ui)) {
         this.latest();
         return;
       }
@@ -947,71 +939,35 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  /** Render the complete committed transcript, showing its tail first. */
-  renderRestored(
-    messages: readonly PresentationMessage[],
-    omitted = 0,
-    thinking: readonly PresentationRestoredThinking[] = [],
-    messageTurns?: readonly number[],
-    options: Readonly<{ preserveScroll?: boolean }> = {},
-  ): void {
-    if (this.closing) throw new PresentationDeliveryError();
-    const previousScroll = this.ui.scroll;
-    const previousWindow = this.ui.historyWindow;
-    this.ui = reduceUiEvent(this.ui, {
-      kind: 'restored_log',
-      messages,
-      omitted,
-      thinking,
-      ...(messageTurns === undefined ? {} : { messageTurns }),
-    });
-    if (
-      options.preserveScroll === true && previousScroll.kind !== 'followLatest'
-    ) {
-      const entryCount = this.ui.log.entries.length;
-      const end = Math.min(entryCount, previousWindow?.end ?? entryCount);
-      const start = Math.min(end, previousWindow?.start ?? 0);
-      this.ui = Object.freeze({
-        ...this.ui,
-        ...(previousWindow === undefined ? {} : {
-          historyWindow: Object.freeze({ start, end }),
-        }),
-      });
-      this.ui = reduceUiAction(this.ui, {
-        kind: 'scroll',
-        mode: previousScroll,
-      });
-    }
-    this.redraw();
-  }
-
-  /** Keep only the latest pending heavy projection; client/editor updates remain synchronous. */
+  /** Apply projection work synchronously; only the terminal draw is coalesced. */
   updateConversation(update: () => void): void {
     if (this.closing) return;
-    this.conversationUpdate = update;
+    update();
     this.redraw();
   }
 
   setDisplayScope(scope: string): void {
     if (scope === this.displayScope) return;
     this.displayScope = scope;
-    this.conversationUpdate = undefined;
     this.displayedLayout = undefined;
     this.entryLayoutCache.clear();
     this.clearModal();
     this.latest();
   }
 
-  setConversationEntries(
-    entries: readonly UiLogEntry[],
-    omitted: number,
+  setKeyedConversationStore(
+    store: import('./keyed_conversation_store.ts').KeyedConversationStore,
     resetScroll = false,
+    structureChanged = false,
+    previousIds?: readonly string[],
   ): void {
+    if (this.closing) return;
     this.ui = reduceUiAction(this.ui, {
-      kind: 'conversation_projection',
-      entries,
-      omitted,
+      kind: 'keyed_conversation',
+      store,
       resetScroll,
+      structureChanged,
+      ...(previousIds === undefined ? {} : { previousIds }),
     });
     this.redraw();
   }
@@ -1021,12 +977,6 @@ export class TuiRenderer implements TerminalRendererGate {
     return () => {
       this.renderFailureHandlers.delete(handler);
     };
-  }
-
-  private applyConversationUpdate(): void {
-    const update = this.conversationUpdate;
-    this.conversationUpdate = undefined;
-    update?.();
   }
 
   redraw(): void {
@@ -1050,10 +1000,6 @@ export class TuiRenderer implements TerminalRendererGate {
     if (this.renderTimer !== undefined) this.cancelTimeout(this.renderTimer);
     this.renderTimer = undefined;
     this.lastRenderStarted = this.now();
-    this.applyConversationUpdate();
-    // Applying the projection may request a redraw; it belongs to this same frame.
-    if (this.renderTimer !== undefined) this.cancelTimeout(this.renderTimer);
-    this.renderTimer = undefined;
     try {
       const size = this.terminal.consoleSize();
       if (

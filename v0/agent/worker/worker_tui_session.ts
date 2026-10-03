@@ -1,5 +1,7 @@
+import { createDataClient } from '../data/client.ts';
+import type { DataService } from '../data/data_contract.ts';
+import type { DataSessionDescriptor } from '../data/session_data_owner.ts';
 import type { AgentEventSink } from '../core/events.ts';
-import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { ContextView, EffectiveRuntimeConfig, SessionActivation } from '../../api/contract.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
@@ -26,18 +28,12 @@ import {
 } from '../runtime/startup_orientation.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
-import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import type { NavigationPosition, RestoredConversation } from '../session/session_navigation.ts';
 import {
   type DefinitionRevisionRef,
   launcherStateRoot,
-  type SemanticContextCheckpointV1,
   type SessionRecord,
   SessionStoreError,
-  type StoredSessionRecord,
-  type WorkerSessionHandle,
 } from '../session/session_store.ts';
-import { causalTranscriptIndex } from '../session/session_record_codec.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import {
   managedToolDefinitionLoadRequest,
@@ -63,8 +59,6 @@ import type {
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import type { ApplicationObservationSink, ApplicationQueryPort } from '../host/application_port.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
-import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
 import {
   builtinHenjiBaseInstruction,
   resolveHenjiBaseInstruction,
@@ -72,45 +66,9 @@ import {
 } from '../instructions/base_instruction.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
-class MemoryWorkerHandle implements WorkerSessionHandle {
-  private current: StoredSessionRecord | undefined;
-  private currentCheckpoint: SemanticContextCheckpointV1 | undefined;
-
-  constructor(readonly id: string) {}
-
-  get record(): StoredSessionRecord | undefined {
-    return this.current === undefined ? undefined : structuredClone(this.current);
-  }
-
-  get checkpoint(): SemanticContextCheckpointV1 | undefined {
-    return this.currentCheckpoint === undefined
-      ? undefined
-      : structuredClone(this.currentCheckpoint);
-  }
-
-  commit(record: StoredSessionRecord): void {
-    this.current = structuredClone(record);
-  }
-
-  rollback(): void {
-    this.current = undefined;
-  }
-
-  installCheckpoint(checkpoint: SemanticContextCheckpointV1): void {
-    this.currentCheckpoint = structuredClone(checkpoint);
-  }
-
-  rollbackCheckpoint(): void {
-    this.currentCheckpoint = undefined;
-  }
-
-  close(): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
 export interface WorkerSessionOptions {
   readonly workspaceRoot?: string;
+  readonly data?: DataService;
   readonly stateRoot?: string;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   /** Leave the initial session facade unstarted until an operation needs live Host behavior. */
@@ -135,8 +93,6 @@ export interface WorkerSessionOptions {
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   readonly eventSink?: AgentEventSink;
   readonly applicationObservationSink?: ApplicationObservationSink;
-  readonly diagnosticPersistence?: FailureDiagnosticPersister;
-  readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
 }
 
@@ -146,124 +102,39 @@ export interface WorkerSessionResult {
   readonly requestCount: () => number;
   readonly close: () => Promise<void>;
   readonly workspaceRoot: string;
-  readonly restored?: RestoredConversation;
+  readonly data: DataService;
   readonly displayState: RuntimeDisplayState;
   readonly query: ApplicationQueryPort;
 }
 
-const navigationPosition = (
-  value: ReturnType<WorkerHostSession['currentPosition']>,
-): NavigationPosition => ({
-  sessionId: value.sessionId,
-  createdAt: value.createdAt,
-  ...(value.title === undefined ? {} : { title: value.title }),
-  agent: value.agent,
-  committedTurn: value.committedTurn,
-  messageCount: value.messageCount,
-  ...(value.checkpoint === undefined ? {} : { checkpoint: value.checkpoint }),
-});
-
-export const restoreRecordMessages = (
-  record: StoredSessionRecord,
-  history: SqliteHistoryV7ProductionStore,
-  sessionHistory = history.readSessionHistory(record.sessionId),
-): RestoredConversation => {
-  const index = record.transcript.length === 0
-    ? { turns: [] as const }
-    : causalTranscriptIndex(record.transcript);
-  if (index === undefined) throw new SessionStoreError('session_invalid');
-  const canonicalThinking = new Map(
-    sessionHistory
-      .filter(({ execution }) =>
-        execution.adoption === 'canonical' &&
-        execution.parentExecutionId === undefined
-      )
-      .map(({ execution, thinking }) => [execution.turn, thinking] as const),
-  );
-  const observations: RestoredConversation['thinking'][number][] = [];
-  const messageTurns: number[] = [];
-  for (const range of index.turns) {
-    for (
-      let messageIndex = range.start;
-      messageIndex < range.end;
-      messageIndex += 1
-    ) {
-      messageTurns[messageIndex] = range.turn;
-    }
-    const thinking = canonicalThinking.get(range.turn) ?? [];
-    let modelStep = 0;
-    for (
-      let messageIndex = range.start;
-      messageIndex < range.end;
-      messageIndex += 1
-    ) {
-      if (record.transcript[messageIndex].role !== 'assistant') continue;
-      modelStep += 1;
-      for (const item of thinking) {
-        if (item.modelStep !== modelStep) continue;
-        observations.push({
-          beforeMessageIndex: messageIndex,
-          turn: range.turn,
-          modelStep: item.modelStep,
-          thinkingKind: item.thinkingKind,
-          text: item.text,
-          complete: item.complete,
-        });
-      }
-    }
-    for (const item of thinking) {
-      if (item.modelStep <= modelStep) continue;
-      observations.push({
-        beforeMessageIndex: range.end,
-        turn: range.turn,
-        modelStep: item.modelStep,
-        thinkingKind: item.thinkingKind,
-        text: item.text,
-        complete: item.complete,
-      });
-    }
-  }
-  return {
-    messages: record.transcript.map((message) => structuredClone(message)),
-    messageTurns,
-    omitted: 0,
-    thinking: observations,
-  };
-};
-
-/** Host-owned active session facade shared by the Core API and headless runner. */
 export interface HostActiveSession {
   readonly definition: DefinitionRevisionRef;
   readonly sessionId: string;
-  submit(
-    text: string,
-    recalledContext?: Parameters<WorkerHostSession['submit']>[1],
-  ): Promise<LoopOutcome>;
-  admit(
-    text: string,
-    recalledContext?: Parameters<WorkerHostSession['admit']>[1],
-  ): ReturnType<WorkerHostSession['admit']>;
+  submit(text: string): ReturnType<WorkerHostSession['submit']>;
+  admit(text: string, executionId?: string): ReturnType<WorkerHostSession['admit']>;
   startupSnapshot():
     | ReturnType<WorkerHostSession['startupSnapshot']>
     | undefined;
-  transcriptSnapshot(): readonly Message[];
   currentPosition(): ReturnType<WorkerHostSession['currentPosition']>;
+  executionSnapshot(): ReturnType<WorkerHostSession['executionSnapshot']>;
   modelSelectionSnapshot(): ModelSelection;
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined;
   /** Presence-only display refresh; an unstarted session must not start a Worker for it. */
   refreshCredentialAvailability(): Promise<CredentialAvailability | undefined>;
-  checkpointSnapshot(): SemanticContextCheckpointV1 | undefined;
   effectiveConfigSnapshot(): EffectiveRuntimeConfig;
   pendingRecallSnapshot(): ContextView['pendingRecall'];
-  consumeAutoCompactionNotice(): {
-    readonly coveredThroughTurn: number;
-    readonly retainedFromTurn: number;
-  } | null;
+  contextSnapshot(): ContextView;
+  consumeAutoCompactionNotice(): Promise<
+    {
+      readonly coveredThroughTurn: number;
+      readonly retainedFromTurn: number;
+    } | null
+  >;
   prepareRecall(id?: string): Promise<{
     readonly sourceExecutionId: string;
     readonly evidence: 'available' | 'unavailable';
   }>;
-  clearPendingRecall(): boolean;
+  clearPendingRecall(): Promise<boolean>;
   renameTitle(
     value: string,
   ):
@@ -302,16 +173,14 @@ class LazyWorkerSession implements HostActiveSession {
   private host: WorkerHostSession | undefined;
   private starting: Promise<WorkerHostSession> | undefined;
   private closed = false;
+  private pendingAdmission: { executionId: string; cancelled: boolean } | undefined;
   private localCredentialAvailability: CredentialAvailability | undefined;
 
   constructor(
-    private readonly handle: WorkerSessionHandle,
-    private readonly record: StoredSessionRecord | undefined,
+    private readonly data: DataService,
+    private readonly descriptor: DataSessionDescriptor,
     private readonly selected: DefinitionRevisionRef,
     private readonly startHost: () => Promise<WorkerHostSession>,
-    private readonly initialSelection: ModelSelection,
-    private readonly initialCreatedAt: string,
-    private readonly initialAgent: SessionRecord['agent'],
     private readonly config: Pick<
       WorkerSessionOptions,
       'rootMaxSteps' | 'providerTimeoutMs' | 'activation' | 'configRoot'
@@ -324,7 +193,7 @@ class LazyWorkerSession implements HostActiveSession {
   }
 
   get sessionId(): string {
-    return this.handle.id;
+    return this.descriptor.id;
   }
 
   private async ensureStarted(): Promise<WorkerHostSession> {
@@ -339,18 +208,22 @@ class LazyWorkerSession implements HostActiveSession {
     return await this.starting;
   }
 
-  async submit(
-    text: string,
-    recalledContext?: Parameters<WorkerHostSession['submit']>[1],
-  ): Promise<LoopOutcome> {
-    return await (await this.ensureStarted()).submit(text, recalledContext);
+  async submit(text: string): ReturnType<WorkerHostSession['submit']> {
+    return await (await this.ensureStarted()).submit(text);
   }
 
   async admit(
     text: string,
-    recalledContext?: Parameters<WorkerHostSession['admit']>[1],
+    executionId = crypto.randomUUID().toLowerCase(),
   ): ReturnType<WorkerHostSession['admit']> {
-    return await (await this.ensureStarted()).admit(text, recalledContext);
+    const reservation = { executionId, cancelled: false };
+    this.pendingAdmission = reservation;
+    try {
+      const host = await this.ensureStarted();
+      return await host.admit(text, executionId, reservation.cancelled);
+    } finally {
+      if (this.pendingAdmission === reservation) this.pendingAdmission = undefined;
+    }
   }
 
   startupSnapshot():
@@ -399,6 +272,13 @@ class LazyWorkerSession implements HostActiveSession {
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    const pending = this.pendingAdmission;
+    if (pending !== undefined) {
+      if (pending.cancelled) return 'already_requested';
+      pending.cancelled = true;
+      this.host?.cancelActiveTurn();
+      return 'requested';
+    }
     return this.host?.cancelActiveTurn() ?? 'idle';
   }
 
@@ -415,48 +295,17 @@ class LazyWorkerSession implements HostActiveSession {
       { active: false, phase: 'idle' as const };
   }
 
-  transcriptSnapshot(): readonly Message[] {
-    return this.host?.transcriptSnapshot() ??
-      structuredClone(this.record?.transcript ?? []);
+  currentPosition(): ReturnType<WorkerHostSession['currentPosition']> {
+    return this.host?.currentPosition() ?? structuredClone(this.descriptor.currentPosition);
   }
 
-  currentPosition(): ReturnType<WorkerHostSession['currentPosition']> {
-    if (this.host !== undefined) return this.host.currentPosition();
-    const checkpoint = this.handle.checkpoint;
-    if (this.record === undefined) {
-      return {
-        sessionId: this.handle.id,
-        createdAt: this.initialCreatedAt,
-        agent: this.initialAgent,
-        committedTurn: 0,
-        messageCount: 0,
-        ...(checkpoint === undefined ? {} : {
-          checkpoint: {
-            coveredThroughTurn: checkpoint.coveredThroughTurn,
-            retainedFromTurn: checkpoint.retainedFromTurn,
-          },
-        }),
-      };
-    }
-    return {
-      sessionId: this.handle.id,
-      createdAt: this.record.createdAt,
-      ...(this.record.title === null ? {} : { title: this.record.title }),
-      agent: this.record.agent,
-      committedTurn: this.record.nextTurn - 1,
-      messageCount: this.record.transcript.length,
-      ...(checkpoint === undefined ? {} : {
-        checkpoint: {
-          coveredThroughTurn: checkpoint.coveredThroughTurn,
-          retainedFromTurn: checkpoint.retainedFromTurn,
-        },
-      }),
-    };
+  executionSnapshot(): ReturnType<WorkerHostSession['executionSnapshot']> {
+    return this.host?.executionSnapshot() ?? this.descriptor.latestExecution;
   }
 
   modelSelectionSnapshot(): ModelSelection {
     return this.host?.modelSelectionSnapshot() ??
-      structuredClone(this.record?.activeModel ?? this.initialSelection);
+      structuredClone(this.descriptor.modelSelection);
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
@@ -475,7 +324,7 @@ class LazyWorkerSession implements HostActiveSession {
     if (this.host !== undefined) {
       return await this.host.refreshCredentialAvailability();
     }
-    const selection = this.record?.activeModel ?? this.initialSelection;
+    const selection = this.descriptor.modelSelection;
     const profile = selection.authProfile;
     const registrationId = 'registrationId' in selection ? selection.registrationId : undefined;
     const status = profile === 'openai-chatgpt'
@@ -490,20 +339,21 @@ class LazyWorkerSession implements HostActiveSession {
     return availability;
   }
 
-  checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
-    return this.host?.checkpointSnapshot() ??
-      (this.handle.checkpoint === undefined ? undefined : structuredClone(this.handle.checkpoint));
+  async consumeAutoCompactionNotice(): Promise<
+    {
+      readonly coveredThroughTurn: number;
+      readonly retainedFromTurn: number;
+    } | null
+  > {
+    return await this.host?.consumeAutoCompactionNotice() ?? null;
   }
 
-  consumeAutoCompactionNotice(): {
-    readonly coveredThroughTurn: number;
-    readonly retainedFromTurn: number;
-  } | null {
-    return this.host?.consumeAutoCompactionNotice() ?? null;
+  async clearPendingRecall(): Promise<boolean> {
+    return await this.host?.clearPendingRecall() ?? false;
   }
 
-  clearPendingRecall(): boolean {
-    return this.host?.clearPendingRecall() ?? false;
+  contextSnapshot(): ContextView {
+    return this.host?.contextSnapshot() ?? this.descriptor.context;
   }
 
   async selectModel(
@@ -541,7 +391,7 @@ class LazyWorkerSession implements HostActiveSession {
       if (started !== undefined) await started.close();
       return;
     }
-    await this.handle.close();
+    await this.data.closeSession(this.descriptor.id);
   }
 }
 
@@ -573,21 +423,14 @@ export const createWorkerSession = async (
   const configuredDefaultSelection = options.initialModelSelection ??
     (configRoot === undefined ? undefined : await readDefaultSelection(configRoot));
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
-  const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
-    ? new SqliteHistoryV7ProductionStore(
-      options.stateRoot ?? launcherStateRoot(),
-      workspace.root,
-      {},
-    )
-    : undefined;
-  const store = options.persistence === 'none' ? undefined : sqliteHistory;
-  let handle: WorkerSessionHandle;
-  let record: StoredSessionRecord | undefined;
+  const ownsData = options.data === undefined;
+  const data = options.data ?? await createDataClient({
+    stateRoot: options.stateRoot ?? launcherStateRoot(),
+    workspaceRoot: workspace.root,
+  });
   let selection = options.selection;
-  if (
-    selection !== undefined && options.agent !== undefined &&
-    selection.id !== options.agent
-  ) {
+  if (selection !== undefined && options.agent !== undefined && selection.id !== options.agent) {
+    if (ownsData) await data.close();
     throw new DefinitionStartupError(
       'definition_role_mismatch',
       'session_binding',
@@ -595,74 +438,43 @@ export const createWorkerSession = async (
       selection.ref,
     );
   }
-  const requestedSelection = async (): Promise<HostDefinitionSelection> =>
-    selection ??= await resolveRequestedDefinition(
-      options.agent,
-      undefined,
-      options.dataRoot,
-      configRoot,
-    );
-  const bindRecord = async (
-    candidate: StoredSessionRecord,
-    requested?: HostDefinitionSelection,
-  ): Promise<HostDefinitionSelection> => {
-    if (candidate.workspaceRoot !== workspace.root) {
-      throw new SessionStoreError('session_invalid');
+  try {
+    const saved = options.persistence === 'session' && options.sessionId !== undefined
+      ? await data.sessionDescriptor(options.sessionId)
+      : undefined;
+    if (selection === undefined) {
+      selection = await resolveRequestedDefinition(
+        options.agent,
+        undefined,
+        options.dataRoot,
+        configRoot,
+      );
     }
-    // A stored Session keeps its per-turn Definition attribution, but continuing it uses the
-    // currently resolved Definition. A differing stored revision is a transition, not a failure.
-    const current = requested ?? await requestedSelection();
-    if (candidate.agent !== current.id) {
+    if (saved !== undefined && saved.agent !== selection.id) {
       throw new DefinitionStartupError(
         'definition_role_mismatch',
         'session_binding',
         'Session Agent role does not match the selected Definition',
-        candidate.definition,
+        saved.definition,
       );
     }
-    return current;
-  };
-  if (options.persistence === 'none') {
-    selection = await requestedSelection();
-    handle = new MemoryWorkerHandle(crypto.randomUUID().toLowerCase());
-  } else if (options.persistence === 'continue') {
-    const requested = await requestedSelection();
-    const listed = await store!.listWorker();
-    const candidate = listed.sessions.find((item) => item.agent === requested.id);
-    if (candidate === undefined) throw new Error('session not found');
-    handle = await store!.openExistingWorker(candidate.id);
-    record = handle.record;
-    if (record === undefined) {
-      await handle.close();
-      throw new SessionStoreError('session_invalid');
-    }
-    try {
-      selection = await bindRecord(record, requested);
-    } catch (error) {
-      await handle.close();
-      throw error;
-    }
-  } else if (options.persistence === 'session') {
-    if (options.sessionId === undefined) throw new Error('session id required');
-    handle = await store!.openExistingWorker(options.sessionId);
-    record = handle.record;
-    if (record === undefined) {
-      await handle.close();
-      throw new SessionStoreError('session_invalid');
-    }
-    try {
-      selection = await bindRecord(record, selection);
-    } catch (error) {
-      await handle.close();
-      throw error;
-    }
-  } else {
-    selection = await requestedSelection();
-    handle = await store!.allocateWorker(selection.id, selection.ref);
+  } catch (error) {
+    if (ownsData) await data.close();
+    throw error;
   }
+  const descriptor = await data.openSession({
+    persistence: options.persistence,
+    agent: selection.id,
+    definition: selection.ref,
+    ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+    initialModelSelection: configuredDefaultSelection ??
+      defaultModelSelectionFor('openrouter-chat'),
+  }).catch(async (error) => {
+    if (ownsData) await data.close();
+    throw error;
+  });
   try {
     if (selection === undefined) throw new SessionStoreError('session_invalid');
-    if (options.persistence === 'none') await sqliteHistory?.initialize();
     const activeSelection = selection;
     const modulePath = activeSelection.kind === 'builtin'
       ? workerBuiltinModulePath(activeSelection.id)
@@ -671,14 +483,6 @@ export const createWorkerSession = async (
       ? managedWorkerDefinitionLoadRequest(activeSelection.revision)
       : undefined;
     const definition = activeSelection.ref;
-    const defaultExecutionArtifactStore = options.executionArtifactStore;
-    if (
-      record !== undefined &&
-      (record.workspaceRoot !== workspace.root ||
-        record.agent !== activeSelection.id)
-    ) {
-      throw new Error('session binding does not match the selected Definition');
-    }
     /*
      * The activation-level `agents.json` file is validated on every generation open so an
      * abolished `subagent:<name>` slot surfaces a typed failure instead of being ignored.
@@ -786,20 +590,16 @@ export const createWorkerSession = async (
       return requests.length === 0 ? undefined : requests;
     };
     const openHost = async (
-      workerHandle: WorkerSessionHandle,
-      initialModelSelection = configuredDefaultSelection,
+      sessionDescriptor: DataSessionDescriptor,
     ): Promise<WorkerHostSession> => {
       try {
         setActiveProviderDeclarations(providerDeclarations);
         baseInstruction = await resolveBaseInstruction();
-        const effectiveInitialSelection = initialModelSelection ??
-          defaultModelSelectionFor('openrouter-chat');
         return await WorkerHostSession.open({
-          handle: workerHandle,
+          data,
+          descriptor: sessionDescriptor,
           workspaceRoot: workspace.root,
           ...(configRoot === undefined ? {} : { configRoot }),
-          agent: activeSelection.id,
-          definition,
           modulePath,
           loadDescriptor,
           asyncAgents: await resolveAsyncAgents(),
@@ -812,17 +612,10 @@ export const createWorkerSession = async (
           cancelSettlementGraceMs: options.cancelSettlementGraceMs,
           workerResponseTimeoutMs: options.workerResponseTimeoutMs,
           auxiliaryStageGapMs: options.auxiliaryStageGapMs,
-          initialModelSelection: effectiveInitialSelection,
           baseInstruction,
           providerDeclarations,
           eventSink: options.eventSink,
           applicationObservationSink: options.applicationObservationSink,
-          diagnosticPersistence: options.diagnosticPersistence,
-          executionArtifactStore: defaultExecutionArtifactStore,
-          ...(sqliteHistory === undefined ? {} : {
-            historyPersistence: sqliteHistory,
-            durableCanonicalHistory: options.persistence !== 'none',
-          }),
           capsuleFactory: options.capsuleFactory,
         });
       } catch (error) {
@@ -844,9 +637,9 @@ export const createWorkerSession = async (
         );
       }
     };
-    const host = options.lazyInitialHost ? undefined : await openHost(handle);
+    const host = options.lazyInitialHost ? undefined : await openHost(descriptor);
     const initialSelection = host?.modelSelectionSnapshot() ??
-      record?.activeModel ??
+      descriptor.modelSelection ??
       configuredDefaultSelection ?? defaultModelSelectionFor('openrouter-chat');
     const startupSnapshot = host?.startupSnapshot();
     const displayState = projectRuntimeDisplayState({
@@ -869,87 +662,61 @@ export const createWorkerSession = async (
       skillNames: startupSnapshot?.skillNames ?? [],
     });
     const currentHost: HostActiveSession = host ?? new LazyWorkerSession(
-      handle,
-      record,
+      data,
+      descriptor,
       definition,
-      () => openHost(handle),
-      initialSelection,
-      record?.createdAt ?? new Date().toISOString(),
-      activeSelection.id,
+      () => openHost(descriptor),
       options,
       activeSelection.kind === 'builtin',
     );
-    const currentHandle = handle;
-    const position = (): NavigationPosition => navigationPosition(currentHost.currentPosition());
+    const position = () => currentHost.currentPosition();
     const query: ApplicationQueryPort = {
       currentSession: () => {
-        const checkpoint = currentHost.checkpointSnapshot();
         const workerStartup = currentHost.startupSnapshot();
-        const effectiveConfig = currentHost.effectiveConfigSnapshot();
         const pendingRecall = currentHost.pendingRecallSnapshot();
-        const currentRecord = currentHandle.record;
         return {
-          sessionId: currentHandle.id,
+          sessionId: currentHost.sessionId,
           persistence: options.persistence,
           position: position(),
-          selection: structuredClone(currentHost.modelSelectionSnapshot()),
-          startup: structuredClone(displayState),
+          selection: currentHost.modelSelectionSnapshot(),
+          startup: displayState,
           ...(workerStartup === undefined ? {} : { workerStartup }),
-          effectiveConfig,
+          effectiveConfig: currentHost.effectiveConfigSnapshot(),
           ...(pendingRecall === undefined ? {} : { pendingRecall }),
           ...(currentHost.credentialAvailabilitySnapshot() === undefined ? {} : {
-            credentialAvailability: structuredClone(
-              currentHost.credentialAvailabilitySnapshot()!,
-            ),
+            credentialAvailability: currentHost.credentialAvailabilitySnapshot()!,
           }),
-          ...(checkpoint === undefined ? {} : { checkpoint: structuredClone(checkpoint) }),
           runtime: currentHost.runtimeSnapshot(),
-          transcript: structuredClone(currentHost.transcriptSnapshot()),
-          ...(options.persistence === 'none' || currentRecord === undefined ||
-              sqliteHistory === undefined
-            ? {}
-            : {
-              restored: restoreRecordMessages(currentRecord, sqliteHistory),
-            }),
+          execution: currentHost.executionSnapshot(),
+          context: currentHost.contextSnapshot(),
         };
       },
-      sessionHistory: () =>
-        options.persistence === 'none' || sqliteHistory === undefined ||
-          currentHandle.record === undefined
-          ? []
-          : sqliteHistory.readSessionHistory(currentHandle.id),
-      executions: () => {
-        if (sqliteHistory === undefined) return [];
-        if (sqliteHistory.listExecutionsForSession !== undefined) {
-          return sqliteHistory.listExecutionsForSession(currentHandle.id);
-        }
-        return sqliteHistory.listExecutions().filter((item) =>
-          item.sessionCorrelation === currentHandle.id
-        );
-      },
-      executionEvents: (executionId) => sqliteHistory?.listExecutionEvents(executionId) ?? [],
-      semanticOccurrences: (executionId) =>
-        sqliteHistory?.listSemanticOccurrences(executionId) ?? [],
-      assistantTextStates: (executionId) =>
-        sqliteHistory?.listAssistantTextStates(executionId) ?? [],
-      ...(sqliteHistory === undefined ? {} : {
-        executionContext: (executionId) => sqliteHistory.listExecutionContext(executionId),
-      }),
     };
+    let closeTask: Promise<void> | undefined;
     return {
       session: currentHost,
       currentSession: () => currentHost,
       requestCount: () => currentHost.requestCount(),
-      close: () => currentHost.close(),
+      close: () =>
+        closeTask ??= (async () => {
+          try {
+            await currentHost.close();
+          } finally {
+            try {
+              await data.closeSession(currentHost.sessionId);
+            } finally {
+              if (ownsData) await data.close();
+            }
+          }
+        })(),
+      data,
       workspaceRoot: workspace.root,
       displayState,
-      ...(record === undefined || sqliteHistory === undefined ? {} : {
-        restored: restoreRecordMessages(record, sqliteHistory),
-      }),
       query,
     };
   } catch (error) {
-    await handle.close();
+    await data.closeSession(descriptor.id);
+    if (ownsData) await data.close();
     throw error;
   }
 };

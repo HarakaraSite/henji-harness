@@ -1,12 +1,12 @@
+import {
+  childDataTest,
+  closeChildDataTests,
+  createChildDataTestRegistry,
+} from './helpers/increment_170_child_data.ts';
+import type { DataService } from '../../v0/agent/data/data_contract.ts';
 import { managedChildModule, managedChildRef } from './managed_child_fixture.ts';
-import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
-import type {
-  HistoryPersistencePort,
-  NonCanonicalExecutionInput,
-} from '../../v0/agent/history/history_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
+import type { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import {
   bundledToolDefinitionLoadRequests,
 } from '../../v0/agent/worker/worker_definition_revision.ts';
@@ -24,35 +24,22 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-const handle = (): WorkerSessionHandle => ({
-  id: crypto.randomUUID().toLowerCase(),
-  commit: () => {},
-  rollback: () => {},
-  installCheckpoint: () => {},
-  rollbackCheckpoint: () => {},
-  close: () => Promise.resolve(),
-});
-
 const registry = async (
-  history: HistoryPersistencePort,
+  history: SqliteHistoryV7ProductionStore,
   rootMaxSteps?: number,
 ): Promise<ChildRunRegistry> => {
   const plannerRef = managedChildRef();
-  return new ChildRunRegistry({
+  const { registry } = await createChildDataTestRegistry({
     options: {
-      handle: handle(),
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition: plannerRef,
       physicalIoMode: 'provider-free',
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
       ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     },
     catalog: [{ name: 'probe-child', ref: plannerRef }],
     resolveManagedModule: managedChildModule,
-    history,
-    build: buildManifest(),
+    store: history,
   });
+  return registry;
 };
 
 const withStore = async (
@@ -70,12 +57,13 @@ const withStore = async (
   try {
     await run(store);
   } finally {
+    await closeChildDataTests(store);
     store.close();
     await Deno.remove(root, { recursive: true });
   }
 };
 
-Deno.test('Increment 111 persists completed child outcome', async () => {
+childDataTest('Increment 111 persists completed child outcome', async () => {
   await withStore('completed', async (store) => {
     const children = await registry(store);
     const parentExecutionId = 'parent-i111-completed';
@@ -108,7 +96,7 @@ Deno.test('Increment 111 persists completed child outcome', async () => {
   });
 });
 
-Deno.test('Increment 111 preserves max-steps counts and structured diagnostic', async () => {
+childDataTest('Increment 111 preserves max-steps counts and structured diagnostic', async () => {
   await withStore('max-steps', async (store) => {
     const children = await registry(store, 2);
     const parentExecutionId = 'parent-i111-max-steps';
@@ -147,77 +135,102 @@ Deno.test('Increment 111 preserves max-steps counts and structured diagnostic', 
   });
 });
 
-Deno.test('Increment 111 preserves the Worker failure instead of a generic child error', async () => {
-  await withStore('worker-failure', async (store) => {
-    const children = await registry(store);
-    const parentExecutionId = 'parent-i111-worker-failure';
+childDataTest(
+  'Increment 111 preserves the Worker failure instead of a generic child error',
+  async () => {
+    await withStore('worker-failure', async (store) => {
+      const children = await registry(store);
+      const parentExecutionId = 'parent-i111-worker-failure';
+      children.openParent(parentExecutionId);
+      const spawned = await children.handle(
+        { kind: 'spawn', agent: 'probe-child', task: 'child-fail task' },
+        undefined,
+        parentExecutionId,
+      );
+      assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
+      const collected = await children.handle(
+        { kind: 'collect', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(
+        collected.ok && collected.kind === 'collect',
+        JSON.stringify(collected),
+      );
+      assertEquals(collected.result.state, 'failed');
+      assertEquals(collected.result.stopReason, 'contract_failure');
+      assertEquals(
+        collected.result.error,
+        'model contract failure: child task failed on purpose',
+      );
+      assertEquals(collected.result.diagnosticCode, 'unknown_code');
+      assertEquals(collected.result.diagnosticDurability, 'yes');
+
+      const row = store.readExecution(spawned.runId);
+      assertEquals(row.outcomeJson?.error, collected.result.error);
+      assertEquals(row.outcomeJson?.steps, 1);
+      assertEquals(row.outcomeJson?.turnProviderRequestCount, 0);
+      assertEquals(
+        (await store.diagnostics.read(row.diagnosticId!)).code,
+        'unknown_code',
+      );
+      await children.cleanupParent(parentExecutionId);
+    });
+  },
+);
+
+childDataTest('Increment 111 does not fabricate evidence for pre-start cancellation', async () => {
+  await withStore('pre-start', async (store) => {
+    let releaseAdmission!: () => void;
+    let admissionStarted!: () => void;
+    const barrier = new Promise<void>((resolve) => releaseAdmission = resolve);
+    const started = new Promise<void>((resolve) => admissionStarted = resolve);
+    const { registry: children } = await createChildDataTestRegistry({
+      options: {
+        physicalIoMode: 'provider-free',
+        toolDefinitions: await bundledToolDefinitionLoadRequests(),
+      },
+      catalog: [{ name: 'probe-child', ref: managedChildRef() }],
+      resolveManagedModule: managedChildModule,
+      store,
+      transformData: (data) =>
+        new Proxy(data, {
+          get(target, key) {
+            if (key === 'executionAdmit') {
+              return async (...args: Parameters<DataService['executionAdmit']>) => {
+                admissionStarted();
+                await barrier;
+                return await target.executionAdmit(...args);
+              };
+            }
+            const value = Reflect.get(target, key);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        }),
+    });
+    const parentExecutionId = 'parent-i111-pre-start-cancel';
     children.openParent(parentExecutionId);
-    const spawned = await children.handle(
-      { kind: 'spawn', agent: 'probe-child', task: 'child-fail task' },
+    const spawning = children.handle(
+      { kind: 'spawn', agent: 'probe-child', task: 'never dispatched' },
       undefined,
       parentExecutionId,
     );
-    assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
-    const collected = await children.handle(
-      { kind: 'collect', runId: spawned.runId },
-      undefined,
-      parentExecutionId,
-    );
-    assert(
-      collected.ok && collected.kind === 'collect',
-      JSON.stringify(collected),
-    );
-    assertEquals(collected.result.state, 'failed');
-    assertEquals(collected.result.stopReason, 'contract_failure');
+    await started;
+    const cleanup = children.cleanupParent(parentExecutionId);
+    releaseAdmission();
+    const [spawned, cleaned] = await Promise.all([spawning, cleanup]);
+    assert(!spawned.ok);
+    assertEquals(cleaned?.runs[0].state, 'cancelled');
+    const rows = store.listExecutions();
+    assertEquals(rows.length, 1);
+    assertEquals(rows[0].outcome, 'cancelled');
+    assertEquals(rows[0].outcomeJson?.steps, 0);
     assertEquals(
-      collected.result.error,
-      'model contract failure: child task failed on purpose',
+      store.listExecutionEvents(rows[0].executionId).filter((event) =>
+        event.kind === 'provider_request_start'
+      ).length,
+      0,
     );
-    assertEquals(collected.result.diagnosticCode, 'unknown_code');
-    assertEquals(collected.result.diagnosticDurability, 'yes');
-
-    const row = store.readExecution(spawned.runId);
-    assertEquals(row.outcomeJson?.error, collected.result.error);
-    assertEquals(row.outcomeJson?.steps, 1);
-    assertEquals(row.outcomeJson?.turnProviderRequestCount, 0);
-    assertEquals(
-      (await store.diagnostics.read(row.diagnosticId!)).code,
-      'unknown_code',
-    );
-    await children.cleanupParent(parentExecutionId);
+    assertEquals(rows[0].diagnosticId, undefined);
   });
-});
-
-Deno.test('Increment 111 does not fabricate evidence for pre-start cancellation', async () => {
-  let releaseAdmission!: () => void;
-  let admissionStarted!: () => void;
-  const barrier = new Promise<void>((resolve) => releaseAdmission = resolve);
-  const started = new Promise<void>((resolve) => admissionStarted = resolve);
-  let settlement: NonCanonicalExecutionInput | undefined;
-  const history = {
-    beginExecution: async () => {
-      admissionStarted();
-      await barrier;
-    },
-    settleNonCanonicalExecution: (input: NonCanonicalExecutionInput) => {
-      settlement = input;
-      return {};
-    },
-  } as unknown as HistoryPersistencePort;
-  const children = await registry(history);
-  const parentExecutionId = 'parent-i111-pre-start-cancel';
-  children.openParent(parentExecutionId);
-  const spawning = children.handle(
-    { kind: 'spawn', agent: 'probe-child', task: 'never dispatched' },
-    undefined,
-    parentExecutionId,
-  );
-  await started;
-  const cleanup = children.cleanupParent(parentExecutionId);
-  releaseAdmission();
-  const [spawned, cleaned] = await Promise.all([spawning, cleanup]);
-  assert(!spawned.ok);
-  assertEquals(cleaned?.runs[0].state, 'cancelled');
-  assertEquals(settlement?.outcome.stopReason, 'cancelled');
-  assertEquals(settlement?.diagnostic, undefined);
 });

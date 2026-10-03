@@ -1,5 +1,6 @@
 import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
+import type { ConversationEntity } from '../../v0/conversation/model.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import { apiStartupFixture } from './fixtures/api_startup.ts';
@@ -20,8 +21,33 @@ const build = {
   supportedToolDefinitionApiContracts: ['henji-tool-definition-v1'],
 };
 
+const initialEntities: Readonly<Record<string, ConversationEntity>> = {
+  'remote-user-1': {
+    kind: 'message',
+    id: 'remote-user-1',
+    executionId: 'remote-execution-1',
+    turn: 1,
+    version: 0,
+    position: { executionOrder: 0, requestOrder: -1, phase: -1, eventOrdinal: 0, itemOrdinal: 0 },
+    role: 'user',
+    text: 'What is in the saved note?',
+    complete: true,
+  },
+  'remote-assistant-1': {
+    kind: 'message',
+    id: 'remote-assistant-1',
+    executionId: 'remote-execution-1',
+    turn: 1,
+    version: 0,
+    position: { executionOrder: 0, requestOrder: 1, phase: 1, eventOrdinal: 1, itemOrdinal: 0 },
+    role: 'assistant',
+    text: 'The note says remote history is available.',
+    complete: true,
+  },
+};
+
 const snapshot = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   cursor: { coreEpoch: 'remote-test-epoch', sessionId, revision: 4 },
   session: {
     id: sessionId,
@@ -50,27 +76,12 @@ const snapshot = {
     operations: [],
   },
   conversation: {
-    messages: [
-      {
-        id: 'remote-user-1',
-        executionId: 'remote-execution-1',
-        turn: 1,
-        role: 'user',
-        text: 'What is in the saved note?',
-      },
-      {
-        id: 'remote-assistant-1',
-        executionId: 'remote-execution-1',
-        turn: 1,
-        role: 'assistant',
-        text: 'The note says remote history is available.',
-      },
-    ],
-    tools: [],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
+    schemaVersion: 2,
+    sessionId,
+    cut: 1,
+    storeRevision: 1,
+    entities: initialEntities,
+    order: ['remote-user-1', 'remote-assistant-1'],
   },
   pending: { kind: 'core-owned', followUps: [] },
   credentialAvailability: { status: 'unknown' },

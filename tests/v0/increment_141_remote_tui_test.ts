@@ -1,11 +1,25 @@
 import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
-import type { CoreOperationName, ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
+import type {
+  ConversationSnapshot,
+  CoreOperationName,
+  ExecutionView,
+  SessionSnapshot,
+} from '../../v0/api/contract.ts';
+import {
+  compareConversationPositions,
+  type ConversationEntity,
+  type ConversationMessageEntity,
+  type ConversationPosition,
+} from '../../v0/conversation/model.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
+// Terminal frames intentionally contain ANSI CSI sequences between styled label words.
+// deno-lint-ignore no-control-regex
+const plain = (text: string): string => text.replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, '');
 const sessionId = '14100000-0000-4000-8000-000000000001';
 const executionId = '14100000-0000-4000-8000-000000000002';
 const coreEpoch = 'increment-141-remote-tui';
@@ -51,6 +65,65 @@ const execution = (
   },
 });
 
+const messageEntity = (
+  id: string,
+  role: ConversationMessageEntity['role'],
+  text: string,
+  turn = 1,
+  executionOrder = 0,
+): ConversationMessageEntity => ({
+  kind: 'message',
+  id,
+  executionId,
+  turn,
+  version: 0,
+  position: {
+    executionOrder,
+    requestOrder: role === 'user' ? -1 : 1,
+    phase: role === 'user' ? -1 : 1,
+    eventOrdinal: role === 'user' ? 0 : 1,
+    itemOrdinal: 0,
+  },
+  role,
+  text,
+  complete: true,
+});
+
+const position = (requestOrder: number, phase: number): ConversationPosition => ({
+  executionOrder: 0,
+  requestOrder,
+  phase,
+  eventOrdinal: 0,
+  itemOrdinal: 0,
+});
+
+const conversationExecution = (value: ExecutionView): ConversationEntity => ({
+  kind: 'execution',
+  id: `execution/${encodeURIComponent(value.executionId)}`,
+  executionId: value.executionId,
+  version: 0,
+  position: position(-1, -2),
+  execution: {
+    executionId: value.executionId,
+    taskId: `task/${value.executionId}`,
+    task: value.task,
+    sessionId: value.sessionId,
+    turn: value.turn,
+    createdAt: value.createdAt,
+    lifecycle: value.lifecycle,
+    outcome: value.outcome,
+    ...(value.stopReason === undefined ? {} : { stopReason: value.stopReason }),
+    ...(value.diagnostic === undefined ? {} : { diagnostic: value.diagnostic }),
+    adoption: value.adoption,
+    ...(value.committedRevision === undefined
+      ? {}
+      : { committedRevision: value.committedRevision }),
+    baseRevision: 0,
+    agent: 'default',
+    model: { provider: 'openrouter-responses', modelId: 'test/model', effort: 'high' },
+  },
+});
+
 const snapshot = (options: {
   readonly revision?: number;
   readonly active?: boolean;
@@ -63,52 +136,65 @@ const snapshot = (options: {
     | 'unavailable';
   readonly currentExecution?: ExecutionView | null;
   readonly operations?: readonly CoreOperationName[];
-  readonly messages?: SessionSnapshot['conversation']['messages'];
-} = {}): SessionSnapshot => ({
-  schemaVersion: 1,
-  cursor: {
-    coreEpoch,
+  readonly entities?: Readonly<Record<string, ConversationEntity>>;
+  readonly conversationCut?: number;
+} = {}): SessionSnapshot => {
+  const entities: Record<string, ConversationEntity> = { ...options.entities };
+  if (options.currentExecution != null) {
+    const row = conversationExecution(options.currentExecution);
+    entities[row.id] = row;
+  }
+  const conversation: ConversationSnapshot = {
+    schemaVersion: 2,
     sessionId,
-    revision: options.revision ?? 4,
-  },
-  session: {
-    id: sessionId,
-    canonicalSessionId: sessionId,
-    persistence: 'persistent',
-    position: {
+    cut: options.conversationCut ?? 1,
+    storeRevision: options.conversationCut ?? 1,
+    entities,
+    order: Object.values(entities).sort((left, right) =>
+      compareConversationPositions(left.position, right.position) || left.id.localeCompare(right.id)
+    ).map((entity) => entity.id),
+  };
+  return {
+    schemaVersion: 2,
+    cursor: {
+      coreEpoch,
       sessionId,
-      createdAt: '2026-09-28T00:00:00.000Z',
-      title: 'Increment 141 task Session',
-      agent: 'default',
-      committedTurn: 0,
-      messageCount: options.messages?.length ?? 0,
+      revision: options.revision ?? 4,
     },
-    selection: {
-      provider: 'openrouter-responses',
-      modelId: 'test/model',
-      effort: 'high',
+    session: {
+      id: sessionId,
+      canonicalSessionId: sessionId,
+      persistence: 'persistent',
+      position: {
+        sessionId,
+        createdAt: '2026-09-28T00:00:00.000Z',
+        title: 'Increment 141 task Session',
+        agent: 'default',
+        committedTurn: 0,
+        messageCount:
+          Object.values(options.entities ?? {}).filter((entity) => entity.kind === 'message')
+            .length,
+      },
+      selection: {
+        provider: 'openrouter-responses',
+        modelId: 'test/model',
+        effort: 'high',
+      },
+      startup: apiStartupFixture(),
     },
-    startup: apiStartupFixture(),
-  },
-  runtime: {
-    active: options.active ?? false,
-    activeSessionId: sessionId,
-    phase: options.phase ?? 'idle',
-    execution: options.currentExecution ?? null,
-    operations: options.operations ?? ['task.submit', 'command.read'],
-  },
-  conversation: {
-    messages: options.messages ?? [],
-    tools: [],
-    thinking: [],
-    executions: options.currentExecution == null ? [] : [options.currentExecution],
-    requests: [],
-    omitted: 0,
-  },
-  pending: { kind: 'core-owned', followUps: [] },
-  credentialAvailability: { status: 'unknown' },
-  context: {},
-});
+    runtime: {
+      active: options.active ?? false,
+      activeSessionId: sessionId,
+      phase: options.phase ?? 'idle',
+      execution: options.currentExecution ?? null,
+      operations: options.operations ?? ['task.submit', 'command.read'],
+    },
+    conversation,
+    pending: { kind: 'core-owned', followUps: [] },
+    credentialAvailability: { status: 'unknown' },
+    context: {},
+  };
+};
 
 const coreRead = {
   apiVersion: 1,
@@ -271,13 +357,14 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
             phase: 'running',
             currentExecution: execution(body.text, body.commandId),
             operations: ['execution.cancel', 'execution.read', 'command.read'],
-            messages: [{
-              id: 'increment-141-user-message',
-              executionId,
-              turn: 1,
-              role: 'user',
-              text: body.text,
-            }],
+            conversationCut: 2,
+            entities: {
+              'increment-141-user-message': messageEntity(
+                'increment-141-user-message',
+                'user',
+                body.text,
+              ),
+            },
           }),
         );
         return Response.json({
@@ -323,12 +410,13 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
       released = true;
       releaseSubmit();
     }
-    if (
-      !detached && commandReadCount === 2 && text.includes('> new draft') &&
-      text.includes('Esc cancel')
-    ) {
+    const visible = plain(text);
+    if (!detached && visible.includes('> new draft') && visible.includes('Esc cancel')) {
       detached = true;
-      terminal.pushInput('\x04');
+      void (async () => {
+        while (commandReadCount < 2) await new Promise((resolve) => setTimeout(resolve, 5));
+        terminal.pushInput('\x04');
+      })();
     }
   };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
@@ -350,7 +438,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
     strictEqual(taskText, 'first task');
     strictEqual(cancelCount, 0);
     strictEqual(detached, true);
-    const rendered = terminal.output.join('');
+    const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('first task'), true);
     strictEqual(rendered.includes('new draft'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), false);
@@ -380,13 +468,13 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
     phase: 'running',
     currentExecution: execution('running task'),
     operations: ['execution.cancel', 'execution.read', 'command.read'],
-    messages: [{
-      id: 'increment-141-running-user',
-      executionId,
-      turn: 1,
-      role: 'user',
-      text: 'running task',
-    }],
+    entities: {
+      'increment-141-running-user': messageEntity(
+        'increment-141-running-user',
+        'user',
+        'running task',
+      ),
+    },
   });
   const server = Deno.serve(
     { hostname: '127.0.0.1', port: 0, onListen() {} },
@@ -423,7 +511,8 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
             phase: 'cancelling',
             currentExecution: execution('running task'),
             operations: ['execution.cancel', 'execution.read', 'command.read'],
-            messages: initial.conversation.messages,
+            conversationCut: initial.conversation.cut,
+            entities: initial.conversation.entities,
           }),
         );
         return Response.json({
@@ -475,7 +564,7 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
     strictEqual(detached, true);
     strictEqual(terminal.raw, false);
     deepStrictEqual([...terminal.signals.keys()], []);
-    const rendered = terminal.output.join('');
+    const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('Ctrl-C clear'), false);
     strictEqual(rendered.includes('Ctrl-D detach'), false);
     strictEqual(rendered.includes('Esc cancel'), true);
@@ -494,13 +583,13 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
     phase: 'running',
     currentExecution: execution('S15 running task'),
     operations: ['execution.cancel', 'execution.read', 'command.read'],
-    messages: [{
-      id: 's15-history',
-      executionId,
-      turn: 1,
-      role: 'user',
-      text: Array.from({ length: 60 }, (_, index) => `S15 history line ${index}`).join('\n'),
-    }],
+    entities: {
+      's15-history': messageEntity(
+        's15-history',
+        'user',
+        Array.from({ length: 60 }, (_, index) => `S15 history line ${index}`).join('\n'),
+      ),
+    },
   });
   const server = Deno.serve(
     { hostname: '127.0.0.1', port: 0, onListen() {} },
@@ -540,7 +629,8 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
           phase: 'cancelling',
           currentExecution: execution('S15 running task'),
           operations: ['execution.cancel', 'execution.read', 'command.read'],
-          messages: current.conversation.messages,
+          conversationCut: current.conversation.cut,
+          entities: current.conversation.entities,
         });
         sendSnapshot(streamController!, current);
         return Response.json({
@@ -555,7 +645,7 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
     },
   );
   const terminal = new FakeTerminal();
-  const screen = (): string => terminal.frames.at(-1)?.rows.join('\n') ?? '';
+  const screen = (): string => plain(terminal.frames.at(-1)?.rows.join('\n') ?? '');
   const waitFor = async (predicate: () => boolean): Promise<void> => {
     const deadline = Date.now() + 3_000;
     while (!predicate()) {
@@ -563,6 +653,7 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
   };
+  const hasHistoryStatus = (): boolean => /history (?:start|\d+\/\d+)/u.test(screen());
   let driver: Promise<void> | undefined;
   let driverError: unknown;
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 5_000);
@@ -578,7 +669,7 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             terminal.pushInput('S15 draft kept');
             await waitFor(() => screen().includes('> S15 draft kept'));
             terminal.pushInput('\x1b[5~');
-            await waitFor(() => screen().includes('[history ') && screen().includes('Esc latest'));
+            await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
             strictEqual(screen().includes('Esc cancel'), false);
             strictEqual(cancellations, 0);
 
@@ -588,13 +679,15 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
               phase: 'running',
               currentExecution: execution('S15 running task'),
               operations: ['execution.cancel', 'execution.read', 'command.read'],
-              messages: [...current.conversation.messages, {
-                id: 's15-new-below',
-                executionId,
-                turn: 1,
-                role: 'assistant',
-                text: 'S15 stream update',
-              }],
+              conversationCut: 2,
+              entities: {
+                ...current.conversation.entities,
+                's15-new-below': messageEntity(
+                  's15-new-below',
+                  'assistant',
+                  'S15 stream update',
+                ),
+              },
             });
             sendSnapshot(streamController!, current);
             await waitFor(() => screen().includes('history 1/2'));
@@ -602,11 +695,11 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             terminal.pushInput('\x1bOP');
             await waitFor(() => screen().includes('session picker'));
             terminal.pushInput('\x1b');
-            await waitFor(() => screen().includes('[history ') && screen().includes('Esc latest'));
+            await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
             strictEqual(cancellations, 0);
 
             terminal.pushInput('\x1b');
-            await waitFor(() => !screen().includes('[history ') && screen().includes('Esc cancel'));
+            await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
             strictEqual(cancellations, 0);
             strictEqual(screen().includes('S15 stream update'), true);
             strictEqual(screen().includes('> S15 draft kept'), true);
@@ -614,7 +707,7 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             terminal.pushInput('\x1b[5~');
             await waitFor(() => screen().includes('Esc latest'));
             terminal.pushInput('\x1b[6~');
-            await waitFor(() => !screen().includes('[history ') && screen().includes('Esc cancel'));
+            await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
             strictEqual(cancellations, 0);
             terminal.pushInput('\x1b');
             await waitFor(() => cancellations === 1);
@@ -680,7 +773,7 @@ Deno.test('remote TUI clears drafts with Ctrl-C when reconnecting during cancell
     );
     strictEqual(detached, true);
     strictEqual(cancellationCount, 0);
-    const rendered = terminal.output.join('');
+    const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('cancelling'), true);
     strictEqual(rendered.includes('Ctrl-C clear'), false);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
@@ -733,11 +826,11 @@ Deno.test('Increment 159 remote TUI keeps cancelled result in system and returns
       0,
     );
     strictEqual(detached, true);
-    const rendered = terminal.output.join('');
+    const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('CANCELLED'), true);
     strictEqual(rendered.includes('non-canonical'), false);
     strictEqual(rendered.includes('settlement complete'), false);
-    strictEqual(rendered.includes('[ready'), true);
+    strictEqual(rendered.includes('ready'), true);
     strictEqual(rendered.includes('Enter submit'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), false);
   } finally {
@@ -807,14 +900,14 @@ Deno.test('Increment 141 remote TUI keeps an unconfirmed draft working until a f
   let typedTask = false;
   let detached = false;
   terminal.onWrite = (text) => {
-    if (!typedTask && text.includes('Enter submit')) {
+    if (!typedTask && plain(text).includes('Enter submit')) {
       typedTask = true;
       terminal.pushInput('TUI notice probe\r');
     }
     if (!detached && text.includes('UNCONFIRMED')) {
       detached = true;
       driver = (async () => {
-        const screen = () => terminal.frames.at(-1)?.rows.join('\n') ?? '';
+        const screen = () => plain(terminal.frames.at(-1)?.rows.join('\n') ?? '');
         strictEqual(screen().includes('working'), true);
         strictEqual(screen().includes('Enter submit'), false);
         terminal.pushInput('\r');
@@ -852,7 +945,7 @@ Deno.test('Increment 141 remote TUI keeps an unconfirmed draft working until a f
     strictEqual(taskPostCount, 1);
     strictEqual(commandReadCount, 1);
     strictEqual(detached, true);
-    const rendered = terminal.output.join('');
+    const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('UNCONFIRMED'), true);
     strictEqual(rendered.includes('draft kept'), true);
     strictEqual(rendered.includes('TUI notice probe'), true);
@@ -900,7 +993,7 @@ Deno.test('Increment 159 remote TUI represents preparation as working without a 
       0,
     );
     strictEqual(detached, true);
-    const rendered = terminal.output.join('');
+    const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('preparing'), false);
     strictEqual(rendered.includes('working'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), false);

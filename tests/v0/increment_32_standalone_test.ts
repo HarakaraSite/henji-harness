@@ -201,6 +201,9 @@ Deno.test('Increment 32 projects the Worker generation startup snapshot', async 
   );
   const created = await createWorkerSession({
     workspaceRoot: workspace,
+    stateRoot: `${workspace}/state`,
+    configRoot: `${workspace}/config`,
+    dataRoot: `${workspace}/data`,
     persistence: 'none',
     agent: 'default',
     physicalIoMode: 'provider-free',

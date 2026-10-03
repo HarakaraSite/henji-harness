@@ -12,14 +12,10 @@ import type {
   SessionStreamFrame,
 } from '../../v0/api/contract.ts';
 
-import { reduceSessionStreamFrame } from '../../v0/api/reducer.ts';
+import { decodeSessionSnapshot, decodeSessionStreamFrame } from '../../v0/api/codec.ts';
+import { initialSessionClientState, reduceSessionStreamFrame } from '../../v0/api/reducer.ts';
 
 const frame = (value: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
-const opened = (result: CommandResult<SessionOpenValue>) => {
-  strictEqual(result.kind, 'accepted', JSON.stringify(result));
-  if (result.kind !== 'accepted') throw new Error('Session was not opened');
-  return result.value.snapshot;
-};
 const waitFor = async (predicate: () => Promise<boolean>) => {
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
@@ -104,6 +100,11 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     core = await createCoreService(options);
     server = await startCoreServer(core);
     let client = new HenjiApiClient(server.url);
+    const opened = async (result: CommandResult<SessionOpenValue>) => {
+      strictEqual(result.kind, 'accepted', JSON.stringify(result));
+      if (result.kind !== 'accepted') throw new Error('Session was not opened');
+      return await client.sessionRead(result.value.sessionId);
+    };
     const openInput = {
       commandId: crypto.randomUUID(),
       selection: { kind: 'new' as const },
@@ -118,11 +119,12 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
       client.sessionOpen(openInput),
       client.sessionOpen(openInput),
     ]);
-    const initial = opened(first);
-    strictEqual(opened(duplicate).session.id, initial.session.id);
+    const initial = await opened(first);
+    strictEqual((await opened(duplicate)).session.id, initial.session.id);
     const id = initial.session.id;
+    strictEqual((await client.contextRead(id)).context.latestRequest, undefined);
     const receipt = await client.commandRead(openInput.commandId);
-    ok(receipt.kind === 'accepted' && 'snapshot' in receipt.value);
+    ok(receipt.kind === 'accepted' && 'sessionId' in receipt.value);
     strictEqual(initial.runtime.effectiveConfig?.maxSteps, 4);
     strictEqual(initial.runtime.effectiveConfig?.providerTimeoutMs, 5_000);
     strictEqual(bodies.length, 0);
@@ -133,7 +135,7 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     strictEqual(rename.kind, 'accepted');
     strictEqual((await client.sessionRead(id)).session.position.title, 'Slice 5 renamed Session');
     strictEqual(bodies.length, 0);
-    const latestAttach = opened(
+    const latestAttach = await opened(
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'continue' },
@@ -150,8 +152,8 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     const cancelledId = cancelledTask.value.executionId;
     await waitFor(async () =>
       bodies.length === 1 &&
-      (await client.sessionRead(id)).conversation.messages.some((message) =>
-        message.text?.includes('noncanonical partial')
+      Object.values((await client.sessionRead(id)).conversation.entities).some((entity) =>
+        entity.kind === 'message' && entity.text.includes('noncanonical partial')
       )
     );
     const savedViewWhileBusy = await client.sessionsList();
@@ -206,7 +208,7 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
       (await client.contextRead(id)).context.latestRequest?.executionId,
       next.value.executionId,
     );
-    const inherited = opened(
+    const inherited = await opened(
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'new' },
@@ -250,16 +252,19 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     let observedSnapshot: SessionSnapshot | undefined;
     const viewing = await core.subscribeSession(id, (frame) => {
       if (frame !== undefined) {
-        viewingFrames.push(frame);
+        const value = decodeSessionStreamFrame(JSON.parse(new TextDecoder().decode(frame)));
+        viewingFrames.push(value);
         observedSnapshot = reduceSessionStreamFrame(
-          observedSnapshot === undefined ? undefined : { snapshot: observedSnapshot },
-          frame,
+          observedSnapshot === undefined ? undefined : initialSessionClientState(observedSnapshot),
+          value,
         ).snapshot;
       }
     });
-    observedSnapshot = viewing.snapshot;
-    strictEqual(viewing.snapshot.runtime.activeSessionId, null);
-    const resumed = opened(
+    observedSnapshot = decodeSessionSnapshot(
+      JSON.parse(new TextDecoder().decode(viewing.snapshot.bytes)),
+    );
+    strictEqual(observedSnapshot.runtime.activeSessionId, null);
+    const resumed = await opened(
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'exact', sessionId: id },
@@ -267,7 +272,7 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
       }),
     );
     strictEqual(resumed.session.selection.provider, 'openrouter-responses');
-    strictEqual(resumed.context.checkpoint?.summary, checkpointSummary);
+    strictEqual((await client.contextRead(id)).context.checkpoint?.summary, checkpointSummary);
     strictEqual(bodies.length, 3);
     strictEqual(observedSnapshot.runtime.activeSessionId, id);
     ok(observedSnapshot.runtime.operations.includes('task.submit'));
@@ -284,13 +289,13 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     ok(
       viewingFrames.some((frame) =>
         frame.kind === 'session.update' &&
-        frame.changes.some((change) =>
-          change.kind === 'message.upsert' &&
-          change.message.text === 'Read existing checkpoint on resumed task'
+        frame.conversationDelta?.changes.some((change) =>
+          change.kind === 'upsert' && change.entity.kind === 'message' &&
+          change.entity.text === 'Read existing checkpoint on resumed task'
         )
       ),
     );
-    const none = opened(
+    const none = await opened(
       await client.sessionOpen({ commandId: crypto.randomUUID(), selection: { kind: 'none' } }),
     );
     strictEqual(observedSnapshot.runtime.activeSessionId, none.session.id);
@@ -300,7 +305,7 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     ok(viewingFrames.every((frame) => frame.kind === 'session.update'));
     viewing.unsubscribe();
     strictEqual((await client.sessionRead(none.session.id)).session.persistence, 'none');
-    const sameNone = opened(
+    const sameNone = await opened(
       await client.sessionOpen({
         commandId: crypto.randomUUID(),
         selection: { kind: 'exact', sessionId: none.session.id },

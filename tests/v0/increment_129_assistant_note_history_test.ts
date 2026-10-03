@@ -1,6 +1,8 @@
 import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state.ts';
-import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
-import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
+import {
+  conversationFixtureRows,
+  fixtureExecutionId,
+} from './helpers/increment_170_conversation_fixture.ts';
 import { renderSessionTimeline } from '../../v0/agent/history/history_view.ts';
 import type { Message } from '../../v0/agent/core/contracts.ts';
 import type {
@@ -215,78 +217,82 @@ Deno.test('Increment 129 keeps every assistant note before its tool calls in all
     'progress fragments must not survive as live entries',
   );
 
-  const restoredConversation = restoredConversationFromSnapshot(sessionSnapshotFixture({
-    messages: [
-      {
-        id: 'user-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'user',
-        text: 'inspect the repo',
-      },
-      {
-        id: 'assistant-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'assistant',
-        text: 'I will read the README first.',
-        toolOccurrenceIds: ['read-1'],
-      },
-      {
-        id: 'tool-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'tool',
-        toolOccurrenceIds: ['read-1'],
-      },
-      {
-        id: 'assistant-2',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'assistant',
-        text: 'Now I will check the working tree.',
-        toolOccurrenceIds: ['bash-1'],
-      },
-      {
-        id: 'tool-2',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'tool',
-        toolOccurrenceIds: ['bash-1'],
-      },
-      {
-        id: 'assistant-3',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'assistant',
-        text: 'The README and working tree are consistent.',
-      },
-    ],
-    tools: [{
-      toolOccurrenceId: 'read-1',
-      executionId: 'execution-1',
+  const rows = conversationFixtureRows('inspect the repo', [
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-1',
+      executionId: fixtureExecutionId,
       turn: 1,
+      eventOrdinal: 2,
+      request: { modelStep: 1 },
+      text: 'I will read the README first.',
+      declaredCalls: [{ callId: 'read-1', name: 'read', arguments: { path: 'README.md' } }],
+    },
+    {
+      kind: 'tool_call',
+      semanticOccurrenceId: 'fixture-tool-1',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      callIndex: 0,
+      callId: 'read-1',
       name: 'read',
       arguments: { path: 'README.md' },
-      result: { text: 'body', outcome: 'success' },
-    }, {
-      toolOccurrenceId: 'bash-1',
-      executionId: 'execution-1',
+    },
+    {
+      kind: 'tool_result',
+      executionId: fixtureExecutionId,
       turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      result: { callId: 'read-1', name: 'read', text: 'body', outcome: 'success' },
+    },
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-2',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 4,
+      request: { modelStep: 2 },
+      text: 'Now I will check the working tree.',
+      declaredCalls: [{
+        callId: 'bash-1',
+        name: 'bash',
+        arguments: { command: 'git status --short' },
+      }],
+    },
+    {
+      kind: 'tool_call',
+      semanticOccurrenceId: 'fixture-tool-2',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 5,
+      request: { modelStep: 2 },
+      callIndex: 0,
+      callId: 'bash-1',
       name: 'bash',
       arguments: { command: 'git status --short' },
-      result: { text: '', outcome: 'success' },
-    }],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
-  }));
-  const restored = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    ...restoredConversation,
-  });
-  const restoredRows = restored.log.entries.map((entry) => [entry.label, entry.text]);
+    },
+    {
+      kind: 'tool_result',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 5,
+      request: { modelStep: 2 },
+      result: { callId: 'bash-1', name: 'bash', text: '', outcome: 'success' },
+    },
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-3',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 6,
+      request: { modelStep: 3 },
+      text: 'The README and working tree are consistent.',
+    },
+  ]);
+  const restoredRows = rows.map((entry) => [entry.label, entry.text]);
   assertEquals(restoredRows, expectedRows);
 
   const timeline: StoredSessionHistoryExecution[] = [{

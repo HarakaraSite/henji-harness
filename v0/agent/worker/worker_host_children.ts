@@ -7,16 +7,11 @@ import type {
   AsyncAgentTerminalResult,
   AsyncAgentTerminalState,
 } from '../tools/async_agents.ts';
-import type { WorkerSessionHandle } from '../session/session_store_contract.ts';
 import type {
-  ExecutionEventInput,
-  HistoryCaptureResult,
-  HistoryPersistencePort,
-} from '../history/history_store_contract.ts';
-import type { LoopOutcome } from '../core/contracts.ts';
-import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
-import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
+  DataExecutionControlInput,
+  DataSessionDescriptor,
+  DataSessionTerminalResult,
+} from '../data/session_data_owner.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { type ChatGPTAuthService, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
@@ -30,23 +25,17 @@ import { TOOL_FILTER_ERROR_CODE } from '../definitions/tool_filter.ts';
 import { workerBuiltinModulePath } from './worker_definition_revision.ts';
 import type {
   WorkerAsyncAgentCatalogEntry,
+  WorkerCorrelation,
   WorkerDefinitionLoadRequest,
-  WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { WorkerSupervisor } from './worker_host_supervisor.ts';
-import { proposalOutcome } from './worker_host_outcome.ts';
+import { sameCorrelation } from './worker_host_outcome.ts';
 import type {
   ChildCleanupObservationV1,
   ChildCleanupRunObservationV1,
 } from './worker_child_contract.ts';
-import { historyCaptureDurability } from './worker_history_projection.ts';
-import {
-  OBSERVATION_FLUSH_BATCH,
-  OBSERVATION_FLUSH_INTERVAL_MS,
-  workerObservationInput,
-} from './worker_host_journal.ts';
 
 const CHILD_SETTLEMENT_GRACE_MS = 5_000;
 
@@ -54,6 +43,11 @@ type Deferred = {
   readonly promise: Promise<void>;
   readonly resolve: () => void;
 };
+
+type ChildExecutionControlFact = DataExecutionControlInput extends infer Fact
+  ? Fact extends { readonly controlSequence: number } ? Omit<Fact, 'controlSequence'>
+  : never
+  : never;
 
 const deferred = (): Deferred => {
   let resolve!: () => void;
@@ -70,30 +64,35 @@ type ChildRun = {
   readonly model: ModelSelection;
   readonly chatgptRegistrationId: string | null;
   readonly tools?: readonly string[];
-  readonly build: BuildManifestV1;
   readonly definitionRef: DefinitionRevisionRef;
+  readonly sessionId: string;
   readonly createdAt: string;
   readonly settled: Deferred;
+  readonly startupComplete: Deferred;
   state: AsyncAgentRunState;
   progress: AsyncAgentProgress;
-  readonly observations: ExecutionEventInput[];
-  observationFlushTimer?: ReturnType<typeof setTimeout>;
-  observationError?: string;
   addressable: boolean;
   cancelRequested: boolean;
   cancelSent: boolean;
+  cancelRequestRecorded: boolean;
   admitted: boolean;
+  controlSequence: number;
+  controlWrites: Promise<void>;
+  pendingControlFacts: DataExecutionControlInput[];
   admissionError?: string;
   admission?: Promise<void>;
+  executionAdmission?: Promise<void>;
+  executionAdmissionError?: string;
+  descriptor?: DataSessionDescriptor;
+  executionCorrelation?: WorkerCorrelation;
+  cancelCorrelation?: WorkerCorrelation;
   supervisor?: WorkerSupervisor;
   terminal?: AsyncAgentTerminalResult;
-  outcome?: LoopOutcome;
-  diagnostic?: FailureDiagnosticV1;
-  contextManifest?: ExecutionContextManifestV2;
-  manifest?: WorkerReadyMessage['manifest'];
-  capture?: HistoryCaptureResult;
   settlementAttempted: boolean;
+  forceSettlementRequested: boolean;
+  forcedSettlement?: Promise<void>;
   physicalCleanup?: Promise<void>;
+  finalizing?: Promise<void>;
   settlementDurable: boolean;
   settlementError?: string;
   cleanup?: Promise<ChildCleanupRunObservationV1>;
@@ -111,40 +110,10 @@ export interface ChildRunDeps {
   readonly resolveManagedModule?: (
     ref: DefinitionRevisionRef,
   ) => Promise<WorkerDefinitionLoadRequest>;
-  /** Optional durable execution evidence store for child runs. */
-  readonly history?: HistoryPersistencePort;
 }
-
-const syntheticHandle = (id: string): WorkerSessionHandle => ({
-  id,
-  commit: () => {},
-  acceptCommitted: () => {},
-  rollback: () => {},
-  installCheckpoint: () => {},
-  rollbackCheckpoint: () => {},
-  close: () => Promise.resolve(),
-});
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
-
-const lastAssistantText = (
-  transcript: readonly unknown[],
-): string | undefined => {
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    const message = transcript[index] as { role?: unknown; content?: unknown };
-    if (message.role !== 'assistant') continue;
-    const content = message.content;
-    if (
-      content !== null && typeof content === 'object' && 'kind' in content &&
-      (content as { kind?: unknown }).kind === 'text'
-    ) {
-      const text = (content as { text?: unknown }).text;
-      if (typeof text === 'string') return text;
-    }
-  }
-  return undefined;
-};
 
 /**
  * Host-owned registry of parent-execution-scoped async child runs. Each child owns a separate
@@ -159,9 +128,7 @@ export class ChildRunRegistry {
     Promise<ChildCleanupObservationV1 | undefined>
   >();
 
-  constructor(
-    private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 },
-  ) {}
+  constructor(private readonly deps: ChildRunDeps) {}
 
   private async selectedChatGPTRegistrationId(): Promise<string | undefined> {
     if (this.deps.chatgptAuth !== undefined) {
@@ -356,7 +323,7 @@ export class ChildRunRegistry {
       }
     } else {
       runModel = this.deps.currentModelSelection?.() ??
-        this.deps.options.initialModelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
+        this.deps.options.descriptor.modelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
     }
     let chatgptRegistrationId: string | null = null;
     if (runModel.provider === 'openai-chatgpt') {
@@ -381,99 +348,150 @@ export class ChildRunRegistry {
       model: runModel,
       chatgptRegistrationId,
       ...(tools === undefined ? {} : { tools: Object.freeze([...tools]) }),
-      build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
+      sessionId: childCorrelation,
       createdAt,
       state: 'starting',
+      startupComplete: deferred(),
       progress: { phase: 'starting', updatedAt: createdAt },
-      observations: [],
       addressable: true,
       cancelRequested: false,
       cancelSent: false,
+      cancelRequestRecorded: false,
       admitted: false,
+      controlSequence: 0,
+      controlWrites: Promise.resolve(),
+      pendingControlFacts: [],
       settlementAttempted: false,
+      forceSettlementRequested: false,
       settlementDurable: false,
       settled: deferred(),
     };
     this.runs.set(runId, run);
-    run.admission = this.admit(run);
-    await run.admission;
-    if (run.admissionError !== undefined) {
-      run.addressable = false;
-      return { ok: false, error: run.admissionError };
-    }
-    if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
-      this.finish(run, this.terminal(run, 'cancelled'));
-      return {
-        ok: false,
-        error: 'parent execution settled before child start',
-      };
-    }
+    run.admission = this.openDataSession(run);
     try {
-      const childOptions = await this.childOptions(
-        run,
-        entry,
-        childCorrelation,
-      );
-      if (run.terminal !== undefined || run.cancelRequested) {
-        if (run.terminal === undefined) {
-          this.finish(run, this.terminal(run, 'cancelled'));
+      await run.admission;
+      if (run.admissionError !== undefined) {
+        run.addressable = false;
+        this.runs.delete(runId);
+        return { ok: false, error: run.admissionError };
+      }
+      if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
+        await this.settleUnstartedTerminal(
+          run,
+          'cancelled',
+          'cancelled before child startup',
+        );
+        return {
+          ok: false,
+          error: 'parent execution settled before child start',
+        };
+      }
+      try {
+        const childOptions = await this.childOptions(run, entry);
+        if (run.terminal !== undefined || run.cancelRequested) {
+          if (run.terminal === undefined) {
+            await this.settleUnstartedTerminal(
+              run,
+              'cancelled',
+              'cancelled during child startup',
+            );
+          }
+          return {
+            ok: false,
+            error: 'parent execution settled before child start',
+          };
+        }
+        const supervisor = new WorkerSupervisor({
+          options: childOptions,
+          handleWorkerMessage: (message) => this.routeChildMessage(run, message),
+          projection: () => ({
+            stateRevision: run.descriptor!.stateRevision,
+            modelSelection: run.descriptor!.modelSelection,
+          }),
+          attachGeneration: (correlation) =>
+            this.deps.options.data.attachGeneration(run.sessionId, correlation),
+          onGenerationReplaced: () => {},
+        });
+        run.supervisor = supervisor;
+        await supervisor.start();
+        const correlation = supervisor.correlation('async-child');
+        run.executionCorrelation = correlation;
+        const executionAdmission = this.deps.options.data.executionAdmit(
+          run.sessionId,
+          {
+            executionId: run.runId,
+            taskId: run.runId,
+            task: run.task,
+            correlation,
+            createdAt: run.createdAt,
+            parentExecutionId: run.parentExecutionId,
+            ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
+          },
+        ).then((admission) => {
+          run.descriptor = admission.descriptor;
+          run.admitted = true;
+          this.flushPendingExecutionControls(run);
+        }).catch((error: unknown) => {
+          run.executionAdmissionError = errorText(error);
+          throw error;
+        });
+        run.executionAdmission = executionAdmission;
+        await executionAdmission;
+        if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
+          this.requestCancellation(run);
+          this.finishWithoutData(run, this.terminal(run, 'cancelled'));
+          return {
+            ok: false,
+            error: 'parent execution settled before child start',
+          };
+        }
+        run.state = 'running';
+        supervisor.send({
+          kind: 'turn',
+          executionId: run.runId,
+          correlation,
+          task,
+          chatgptRegistrationId: run.chatgptRegistrationId,
+        });
+        return { ok: true, kind: 'spawn', runId };
+      } catch (error) {
+        const message = errorText(error);
+        if (message.includes(TOOL_FILTER_ERROR_CODE)) {
+          this.finishWithoutData(run, this.terminal(run, 'failed', message));
+          return { ok: true, kind: 'spawn', runId };
+        }
+        if (run.admitted || run.executionAdmissionError !== undefined) {
+          this.finishWithoutData(run, this.terminal(run, 'interrupted', message));
+        } else {
+          await this.settleUnstartedTerminal(
+            run,
+            run.cancelRequested ? 'cancelled' : 'interrupted',
+            run.cancelRequested ? 'cancelled during child startup' : message,
+          );
         }
         return {
           ok: false,
-          error: 'parent execution settled before child start',
+          error: run.settlementError === undefined
+            ? message
+            : `${message}; child settlement failed: ${run.settlementError}`,
         };
       }
-      const supervisor = new WorkerSupervisor({
-        options: childOptions,
-        handleWorkerMessage: (message) => this.routeChildMessage(run, message),
-        projection: () => ({
-          transcript: [],
-          nextTurn: 1,
-          stateRevision: 1,
-          modelSelection: run.model,
-          privateStateFromTurn: 1,
-        }),
-        onGenerationReplaced: () => {},
-      });
-      run.supervisor = supervisor;
-      await supervisor.start(() => {});
-      if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
-        this.finish(run, this.terminal(run, 'cancelled'));
-        return {
-          ok: false,
-          error: 'parent execution settled before child start',
-        };
-      }
-      run.state = 'running';
-      supervisor.send({
-        kind: 'turn',
-        executionId: run.runId,
-        correlation: supervisor.correlation('async-child'),
-        task,
-        chatgptRegistrationId: run.chatgptRegistrationId,
-      });
-      return { ok: true, kind: 'spawn', runId };
-    } catch (error) {
-      const message = errorText(error);
-      if (message.includes(TOOL_FILTER_ERROR_CODE)) {
-        this.finish(run, this.terminal(run, 'failed', message));
-        return { ok: true, kind: 'spawn', runId };
-      }
-      this.finish(run, this.terminal(run, 'interrupted', message));
-      return {
-        ok: false,
-        error: run.settlementError === undefined
-          ? message
-          : `${message}; child settlement failed: ${run.settlementError}`,
-      };
+    } finally {
+      run.startupComplete.resolve();
     }
   }
 
-  private async admit(run: ChildRun): Promise<void> {
+  private async openDataSession(run: ChildRun): Promise<void> {
     try {
-      await this.deps.history?.beginExecution(this.historyInput(run));
-      run.admitted = true;
+      const descriptor = await this.deps.options.data.openSession({
+        persistence: 'none',
+        agent: 'default',
+        definition: run.definitionRef,
+        sessionId: run.sessionId,
+        initialModelSelection: run.model,
+      });
+      run.descriptor = descriptor;
     } catch (error) {
       run.admissionError = errorText(error);
     }
@@ -482,7 +500,6 @@ export class ChildRunRegistry {
   private async childOptions(
     run: ChildRun,
     entry: WorkerAsyncAgentCatalogEntry,
-    childCorrelation: string,
   ): Promise<WorkerHostSessionOptions> {
     const isBuiltinGeneric = entry.ref.resourceId === 'builtin/generic';
     if (!isBuiltinGeneric && this.deps.resolveManagedModule === undefined) {
@@ -492,20 +509,18 @@ export class ChildRunRegistry {
       ? undefined
       : await this.deps.resolveManagedModule!(entry.ref);
     return {
-      handle: syntheticHandle(childCorrelation),
+      data: this.deps.options.data,
+      descriptor: run.descriptor!,
       workspaceRoot: this.deps.options.workspaceRoot,
       ...(this.deps.options.configRoot === undefined
         ? {}
         : { configRoot: this.deps.options.configRoot }),
       chatgptRegistrationId: run.chatgptRegistrationId,
-      agent: 'default' as const,
-      definition: entry.ref,
       ...(this.deps.options.capsuleFactory === undefined
         ? {}
         : { capsuleFactory: this.deps.options.capsuleFactory }),
       ...(isBuiltinGeneric ? { modulePath: workerBuiltinModulePath('generic') } : {}),
       ...(loadDescriptor === undefined ? {} : { loadDescriptor }),
-      initialModelSelection: run.model,
       ...(run.tools === undefined ? {} : { toolFilter: run.tools }),
       physicalIoMode: this.deps.options.physicalIoMode ?? 'production',
       toolDefinitions: structuredClone(this.deps.options.toolDefinitions ?? []),
@@ -525,229 +540,97 @@ export class ChildRunRegistry {
   }
 
   private routeChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
-    if (run.terminal === undefined) {
-      this.updateProgress(run, message);
-      this.bufferObservation(run, message);
-    }
-    if (
-      message.kind === 'ready' && message.manifest !== undefined &&
-      run.manifest === undefined
-    ) {
-      run.manifest = structuredClone(message.manifest);
-    }
-    if (
-      message.kind === 'ready' || message.kind === 'model_selected' ||
-      message.kind === 'closed' || message.kind === 'commit_proposal' ||
-      message.kind === 'turn_failed' || message.kind === 'worker_error'
-    ) {
+    if (message.kind === 'ready' || message.kind === 'worker_error') {
       run.supervisor?.messages.publish(message);
     }
+    if (run.terminal === undefined) {
+      this.updateProgress(run, message);
+    }
     if (
-      message.kind === 'commit_proposal' || message.kind === 'turn_failed' ||
-      message.kind === 'worker_error'
-    ) this.handleChildMessage(run, message);
+      message.kind === 'cancel_received' &&
+      (run.executionCorrelation !== undefined &&
+          sameCorrelation(message.correlation, run.executionCorrelation) ||
+        run.cancelCorrelation !== undefined &&
+          sameCorrelation(message.correlation, run.cancelCorrelation))
+    ) {
+      this.recordExecutionControl(run, {
+        kind: 'cancel_received',
+        correlation: message.correlation,
+        workerSequence: message.sequence,
+        result: message.result,
+        observedAt: message.observedAt,
+      });
+    }
+    if (message.kind === 'proposal_ready' || message.kind === 'failure_ready') {
+      void this.settleChildMessage(run, message);
+    } else if (message.kind === 'worker_error' && run.admitted) {
+      void this.failChild(run, message.message);
+    }
   }
 
   private updateProgress(run: ChildRun, message: WorkerToHostMessage): void {
     const updatedAt = new Date().toISOString();
     const current = run.progress;
-    if (message.kind === 'provider_observation') {
-      const observation = message.observation;
-      if (observation.kind === 'request_start') {
-        run.progress = {
-          ...current,
-          phase: current.lastTool?.state === 'running' ? 'tool' : 'model',
-          updatedAt,
-          modelStep: observation.request.modelStep,
-          requestOrdinal: observation.request.ordinal,
-        };
-      } else if (observation.kind === 'runtime_event') {
-        const event = observation.event;
-        if (event.kind === 'turn_outcome') return;
-        const attribution = {
-          ...current,
-          updatedAt,
-          modelStep: event.modelStep,
-          ...(event.requestOrdinal === undefined ? {} : { requestOrdinal: event.requestOrdinal }),
-        };
-        if (event.kind === 'tool_call') {
-          run.progress = {
-            ...attribution,
-            phase: 'tool',
-            lastTool: {
-              name: event.call.name,
-              callId: event.call.callId,
-              state: 'running',
-            },
-          };
-        } else if (event.kind === 'tool_result') {
-          run.progress = {
-            ...attribution,
-            phase: 'between_steps',
-            lastTool: {
-              name: event.result.name,
-              callId: event.result.callId,
-              state: 'completed',
-              outcome: event.result.outcome,
-            },
-          };
-        } else {
-          run.progress = {
-            ...attribution,
-            phase: event.kind === 'model_result'
-              ? current.lastTool?.state === 'running' ? 'tool' : 'between_steps'
-              : event.kind === 'tool_progress'
-              ? 'tool'
-              : current.lastTool?.state === 'running'
-              ? 'tool'
-              : 'model',
-          };
-        }
-      } else {
-        run.progress = { ...current, updatedAt };
-      }
-    } else if (
-      message.kind === 'runtime_event' && message.event.kind === 'agent_event'
-    ) {
-      const event = message.event.event;
-      if (event.kind === 'assistant_thinking') {
-        run.progress = { ...current, updatedAt, modelStep: event.modelStep };
-      }
-    } else if (message.kind === 'effect_observation') {
-      const effect = message.effect;
+    if (message.kind === 'request_started') {
       run.progress = {
         ...current,
+        phase: current.lastTool?.state === 'running' ? 'tool' : 'model',
         updatedAt,
-        phase: effect.kind === 'tool_result' ? 'between_steps' : 'tool',
-        ...(effect.kind === 'tool_call'
-          ? {
-            lastTool: {
-              name: effect.call.name,
-              callId: effect.call.callId,
-              state: 'running',
-            },
-          }
-          : effect.kind === 'tool_result'
-          ? {
-            lastTool: {
-              name: effect.result.name,
-              callId: effect.result.callId,
-              state: 'completed',
-              outcome: effect.result.outcome,
-            },
-          }
-          : {}),
+        modelStep: message.modelStep,
+        requestOrdinal: message.requestOrdinal,
+      };
+    } else if (message.kind === 'child_progress') {
+      const { progress } = message;
+      run.progress = {
+        ...current,
+        phase: progress.phase,
+        updatedAt,
+        ...(progress.modelStep === undefined ? {} : {
+          modelStep: progress.modelStep,
+        }),
+        ...(progress.requestOrdinal === undefined ? {} : {
+          requestOrdinal: progress.requestOrdinal,
+        }),
+        ...(progress.lastTool === undefined ? {} : {
+          lastTool: structuredClone(progress.lastTool),
+        }),
       };
     }
   }
 
-  private bufferObservation(run: ChildRun, message: WorkerToHostMessage): void {
-    const history = this.deps.history;
-    if (history === undefined || run.observationError !== undefined) return;
-    if (
-      message.kind !== 'provider_observation' &&
-      message.kind !== 'context_observation' &&
-      message.kind !== 'runtime_event' && message.kind !== 'effect_observation'
-    ) return;
-    // Thinking text is not part of the new child observation store or status snapshot.
-    if (
-      message.kind === 'runtime_event' &&
-      message.event.kind === 'agent_event' &&
-      message.event.event.kind === 'assistant_thinking'
-    ) return;
+  private async settleChildMessage(
+    run: ChildRun,
+    message: Extract<WorkerToHostMessage, { kind: 'proposal_ready' | 'failure_ready' }>,
+  ): Promise<void> {
+    if (run.terminal !== undefined || run.settlementAttempted || !run.admitted) return;
+    run.settlementAttempted = true;
     try {
-      const input = workerObservationInput(run.runId, message, history);
-      if (input === undefined) return;
-      run.observations.push({ ...input, observedAt: new Date().toISOString() });
-      if (run.observations.length >= OBSERVATION_FLUSH_BATCH) {
-        this.flushObservations(run);
-      } else if (run.observationFlushTimer === undefined) {
-        run.observationFlushTimer = setTimeout(
-          () => this.flushObservations(run),
-          OBSERVATION_FLUSH_INTERVAL_MS,
+      const result = message.kind === 'proposal_ready'
+        ? await this.deps.options.data.settleChildExecution(run.sessionId, {
+          executionId: run.runId,
+          proposalId: message.proposalId,
+          finalDataSequence: message.finalDataSequence,
+          decision: { accepted: true },
+        })
+        : await this.deps.options.data.settleChildExecution(run.sessionId, {
+          executionId: message.executionId,
+          finalDataSequence: message.finalDataSequence,
+        });
+      if (message.kind === 'proposal_ready') {
+        this.sendCommitAcknowledgement(
+          run,
+          message.correlation,
+          result.accepted && result.durable,
         );
       }
+      await this.completeFromData(run, result);
     } catch (error) {
-      run.observationError = errorText(error);
-    }
-  }
-
-  private flushObservations(run: ChildRun): void {
-    if (run.observationFlushTimer !== undefined) {
-      clearTimeout(run.observationFlushTimer);
-      run.observationFlushTimer = undefined;
-    }
-    if (run.observations.length === 0) return;
-    const batch = run.observations.splice(0);
-    if (run.observationError !== undefined) return;
-    try {
-      this.deps.history?.appendExecutionEvents(batch);
-    } catch (error) {
-      run.observationError = errorText(error);
-    }
-  }
-
-  private handleChildMessage(
-    run: ChildRun,
-    message: WorkerToHostMessage,
-  ): void {
-    if (run.terminal !== undefined) return;
-    if (message.kind === 'commit_proposal') {
-      const outcome = message.outcome ??
-        proposalOutcome(run.task, message.transcript, undefined);
-      const finalText = outcome.finalText ??
-        lastAssistantText(message.transcript);
-      try {
-        run.supervisor?.send({
-          kind: 'commit_acknowledgement',
-          correlation: message.correlation,
-          accepted: true,
-        });
-      } catch {
-        // The terminal proposal remains the semantic child result.
-      }
-      this.finish(
+      if (run.forceSettlementRequested) return;
+      await this.completeLocal(
         run,
-        this.terminal(
-          run,
-          'completed',
-          undefined,
-          finalText,
-        ),
-        outcome,
-        message.diagnostic,
-        message.contextManifest,
-      );
-      return;
-    }
-    if (message.kind === 'turn_failed') {
-      const state = message.outcome.stopReason === 'cancelled'
-        ? 'cancelled'
-        : message.outcome.stopReason === 'interrupted'
-        ? 'interrupted'
-        : 'failed';
-      this.finish(
-        run,
-        this.terminal(
-          run,
-          state,
-          message.outcome.ok ? undefined : message.outcome.error ?? `child run ${state}`,
-          message.outcome.finalText,
-        ),
-        message.outcome,
-        message.diagnostic,
-        message.contextManifest,
-      );
-      return;
-    }
-    if (message.kind === 'worker_error') {
-      this.finish(
-        run,
-        this.terminal(
-          run,
-          message.message.includes(TOOL_FILTER_ERROR_CODE) ? 'failed' : 'interrupted',
-          message.message,
-        ),
+        this.terminal(run, 'interrupted', errorText(error)),
+        false,
+        errorText(error),
       );
     }
   }
@@ -769,146 +652,190 @@ export class ChildRunRegistry {
     };
   }
 
-  private finish(
-    run: ChildRun,
-    terminal: AsyncAgentTerminalResult,
-    outcome?: LoopOutcome,
-    diagnostic?: FailureDiagnosticV1,
-    contextManifest?: ExecutionContextManifestV2,
-  ): void {
-    if (run.terminal !== undefined) return;
-    this.flushObservations(run);
-    const settledOutcome: LoopOutcome = {
-      ...(outcome ?? this.syntheticOutcome(run, terminal)),
-      ...(run.observationError === undefined ? {} : {
-        executionJournalDurability: 'failed' as const,
-        executionJournalPersistenceError: run.observationError === 'history_busy' ||
-            run.observationError === 'history_invalid'
-          ? run.observationError
-          : 'history_io_failure' as const,
-      }),
-    };
-    run.terminal = this.withOutcome(terminal, settledOutcome, diagnostic);
-    run.outcome = settledOutcome;
-    run.diagnostic = diagnostic ?? outcome?.diagnostic;
-    run.contextManifest = contextManifest;
-    run.state = terminal.state;
-    run.progress = {
-      ...run.progress,
-      phase: 'settled',
-      updatedAt: new Date().toISOString(),
-    };
-    this.settle(run);
-    void this.terminate(run).then(
-      () => run.settled.resolve(),
-      (error) => {
-        run.settlementDurable = false;
-        run.settlementError = errorText(error);
-        run.settled.resolve();
-      },
-    );
-  }
-
-  private settle(run: ChildRun): void {
-    if (run.settlementAttempted) return;
-    run.settlementAttempted = true;
+  private async failChild(run: ChildRun, message: string): Promise<void> {
+    if (run.terminal !== undefined || run.settlementAttempted) return;
     if (!run.admitted) {
-      run.settlementError = run.admissionError ??
-        'child execution admission is not durable';
+      await this.completeLocal(
+        run,
+        this.terminal(
+          run,
+          message.includes(TOOL_FILTER_ERROR_CODE) ? 'failed' : 'interrupted',
+          message,
+        ),
+        true,
+      );
       return;
     }
-    const history = this.deps.history;
-    if (history === undefined) {
-      run.settlementDurable = true;
-      return;
-    }
-    if (run.terminal === undefined || run.outcome === undefined) {
-      run.settlementError = 'child terminal result is unavailable';
-      return;
-    }
-    const outcome = run.outcome;
+    run.settlementAttempted = true;
+    await this.terminateWorker(run);
     try {
-      const capture = history.settleNonCanonicalExecution({
-        ...this.historyInput(run),
-        outcome,
-        ...(run.diagnostic === undefined ? {} : { diagnostic: run.diagnostic }),
-        ...(run.contextManifest === undefined ? {} : { contextManifest: run.contextManifest }),
+      const result = await this.deps.options.data.sealGeneration(run.sessionId, {
+        executionId: run.runId,
+        decision: 'interrupted',
+        reason: message,
       });
-      run.capture = capture;
-      run.terminal = this.withCapture(run.terminal, capture);
-      run.settlementDurable = run.observationError === undefined;
-      run.settlementError = run.observationError;
+      await this.completeFromData(run, result);
     } catch (error) {
-      run.settlementError = errorText(error);
+      if (run.forceSettlementRequested) return;
+      await this.completeLocal(
+        run,
+        this.terminal(run, 'interrupted', errorText(error)),
+        false,
+        errorText(error),
+      );
     }
   }
 
-  private syntheticOutcome(
+  private finishWithoutData(run: ChildRun, terminal: AsyncAgentTerminalResult): void {
+    if (run.terminal !== undefined || run.settlementAttempted) return;
+    if (run.admitted) {
+      run.settlementAttempted = true;
+      void (async () => {
+        await this.terminateWorker(run);
+        try {
+          const result = await this.deps.options.data.sealGeneration(run.sessionId, {
+            executionId: run.runId,
+            decision: terminal.state === 'cancelled' ? 'cancelled' : 'interrupted',
+            reason: terminal.error ?? `child run ${terminal.state}`,
+          });
+          await this.completeFromData(run, result);
+        } catch (error) {
+          await this.completeLocal(
+            run,
+            this.terminal(run, 'interrupted', errorText(error)),
+            false,
+            errorText(error),
+          );
+        }
+      })();
+      return;
+    }
+    void this.completeLocal(run, terminal, true);
+  }
+
+  private async settleUnstartedTerminal(
+    run: ChildRun,
+    decision: 'cancelled' | 'interrupted',
+    reason: string,
+  ): Promise<void> {
+    if (run.settlementAttempted || run.terminal !== undefined) return;
+    const correlation = run.supervisor?.correlation('async-child') ?? {
+      session: run.sessionId,
+      instanceCorrelation: `reserved-child:${run.runId}`,
+      workerGeneration: `unstarted-child:${run.runId}`,
+      baseStateRevision: run.descriptor!.stateRevision,
+      command: 'async-child-startup',
+    };
+    run.executionCorrelation = correlation;
+    const admission = this.deps.options.data.executionAdmit(run.sessionId, {
+      executionId: run.runId,
+      taskId: run.runId,
+      task: run.task,
+      correlation,
+      generationState: 'unstarted',
+      createdAt: run.createdAt,
+      parentExecutionId: run.parentExecutionId,
+      ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
+    }).then((result) => {
+      run.descriptor = result.descriptor;
+      run.admitted = true;
+      this.flushPendingExecutionControls(run);
+    }).catch((error: unknown) => {
+      run.executionAdmissionError = errorText(error);
+      throw error;
+    });
+    run.executionAdmission = admission;
+    try {
+      await admission;
+      run.settlementAttempted = true;
+      await this.terminateWorker(run);
+      const result = await this.deps.options.data.sealGeneration(run.sessionId, {
+        executionId: run.runId,
+        decision,
+        reason,
+      });
+      await this.completeFromData(run, result);
+    } catch (error) {
+      const failure = errorText(error);
+      await this.completeLocal(
+        run,
+        this.terminal(run, 'interrupted', failure),
+        false,
+        failure,
+      );
+    }
+  }
+
+  private async completeFromData(
+    run: ChildRun,
+    result: DataSessionTerminalResult,
+  ): Promise<void> {
+    if (run.terminal !== undefined) return;
+    const outcome = result.outcome;
+    const state: AsyncAgentTerminalState = result.accepted
+      ? 'completed'
+      : outcome.stopReason === 'cancelled'
+      ? 'cancelled'
+      : outcome.stopReason === 'interrupted'
+      ? 'interrupted'
+      : 'failed';
+    const error = outcome.ok ? undefined : outcome.error ?? `child run ${state}`;
+    const terminal: AsyncAgentTerminalResult = {
+      ...this.terminal(run, state, error, outcome.finalText),
+      stopReason: outcome.stopReason,
+      ...(outcome.turnProviderRequestCount === undefined ? {} : {
+        providerRequestCount: outcome.turnProviderRequestCount,
+      }),
+      ...(outcome.diagnostic === undefined ? {} : {
+        diagnosticId: outcome.diagnostic.diagnosticId,
+        diagnosticCode: outcome.diagnostic.code,
+      }),
+      ...(result.capture?.diagnosticDurability === undefined ? {} : {
+        diagnosticDurability: result.capture.diagnosticDurability,
+      }),
+      ...(result.capture?.diagnosticPersistenceError === undefined ? {} : {
+        diagnosticPersistenceError: result.capture.diagnosticPersistenceError,
+      }),
+      ...(result.capture?.contextDurability === undefined ? {} : {
+        contextDurability: result.capture.contextDurability,
+      }),
+      ...(result.capture?.contextPersistenceError === undefined ? {} : {
+        contextPersistenceError: result.capture.contextPersistenceError,
+      }),
+    };
+    await this.completeLocal(run, terminal, result.durable);
+  }
+
+  private async completeLocal(
     run: ChildRun,
     terminal: AsyncAgentTerminalResult,
-  ): LoopOutcome {
-    const stopReason: LoopOutcome['stopReason'] = terminal.state === 'completed'
-      ? 'final'
-      : terminal.state === 'cancelled'
-      ? 'cancelled'
-      : terminal.state === 'interrupted'
-      ? 'interrupted'
-      : 'contract_failure';
-    return {
-      ok: terminal.state === 'completed',
-      task: run.task,
-      outcome: stopReason,
-      stopReason,
-      ...(terminal.state === 'completed'
-        ? { finalText: terminal.finalText }
-        : terminal.error === undefined
-        ? {}
-        : { error: terminal.error }),
-      steps: 0,
-      toolCallCount: 0,
-      toolResultCount: 0,
-      transcript: [],
-    };
-  }
-
-  private withOutcome(
-    terminal: AsyncAgentTerminalResult,
-    outcome: LoopOutcome,
-    diagnostic?: FailureDiagnosticV1,
-  ): AsyncAgentTerminalResult {
-    const providerRequestCount = outcome.turnProviderRequestCount;
-    const failureDiagnostic = diagnostic ?? outcome.diagnostic;
-    return {
-      ...terminal,
-      stopReason: outcome.stopReason,
-      ...(providerRequestCount === undefined ? {} : { providerRequestCount }),
-      ...(failureDiagnostic === undefined ? {} : {
-        diagnosticId: failureDiagnostic.diagnosticId,
-        diagnosticCode: failureDiagnostic.code,
-      }),
-    };
-  }
-
-  private withCapture(
-    terminal: AsyncAgentTerminalResult,
-    capture: HistoryCaptureResult,
-  ): AsyncAgentTerminalResult {
-    const durability = historyCaptureDurability(capture);
-    const diagnosticDurability = durability.diagnosticDurability ??
-      (terminal.diagnosticId === undefined ? undefined : 'unknown');
-    return {
-      ...terminal,
-      ...durability,
-      ...(diagnosticDurability === undefined ? {} : {
-        diagnosticDurability,
-      }),
-      ...(capture.contextDurability === undefined ? {} : {
-        contextDurability: capture.contextDurability,
-      }),
-      ...(capture.contextPersistenceError === undefined ? {} : {
-        contextPersistenceError: capture.contextPersistenceError,
-      }),
-    };
+    durable: boolean,
+    error?: string,
+  ): Promise<void> {
+    if (run.terminal === undefined) {
+      run.terminal = terminal;
+      run.state = terminal.state;
+      run.progress = {
+        ...run.progress,
+        phase: 'settled',
+        updatedAt: new Date().toISOString(),
+      };
+      run.settlementDurable = durable;
+      run.settlementError = error;
+    }
+    if (run.finalizing === undefined) {
+      run.finalizing = (async () => {
+        try {
+          await this.terminate(run);
+        } catch (cause) {
+          run.settlementDurable = false;
+          run.settlementError = errorText(cause);
+        } finally {
+          run.settled.resolve();
+        }
+      })();
+    }
+    await run.finalizing;
   }
 
   private cleanupRun(run: ChildRun): Promise<ChildCleanupRunObservationV1> {
@@ -921,30 +848,60 @@ export class ChildRunRegistry {
     run: ChildRun,
   ): Promise<ChildCleanupRunObservationV1> {
     run.cancelRequested = true;
+    this.requestCancellation(run);
     await run.admission;
+    await run.startupComplete.promise;
+    const executionAdmission = run.executionAdmission;
+    if (executionAdmission !== undefined) {
+      await executionAdmission.catch(() => {});
+    }
     if (run.admissionError !== undefined) {
+      await this.terminate(run);
+      if (run.terminal === undefined) {
+        await this.completeLocal(
+          run,
+          this.terminal(run, 'interrupted', run.admissionError),
+          false,
+          run.admissionError,
+        );
+      }
       return {
         runId: run.runId,
-        state: 'cancelled',
+        state: run.terminal?.state ?? 'interrupted',
         durability: 'failed',
         error: run.admissionError,
       };
     }
-    if (run.terminal === undefined) this.requestCancellation(run);
-    if (!run.settlementAttempted) {
+    if (run.executionAdmissionError !== undefined && !run.admitted) {
+      if (run.terminal === undefined) {
+        await this.completeLocal(
+          run,
+          this.terminal(run, 'interrupted', run.executionAdmissionError),
+          false,
+          run.executionAdmissionError,
+        );
+      } else {
+        await run.settled.promise;
+      }
+      return {
+        runId: run.runId,
+        state: run.terminal?.state ?? 'interrupted',
+        durability: 'failed',
+        error: run.executionAdmissionError,
+      };
+    }
+    if (!run.admitted) {
+      await this.completeLocal(run, this.terminal(run, 'cancelled'), true);
+    } else if (run.terminal === undefined) {
       const graceMs = this.deps.options.cancelSettlementGraceMs ??
         CHILD_SETTLEMENT_GRACE_MS;
       const settled = await this.waitForSettlement(run, graceMs);
-      if (!settled) {
-        this.finish(
-          run,
-          this.terminal(
-            run,
-            'interrupted',
-            'child cancellation settlement deadline exceeded',
-          ),
-        );
+      if (!settled && run.terminal === undefined) {
+        await this.forceSealAfterSettlementDeadline(run);
       }
+    }
+    if (run.terminal === undefined) {
+      await run.settled.promise;
     }
     await this.terminate(run);
     return {
@@ -956,19 +913,30 @@ export class ChildRunRegistry {
   }
 
   private requestCancellation(run: ChildRun): void {
-    if (run.terminal !== undefined || run.cancelSent) return;
-    if (run.state === 'starting') return;
+    if (run.terminal !== undefined) return;
+    if (!run.cancelRequested) run.cancelRequested = true;
+    if (!run.cancelRequestRecorded) {
+      run.cancelRequestRecorded = true;
+      this.recordExecutionControl(run, { kind: 'cancel_requested' });
+    }
+    if (run.cancelSent) return;
+    const supervisor = run.supervisor;
+    if (supervisor === undefined) return;
+    const correlation = run.executionCorrelation ??
+      supervisor.correlation('async-child-cancel');
+    const attempted = this.prepareExecutionControl(run, { kind: 'cancel_sent' });
+    run.cancelSent = true;
     try {
-      const correlation = run.supervisor?.correlation('async-child-cancel');
-      if (correlation === undefined) {
-        this.finish(run, this.terminal(run, 'cancelled'));
-        return;
-      }
-      run.cancelSent = true;
-      run.supervisor!.cancelProcessExecution(run.runId);
-      run.supervisor!.send({ kind: 'cancel', correlation });
+      supervisor.cancelProcessExecution(run.runId);
+      supervisor.send({ kind: 'cancel', correlation });
+      this.queueExecutionControl(run, attempted);
     } catch (error) {
-      this.finish(run, this.terminal(run, 'interrupted', errorText(error)));
+      this.queueExecutionControl(run, {
+        kind: 'cancel_failed',
+        controlSequence: attempted.controlSequence,
+        observedAt: attempted.observedAt,
+      });
+      this.finishWithoutData(run, this.terminal(run, 'interrupted', errorText(error)));
     }
   }
 
@@ -982,29 +950,155 @@ export class ChildRunRegistry {
     });
   }
 
-  private terminate(run: ChildRun): Promise<void> {
-    return run.physicalCleanup ??= run.supervisor?.terminate() ??
-      Promise.resolve();
+  private forceSealAfterSettlementDeadline(run: ChildRun): Promise<void> {
+    if (run.forcedSettlement !== undefined) return run.forcedSettlement;
+    run.forceSettlementRequested = true;
+    run.settlementAttempted = true;
+    run.forcedSettlement = (async () => {
+      await this.terminateWorker(run);
+      if (run.terminal !== undefined) return;
+      try {
+        const result = await this.deps.options.data.sealGeneration(run.sessionId, {
+          executionId: run.runId,
+          decision: 'interrupted',
+          reason: 'child cancellation settlement deadline exceeded',
+        });
+        await this.completeFromData(run, result);
+      } catch (error) {
+        await this.completeLocal(
+          run,
+          this.terminal(run, 'interrupted', errorText(error)),
+          false,
+          errorText(error),
+        );
+      }
+    })();
+    return run.forcedSettlement;
   }
 
-  private historyInput(run: ChildRun) {
+  private sendCommitAcknowledgement(
+    run: ChildRun,
+    correlation: WorkerCorrelation,
+    accepted: boolean,
+  ): void {
+    this.recordExecutionControl(run, {
+      kind: 'acknowledgement_requested',
+      accepted,
+    });
+    const attempted = this.prepareExecutionControl(run, {
+      kind: 'acknowledgement_sent',
+      accepted,
+    });
+    try {
+      if (run.supervisor === undefined) {
+        throw new Error('child Worker is unavailable for acknowledgement');
+      }
+      run.supervisor.send({
+        kind: 'commit_acknowledgement',
+        correlation,
+        accepted,
+      });
+      this.queueExecutionControl(run, attempted);
+    } catch {
+      this.queueExecutionControl(run, {
+        kind: 'acknowledgement_failed',
+        accepted,
+        controlSequence: attempted.controlSequence,
+        observedAt: attempted.observedAt,
+      });
+      // Data has committed the child turn; a closed Worker cannot change that result.
+    }
+  }
+
+  private prepareExecutionControl(
+    run: ChildRun,
+    fact: ChildExecutionControlFact,
+  ): DataExecutionControlInput {
     return {
-      taskId: run.runId,
-      executionId: run.runId,
-      createdAt: run.createdAt,
-      sessionCorrelation: `parent:${run.parentExecutionId}:child:${run.runId}`,
-      sessionMode: 'no_session' as const,
-      turn: 1,
-      task: run.task,
-      baseStateRevision: 1,
-      agent: 'default' as const,
-      model: run.model,
-      build: run.build,
-      definition: run.definitionRef,
-      parentExecutionId: run.parentExecutionId,
-      ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-      ...(run.manifest === undefined ? {} : { manifest: run.manifest }),
-    };
+      ...fact,
+      observedAt: fact.observedAt ?? new Date().toISOString(),
+      controlSequence: ++run.controlSequence,
+    } as DataExecutionControlInput;
+  }
+
+  private recordExecutionControl(
+    run: ChildRun,
+    fact: ChildExecutionControlFact,
+  ): void {
+    this.queueExecutionControl(run, this.prepareExecutionControl(run, fact));
+  }
+
+  private queueExecutionControl(
+    run: ChildRun,
+    input: DataExecutionControlInput,
+  ): void {
+    if (!run.admitted) {
+      run.pendingControlFacts.push(input);
+      return;
+    }
+    this.persistExecutionControl(run, input);
+  }
+
+  private flushPendingExecutionControls(run: ChildRun): void {
+    for (const input of run.pendingControlFacts.splice(0)) {
+      this.persistExecutionControl(run, input);
+    }
+  }
+
+  private persistExecutionControl(
+    run: ChildRun,
+    input: DataExecutionControlInput,
+  ): void {
+    run.controlWrites = run.controlWrites.catch(() => undefined).then(async () => {
+      try {
+        const descriptor = await this.deps.options.data.recordExecutionControl(
+          run.sessionId,
+          run.runId,
+          input,
+        );
+        if (
+          run.descriptor !== undefined &&
+          descriptor.latestExecution?.executionId === run.runId
+        ) {
+          run.descriptor = {
+            ...run.descriptor,
+            latestExecution: structuredClone(descriptor.latestExecution),
+          };
+        }
+      } catch {
+        // Control facts are auxiliary; a failed write cannot replace a child terminal result.
+      }
+    });
+  }
+
+  private terminateWorker(run: ChildRun): Promise<void> {
+    if (run.physicalCleanup !== undefined) return run.physicalCleanup;
+    const supervisor = run.supervisor;
+    if (supervisor === undefined) return Promise.resolve();
+    return run.physicalCleanup = (async () => {
+      let result: 'complete' | 'failed' = 'complete';
+      let cleanupError: unknown;
+      try {
+        await supervisor.terminate();
+      } catch (error) {
+        result = 'failed';
+        cleanupError = error;
+      }
+      this.recordExecutionControl(run, {
+        kind: 'process_cleanup_finished',
+        result,
+      });
+      await run.controlWrites;
+      if (result === 'failed') throw cleanupError;
+    })();
+  }
+
+  private async terminate(run: ChildRun): Promise<void> {
+    await this.terminateWorker(run);
+    if (run.descriptor !== undefined) {
+      await this.deps.options.data.closeSession(run.sessionId);
+      run.descriptor = undefined;
+    }
   }
 
   private refKey(ref: DefinitionRevisionRef): string {

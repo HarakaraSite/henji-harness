@@ -15,6 +15,7 @@ import {
   decodeRecallValue,
   decodeSelectionChangeValue,
   decodeSessionDeleteValue,
+  decodeSessionOpenValue,
   decodeSessionRenameValue,
   decodeSessionsListResult,
   decodeSessionSnapshot,
@@ -270,16 +271,7 @@ export class HenjiApiClient {
         body: JSON.stringify(input),
       }),
     );
-    return decodeCommandResult(value, (item) => {
-      if (typeof item !== 'object' || item === null || !('snapshot' in item)) {
-        throw new TypeError('invalid session open result');
-      }
-      return {
-        snapshot: decodeSessionSnapshot(
-          (item as { snapshot: unknown }).snapshot,
-        ),
-      };
-    });
+    return decodeCommandResult(value, decodeSessionOpenValue);
   }
 
   async sessionDelete(

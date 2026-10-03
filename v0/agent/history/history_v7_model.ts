@@ -114,11 +114,16 @@ export const validateHistoryV7Occurrence = (
     !nonempty(occurrence.observedAt)
   ) throw new TypeError('invalid history v7 semantic occurrence');
   encodeHistoryV7Payload(occurrence.payload);
-  if (occurrence.contentDigest !== undefined && !nonempty(occurrence.contentDigest)) {
+  if (
+    occurrence.contentDigest !== undefined &&
+    !nonempty(occurrence.contentDigest)
+  ) {
     throw new TypeError('invalid history v7 content digest');
   }
   for (const relation of occurrence.relations ?? []) {
-    if (!nonempty(relation.relation) || !nonempty(relation.targetOccurrenceId)) {
+    if (
+      !nonempty(relation.relation) || !nonempty(relation.targetOccurrenceId)
+    ) {
       throw new TypeError('invalid history v7 semantic relation');
     }
   }

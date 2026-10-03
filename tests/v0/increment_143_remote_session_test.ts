@@ -68,7 +68,7 @@ const snapshot = (
     readonly message?: string;
   },
 ): SessionSnapshot => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   cursor: { coreEpoch, sessionId, revision: 4 },
   session: {
     id: sessionId,
@@ -109,18 +109,24 @@ const snapshot = (
       : {}),
   },
   conversation: {
-    messages: options.message === undefined ? [] : [{
-      id: `message-${sessionId}`,
-      executionId,
-      turn: 1,
-      role: 'assistant',
-      text: options.message,
-    }],
-    tools: [],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
+    schemaVersion: 2,
+    sessionId,
+    cut: 0,
+    storeRevision: 0,
+    entities: options.message === undefined ? {} : {
+      [`message-${sessionId}`]: {
+        kind: 'message',
+        id: `message-${sessionId}`,
+        executionId,
+        turn: 1,
+        role: 'assistant',
+        text: options.message,
+        complete: true,
+        version: 1,
+        position: { executionOrder: 0, requestOrder: 0, phase: 1, eventOrdinal: 1, itemOrdinal: 0 },
+      },
+    },
+    order: options.message === undefined ? [] : [`message-${sessionId}`],
   },
   pending: { kind: 'core-owned', followUps: [] },
   credentialAvailability: { status: 'unknown' },
@@ -506,7 +512,7 @@ Deno.test('Increment 143 /sessions picker R explicitly resumes the selected save
       openBody = await request.json() as Record<string, unknown>;
       activeSlot = savedSessionId;
       return accepted(String(openBody.commandId), savedSessionId, {
-        snapshot: resumedSnapshot,
+        sessionId: savedSessionId,
       });
     }
     if (request.method === 'GET' && pathname.endsWith('/events')) {

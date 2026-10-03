@@ -1,11 +1,10 @@
-import { projectApplicationSession, projectExecutionView } from './api_projection.ts';
-import type { ApplicationQueryPort } from './application_port.ts';
+import { projectApplicationControl } from './api_projection.ts';
 import { type ApplicationService, createApplicationService } from './application_service.ts';
-import { renderCanonicalView, renderSessionTimeline } from '../history/history_view.ts';
-import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import { createDataClient, DataServiceError, type EncodedDataReply } from '../data/client.ts';
+import type { DataSessionDescriptor } from '../data/session_data_owner.ts';
+import { encodedSessionSnapshot, encodedSessionUpdate } from './encoded_public_frame.ts';
 import type {
   ApiSelection,
-  ApiSessionListEntry,
   CatalogReadInput,
   CatalogReadResult,
   ChatGPTAuthResult,
@@ -13,7 +12,6 @@ import type {
   CommandResult,
   CommandState,
   CommandTarget,
-  ContextReadResult,
   CoreCommandValue,
   CoreOperationName,
   CoreReadView,
@@ -31,7 +29,6 @@ import type {
   FollowUpReadResult,
   FollowUpRecord,
   HistoryReadInput,
-  HistoryReadResult,
   ModelCatalogResult,
   ModelFavoriteInput,
   PendingView,
@@ -41,6 +38,7 @@ import type {
   SelectionChangeValue,
   SessionActivation,
   SessionChange,
+  SessionControlSnapshot,
   SessionDeleteInput,
   SessionDeleteValue,
   SessionOpenInput,
@@ -48,23 +46,18 @@ import type {
   SessionRenameInput,
   SessionRenameValue,
   SessionsListResult,
-  SessionSnapshot,
-  SessionStreamFrame,
   SteeringSubmitInput,
   SteeringSubmitValue,
   TaskSubmitInput,
   TaskSubmitValue,
 } from '../../api/contract.ts';
 import { CORE_OPERATION_NAMES } from '../../api/contract.ts';
-import { diffSessionSnapshots } from '../../api/reducer.ts';
 import {
   isSessionId,
   launcherStateRoot,
   sessionPaths,
   SessionStoreError,
-  type StoredSessionRecord,
 } from '../session/session_store.ts';
-import type { NavigationPosition } from '../session/session_navigation.ts';
 import { resolveRequestedDefinition } from '../definitions/definition_selection.ts';
 import { LiveModelCatalog, LiveModelCatalogError } from '../provider/live_model_catalog.ts';
 import {
@@ -87,7 +80,7 @@ import { modelRouteProfileId } from '../provider/model_selection.ts';
 import { projectRuntimeDisplayState } from '../runtime/startup_orientation.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
-import { restoreRecordMessages, type WorkerSessionOptions } from '../worker/worker_tui_session.ts';
+import { type WorkerSessionOptions } from '../worker/worker_tui_session.ts';
 
 const IMPLEMENTED_OPERATIONS: readonly CoreOperationName[] = CORE_OPERATION_NAMES;
 
@@ -123,11 +116,11 @@ export type CoreServiceOptions =
   >;
 
 export type CoreSessionFrameSink = (
-  frame: SessionStreamFrame | undefined,
+  frame: Uint8Array<ArrayBuffer> | undefined,
 ) => void;
 
 export interface CoreSessionSubscription {
-  readonly snapshot: SessionSnapshot;
+  readonly snapshot: EncodedDataReply;
   readonly unsubscribe: () => void;
 }
 
@@ -140,7 +133,7 @@ export interface CoreService {
     onAccepted?: () => void,
   ): Promise<CommandResult<CoreShutdownValue>>;
   sessionsList(): Promise<SessionsListResult>;
-  sessionRead(sessionId: string): Promise<SessionSnapshot>;
+  sessionRead(sessionId: string): Promise<EncodedDataReply>;
   sessionOpen(input: SessionOpenInput): Promise<SessionOpenResult>;
   sessionDelete(
     sessionId: string,
@@ -165,7 +158,7 @@ export interface CoreService {
     sessionId: string,
     input: RecallInput,
   ): Promise<CommandResult<RecallValue>>;
-  contextRead(sessionId: string): Promise<ContextReadResult>;
+  contextRead(sessionId: string): Promise<EncodedDataReply>;
   taskSubmit(
     sessionId: string,
     input: TaskSubmitInput,
@@ -187,7 +180,7 @@ export interface CoreService {
   followUpRead(sessionId: string, queueId: string): Promise<FollowUpReadResult>;
   commandRead(commandId: string): Promise<CommandState<CoreCommandValue>>;
   executionRead(executionId: string): Promise<ExecutionReadResult>;
-  historyRead(input: HistoryReadInput): Promise<HistoryReadResult>;
+  historyRead(input: HistoryReadInput): Promise<EncodedDataReply>;
   subscribeSession(
     sessionId: string,
     sink: CoreSessionFrameSink,
@@ -197,7 +190,7 @@ export interface CoreService {
 
 interface CoreSlot {
   readonly service: ApplicationService;
-  snapshot: SessionSnapshot;
+  snapshot: SessionControlSnapshot;
   readonly options: WorkerSessionOptions;
   unsubscribeObservations?: () => void;
 }
@@ -214,59 +207,42 @@ interface TrackedExecution {
   processSettlement: 'running' | 'complete';
 }
 
-const updateChanges = (
-  before: SessionSnapshot,
-  after: SessionSnapshot,
-): readonly SessionChange[] => diffSessionSnapshots(before, after);
-
 const currentSnapshot = (
   service: ApplicationService,
   coreEpoch: string,
   revision: number,
-  executionStates: ReadonlyMap<string, {
-    readonly submittedByCommandId?: string;
-    readonly processSettlement?: import('../../api/contract.ts').ExecutionView['processSettlement'];
-  }>,
-): SessionSnapshot =>
-  projectApplicationSession(service.query, {
-    coreEpoch,
-    revision,
-  }, executionStates);
+): SessionControlSnapshot => projectApplicationControl(service.query, { coreEpoch, revision });
 
-const publicSessionMode = (record: StoredSessionRecord) => {
-  const selection = record.activeModel;
-  return projectRuntimeDisplayState({
-    productVersion: buildManifest().productVersion,
-    workspaceRoot: record.workspaceRoot,
-    agentId: record.agent === 'planner' ? 'planner' : 'default',
-    profileId: modelRouteProfileId(selection),
-    provider: selection.provider,
-    modelId: selection.modelId,
-    effort: selection.effort,
-    sessionMode: 'session',
-    skillNames: [],
-  });
+const savedControl = (
+  descriptor: DataSessionDescriptor,
+  coreEpoch: string,
+  revision: number,
+  workspaceRoot: string,
+): SessionControlSnapshot => {
+  const selection = descriptor.modelSelection;
+  return projectApplicationControl({
+    currentSession: () => ({
+      sessionId: descriptor.id,
+      persistence: descriptor.persistence === 'none' ? 'none' : 'session',
+      position: descriptor.currentPosition,
+      selection,
+      startup: projectRuntimeDisplayState({
+        productVersion: buildManifest().productVersion,
+        workspaceRoot,
+        agentId: descriptor.agent,
+        profileId: modelRouteProfileId(selection),
+        provider: selection.provider,
+        modelId: selection.modelId,
+        effort: selection.effort,
+        sessionMode: descriptor.persistence === 'none' ? 'none' : 'session',
+        skillNames: [],
+      }),
+      runtime: { active: false, phase: 'idle' },
+      execution: descriptor.latestExecution,
+      context: descriptor.context,
+    }),
+  }, { coreEpoch, revision });
 };
-
-const positionFromRecord = (
-  record: StoredSessionRecord,
-  checkpoint: Awaited<
-    ReturnType<SqliteHistoryV7ProductionStore['readCheckpoint']>
-  >,
-): NavigationPosition => ({
-  sessionId: record.sessionId,
-  createdAt: record.createdAt,
-  ...(record.title === null ? {} : { title: record.title }),
-  agent: record.agent,
-  committedTurn: record.nextTurn - 1,
-  messageCount: record.transcript.length,
-  ...(checkpoint === undefined ? {} : {
-    checkpoint: {
-      coveredThroughTurn: checkpoint.coveredThroughTurn,
-      retainedFromTurn: checkpoint.retainedFromTurn,
-    },
-  }),
-});
 
 const sessionNotFound = (): CoreServiceError =>
   new CoreServiceError(404, 'session_not_found', 'session not found');
@@ -293,7 +269,7 @@ const apiSelection = (selection: ModelSelection): ApiSelection => ({
   effort: selection.effort,
 });
 
-/** Core query and slot owner. It uses the existing SQLite history and Host composition. */
+/** Core owns control state; Data owns Session history and encoded conversation state. */
 export const createCoreService = async (
   options: CoreServiceOptions,
 ): Promise<CoreService> => {
@@ -331,28 +307,6 @@ export const createCoreService = async (
   const workspace = await resolveWorkspace(options.workspaceRoot);
   const stateRoot = options.stateRoot ?? launcherStateRoot();
   const statePaths = await sessionPaths(stateRoot, workspace.root);
-  const databasePath = `${statePaths.root}/history-v7.sqlite3`;
-  const history = new SqliteHistoryV7ProductionStore(
-    stateRoot,
-    workspace.root,
-    { readOnly: true },
-  );
-  let historyInitialized = false;
-  const ensureHistory = async (): Promise<boolean> => {
-    if (!historyInitialized) {
-      const exists = await Deno.stat(databasePath).then((info) => info.isFile)
-        .catch((error) => {
-          if (error instanceof Deno.errors.NotFound) return false;
-          throw error;
-        });
-      if (!exists) return false;
-      await history.initialize();
-      historyInitialized = true;
-    }
-    return true;
-  };
-  await ensureHistory();
-
   const coreEpoch = requestedCoreEpoch ?? crypto.randomUUID().toLowerCase();
   let slot: CoreSlot | undefined;
   let closePromise: Promise<void> | undefined;
@@ -366,7 +320,7 @@ export const createCoreService = async (
   const credentialRegistrations = new Set<Promise<CredentialRegisterResult>>();
   const chatgptOperations = new Set<Promise<ChatGPTAuthResult>>();
   const sessionSubscribers = new Map<string, Set<CoreSessionFrameSink>>();
-  const sessionSnapshots = new Map<string, SessionSnapshot>();
+  const sessionSnapshots = new Map<string, SessionControlSnapshot>();
   const providerById = new Map(
     providerDeclarations.map((
       declaration,
@@ -384,12 +338,7 @@ export const createCoreService = async (
     const fresh = facts.slice(catalogFactCursor);
     catalogFactCursor = facts.length;
     if (fresh.length === 0) return;
-    await Deno.mkdir(statePaths.root, { recursive: true, mode: 0o700 });
-    await Deno.writeTextFile(
-      `${statePaths.root}/catalog-requests.jsonl`,
-      fresh.map((fact) => JSON.stringify(fact)).join('\n') + '\n',
-      { append: true },
-    );
+    await data.persistCatalogFacts(fresh);
   };
   const credentialRegistration = createCredentialRegistration({
     ...(configRoot === undefined ? {} : { configRoot }),
@@ -410,6 +359,8 @@ export const createCoreService = async (
   const beginShutdown = (): void => {
     if (admissionClosed) return;
     admissionClosed = true;
+    const executionId = slot?.service.tasks.activeExecutionId();
+    if (executionId !== undefined) slot!.service.tasks.cancel(executionId);
     for (const closeStream of [...liveSubscriptions]) closeStream();
   };
 
@@ -422,28 +373,100 @@ export const createCoreService = async (
     return subscribers;
   };
 
-  const publishSnapshot = (candidate: SessionSnapshot): SessionSnapshot => {
+  const watchedSessions = new Map<string, Promise<void>>();
+  const dataWatches = new Map<string, () => void>();
+
+  const publishSnapshot = (
+    candidate: SessionControlSnapshot,
+    dataDelta?: Uint8Array<ArrayBuffer>,
+  ): SessionControlSnapshot => {
+    const execution = candidate.runtime.execution;
+    const tracked = execution === null ? undefined : executions.get(execution.executionId);
+    if (execution !== null && tracked !== undefined) {
+      candidate = {
+        ...candidate,
+        runtime: {
+          ...candidate.runtime,
+          execution: {
+            ...execution,
+            submittedByCommandId: tracked.submittedByCommandId,
+            processSettlement: tracked.processSettlement === 'running' &&
+                candidate.runtime.active && candidate.runtime.phase === 'settling'
+              ? 'settling'
+              : tracked.processSettlement,
+          },
+        },
+      };
+    }
     const sessionId = candidate.session.id;
     const previous = sessionSnapshots.get(sessionId);
     if (previous === undefined) {
       sessionSnapshots.set(sessionId, candidate);
       return candidate;
     }
+    const changes: SessionChange[] = [];
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    if (!same(previous.session, candidate.session)) {
+      changes.push({ kind: 'session.replace', session: candidate.session });
+    }
+    if (!same(previous.runtime, candidate.runtime)) {
+      changes.push({ kind: 'runtime.replace', runtime: candidate.runtime });
+    }
+    if (!same(previous.pending, candidate.pending)) {
+      changes.push({ kind: 'pending.replace', pending: candidate.pending });
+    }
+    if (!same(previous.credentialAvailability, candidate.credentialAvailability)) {
+      changes.push({
+        kind: 'credentialAvailability.replace',
+        credentialAvailability: candidate.credentialAvailability,
+      });
+    }
+    if (!same(previous.context, candidate.context)) {
+      changes.push({ kind: 'context.replace', context: candidate.context });
+    }
+    if (changes.length === 0 && dataDelta === undefined) return previous;
     const updated = {
       ...candidate,
       cursor: { ...candidate.cursor, revision: previous.cursor.revision + 1 },
     };
-    const changes = updateChanges(previous, updated);
-    if (changes.length === 0) return previous;
     sessionSnapshots.set(sessionId, updated);
-    const frame: SessionStreamFrame = {
-      kind: 'session.update',
-      cursor: updated.cursor,
-      previousRevision: previous.cursor.revision,
+    const bytes = encodedSessionUpdate(
+      updated.cursor,
+      previous.cursor.revision,
       changes,
-    };
-    for (const sink of [...subscribersFor(sessionId)]) sink(frame);
+      dataDelta,
+    );
+    for (const sink of [...subscribersFor(sessionId)]) sink(bytes);
     return updated;
+  };
+
+  const ensureWatch = async (sessionId: string): Promise<void> => {
+    let pending = watchedSessions.get(sessionId);
+    if (pending === undefined) {
+      pending = data.watchSession(sessionId, (delta) => {
+        const previous = sessionSnapshots.get(sessionId);
+        if (previous === undefined) return;
+        const descriptor = delta.descriptor;
+        const updated = publishSnapshot({
+          ...previous,
+          session: {
+            ...previous.session,
+            position: descriptor.currentPosition,
+            selection: apiSelection(descriptor.modelSelection),
+          },
+          runtime: { ...previous.runtime, execution: descriptor.latestExecution ?? null },
+          context: descriptor.context,
+        }, delta.bytes);
+        if (slot?.snapshot.session.id === sessionId) slot.snapshot = updated;
+      }).then((watch) => {
+        dataWatches.set(sessionId, watch.unsubscribe);
+      }).catch((error) => {
+        watchedSessions.delete(sessionId);
+        throw error;
+      });
+      watchedSessions.set(sessionId, pending);
+    }
+    await pending;
   };
 
   const pendingForSession = (
@@ -524,13 +547,27 @@ export const createCoreService = async (
       target.service,
       coreEpoch,
       previous.cursor.revision + 1,
-      executions,
     );
-    const updated: SessionSnapshot = {
+    const pending = pendingForSession(target.snapshot.session.id, target.service);
+    const reservation = target.service.tasks.isPreparing() && pending.activeTask !== undefined
+      ? {
+        executionId: pending.activeTask.executionId,
+        commandId: pending.activeTask.commandId,
+        phase: 'preparing' as const,
+      }
+      : undefined;
+    const updated: SessionControlSnapshot = {
       ...projected,
-      pending: pendingForSession(target.snapshot.session.id, target.service),
+      context: {
+        ...projected.context,
+        ...(previous.context.latestRequest === undefined ? {} : {
+          latestRequest: previous.context.latestRequest,
+        }),
+      },
+      pending,
       runtime: {
         ...projected.runtime,
+        ...(reservation === undefined ? {} : { reservation }),
         operations: operations(target),
       },
     };
@@ -560,7 +597,7 @@ export const createCoreService = async (
     if (fromSessionId !== undefined) {
       const source = slot?.snapshot.session.id === fromSessionId
         ? slot.service.query.currentSession().selection
-        : (await history.readWorker(fromSessionId)).activeModel;
+        : (await data.sessionDescriptor(fromSessionId)).modelSelection;
       initialModelSelection = structuredClone(source);
     }
     if (
@@ -589,7 +626,7 @@ export const createCoreService = async (
       );
       agent = definitionSelection.id;
     } else if (selection.kind === 'exact') {
-      const record = await history.readWorker(selection.sessionId);
+      const record = await data.sessionDescriptor(selection.sessionId);
       if (definitionSelection?.id !== record.agent) {
         definitionSelection = await resolveRequestedDefinition(
           record.agent === 'default' ? undefined : record.agent,
@@ -617,6 +654,7 @@ export const createCoreService = async (
     }
     const invocation: WorkerSessionOptions = {
       ...inherited,
+      data,
       selection: definitionSelection,
       agent,
       initialModelSelection,
@@ -634,7 +672,6 @@ export const createCoreService = async (
       service,
       coreEpoch,
       sessionSnapshots.get(sessionId)?.cursor.revision ?? 0,
-      executions,
     );
     if (!sessionSnapshots.has(sessionId)) {
       sessionSnapshots.set(sessionId, initial);
@@ -644,6 +681,7 @@ export const createCoreService = async (
       options: invocation,
       snapshot: initial,
     };
+    await ensureWatch(sessionId);
     knownServices.set(service.query.currentSession().sessionId, service);
     allServices.add(service);
     next.unsubscribeObservations = service.subscribe(() => refreshSlotSnapshot(next));
@@ -654,7 +692,7 @@ export const createCoreService = async (
     selection: CoreInitialSession,
     activation?: SessionActivation,
     fromSessionId?: string,
-  ): Promise<SessionSnapshot> => {
+  ): Promise<SessionControlSnapshot> => {
     if (selection.kind === 'exact' && !isSessionId(selection.sessionId)) {
       throw new CoreServiceError(
         400,
@@ -669,7 +707,6 @@ export const createCoreService = async (
       return structuredClone(slot.snapshot);
     }
     const next = await makeSlot(selection, activation, fromSessionId);
-    await ensureHistory();
     const previous = slot;
     slot = next;
     refreshSlotSnapshot(next);
@@ -680,67 +717,34 @@ export const createCoreService = async (
     return structuredClone(next.snapshot);
   };
 
-  const sessionRead = async (sessionId: string): Promise<SessionSnapshot> => {
+  const sessionRead = async (sessionId: string): Promise<EncodedDataReply> => {
     if (!isSessionId(sessionId)) {
-      throw new CoreServiceError(
-        400,
-        'invalid_session_id',
-        'invalid session id',
+      throw new CoreServiceError(400, 'invalid_session_id', 'invalid session id');
+    }
+    if (slot?.snapshot.session.id !== sessionId) {
+      const descriptor = await readData(() => data.sessionDescriptor(sessionId));
+      const candidate = savedControl(
+        descriptor,
+        coreEpoch,
+        sessionSnapshots.get(sessionId)?.cursor.revision ?? 0,
+        workspace.root,
       );
+      publishSnapshot({
+        ...candidate,
+        pending: pendingForSession(sessionId),
+        runtime: {
+          ...candidate.runtime,
+          activeSessionId: slot?.snapshot.session.id ?? null,
+          operations: operations(),
+        },
+      });
     }
-    if (slot?.snapshot.session.id === sessionId) {
-      return structuredClone(slot.snapshot);
-    }
-    if (!await ensureHistory()) throw sessionNotFound();
-    let record: StoredSessionRecord;
-    try {
-      record = await history.readWorker(sessionId);
-    } catch (error) {
-      if (
-        error instanceof SessionStoreError && error.code === 'session_not_found'
-      ) {
-        throw sessionNotFound();
-      }
-      throw error;
-    }
-    const checkpoint = await history.readCheckpoint(sessionId);
-    const sessionHistory = history.readSessionHistory(sessionId);
-    const storedExecutions = history.listExecutionsForSession(sessionId);
-    const restored = restoreRecordMessages(record, history, sessionHistory);
-    const query: ApplicationQueryPort = {
-      currentSession: () => ({
-        sessionId,
-        persistence: 'session',
-        position: positionFromRecord(record, checkpoint),
-        selection: structuredClone(record.activeModel),
-        startup: publicSessionMode(record),
-        runtime: { active: false, phase: 'idle' },
-        transcript: structuredClone(record.transcript),
-        restored,
-        ...(checkpoint === undefined ? {} : { checkpoint }),
-      }),
-      sessionHistory: () => sessionHistory,
-      executions: () => storedExecutions,
-      executionEvents: (executionId) => history.listExecutionEvents(executionId),
-      semanticOccurrences: (executionId) => history.listSemanticOccurrences(executionId),
-      assistantTextStates: (executionId) => history.listAssistantTextStates(executionId),
-      executionContext: (executionId) => history.listExecutionContext(executionId),
-    };
-    const projected = projectApplicationSession(query, {
-      coreEpoch,
-      revision: 0,
-    }, executions);
-    return publishSnapshot({
-      ...projected,
-      pending: pendingForSession(sessionId),
-      runtime: {
-        ...projected.runtime,
-        active: false,
-        activeSessionId: slot?.snapshot.session.id ?? null,
-        phase: 'idle',
-        operations: operations(),
-      },
-    });
+    await ensureWatch(sessionId);
+    // Last await: Data's snapshot reply and later deltas share one ordered port.
+    const conversation = await readData(() => data.conversationSnapshot(sessionId));
+    const control = sessionSnapshots.get(sessionId);
+    if (control === undefined) throw sessionNotFound();
+    return { bytes: encodedSessionSnapshot(control, conversation.bytes) };
   };
 
   const rejected = <T>(
@@ -799,33 +803,36 @@ export const createCoreService = async (
     return result.then((value) => structuredClone(value));
   };
 
+  const readData = async <T>(read: () => Promise<T>): Promise<T> => {
+    try {
+      return await read();
+    } catch (error) {
+      if (error instanceof DataServiceError) {
+        throw new CoreServiceError(error.status, error.code, error.message);
+      }
+      throw error;
+    }
+  };
+
   const executionRead = async (
     executionId: string,
   ): Promise<ExecutionReadResult> => {
-    const active = slot;
-    const row =
-      active?.service.query.executions().find((item) => item.executionId === executionId) ??
-        (await ensureHistory()
-          ? history.listExecutions().find((item) => item.executionId === executionId)
-          : undefined);
-    if (row === undefined) {
-      throw new CoreServiceError(
-        404,
-        'execution_not_found',
-        'execution not found',
-      );
-    }
-    const query = row.sessionCorrelation === active?.snapshot.session.id
-      ? active.service.query
+    const result = await readData(() => data.executionRead(executionId));
+    const tracked = executions.get(executionId);
+    if (tracked === undefined) return result;
+    const runtime = slot?.snapshot.session.id === tracked.sessionId
+      ? slot.snapshot.runtime
       : undefined;
-    const execution = projectExecutionView(
-      row,
-      query?.currentSession().runtime ?? { active: false, phase: 'idle' },
-      executions.get(executionId),
-      query?.executionEvents(executionId) ??
-        history.listExecutionEvents(executionId),
-    );
-    return { execution: execution! };
+    return {
+      execution: {
+        ...result.execution,
+        submittedByCommandId: tracked.submittedByCommandId,
+        processSettlement: tracked.processSettlement === 'running' &&
+            runtime?.active && runtime.phase === 'settling'
+          ? 'settling'
+          : tracked.processSettlement,
+      },
+    };
   };
 
   const service: CoreService = {
@@ -1036,22 +1043,8 @@ export const createCoreService = async (
       return operation;
     },
     async sessionsList(): Promise<SessionsListResult> {
-      const listed = await ensureHistory()
-        ? await history.listWorker()
-        : { sessions: [], skippedInvalid: 0 };
-      const byId = new Map<string, ApiSessionListEntry>();
-      for (const item of listed.sessions) {
-        byId.set(item.id, {
-          id: item.id,
-          agent: item.agent,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-          ...(item.title === undefined ? {} : { title: item.title }),
-          committedTurn: item.turnCount,
-          messageCount: item.messageCount,
-          persistence: 'persistent',
-        });
-      }
+      const listed = await data.sessionsList();
+      const byId = new Map(listed.sessions.map((item) => [item.id, item]));
       if (slot !== undefined) {
         const snapshot = slot.snapshot;
         const position = snapshot.session.position;
@@ -1095,8 +1088,8 @@ export const createCoreService = async (
           if (slot !== undefined) refreshSlotSnapshot(slot);
           try {
             let selection = input.selection;
-            if (selection.kind === 'continue' && await ensureHistory()) {
-              const latest = (await history.listWorker()).sessions[0];
+            if (selection.kind === 'continue') {
+              const latest = (await data.sessionsList()).sessions[0];
               if (latest !== undefined) {
                 selection = { kind: 'exact', sessionId: latest.id };
               }
@@ -1128,7 +1121,7 @@ export const createCoreService = async (
               commandId: input.commandId,
               target,
               cursor: structuredClone(slot!.snapshot.cursor),
-              value: { snapshot: structuredClone(slot!.snapshot) },
+              value: { sessionId: slot!.snapshot.session.id },
             };
           } catch (error) {
             const reason: CoreRejection = error instanceof SessionStoreError &&
@@ -1155,8 +1148,10 @@ export const createCoreService = async (
             return rejected(input.commandId, target, 'busy');
           }
           try {
-            const store = new SqliteHistoryV7ProductionStore(stateRoot, workspace.root);
-            await store.delete(sessionId);
+            await data.deleteSession(sessionId);
+            dataWatches.get(sessionId)?.();
+            dataWatches.delete(sessionId);
+            watchedSessions.delete(sessionId);
             sessionSnapshots.delete(sessionId);
             for (const sink of [...(sessionSubscribers.get(sessionId) ?? [])]) sink(undefined);
             sessionSubscribers.delete(sessionId);
@@ -1330,7 +1325,7 @@ export const createCoreService = async (
             const value: RecallValue = input.action === 'clear'
               ? {
                 action: 'clear',
-                cleared: active.service.session.clearPendingRecall(),
+                cleared: await active.service.session.clearPendingRecall(),
               }
               : {
                 action: 'prepare',
@@ -1363,8 +1358,13 @@ export const createCoreService = async (
         },
       );
     },
-    async contextRead(sessionId): Promise<ContextReadResult> {
-      return { context: (await sessionRead(sessionId)).context };
+    async contextRead(sessionId): Promise<EncodedDataReply> {
+      if (!isSessionId(sessionId)) {
+        throw new CoreServiceError(400, 'invalid_session_id', 'invalid session id');
+      }
+      const active = slot?.snapshot.session.id === sessionId ? slot : undefined;
+      const pendingRecall = active?.snapshot.context.pendingRecall;
+      return await readData(() => data.contextRead(sessionId, pendingRecall, active !== undefined));
     },
     async taskSubmit(
       sessionId,
@@ -1438,6 +1438,19 @@ export const createCoreService = async (
         }),
         target,
         async () => {
+          const active = slot;
+          const reserved = active?.snapshot.session.id === sessionId &&
+            active.service.tasks.activeExecutionId() === executionId;
+          if (reserved) {
+            const result = active!.service.tasks.cancel(executionId);
+            return {
+              kind: 'accepted',
+              commandId: input.commandId,
+              target,
+              cursor: structuredClone(active!.snapshot.cursor),
+              value: { executionId, result },
+            };
+          }
           let found: ExecutionReadResult;
           try {
             found = await executionRead(executionId);
@@ -1454,7 +1467,6 @@ export const createCoreService = async (
               'notFound',
             );
           }
-          const active = slot;
           const result = active?.snapshot.session.id === sessionId
             ? active.service.tasks.cancel(executionId)
             : 'idle';
@@ -1637,65 +1649,8 @@ export const createCoreService = async (
       return Promise.resolve(structuredClone(command.state));
     },
     executionRead,
-    async historyRead(input: HistoryReadInput): Promise<HistoryReadResult> {
-      if (
-        input.latest === true && input.sessionRef !== undefined ||
-        input.sessionRef !== undefined && input.sessionRef.length === 0
-      ) {
-        throw new CoreServiceError(
-          400,
-          'invalid_history_target',
-          'invalid history target',
-        );
-      }
-      const view = input.view;
-      if (view !== 'session' && view !== 'canonical' && view !== 'detail') {
-        throw new CoreServiceError(
-          400,
-          'invalid_history_view',
-          'invalid history view',
-        );
-      }
-      if (!await ensureHistory()) {
-        if (input.sessionRef !== undefined) throw sessionNotFound();
-        return { sessionId: null, view, text: '' };
-      }
-      const sessions = (await history.listWorker()).sessions;
-      const targetRef = input.sessionRef?.toLowerCase();
-      const matches = targetRef === undefined
-        ? sessions.slice(0, 1)
-        : sessions.filter((entry) => entry.id.startsWith(targetRef));
-      if (matches.length === 0) {
-        if (targetRef === undefined) return { sessionId: null, view, text: '' };
-        throw sessionNotFound();
-      }
-      if (matches.length > 1) {
-        throw new CoreServiceError(
-          409,
-          'ambiguous_session',
-          'session reference is ambiguous',
-        );
-      }
-      const sessionId = matches[0].id;
-      if (view === 'detail') {
-        const text = [...history.streamHumanHistoryExport(sessionId)].map((
-          record,
-        ) => `${JSON.stringify(record)}\n`).join('');
-        return { sessionId, view, text };
-      }
-      if (view === 'session') {
-        return {
-          sessionId,
-          view,
-          text: renderSessionTimeline(history.readSessionHistory(sessionId)),
-        };
-      }
-      const record = await history.readWorker(sessionId);
-      return {
-        sessionId,
-        view,
-        text: renderCanonicalView(record, workspace.root),
-      };
+    async historyRead(input: HistoryReadInput): Promise<EncodedDataReply> {
+      return await readData(() => data.historyRead(input));
     },
     async subscribeSession(
       sessionId: string,
@@ -1720,15 +1675,9 @@ export const createCoreService = async (
           release();
         }
       };
-      let snapshot = await sessionRead(sessionId);
-      if (admissionClosed) {
-        throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
-      }
+      const snapshot = await sessionRead(sessionId);
+      if (admissionClosed) throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
       liveSubscriptions.add(closeStream);
-      const active = slot;
-      if (active?.snapshot.session.id === sessionId) {
-        snapshot = structuredClone(active.snapshot);
-      }
       const subscribers = subscribersFor(sessionId);
       subscribers.add(sink);
       detach = () => {
@@ -1743,19 +1692,30 @@ export const createCoreService = async (
         await Promise.all([...commands.values()].map((command) => command.result));
         await Promise.allSettled([...credentialRegistrations]);
         await Promise.allSettled([...chatgptOperations]);
-        await chatgpt.close();
-        const active = slot;
-        if (active !== undefined) {
-          active.unsubscribeObservations?.();
-          await active.service.close();
-          if (slot === active) slot = undefined;
+        try {
+          await chatgpt.close();
+          const active = slot;
+          if (active !== undefined) {
+            active.unsubscribeObservations?.();
+            await active.service.close();
+            if (slot === active) slot = undefined;
+          }
+        } finally {
+          for (const unwatch of dataWatches.values()) unwatch();
+          dataWatches.clear();
+          await data.close();
         }
-        history.close();
       })();
       await closePromise;
     },
   };
 
-  if (initialSession !== undefined) await openSlot(initialSession);
-  return service;
+  const data = await createDataClient({ stateRoot, workspaceRoot: workspace.root });
+  try {
+    if (initialSession !== undefined) await openSlot(initialSession);
+    return service;
+  } catch (error) {
+    await Promise.allSettled([service.close()]);
+    throw error;
+  }
 };

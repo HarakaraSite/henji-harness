@@ -28,8 +28,6 @@ export type {
   PresentationParseReason,
   PresentationPosition,
   PresentationProjection,
-  PresentationRestoredConversation,
-  PresentationRestoredThinking,
   PresentationStartupState,
   PresentationText,
   PresentationToolCall,

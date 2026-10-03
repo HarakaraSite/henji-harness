@@ -8,6 +8,11 @@ import type { AssistantMessage, ToolCallContent } from '../core/contracts.ts';
 import type { StoredSessionRecord } from '../session/session_store_contract.ts';
 import type { StoredSessionHistoryExecution } from './history_store_contract.ts';
 import type { Message } from '../core/contracts.ts';
+import {
+  type ConversationEntity,
+  type ConversationState,
+  orderedConversationEntities,
+} from '../../conversation/model.ts';
 import { renderHistoryMarkdown } from '../session/history_export.ts';
 
 const TOOL_PREFIX = 'tool> ';
@@ -109,6 +114,69 @@ export const renderSessionTimeline = (
       lines.unshift(`user> ${execution.task}`);
     }
     return [header, ...lines].join('\n');
+  });
+  return blocks.length === 0 ? '' : `${blocks.join('\n\n')}\n`;
+};
+
+const renderConversationEntities = (entities: readonly ConversationEntity[]): string[] => {
+  const lines: string[] = [];
+  for (const entity of entities) {
+    if (entity.kind === 'message') {
+      if (entity.role === 'user') {
+        lines.push(`user> ${entity.text}`);
+      } else {
+        const isToolNote = (entity.toolIds?.length ?? 0) > 0 ||
+          (entity.toolOccurrenceIds?.length ?? 0) > 0;
+        const label = isToolNote
+          ? entity.complete ? 'assistant note>' : 'assistant note~'
+          : entity.complete
+          ? 'assistant>'
+          : 'assistant~';
+        lines.push(`${label} ${entity.text}`);
+      }
+      continue;
+    }
+    if (entity.kind === 'thinking') {
+      const label = entity.thinkingKind === 'summary'
+        ? entity.complete ? 'thinking summary>' : 'thinking summary~'
+        : entity.complete
+        ? 'thinking>'
+        : 'thinking~';
+      lines.push(`${label} ${entity.text}`);
+      continue;
+    }
+    if (entity.kind === 'tool') {
+      const preview = toolActivityPreview(entity.name, entity.arguments);
+      if (entity.result !== undefined) {
+        lines.push(
+          `${TOOL_PREFIX}${settledToolActivityText(entity.name, entity.result.outcome, preview)}`,
+        );
+      } else {
+        lines.push(`${TOOL_PREFIX}${pendingToolActivityText(entity.name, preview)}`);
+        if (entity.progress !== undefined) lines.push(`  ${entity.progress}`);
+      }
+    }
+  }
+  return lines;
+};
+
+/** Render the session CLI from the shared keyed conversation state. */
+export const renderConversationTimeline = (state: ConversationState): string => {
+  const byExecution = new Map<string, ConversationEntity[]>();
+  for (const entity of orderedConversationEntities(state)) {
+    const list = byExecution.get(entity.executionId) ?? [];
+    list.push(entity);
+    byExecution.set(entity.executionId, list);
+  }
+  const executions = [...byExecution.entries()].flatMap(([executionId, entities]) => {
+    const entity = entities.find((candidate) => candidate.kind === 'execution');
+    return entity?.kind === 'execution' ? [{ executionId, entity }] : [];
+  });
+  const blocks = executions.map(({ executionId, entity }) => {
+    const items = byExecution.get(executionId) ?? [];
+    const header =
+      `# execution ${entity.executionId} · ${entity.execution.adoption} · ${entity.execution.outcome}`;
+    return [header, ...renderConversationEntities(items)].join('\n');
   });
   return blocks.length === 0 ? '' : `${blocks.join('\n\n')}\n`;
 };

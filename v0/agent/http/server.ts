@@ -1,3 +1,5 @@
+import { encodedEnvelope } from '../host/encoded_public_frame.ts';
+import type { EncodedDataReply } from '../data/client.ts';
 import {
   type CoreService,
   CoreServiceError,
@@ -19,11 +21,14 @@ import type {
   TaskSubmitInput,
 } from '../../api/contract.ts';
 
-const encoder = new TextEncoder();
-
 const json = (value: unknown, status = 200): Response =>
   new Response(JSON.stringify(value), {
     status,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+
+const encodedJson = (reply: EncodedDataReply): Response =>
+  new Response(reply.bytes, {
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 
@@ -307,8 +312,8 @@ const decodePathId = (value: string): string => {
   }
 };
 
-const sseFrame = (value: unknown): Uint8Array =>
-  encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+const sseFrame = (value: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> =>
+  encodedEnvelope('data: ', value, '\n\n');
 
 const streamSession = async (
   service: CoreService,
@@ -350,10 +355,13 @@ const streamSession = async (
       controller = value;
       try {
         controller.enqueue(
-          sseFrame({
-            kind: 'session.snapshot',
-            snapshot: subscription!.snapshot,
-          }),
+          sseFrame(
+            encodedEnvelope(
+              '{"kind":"session.snapshot","snapshot":',
+              subscription!.snapshot.bytes,
+              '}',
+            ),
+          ),
         );
         for (const frame of pending) controller.enqueue(frame);
         pending.length = 0;
@@ -506,7 +514,7 @@ async (request: Request): Promise<Response> => {
       url.pathname,
     );
     if (context !== null && request.method === 'GET') {
-      return json(await service.contextRead(decodePathId(context[1])));
+      return encodedJson(await service.contextRead(decodePathId(context[1])));
     }
     const task = /^\/api\/v1\/sessions\/([^/]+)\/tasks$/u.exec(url.pathname);
     if (task !== null && request.method === 'POST') {
@@ -575,13 +583,15 @@ async (request: Request): Promise<Response> => {
     }
     const session = /^\/api\/v1\/sessions\/([^/]+)$/u.exec(url.pathname);
     if (session !== null && request.method === 'GET') {
-      return json(await service.sessionRead(decodePathId(session[1])));
+      return new Response((await service.sessionRead(decodePathId(session[1]))).bytes, {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
     }
     if (url.pathname === '/api/v1/history' && request.method === 'GET') {
       const view = url.searchParams.get('view') ?? 'session';
       const sessionRef = url.searchParams.get('session') ?? undefined;
       const latest = url.searchParams.get('latest') === 'true';
-      return json(
+      return encodedJson(
         await service.historyRead({
           ...(sessionRef === undefined ? {} : { sessionRef }),
           ...(latest ? { latest: true } : {}),

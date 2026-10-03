@@ -4,12 +4,17 @@ import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 import { LIVE_UPDATE_MIN_INTERVAL_MS } from '../../v0/agent/core/loop.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
+import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
+import type { AgentDataPortRequest } from '../../v0/agent/data/agent_data_contract.ts';
+import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
+import type { WorkerToHostMessage } from '../../v0/agent/worker/worker_protocol.ts';
 import { bundledToolDefinitionLoadRequests } from '../../v0/agent/worker/worker_definition_revision.ts';
 import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { createDataService } from '../../v0/agent/data/data_service.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import type { AsyncAgentProgress } from '../../v0/agent/tools/async_agents.ts';
 
@@ -108,6 +113,7 @@ Deno.test('Increment 138 parent works, reads live child status, collects, and ex
   let runId = '';
   const snapshots: { agent: string; state: string; progress: AsyncAgentProgress }[] = [];
   const order: string[] = [];
+  const workerControlMessages: WorkerToHostMessage[] = [];
   await withLocalProvider(async (request) => {
     if (new URL(request.url).pathname === '/child-work') {
       toolStarted.resolve();
@@ -200,6 +206,11 @@ Deno.test('Increment 138 parent works, reads live child status, collects, and ex
           allowTool.resolve();
         }
       },
+      capsuleFactory: (url): WorkerHostCapsule => {
+        const capsule = new WorkerCapsule(url);
+        capsule.subscribe((message) => workerControlMessages.push(message));
+        return capsule;
+      },
     });
     const sessionId = created.session.sessionId;
     try {
@@ -223,6 +234,46 @@ Deno.test('Increment 138 parent works, reads live child status, collects, and ex
       });
       equal(snapshots[1].progress, snapshots[2].progress);
       equal(order, ['parent-check', 'collect-start', 'child-final', 'parent-final']);
+      const childControls = workerControlMessages.filter((message) =>
+        'correlation' in message && message.correlation !== undefined &&
+        message.correlation.command === 'async-child'
+      );
+      const childProgress = childControls.filter((message) => message.kind === 'child_progress');
+      assert(childProgress.length > 0, 'child progress did not use Worker control markers');
+      for (const message of childProgress) {
+        assert(!('text' in message.progress));
+        assert(!('arguments' in message.progress));
+        assert(!('result' in message.progress));
+        assert(
+          Object.keys(message.progress).every((key) =>
+            ['phase', 'modelStep', 'requestOrdinal', 'lastTool'].includes(key)
+          ),
+        );
+        if (message.progress.lastTool !== undefined) {
+          assert(
+            Object.keys(message.progress.lastTool).every((key) =>
+              ['name', 'callId', 'state', 'outcome'].includes(key)
+            ),
+          );
+        }
+      }
+      assert(
+        !childControls.some((message) =>
+          [
+            'runtime_event',
+            'effect_observation',
+            'provider_observation',
+            'context_observation',
+            'commit_proposal',
+            'turn_failed',
+          ].includes(message.kind)
+        ),
+        'full Agent event or terminal payload crossed the child control channel',
+      );
+      const serializedChildControls = JSON.stringify(childControls);
+      assert(!serializedChildControls.includes('child source'));
+      assert(!serializedChildControls.includes('child finished'));
+      assert(!serializedChildControls.includes('I138-CHILD-TASK'));
     } finally {
       allowModel.resolve();
       allowTool.resolve();
@@ -272,30 +323,33 @@ Deno.test('Increment 138 parent works, reads live child status, collects, and ex
 
 const childRegistry = async (context: {
   workspaceRoot: string;
+  stateRoot: string;
   declarations: ReturnType<typeof builtinProviderDeclarations>;
-}, history: SqliteHistoryV7ProductionStore) => {
+}) => {
   const ref = await builtinDefinitionRef('generic', buildManifest());
-  return new ChildRunRegistry({
+  const data = await createDataService({
+    stateRoot: context.stateRoot,
+    workspaceRoot: context.workspaceRoot,
+  });
+  const descriptor = await data.openSession({
+    persistence: 'none',
+    agent: 'default',
+    definition: ref,
+    sessionId: `i138-parent-${crypto.randomUUID()}`,
+    initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
+  });
+  const registry = new ChildRunRegistry({
     options: {
-      handle: {
-        id: 'i138-parent',
-        commit() {},
-        rollback() {},
-        installCheckpoint() {},
-        rollbackCheckpoint() {},
-        close: () => Promise.resolve(),
-      },
+      data,
+      descriptor,
       workspaceRoot: context.workspaceRoot,
-      agent: 'default',
-      definition: ref,
       physicalIoMode: 'production',
-      initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
       providerDeclarations: context.declarations,
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
     },
     catalog: [{ name: 'generic', ref }],
-    history,
   });
+  return { registry, data };
 };
 
 Deno.test('Increment 138 child HTTP and parse failures retain per-request facts', async () => {
@@ -311,7 +365,7 @@ Deno.test('Increment 138 child HTTP and parse failures retain per-request facts'
   }, async (context) => {
     const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot);
     await store.initialize();
-    const registry = await childRegistry(context, store);
+    const { registry, data } = await childRegistry(context);
     registry.openParent('failures-parent');
     try {
       for (const task of ['HTTP-FAILURE', 'PARSE-FAILURE']) {
@@ -357,6 +411,7 @@ Deno.test('Increment 138 child HTTP and parse failures retain per-request facts'
       }
     } finally {
       await registry.cleanupAll();
+      await data.close();
       store.close();
     }
   });
@@ -382,7 +437,7 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
     ), async (context) => {
     const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot);
     await store.initialize();
-    const registry = await childRegistry(context, store);
+    const { registry, data } = await childRegistry(context);
     const db = new DatabaseSync(
       `${(await sessionPaths(context.stateRoot, context.workspaceRoot)).root}/history-v7.sqlite3`,
       { readOnly: true },
@@ -444,6 +499,108 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
     } finally {
       await registry.cleanupAll();
       db.close();
+      await data.close();
+      store.close();
+    }
+  });
+});
+
+Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload is still pending', async () => {
+  const settlementStarted = deferred();
+  await withLocalProvider(() => final('child proposal held before Data'), async (context) => {
+    const store = new SqliteHistoryV7ProductionStore(context.stateRoot, context.workspaceRoot);
+    await store.initialize();
+    const data = await createDataService({
+      stateRoot: context.stateRoot,
+      workspaceRoot: context.workspaceRoot,
+    });
+    const descriptor = await data.openSession({
+      persistence: 'none',
+      agent: 'default',
+      definition: await builtinDefinitionRef('generic', buildManifest()),
+      sessionId: `i170-child-parent-${crypto.randomUUID()}`,
+      initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
+    });
+    const ports: MessagePort[] = [];
+    const settleChildExecution = data.settleChildExecution.bind(data);
+    data.settleChildExecution = (sessionId, input) => {
+      settlementStarted.resolve();
+      return settleChildExecution(sessionId, input);
+    };
+    const registry = new ChildRunRegistry({
+      options: {
+        data,
+        descriptor,
+        workspaceRoot: context.workspaceRoot,
+        physicalIoMode: 'production',
+        providerDeclarations: context.declarations,
+        toolDefinitions: await bundledToolDefinitionLoadRequests(),
+        cancelSettlementGraceMs: 100,
+        capsuleFactory: (url): WorkerHostCapsule => {
+          const capsule = new WorkerCapsule(url);
+          return {
+            send(command, transfer) {
+              if (command.kind !== 'start' || command.dataPort === undefined) {
+                capsule.send(command, transfer);
+                return;
+              }
+              const servicePort = command.dataPort;
+              const relay = new MessageChannel();
+              ports.push(servicePort, relay.port1, relay.port2);
+              servicePort.onmessage = (event) => relay.port1.postMessage(event.data);
+              relay.port1.onmessage = (event: MessageEvent<AgentDataPortRequest>) => {
+                if (event.data.kind === 'proposal') return;
+                servicePort.postMessage(event.data);
+              };
+              servicePort.start();
+              relay.port1.start();
+              capsule.send({ ...command, dataPort: relay.port2 }, [relay.port2]);
+            },
+            subscribe: (listener) => capsule.subscribe(listener),
+            terminate: () => capsule.terminate(),
+          };
+        },
+      },
+      catalog: [{
+        name: 'generic',
+        ref: await builtinDefinitionRef('generic', buildManifest()),
+      }],
+    });
+    const parentExecutionId = 'i170-child-pending-proposal-parent';
+    registry.openParent(parentExecutionId);
+    try {
+      const spawned = await registry.handle(
+        { kind: 'spawn', agent: 'generic', task: 'proposal payload pending' },
+        undefined,
+        parentExecutionId,
+      );
+      assert(spawned.ok && spawned.kind === 'spawn', JSON.stringify(spawned));
+      await settlementStarted.promise;
+
+      const cancelled = await registry.handle(
+        { kind: 'cancel', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(cancelled.ok && cancelled.kind === 'cancel', JSON.stringify(cancelled));
+      equal(cancelled.state, 'interrupted');
+      const collected = await registry.handle(
+        { kind: 'collect', runId: spawned.runId },
+        undefined,
+        parentExecutionId,
+      );
+      assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+      equal(collected.result.state, 'interrupted');
+      equal(
+        store.listExecutionEvents(spawned.runId).filter((event) =>
+          event.kind === 'provider_request_start'
+        ).length,
+        1,
+      );
+    } finally {
+      await registry.cleanupAll();
+      for (const port of ports) port.close();
+      await data.close();
       store.close();
     }
   });

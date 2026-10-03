@@ -121,7 +121,12 @@ const assertStartupError = async (
   try {
     await action();
   } catch (error) {
-    assert(error instanceof DefinitionStartupError);
+    assert(
+      error instanceof DefinitionStartupError,
+      `expected DefinitionStartupError(${code}/${stage}); got ${
+        error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      }`,
+    );
     assertEquals(error.code, code);
     assertEquals(error.stage, stage);
     if (definition !== undefined) assertEquals(error.definition, definition);
@@ -783,6 +788,7 @@ Deno.test('Increment 33 reports closure mismatch and invalid Definition evaluati
     prefix: 'henji-increment-33-worker-failure-',
   });
   const dataRoot = `${root}/data`;
+  const stateRoot = `${root}/state`;
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
   try {
@@ -808,6 +814,8 @@ Deno.test('Increment 33 reports closure mismatch and invalid Definition evaluati
       () =>
         createWorkerSession({
           workspaceRoot,
+          stateRoot,
+          dataRoot,
           persistence: 'none',
           selection: closureSelection,
           physicalIoMode: 'provider-free',
@@ -829,6 +837,8 @@ Deno.test('Increment 33 reports closure mismatch and invalid Definition evaluati
       async () =>
         await createWorkerSession({
           workspaceRoot,
+          stateRoot,
+          dataRoot,
           persistence: 'none',
           selection: await resolveDefinitionRef(
             roleRevision.manifest.logicalRef,
@@ -852,6 +862,8 @@ Deno.test('Increment 33 reports closure mismatch and invalid Definition evaluati
       async () =>
         await createWorkerSession({
           workspaceRoot,
+          stateRoot,
+          dataRoot,
           persistence: 'none',
           selection: await resolveDefinitionRef(
             invalidRevision.manifest.logicalRef,
@@ -983,6 +995,8 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
         run: (task, selection) =>
           runHeadlessWorker(task, selection, {
             workspaceRoot,
+            stateRoot,
+            dataRoot,
             physicalIoMode: 'provider-free',
           }),
         writeStdout: (text) => {
@@ -1032,6 +1046,7 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
     const events: AgentEvent[] = [];
     const replacementRun = await createWorkerSession({
       workspaceRoot,
+      stateRoot,
       dataRoot,
       configRoot,
       persistence: 'none',

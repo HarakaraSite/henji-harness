@@ -16,5 +16,5 @@ try {
   if (!outcome.ok) throw new Error(JSON.stringify(outcome));
   console.log(JSON.stringify({ sessionId: created.session.sessionId }));
 } finally {
-  await created.session.close();
+  await created.close();
 }

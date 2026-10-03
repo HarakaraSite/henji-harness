@@ -69,6 +69,9 @@ export type ExecutionEventKind =
   | 'acknowledgement_requested'
   | 'acknowledgement_sent'
   | 'acknowledgement_failed'
+  | 'turn_settled'
+  | 'post_commit_turn_end'
+  | 'process_cleanup_finished'
   | 'runtime_event'
   | 'effect_observation'
   | 'provider_request_start'
@@ -95,6 +98,8 @@ type HostExecutionEventKind =
   | 'acknowledgement_requested'
   | 'acknowledgement_sent'
   | 'acknowledgement_failed'
+  | 'post_commit_turn_end'
+  | 'process_cleanup_finished'
   | 'execution_settled'
   | 'execution_reconciled';
 
@@ -139,21 +144,60 @@ export type ExecutionEventPayloadByKind = {
     readonly kind?: 'turn';
   };
   turn_dispatch_failed: { readonly task: string };
-  cancel_requested: { readonly command: 'cancel' };
-  cancel_sent: { readonly command: 'cancel' };
-  cancel_failed: { readonly command: 'cancel' };
-  cancel_received: import('../worker/worker_protocol.ts').WorkerCancelReceivedMessage;
+  cancel_requested: {
+    readonly command: 'cancel';
+    readonly controlSequence?: number;
+  };
+  cancel_sent: {
+    readonly command: 'cancel';
+    readonly controlSequence?: number;
+  };
+  cancel_failed: {
+    readonly command: 'cancel';
+    readonly controlSequence?: number;
+  };
+  cancel_received:
+    & import('../worker/worker_protocol.ts').WorkerCancelReceivedMessage
+    & {
+      readonly controlSequence?: number;
+    };
   cancel_escalated: {
     readonly command: 'terminate';
     readonly reason: 'settlement_deadline_exceeded';
+    readonly controlSequence?: number;
   };
   worker_stage_snapshot: import('../worker/worker_stage_probe.ts').WorkerStageHistorySnapshot;
   steer_requested: { readonly text: string };
   steer_sent: { readonly text: string };
   steer_failed: { readonly text: string };
-  acknowledgement_requested: { readonly accepted: boolean };
-  acknowledgement_sent: { readonly accepted: boolean };
-  acknowledgement_failed: { readonly accepted: boolean };
+  acknowledgement_requested: {
+    readonly accepted: boolean;
+    readonly controlSequence?: number;
+  };
+  acknowledgement_sent: {
+    readonly accepted: boolean;
+    readonly controlSequence?: number;
+  };
+  acknowledgement_failed: {
+    readonly accepted: boolean;
+    readonly controlSequence?: number;
+  };
+  turn_settled: {
+    readonly correlation: import('../worker/worker_protocol.ts').WorkerCorrelation;
+    readonly controlSequence: number;
+  };
+  post_commit_turn_end: {
+    readonly correlation: import('../worker/worker_protocol.ts').WorkerCorrelation;
+    readonly turn: number;
+    readonly outcome: import('../core/contracts.ts').LoopOutcome['stopReason'];
+    readonly committed: boolean;
+    readonly generationUnavailable: boolean;
+    readonly controlSequence: number;
+  };
+  process_cleanup_finished: {
+    readonly result: 'complete' | 'failed';
+    readonly controlSequence: number;
+  };
   runtime_event:
     | WorkerRuntimeEventMessage
     | RuntimeCommitProposalPayload
@@ -215,6 +259,42 @@ type WorkerExecutionEventInput = {
 export type ExecutionEventInput =
   | HostExecutionEventInput
   | WorkerExecutionEventInput;
+
+export type ExecutionControlEventInput = {
+  [
+    K in Extract<
+      ExecutionEventKind,
+      | 'cancel_requested'
+      | 'cancel_sent'
+      | 'cancel_failed'
+      | 'cancel_received'
+      | 'cancel_escalated'
+      | 'worker_stage_snapshot'
+      | 'acknowledgement_requested'
+      | 'acknowledgement_sent'
+      | 'acknowledgement_failed'
+      | 'turn_settled'
+      | 'post_commit_turn_end'
+      | 'process_cleanup_finished'
+    >
+  ]: Extract<ExecutionEventInput, { readonly kind: K }>;
+}[
+  Extract<
+    ExecutionEventKind,
+    | 'cancel_requested'
+    | 'cancel_sent'
+    | 'cancel_failed'
+    | 'cancel_received'
+    | 'cancel_escalated'
+    | 'worker_stage_snapshot'
+    | 'acknowledgement_requested'
+    | 'acknowledgement_sent'
+    | 'acknowledgement_failed'
+    | 'turn_settled'
+    | 'post_commit_turn_end'
+    | 'process_cleanup_finished'
+  >
+];
 
 export interface StoredExecutionEvent {
   readonly executionId: string;
@@ -291,7 +371,31 @@ export interface StoredExecutionRow {
 export interface StoredSessionHistoryExecution {
   readonly execution: StoredExecutionRow;
   readonly messages: readonly Message[];
-  readonly thinking: readonly Extract<AgentEvent, { readonly kind: 'assistant_thinking' }>[];
+  readonly thinking: readonly Extract<
+    AgentEvent,
+    { readonly kind: 'assistant_thinking' }
+  >[];
+}
+
+/** Original rows needed to replay one Session through the shared Conversation engine. */
+export interface StoredSessionConversationExecution {
+  readonly execution: StoredExecutionRow;
+  readonly occurrences: readonly HistoryV7SemanticOccurrence[];
+  readonly assistantTextStates: readonly HistoryV7AssistantTextState[];
+}
+
+/** Facts made durable by one terminal COMMIT, returned without a follow-up history read. */
+export interface HistoryCommitDelta {
+  readonly executionId: string;
+  readonly eventOrdinal: number;
+  readonly settledAt: string;
+  readonly terminalSemanticOccurrenceId: string;
+  readonly outcome: ExecutionOutcome;
+  readonly stopReason?: string;
+  readonly diagnostic?: Readonly<{ code: string; stage: string }>;
+  readonly adoption: ExecutionAdoption;
+  readonly committedRevision?: number;
+  readonly occurrences: readonly HistoryV7SemanticOccurrence[];
 }
 
 export interface BeginExecutionInput extends HistoryExecutionInput {
@@ -371,6 +475,8 @@ export interface HistoryCaptureResult {
     | 'diagnostic_invalid';
   readonly contextDurability?: 'complete' | 'failed' | 'none' | 'partial';
   readonly contextPersistenceError?: 'context_manifest_invalid';
+  /** Present on successful production terminal writes for immediate shared-state application. */
+  readonly commitDelta?: HistoryCommitDelta;
 }
 
 export interface HistoryPersistencePort {
@@ -382,6 +488,10 @@ export interface HistoryPersistencePort {
   appendExecutionEvents(
     inputs: readonly ExecutionEventInput[],
   ): readonly StoredExecutionEvent[];
+  /** Small control facts may be appended after terminal without changing semantic state. */
+  appendExecutionControlEvents(
+    inputs: readonly ExecutionControlEventInput[],
+  ): readonly StoredExecutionEvent[];
   /** Append and return any semantic occurrence identity created for each event. */
   appendExecutionEventsWithSemanticIds?(
     inputs: readonly ExecutionEventInput[],
@@ -392,10 +502,16 @@ export interface HistoryPersistencePort {
   prepareWorkerObservationForHistory?(
     message: import('../worker/worker_protocol.ts').WorkerToHostMessage,
   ): import('../worker/worker_protocol.ts').WorkerToHostMessage;
-  reconcileExecution(input: ReconcileExecutionInput): void;
+  reconcileExecution(
+    input: ReconcileExecutionInput,
+  ): HistoryCommitDelta | undefined;
   listExecutions(): readonly StoredExecutionRow[];
   /** Indexed v6 path used by normal Session recall selection. */
   listExecutionsForSession?(sessionId: string): readonly StoredExecutionRow[];
+  /** Raw source facts read from one SQLite snapshot, before display projection or aggregation. */
+  readSessionConversationFacts?(
+    sessionId: string,
+  ): readonly StoredSessionConversationExecution[];
   readExecution(id: string): StoredExecutionRow;
   listExecutionEvents(id: string): readonly StoredExecutionEvent[];
   /** Semantic source rows used by the shared read projection. */

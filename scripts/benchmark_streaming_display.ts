@@ -6,7 +6,10 @@
  */
 import { TuiRenderer } from '../v0/tui/tui_renderer.ts';
 import { encodeScreenFrame, type TerminalPort } from '../v0/tui/terminal.ts';
-import type { PresentationMessage } from '../v0/presentation/contract_types.ts';
+import type { ConversationEntity } from '../v0/conversation/model.ts';
+import { initialSessionClientState } from '../v0/api/reducer.ts';
+import type { SessionSnapshot } from '../v0/api/contract.ts';
+import { SnapshotConversationProjector } from '../v0/tui/snapshot_presentation.ts';
 import {
   OpenRouterAgentModel,
   type OpenRouterAgentProfile,
@@ -60,23 +63,105 @@ const makeTerminal = (): { terminal: TerminalPort; writtenBytes: () => number } 
   return { terminal, writtenBytes: () => written };
 };
 
-const messageSet = (
+const entitySet = (
   entries: number,
   fatTail: number,
   fatBytes: number,
-): PresentationMessage[] => {
-  const messages: PresentationMessage[] = [];
+): { entities: Record<string, ConversationEntity>; order: string[] } => {
+  const entities: Record<string, ConversationEntity> = {};
+  const order: string[] = [];
   for (let index = 0; index < entries; index += 1) {
     const body = index >= entries - fatTail
       ? `${index}:${'d'.repeat(fatBytes)}`
       : `${index}:${'c'.repeat(180)}`;
-    messages.push(
-      index % 2 === 0
-        ? { role: 'user', content: { kind: 'text', text: body } }
-        : { role: 'assistant', content: { kind: 'text', text: body } },
-    );
+    const turn = Math.floor(index / 2) + 1;
+    const executionId = `benchmark-execution-${turn}`;
+    const id = `benchmark-message-${index}`;
+    entities[id] = {
+      kind: 'message',
+      id,
+      executionId,
+      turn,
+      version: 0,
+      position: {
+        executionOrder: turn - 1,
+        requestOrder: index % 2 === 0 ? -1 : 1,
+        phase: index % 2 === 0 ? -1 : 1,
+        eventOrdinal: 0,
+        itemOrdinal: index % 2,
+      },
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      text: body,
+      complete: true,
+    };
+    order.push(id);
   }
-  return messages;
+  return { entities, order };
+};
+
+const projectEntities = (
+  renderer: TuiRenderer,
+  entities: Readonly<Record<string, ConversationEntity>>,
+  order: readonly string[],
+): void => {
+  const sessionId = 'benchmark-session';
+  const snapshot: SessionSnapshot = {
+    schemaVersion: 2,
+    cursor: { coreEpoch: 'benchmark', sessionId, revision: 1 },
+    session: {
+      id: sessionId,
+      canonicalSessionId: sessionId,
+      persistence: 'persistent',
+      position: {
+        sessionId,
+        createdAt: '2026-10-03T00:00:00.000Z',
+        agent: 'default',
+        committedTurn: order.length / 2,
+        messageCount: order.length,
+      },
+      selection: { provider: 'benchmark', modelId: 'benchmark', effort: 'medium' },
+      startup: {
+        status: 'evaluated',
+        productVersion: 'benchmark',
+        workspace: '/tmp/benchmark',
+        agentId: 'default',
+        model: {
+          provider: 'benchmark',
+          profileId: 'benchmark',
+          modelId: 'benchmark',
+          effort: 'medium',
+        },
+        sessionMode: { kind: 'continue' },
+        instructions: { loaded: false, source: 'none' },
+        skills: { count: 0, names: [], omitted: 0 },
+        trust: { hardSandbox: false, osUserTools: [] },
+        credentialVerification: 'before_each_provider_request',
+      },
+    },
+    runtime: {
+      active: false,
+      activeSessionId: sessionId,
+      phase: 'idle',
+      execution: null,
+      operations: [],
+    },
+    conversation: {
+      schemaVersion: 2,
+      sessionId,
+      cut: 1,
+      storeRevision: 1,
+      entities,
+      order,
+    },
+    pending: { kind: 'core-owned', followUps: [] },
+    credentialAvailability: { status: 'unknown' },
+    context: {},
+  };
+  const update = new SnapshotConversationProjector().project(
+    initialSessionClientState(snapshot),
+    'benchmark',
+  );
+  renderer.setKeyedConversationStore(update.store, true, update.structureChanged);
 };
 
 const m1 = (): void => {
@@ -90,11 +175,8 @@ const m1 = (): void => {
   for (const [entries, fatTail, fatBytes] of cases) {
     const { terminal, writtenBytes } = makeTerminal();
     const renderer = new TuiRenderer(terminal, { setTimeout: () => 0, clearTimeout: () => {} });
-    renderer.eventSink({
-      kind: 'restored_log',
-      messages: messageSet(entries, fatTail, fatBytes),
-      omitted: 0,
-    });
+    const conversation = entitySet(entries, fatTail, fatBytes);
+    projectEntities(renderer, conversation.entities, conversation.order);
     renderer.flushRender();
     const measure = (fn: () => void): number => time(fn, renderer);
     const liveText = `streaming body\n${'line of streamed text\n'.repeat(20)}`;
@@ -126,11 +208,8 @@ const m1 = (): void => {
   }
   const { terminal } = makeTerminal();
   const renderer = new TuiRenderer(terminal, { setTimeout: () => 0, clearTimeout: () => {} });
-  renderer.eventSink({
-    kind: 'restored_log',
-    messages: messageSet(1_000, 0, 0),
-    omitted: 0,
-  });
+  const conversation = entitySet(1_000, 0, 0);
+  projectEntities(renderer, conversation.entities, conversation.order);
   renderer.flushRender();
   const measure = (fn: () => void): number => time(fn, renderer);
   const growth: Record<string, unknown> = {};

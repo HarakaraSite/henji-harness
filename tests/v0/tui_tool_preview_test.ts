@@ -6,8 +6,10 @@ import {
   slashCommandOf,
 } from '../../v0/tui/slash_command.ts';
 import { toolCallText } from '../../v0/tui/terminal_text.ts';
-import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
-import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
+import {
+  conversationFixtureRows,
+  fixtureExecutionId,
+} from './helpers/increment_170_conversation_fixture.ts';
 import type { ToolCallContent, ToolResultContent } from '../../v0/agent/core/contracts.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -51,44 +53,49 @@ Deno.test('spawn_subagent preview keeps its agent name from call to result', () 
   );
 });
 
-Deno.test('spawn_subagent preview restores its agent name from the saved transcript', () => {
-  const snapshot = sessionSnapshotFixture({
-    messages: [
-      {
-        id: 'assistant-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'assistant',
-        toolOccurrenceIds: [spawnCall.callId],
-      },
-      {
-        id: 'tool-1',
-        executionId: 'execution-1',
-        turn: 1,
-        role: 'tool',
-        toolOccurrenceIds: [spawnCall.callId],
-      },
-    ],
-    tools: [{
-      toolOccurrenceId: spawnCall.callId,
-      executionId: 'execution-1',
+Deno.test('spawn_subagent preview keeps its agent name in saved entity rows', () => {
+  const rows = conversationFixtureRows('review the implementation', [
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-1',
+      executionId: fixtureExecutionId,
       turn: 1,
+      eventOrdinal: 2,
+      request: { modelStep: 1 },
+      declaredCalls: [{
+        callId: spawnCall.callId,
+        name: spawnCall.name,
+        arguments: { agent: 'reviewer', task: 'Review the implementation.' },
+      }],
+    },
+    {
+      kind: 'tool_call',
+      semanticOccurrenceId: 'fixture-tool-1',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      callIndex: 0,
+      callId: spawnCall.callId,
       name: spawnCall.name,
       arguments: { agent: 'reviewer', task: 'Review the implementation.' },
-      result: { text: spawnResult.text, outcome: 'success' },
-    }],
-    thinking: [],
-    executions: [],
-    requests: [],
-    omitted: 0,
-  });
-  const restored = restoredConversationFromSnapshot(snapshot);
-  const state = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    ...restored,
-  });
+    },
+    {
+      kind: 'tool_result',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      result: {
+        callId: spawnCall.callId,
+        name: spawnCall.name,
+        text: spawnResult.text,
+        outcome: 'success',
+      },
+    },
+  ]);
   assertEquals(
-    state.log.entries.map((entry) => [entry.label, entry.text]),
+    rows.filter((entry) => entry.kind === 'tool').map((entry) => [entry.label, entry.text]),
     [['tool>', 'spawn_subagent reviewer ✓']],
   );
 });

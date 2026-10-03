@@ -9,6 +9,7 @@ Deno.test('Increment 138 Definition pre-read failure can terminate without crash
       '--cached-only',
       '--unstable-worker-options',
       '--allow-read=.,/tmp',
+      '--allow-write=/tmp',
       '--config',
       'deno.v0.json',
       'tests/v0/fixtures/increment_138_startup_recovery.ts',

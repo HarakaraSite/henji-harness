@@ -40,15 +40,18 @@ import type { WorkerToHostMessage } from '../worker/worker_protocol.ts';
 import type {
   BeginExecutionInput,
   CanonicalTurnCommitInput,
+  ExecutionControlEventInput,
   ExecutionEventInput,
   HistoryAppendResult,
   HistoryCaptureResult,
+  HistoryCommitDelta,
   HistoryPersistencePort,
   NonCanonicalExecutionInput,
   ReconcileExecutionInput,
   StoredExecutionEffect,
   StoredExecutionEvent,
   StoredExecutionRow,
+  StoredSessionConversationExecution,
   StoredSessionHistoryExecution,
 } from './history_store_contract.ts';
 import type {
@@ -91,14 +94,19 @@ const now = (): string => new Date().toISOString();
 
 const asJson = (value: unknown): JsonValue => structuredClone(value) as JsonValue;
 const parseJson = <T>(value: SqlValue): T => JSON.parse(String(value)) as T;
-const compactOutcome = (outcome: LoopOutcome): LoopOutcome => ({ ...outcome, transcript: [] });
+const compactOutcome = (outcome: LoopOutcome): LoopOutcome => ({
+  ...outcome,
+  transcript: [],
+});
 
 const asHistoryError = (error: unknown): HistoryStoreError =>
   error instanceof HistoryStoreError ? error : new HistoryStoreError('history_io_failure');
 const asSessionError = (error: unknown): SessionStoreError =>
   error instanceof SessionStoreError ? error : new SessionStoreError('session_io_failure');
 
-const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | undefined => {
+const eventSemanticKind = (
+  input: ExecutionEventInput,
+): HistoryV7SemanticKind | undefined => {
   switch (input.kind) {
     case 'execution_admitted':
       return 'execution_admission';
@@ -107,6 +115,7 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
     case 'cancel_requested':
     case 'cancel_failed':
     case 'cancel_escalated':
+    case 'steer_sent':
     case 'worker_stage_snapshot':
     case 'steer_failed':
     case 'turn_dispatch_failed':
@@ -123,9 +132,13 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
     case 'runtime_event': {
       const payload = input.payload as unknown as Record<string, unknown>;
       if (payload.kind === 'provider_observation') {
-        const observation = payload.observation as Record<string, unknown> | undefined;
+        const observation = payload.observation as
+          | Record<string, unknown>
+          | undefined;
         if (observation?.kind !== 'runtime_event') return undefined;
-        const providerEvent = observation.event as Record<string, unknown> | undefined;
+        const providerEvent = observation.event as
+          | Record<string, unknown>
+          | undefined;
         switch (providerEvent?.kind) {
           case 'tool_call':
             return 'tool_call';
@@ -147,11 +160,16 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
           typeof value.event === 'object' && value.event !== null
         ? value.event as Record<string, unknown>
         : value;
-      if (agentEvent.kind === 'user_message' || agentEvent.kind === 'steering_message') {
+      if (
+        agentEvent.kind === 'user_message' ||
+        agentEvent.kind === 'steering_message'
+      ) {
         return 'user_message';
       }
       if (agentEvent.kind === 'tool_call') return 'tool_call';
-      if (agentEvent.kind === 'tool_result' || agentEvent.kind === 'tool_progress') {
+      if (
+        agentEvent.kind === 'tool_result' || agentEvent.kind === 'tool_progress'
+      ) {
         return 'tool_result';
       }
       if (
@@ -174,14 +192,20 @@ const eventValue = (event: StoredExecutionEvent): JsonValue => asJson({ event })
 const providerTextEvent = (
   event: StoredExecutionEvent,
 ):
-  | Extract<ProviderEvidenceRuntimeEvent, { kind: 'assistant_progress' | 'model_result' }>
+  | Extract<
+    ProviderEvidenceRuntimeEvent,
+    { kind: 'assistant_progress' | 'model_result' }
+  >
   | undefined => {
   if (event.kind !== 'runtime_event') return undefined;
   const payload = event.payload as unknown as Extract<
     WorkerToHostMessage,
     { kind: 'provider_observation' }
   >;
-  if (payload.kind !== 'provider_observation' || payload.observation.kind !== 'runtime_event') {
+  if (
+    payload.kind !== 'provider_observation' ||
+    payload.observation.kind !== 'runtime_event'
+  ) {
     return undefined;
   }
   const value = payload.observation.event;
@@ -197,25 +221,35 @@ export class SqliteHistoryV7ProductionStore
   readonly executionArtifacts: WorkerExecutionArtifactStore = {
     list: async () => {
       await this.initialize();
-      return this.#listDerivedDocuments('artifact', validateWorkerExecutionArtifact);
+      return this.#listDerivedDocuments(
+        'artifact',
+        validateWorkerExecutionArtifact,
+      );
     },
     read: async (id) => {
       await this.initialize();
-      const artifact = this.#readDerivedDocument<StoredWorkerExecutionArtifact>('artifact', id);
+      const artifact = this.#readDerivedDocument<StoredWorkerExecutionArtifact>(
+        'artifact',
+        id,
+      );
       if (artifact === undefined) {
         throw new WorkerExecutionArtifactStoreError(
           'worker_execution_artifact_not_found',
         );
       }
       if (!validateWorkerExecutionArtifact(artifact)) {
-        throw new WorkerExecutionArtifactStoreError('worker_execution_artifact_invalid');
+        throw new WorkerExecutionArtifactStoreError(
+          'worker_execution_artifact_invalid',
+        );
       }
       return artifact;
     },
     write: async (artifact) => {
       await this.initialize();
       if (!validateWorkerExecutionArtifact(artifact)) {
-        throw new WorkerExecutionArtifactStoreError('worker_execution_artifact_invalid');
+        throw new WorkerExecutionArtifactStoreError(
+          'worker_execution_artifact_invalid',
+        );
       }
       try {
         this.#writeDerivedDocument(
@@ -225,18 +259,26 @@ export class SqliteHistoryV7ProductionStore
           artifact,
         );
       } catch {
-        throw new WorkerExecutionArtifactStoreError('worker_execution_artifact_io_failure');
+        throw new WorkerExecutionArtifactStoreError(
+          'worker_execution_artifact_io_failure',
+        );
       }
     },
   };
   readonly diagnostics: FailureDiagnosticStore = {
     list: async () => {
       await this.initialize();
-      return this.#listDerivedDocuments('failure_diagnostic', validateFailureDiagnostic);
+      return this.#listDerivedDocuments(
+        'failure_diagnostic',
+        validateFailureDiagnostic,
+      );
     },
     read: async (id) => {
       await this.initialize();
-      const diagnostic = this.#readDerivedDocument<unknown>('failure_diagnostic', id);
+      const diagnostic = this.#readDerivedDocument<unknown>(
+        'failure_diagnostic',
+        id,
+      );
       if (diagnostic === undefined) {
         throw new FailureDiagnosticStoreError('diagnostic_not_found');
       }
@@ -316,7 +358,9 @@ export class SqliteHistoryV7ProductionStore
       if (this.#core !== undefined) return;
       this.#databasePath = `${root}/history-v7.sqlite3`;
       this.#locksPath = `${root}/locks-v7`;
-      this.#core = new SqliteHistoryV7Store(this.#databasePath, { readOnly: this.#readOnly });
+      this.#core = new SqliteHistoryV7Store(this.#databasePath, {
+        readOnly: this.#readOnly,
+      });
     });
     if (this.#readOnly) return;
     const db = this.#db();
@@ -344,7 +388,9 @@ export class SqliteHistoryV7ProductionStore
           this.#releaseExecutionLock(executionId);
         }
       } catch (error) {
-        if (error instanceof SessionStoreError && error.code === 'session_busy') continue;
+        if (
+          error instanceof SessionStoreError && error.code === 'session_busy'
+        ) continue;
         throw error;
       }
     }
@@ -362,12 +408,16 @@ export class SqliteHistoryV7ProductionStore
   }
 
   #coreStore(): SqliteHistoryV7Store {
-    if (this.#core === undefined) throw new HistoryStoreError('history_io_failure');
+    if (this.#core === undefined) {
+      throw new HistoryStoreError('history_io_failure');
+    }
     return this.#core;
   }
 
   #db(): DatabaseSync {
-    if (this.#databasePath === undefined) throw new HistoryStoreError('history_io_failure');
+    if (this.#databasePath === undefined) {
+      throw new HistoryStoreError('history_io_failure');
+    }
     if (this.#readOnly) {
       const db = new DatabaseSync(this.#databasePath, { readOnly: true });
       db.exec('PRAGMA foreign_keys=ON;');
@@ -471,13 +521,26 @@ export class SqliteHistoryV7ProductionStore
       JSON.stringify(record.activeModel),
     );
     const messageTurn = Math.max(1, record.nextTurn - 1);
-    for (let ordinal = counts.messages; ordinal < record.transcript.length; ordinal += 1) {
+    for (
+      let ordinal = counts.messages;
+      ordinal < record.transcript.length;
+      ordinal += 1
+    ) {
       db.prepare(`
         INSERT INTO session_messages(session_id, message_ordinal, turn_number, message_json)
         VALUES(?, ?, ?, ?)
-      `).run(record.sessionId, ordinal, messageTurn, JSON.stringify(record.transcript[ordinal]));
+      `).run(
+        record.sessionId,
+        ordinal,
+        messageTurn,
+        JSON.stringify(record.transcript[ordinal]),
+      );
     }
-    for (let ordinal = counts.modelChanges; ordinal < record.modelChanges.length; ordinal += 1) {
+    for (
+      let ordinal = counts.modelChanges;
+      ordinal < record.modelChanges.length;
+      ordinal += 1
+    ) {
       const change = record.modelChanges[ordinal];
       db.prepare(`
         INSERT INTO session_model_changes(
@@ -491,7 +554,11 @@ export class SqliteHistoryV7ProductionStore
         JSON.stringify(change.selection),
       );
     }
-    for (let ordinal = counts.turns; ordinal < record.turnModels.length; ordinal += 1) {
+    for (
+      let ordinal = counts.turns;
+      ordinal < record.turnModels.length;
+      ordinal += 1
+    ) {
       const model = record.turnModels[ordinal];
       const execution = record.turnExecutions[ordinal];
       if (execution === undefined || execution.turn !== model.turn) {
@@ -555,7 +622,9 @@ export class SqliteHistoryV7ProductionStore
   }
 
   #readSession(db: DatabaseSync, id: string): StoredSessionRecord {
-    const row = db.prepare('SELECT * FROM sessions WHERE session_id=?').get(id) as
+    const row = db.prepare('SELECT * FROM sessions WHERE session_id=?').get(
+      id,
+    ) as
       | Row
       | undefined;
     if (row === undefined) throw new SessionStoreError('session_not_found');
@@ -568,7 +637,9 @@ export class SqliteHistoryV7ProductionStore
     `).all(id) as Row[]).map((item) => ({
       effectiveFromTurn: Number(item.effective_from_turn),
       changedAt: String(item.changed_at),
-      selection: parseJson<StoredSessionRecord['activeModel']>(item.selection_json),
+      selection: parseJson<StoredSessionRecord['activeModel']>(
+        item.selection_json,
+      ),
     }));
     const turns = db.prepare(`
       SELECT turn_number, model_json, build_json, definition_json FROM session_turns
@@ -585,20 +656,30 @@ export class SqliteHistoryV7ProductionStore
       stateRevision: Number(row.state_revision),
       nextTurn: Number(row.next_turn),
       transcript,
-      definition: parseJson<StoredSessionRecord['definition']>(row.definition_json),
-      activeModel: parseJson<StoredSessionRecord['activeModel']>(row.active_model_json),
+      definition: parseJson<StoredSessionRecord['definition']>(
+        row.definition_json,
+      ),
+      activeModel: parseJson<StoredSessionRecord['activeModel']>(
+        row.active_model_json,
+      ),
       modelChanges,
       turnModels: turns.map((item) => ({
         turn: Number(item.turn_number),
-        selection: parseJson<StoredSessionRecord['activeModel']>(item.model_json),
+        selection: parseJson<StoredSessionRecord['activeModel']>(
+          item.model_json,
+        ),
       })),
       turnExecutions: turns.map((item) => ({
         turn: Number(item.turn_number),
-        build: parseJson<StoredSessionRecord['turnExecutions'][number]['build']>(item.build_json),
+        build: parseJson<
+          StoredSessionRecord['turnExecutions'][number]['build']
+        >(item.build_json),
         definition: parseJson<DefinitionRevisionRef>(item.definition_json),
       })),
     };
-    if (!validateSessionRecordV6(record)) throw new SessionStoreError('session_invalid');
+    if (!validateSessionRecordV6(record)) {
+      throw new SessionStoreError('session_invalid');
+    }
     return record;
   }
 
@@ -615,15 +696,23 @@ export class SqliteHistoryV7ProductionStore
     }
   }
 
-  async readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined> {
+  async readCheckpoint(
+    id: string,
+  ): Promise<SemanticContextCheckpointV1 | undefined> {
     await this.initialize();
     const db = this.#db();
     try {
-      const row = db.prepare('SELECT checkpoint_json FROM sessions WHERE session_id=?').get(id) as
+      const row = db.prepare(
+        'SELECT checkpoint_json FROM sessions WHERE session_id=?',
+      ).get(id) as
         | Row
         | undefined;
-      if (row?.checkpoint_json === null || row?.checkpoint_json === undefined) return undefined;
-      const checkpoint = parseJson<SemanticContextCheckpointV1>(row.checkpoint_json);
+      if (row?.checkpoint_json === null || row?.checkpoint_json === undefined) {
+        return undefined;
+      }
+      const checkpoint = parseJson<SemanticContextCheckpointV1>(
+        row.checkpoint_json,
+      );
       if (!validateSemanticContextCheckpoint(checkpoint)) {
         throw new SessionStoreError('session_invalid');
       }
@@ -646,7 +735,9 @@ export class SqliteHistoryV7ProductionStore
       let skippedInvalid = 0;
       for (const row of rows) {
         try {
-          const definition = parseJson<DefinitionRevisionRef>(row.definition_json);
+          const definition = parseJson<DefinitionRevisionRef>(
+            row.definition_json,
+          );
           const modelSelection = parseJson<StoredSessionRecord['activeModel']>(
             row.active_model_json,
           );
@@ -685,7 +776,10 @@ export class SqliteHistoryV7ProductionStore
       (agent !== 'default' && agent !== 'planner' && agent !== 'generic') ||
       !validRevisionRef(definition)
     ) throw new SessionStoreError('session_invalid');
-    if ((await this.listWorker()).sessions.length >= MAX_VALID_SESSIONS_PER_WORKSPACE) {
+    if (
+      (await this.listWorker()).sessions.length >=
+        MAX_VALID_SESSIONS_PER_WORKSPACE
+    ) {
       throw new SessionStoreError('session_limit');
     }
     for (let attempt = 0; attempt < 16; attempt += 1) {
@@ -695,7 +789,9 @@ export class SqliteHistoryV7ProductionStore
         const lock = await acquireLock(`${this.#locksPath}/${id}.lock`);
         return this.#handle(id, agent, undefined, undefined, lock);
       } catch (error) {
-        if (!(error instanceof SessionStoreError) || error.code !== 'session_busy') throw error;
+        if (
+          !(error instanceof SessionStoreError) || error.code !== 'session_busy'
+        ) throw error;
       }
     }
     throw new SessionStoreError('session_limit');
@@ -721,7 +817,9 @@ export class SqliteHistoryV7ProductionStore
     const db = this.#db();
     try {
       db.exec('BEGIN IMMEDIATE');
-      const found = db.prepare('SELECT 1 FROM sessions WHERE session_id=?').get(id);
+      const found = db.prepare('SELECT 1 FROM sessions WHERE session_id=?').get(
+        id,
+      );
       if (found === undefined) throw new SessionStoreError('session_not_found');
       const executionIds = (db.prepare(`
         SELECT execution_id FROM execution_admissions WHERE session_correlation=?
@@ -734,7 +832,9 @@ export class SqliteHistoryV7ProductionStore
       }
       db.prepare('DELETE FROM sessions WHERE session_id=?').run(id);
       for (const executionId of executionIds) {
-        db.prepare('DELETE FROM executions WHERE execution_id=?').run(executionId);
+        db.prepare('DELETE FROM executions WHERE execution_id=?').run(
+          executionId,
+        );
       }
       db.prepare('DELETE FROM session_heads WHERE session_id=?').run(id);
       db.exec('COMMIT');
@@ -782,7 +882,9 @@ export class SqliteHistoryV7ProductionStore
       },
       acceptCommitted: (next) => {
         if (closed || next.sessionId !== id || !validateSessionRecordV6(next)) {
-          throw new SessionStoreError(closed ? 'session_busy' : 'session_invalid');
+          throw new SessionStoreError(
+            closed ? 'session_busy' : 'session_invalid',
+          );
         }
         rollbackRecord = record;
         record = structuredClone(next);
@@ -805,13 +907,18 @@ export class SqliteHistoryV7ProductionStore
         if (
           closed || next.sessionId !== id ||
           !validateSemanticContextCheckpoint(next)
-        ) throw new SessionStoreError(closed ? 'session_busy' : 'session_invalid');
+        ) {
+          throw new SessionStoreError(
+            closed ? 'session_busy' : 'session_invalid',
+          );
+        }
         const db = this.#db();
         try {
-          db.prepare('UPDATE sessions SET checkpoint_json=? WHERE session_id=?').run(
-            new TextDecoder().decode(encodeSemanticContextCheckpoint(next)),
-            id,
-          );
+          db.prepare('UPDATE sessions SET checkpoint_json=? WHERE session_id=?')
+            .run(
+              new TextDecoder().decode(encodeSemanticContextCheckpoint(next)),
+              id,
+            );
         } finally {
           db.close();
         }
@@ -822,10 +929,11 @@ export class SqliteHistoryV7ProductionStore
         if (closed || checkpoint === rollbackCheckpoint) return;
         const db = this.#db();
         try {
-          db.prepare('UPDATE sessions SET checkpoint_json=? WHERE session_id=?').run(
-            rollbackCheckpoint === undefined ? null : JSON.stringify(rollbackCheckpoint),
-            id,
-          );
+          db.prepare('UPDATE sessions SET checkpoint_json=? WHERE session_id=?')
+            .run(
+              rollbackCheckpoint === undefined ? null : JSON.stringify(rollbackCheckpoint),
+              id,
+            );
         } finally {
           db.close();
         }
@@ -880,13 +988,18 @@ export class SqliteHistoryV7ProductionStore
         );
         this.#executionLocks.set(input.executionId, lock);
       }
-      if (input.sessionRecord !== undefined) this.#writeSession(input.sessionRecord);
+      if (input.sessionRecord !== undefined) {
+        this.#writeSession(input.sessionRecord);
+      }
       // A none Session's revision belongs to its live Host, not a durable Session head.
       // Keep each detached execution's admission basis independent of later runtime turns.
       const authoritySession = input.canonicalSessionId ??
         `detached:${input.executionId}`;
       let baseMessageCount = input.sessionRecord?.transcript.length ?? 0;
-      if (input.sessionRecord === undefined && input.canonicalSessionId !== undefined) {
+      if (
+        input.sessionRecord === undefined &&
+        input.canonicalSessionId !== undefined
+      ) {
         const db = this.#db();
         try {
           baseMessageCount = this.#sessionCounts(db, input.canonicalSessionId).messages;
@@ -971,7 +1084,9 @@ export class SqliteHistoryV7ProductionStore
       this.#coreStore().appendSemantic(input.executionId, 0, occurrences);
       const db = this.#db();
       try {
-        db.prepare('UPDATE execution_admissions SET event_count=1 WHERE execution_id=?').run(
+        db.prepare(
+          'UPDATE execution_admissions SET event_count=1 WHERE execution_id=?',
+        ).run(
           input.executionId,
         );
         if (input.recalledContext !== undefined) {
@@ -989,7 +1104,10 @@ export class SqliteHistoryV7ProductionStore
         db.close();
       }
       this.#eventCounts.set(input.executionId, 1);
-      this.#baseMessageCountsBySession.set(input.sessionCorrelation, baseMessageCount);
+      this.#baseMessageCountsBySession.set(
+        input.sessionCorrelation,
+        baseMessageCount,
+      );
     } catch (error) {
       this.#baseMessageCountsBySession.delete(input.sessionCorrelation);
       this.#releaseExecutionLock(input.executionId);
@@ -997,8 +1115,12 @@ export class SqliteHistoryV7ProductionStore
     }
   }
 
-  prepareWorkerObservationForHistory(message: WorkerToHostMessage): WorkerToHostMessage {
-    if (message.kind !== 'commit_proposal' && message.kind !== 'turn_failed') return message;
+  prepareWorkerObservationForHistory(
+    message: WorkerToHostMessage,
+  ): WorkerToHostMessage {
+    if (message.kind !== 'commit_proposal' && message.kind !== 'turn_failed') {
+      return message;
+    }
     const baseMessageCount = this.#baseMessageCountsBySession.get(message.correlation.session) ?? 0;
     if (message.kind === 'commit_proposal') {
       return {
@@ -1046,7 +1168,9 @@ export class SqliteHistoryV7ProductionStore
     const payload = input.payload as unknown as Record<string, unknown>;
     const alreadyBounded = payload.historyTranscriptBaseApplied === true;
     const baseMessageCount = this.#baseMessageCount(input.executionId);
-    if (payload.kind === 'commit_proposal' && Array.isArray(payload.transcript)) {
+    if (
+      payload.kind === 'commit_proposal' && Array.isArray(payload.transcript)
+    ) {
       const outcome = payload.outcome as LoopOutcome | undefined;
       const {
         historyTranscriptBaseApplied: _bounded,
@@ -1099,33 +1223,38 @@ export class SqliteHistoryV7ProductionStore
     if (observation?.kind !== 'model_request_delta' || delta === undefined) {
       return { payload: asJson(input.payload), contextItems: [] };
     }
-    const contextItems = delta.occurrences.map((occurrence): PreparedContextItem => {
-      const descriptor = occurrence.content;
-      const stagedKey = `${input.executionId}:${descriptor.digest}`;
-      const stored = stagedContent.has(stagedKey) ||
-        this.#coreStore().hasContent(descriptor.digest, descriptor.byteLength);
-      let content: Uint8Array | undefined;
-      if (!stored) {
-        if (occurrence.bytesBase64 === undefined) {
-          throw new HistoryStoreError('history_invalid');
+    const contextItems = delta.occurrences.map(
+      (occurrence): PreparedContextItem => {
+        const descriptor = occurrence.content;
+        const stagedKey = `${input.executionId}:${descriptor.digest}`;
+        const stored = stagedContent.has(stagedKey) ||
+          this.#coreStore().hasContent(
+            descriptor.digest,
+            descriptor.byteLength,
+          );
+        let content: Uint8Array | undefined;
+        if (!stored) {
+          if (occurrence.bytesBase64 === undefined) {
+            throw new HistoryStoreError('history_invalid');
+          }
+          try {
+            content = Uint8Array.fromBase64(occurrence.bytesBase64);
+          } catch {
+            throw new HistoryStoreError('history_invalid');
+          }
+          if (content.byteLength !== descriptor.byteLength) {
+            throw new HistoryStoreError('history_invalid');
+          }
+          stagedContent.add(stagedKey);
         }
-        try {
-          content = Uint8Array.fromBase64(occurrence.bytesBase64);
-        } catch {
-          throw new HistoryStoreError('history_invalid');
-        }
-        if (content.byteLength !== descriptor.byteLength) {
-          throw new HistoryStoreError('history_invalid');
-        }
-        stagedContent.add(stagedKey);
-      }
-      const { bytesBase64: _bytes, ...metadata } = occurrence;
-      return {
-        payload: asJson(metadata),
-        ...(content === undefined ? {} : { content }),
-        contentDigest: descriptor.digest,
-      };
-    });
+        const { bytesBase64: _bytes, ...metadata } = occurrence;
+        return {
+          payload: asJson(metadata),
+          ...(content === undefined ? {} : { content }),
+          contentDigest: descriptor.digest,
+        };
+      },
+    );
     const storedDelta = {
       ...delta,
       occurrences: delta.occurrences.map((occurrence) => ({
@@ -1147,8 +1276,59 @@ export class SqliteHistoryV7ProductionStore
     return result;
   }
 
-  appendExecutionEvents(inputs: readonly ExecutionEventInput[]): readonly StoredExecutionEvent[] {
+  appendExecutionEvents(
+    inputs: readonly ExecutionEventInput[],
+  ): readonly StoredExecutionEvent[] {
     return this.#appendExecutionEventsWithSemanticIds(inputs).map(({ event }) => event);
+  }
+
+  appendExecutionControlEvents(
+    inputs: readonly ExecutionControlEventInput[],
+  ): readonly StoredExecutionEvent[] {
+    if (inputs.length === 0) return [];
+    const allowed = new Set<ExecutionEventInput['kind']>([
+      'cancel_requested',
+      'cancel_sent',
+      'cancel_failed',
+      'cancel_received',
+      'cancel_escalated',
+      'worker_stage_snapshot',
+      'acknowledgement_requested',
+      'acknowledgement_sent',
+      'acknowledgement_failed',
+      'turn_settled',
+      'post_commit_turn_end',
+      'process_cleanup_finished',
+    ]);
+    const byExecution = new Map<
+      string,
+      Omit<StoredExecutionEvent, 'ordinal'>[]
+    >();
+    for (const input of inputs) {
+      if (!allowed.has(input.kind) || !this.validateExecutionEvent(input)) {
+        throw new HistoryStoreError('history_invalid');
+      }
+      const event: Omit<StoredExecutionEvent, 'ordinal'> = {
+        executionId: input.executionId,
+        observedAt: input.observedAt ?? now(),
+        direction: input.direction,
+        source: input.source,
+        kind: input.kind,
+        ...(input.workerSequence === undefined ? {} : { workerSequence: input.workerSequence }),
+        payload: asJson(input.payload),
+      };
+      const group = byExecution.get(input.executionId) ?? [];
+      group.push(event);
+      byExecution.set(input.executionId, group);
+    }
+    const appended: StoredExecutionEvent[] = [];
+    for (const [executionId, events] of byExecution) {
+      const stored = this.#coreStore().appendControlEvents(executionId, events);
+      appended.push(...stored);
+      const last = stored.at(-1);
+      if (last !== undefined) this.#eventCounts.set(executionId, last.ordinal);
+    }
+    return appended;
   }
 
   appendExecutionEventsWithSemanticIds(
@@ -1173,8 +1353,13 @@ export class SqliteHistoryV7ProductionStore
       const semanticIds = new Map<string, string>();
       const stagedContent = new Set<string>();
       for (const input of inputs) {
-        if (!this.validateExecutionEvent(input)) throw new HistoryStoreError('history_invalid');
-        if (input.kind === 'execution_settled' || input.kind === 'execution_reconciled') {
+        if (!this.validateExecutionEvent(input)) {
+          throw new HistoryStoreError('history_invalid');
+        }
+        if (
+          input.kind === 'execution_settled' ||
+          input.kind === 'execution_reconciled'
+        ) {
           throw new HistoryStoreError('history_invalid');
         }
         const current = byExecution.get(input.executionId)?.at(-1)?.event.ordinal ??
@@ -1198,7 +1383,10 @@ export class SqliteHistoryV7ProductionStore
         const events = records.map((record) => record.event);
         const state = this.#coreStore().readExecution(executionId);
         const textUpdates = new Map<string, HistoryV7AssistantTextUpdate>();
-        const semantic = records.flatMap(({ input, event, contextItems }) => {
+        const firstEventOrdinals = new Map<string, number | undefined>();
+        const semantic = records.flatMap((record) => {
+          const { input, contextItems } = record;
+          let event = record.event;
           const textEvent = providerTextEvent(event);
           if (textEvent !== undefined) {
             const key: HistoryV7AssistantTextKey = {
@@ -1208,17 +1396,37 @@ export class SqliteHistoryV7ProductionStore
                 requestOrdinal: textEvent.requestOrdinal,
               }),
             };
-            const identity = JSON.stringify([key.lane, key.modelStep, key.requestOrdinal]);
+            const identity = JSON.stringify([
+              key.lane,
+              key.modelStep,
+              key.requestOrdinal,
+            ]);
             const previous = textUpdates.get(identity);
+            if (previous === undefined && !firstEventOrdinals.has(identity)) {
+              firstEventOrdinals.set(
+                identity,
+                this.#coreStore().readAssistantTextState(executionId, key)
+                  ?.firstEventOrdinal,
+              );
+            }
+            const priorFirstEventOrdinal = previous === undefined
+              ? firstEventOrdinals.get(identity)
+              : previous.kind === 'put'
+              ? previous.state.firstEventOrdinal
+              : undefined;
+            if (textEvent.kind === 'model_result') {
+              if (priorFirstEventOrdinal !== undefined) {
+                event = { ...event, firstEventOrdinal: priorFirstEventOrdinal };
+                record.event = event;
+              }
+            }
             textUpdates.set(
               identity,
               textEvent.kind === 'model_result' ? { kind: 'remove', key } : {
                 kind: 'put',
                 state: {
                   key,
-                  firstEventOrdinal: previous?.kind === 'put'
-                    ? previous.state.firstEventOrdinal
-                    : event.ordinal,
+                  firstEventOrdinal: priorFirstEventOrdinal ?? event.ordinal,
                   event,
                 },
               },
@@ -1262,10 +1470,15 @@ export class SqliteHistoryV7ProductionStore
             ...(item.content === undefined ? {} : { content: item.content }),
             ...(item.contentDigest === undefined ? {} : { contentDigest: item.contentDigest }),
             ...(item.contextItemCount === 0 ? {} : {
-              relations: Array.from({ length: item.contextItemCount }, (_, offset) => ({
-                relation: 'context_item',
-                targetOccurrenceId: semanticOccurrenceId(firstContextItem + offset),
-              })),
+              relations: Array.from(
+                { length: item.contextItemCount },
+                (_, offset) => ({
+                  relation: 'context_item',
+                  targetOccurrenceId: semanticOccurrenceId(
+                    firstContextItem + offset,
+                  ),
+                }),
+              ),
             }),
           };
         });
@@ -1278,7 +1491,9 @@ export class SqliteHistoryV7ProductionStore
           }
         });
         const terminalIndex = semantic.findLastIndex(({ event, isEvent }) =>
-          isEvent && (event.kind === 'execution_settled' || event.kind === 'execution_reconciled')
+          isEvent &&
+          (event.kind === 'execution_settled' ||
+            event.kind === 'execution_reconciled')
         );
         const count = events.at(-1)!.ordinal;
         this.#coreStore().appendBatch({
@@ -1295,9 +1510,14 @@ export class SqliteHistoryV7ProductionStore
       }
       return [...byExecution.values()].flat().map(({ event }) => ({
         event,
-        ...(semanticIds.get(`${event.executionId}:${event.ordinal}`) === undefined ? {} : {
-          semanticOccurrenceId: semanticIds.get(`${event.executionId}:${event.ordinal}`)!,
-        }),
+        ...(semanticIds.get(`${event.executionId}:${event.ordinal}`) ===
+            undefined
+          ? {}
+          : {
+            semanticOccurrenceId: semanticIds.get(
+              `${event.executionId}:${event.ordinal}`,
+            )!,
+          }),
       }));
     } catch (error) {
       throw asHistoryError(error);
@@ -1335,7 +1555,10 @@ export class SqliteHistoryV7ProductionStore
     } finally {
       db.close();
     }
-    if (input.diagnostic !== undefined && validateFailureDiagnostic(input.diagnostic)) {
+    if (
+      input.diagnostic !== undefined &&
+      validateFailureDiagnostic(input.diagnostic)
+    ) {
       try {
         this.#writeDerivedDocument(
           'failure_diagnostic',
@@ -1408,17 +1631,19 @@ export class SqliteHistoryV7ProductionStore
     }
     if (!occurrenceExists) {
       const state = this.#coreStore().readExecution(input.executionId);
-      this.#coreStore().appendSemantic(input.executionId, state.latestOrdinal, [{
-        occurrenceId,
-        ordinal: state.latestOrdinal + 1,
-        kind: 'recall_projection',
-        observedAt: now(),
-        payload: asJson({
-          sourceExecutionId: input.recalledContext.sourceExecutionId,
-          targetExecutionId: input.executionId,
-          context: input.recalledContext,
-        }),
-      }]);
+      this.#coreStore().appendSemantic(input.executionId, state.latestOrdinal, [
+        {
+          occurrenceId,
+          ordinal: state.latestOrdinal + 1,
+          kind: 'recall_projection',
+          observedAt: now(),
+          payload: asJson({
+            sourceExecutionId: input.recalledContext.sourceExecutionId,
+            targetExecutionId: input.executionId,
+            context: input.recalledContext,
+          }),
+        },
+      ]);
     }
     const relationDb = this.#db();
     try {
@@ -1426,7 +1651,11 @@ export class SqliteHistoryV7ProductionStore
         INSERT INTO recall_relations(
           source_execution_id, target_execution_id, occurrence_id
         ) VALUES(?, ?, ?)
-      `).run(input.recalledContext.sourceExecutionId, input.executionId, occurrenceId);
+      `).run(
+        input.recalledContext.sourceExecutionId,
+        input.executionId,
+        occurrenceId,
+      );
     } finally {
       relationDb.close();
     }
@@ -1440,10 +1669,13 @@ export class SqliteHistoryV7ProductionStore
       eventKind: 'execution_settled' | 'execution_reconciled';
       payload: JsonValue;
       outcome: 'unknown' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+      readonly stopReason?: string;
+      readonly diagnostic?: Readonly<{ code: string; stage: string }>;
       adoption: 'non_canonical' | 'canonical';
+      committedRevision?: number;
       allowExistingTerminal?: boolean;
     }>,
-  ): void {
+  ): HistoryCommitDelta {
     const row = db.prepare(`
       SELECT e.*, a.event_count FROM executions e
       JOIN execution_admissions a USING(execution_id)
@@ -1453,26 +1685,45 @@ export class SqliteHistoryV7ProductionStore
       row === undefined || row.lifecycle !== 'active' ||
       Number(row.unresolved_mandatory_count) !== 0 ||
       Number(row.latest_ordinal) !== Number(row.occurrence_count) ||
-      (row.terminal_occurrence_id !== null && input.allowExistingTerminal !== true)
+      (row.terminal_occurrence_id !== null &&
+        input.allowExistingTerminal !== true)
     ) throw new HistoryStoreError('history_invalid');
     const eventOrdinal = Number(row.event_count) + 1;
-    const textStates = this.#coreStore().listAssistantTextStates(input.executionId, db);
+    const textStates = this.#coreStore().listAssistantTextStates(
+      input.executionId,
+      db,
+    );
+    const committedOccurrences: HistoryV7SemanticOccurrence[] = [];
     for (const [index, textState] of textStates.entries()) {
       const ordinal = Number(row.latest_ordinal) + index + 1;
-      const event = { ...textState.event, firstEventOrdinal: textState.firstEventOrdinal };
+      const event = {
+        ...textState.event,
+        firstEventOrdinal: textState.firstEventOrdinal,
+      };
+      const occurrenceId = `${input.executionId}:semantic:${ordinal}`;
+      committedOccurrences.push({
+        executionId: input.executionId,
+        occurrenceId,
+        ordinal,
+        kind: 'assistant_message',
+        observedAt: event.observedAt,
+        payload: eventValue(event),
+      });
       db.prepare(`
         INSERT INTO semantic_occurrences(
           occurrence_id, execution_id, ordinal, kind, observed_at, payload_json, content_digest
         ) VALUES(?, ?, ?, 'assistant_message', ?, ?, NULL)
       `).run(
-        `${input.executionId}:semantic:${ordinal}`,
+        occurrenceId,
         input.executionId,
         ordinal,
         event.observedAt,
         new TextDecoder().decode(encodeHistoryV7Payload(eventValue(event))),
       );
     }
-    db.prepare('DELETE FROM assistant_text_states WHERE execution_id=?').run(input.executionId);
+    db.prepare('DELETE FROM assistant_text_states WHERE execution_id=?').run(
+      input.executionId,
+    );
     const semanticOrdinal = Number(row.latest_ordinal) + textStates.length + 1;
     const occurrenceId = `${input.executionId}:semantic:${semanticOrdinal}`;
     const event: StoredExecutionEvent = {
@@ -1484,7 +1735,9 @@ export class SqliteHistoryV7ProductionStore
       kind: input.eventKind,
       payload: input.payload,
     };
-    const payloadJson = new TextDecoder().decode(encodeHistoryV7Payload(eventValue(event)));
+    const payloadJson = new TextDecoder().decode(
+      encodeHistoryV7Payload(eventValue(event)),
+    );
     db.prepare(`
       INSERT INTO semantic_occurrences(
         occurrence_id, execution_id, ordinal, kind, observed_at, payload_json, content_digest
@@ -1496,6 +1749,14 @@ export class SqliteHistoryV7ProductionStore
       input.observedAt,
       payloadJson,
     );
+    committedOccurrences.push({
+      executionId: input.executionId,
+      occurrenceId,
+      ordinal: semanticOrdinal,
+      kind: 'host_decision',
+      observedAt: input.observedAt,
+      payload: eventValue(event),
+    });
     db.prepare(`
       UPDATE executions SET lifecycle='settled', outcome=?, adoption=?,
         latest_ordinal=?, occurrence_count=occurrence_count+?, terminal_occurrence_id=?
@@ -1511,6 +1772,20 @@ export class SqliteHistoryV7ProductionStore
     db.prepare(`
       UPDATE execution_admissions SET event_count=?, settled_at=? WHERE execution_id=?
     `).run(eventOrdinal, input.observedAt, input.executionId);
+    return {
+      executionId: input.executionId,
+      eventOrdinal,
+      settledAt: input.observedAt,
+      terminalSemanticOccurrenceId: occurrenceId,
+      outcome: input.outcome,
+      ...(input.stopReason === undefined ? {} : { stopReason: input.stopReason }),
+      ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
+      adoption: input.adoption,
+      ...(input.committedRevision === undefined
+        ? {}
+        : { committedRevision: input.committedRevision }),
+      occurrences: committedOccurrences,
+    };
   }
 
   commitCanonicalTurn(input: CanonicalTurnCommitInput): HistoryCaptureResult {
@@ -1523,22 +1798,33 @@ export class SqliteHistoryV7ProductionStore
     this.#ensureRecallProjection(input);
     const captured = this.#capture(input);
     const db = this.#db();
+    let commitDelta: HistoryCommitDelta | undefined;
     db.exec('BEGIN IMMEDIATE');
     try {
-      const head = db.prepare('SELECT revision FROM session_heads WHERE session_id=?').get(
+      const head = db.prepare(
+        'SELECT revision FROM session_heads WHERE session_id=?',
+      ).get(
         input.canonicalSessionId,
       ) as Row | undefined;
       if (Number(head?.revision) !== input.baseStateRevision) {
         throw new HistoryStoreError('history_invalid');
       }
       this.#writeSessionTx(db, input.record, input.executionId);
-      this.#appendTerminalAndSettleTx(db, {
+      commitDelta = this.#appendTerminalAndSettleTx(db, {
         executionId: input.executionId,
         observedAt: input.record.updatedAt,
         eventKind: 'execution_settled',
+        stopReason: input.outcome.stopReason,
+        ...(input.outcome.diagnostic === undefined ? {} : {
+          diagnostic: {
+            code: input.outcome.diagnostic!.code,
+            stage: input.outcome.diagnostic!.stage,
+          },
+        }),
         payload: { outcome: 'completed', adoption: 'canonical' },
         outcome: 'completed',
         adoption: 'canonical',
+        committedRevision: input.record.stateRevision,
       });
       db.prepare(`
         UPDATE session_heads SET revision=? WHERE session_id=?
@@ -1568,10 +1854,12 @@ export class SqliteHistoryV7ProductionStore
       this.#baseMessageCountsBySession.delete(input.sessionCorrelation);
       this.#releaseExecutionLock(input.executionId);
     }
-    return captured;
+    return { ...captured, commitDelta: commitDelta! };
   }
 
-  settleNonCanonicalExecution(input: NonCanonicalExecutionInput): HistoryCaptureResult {
+  settleNonCanonicalExecution(
+    input: NonCanonicalExecutionInput,
+  ): HistoryCaptureResult {
     this.#ensureRecallProjection(input);
     const captured = this.#capture(input);
     const outcome = input.outcome.ok
@@ -1583,12 +1871,15 @@ export class SqliteHistoryV7ProductionStore
       : 'failed';
     const settledAt = now();
     const db = this.#db();
+    let commitDelta: HistoryCommitDelta | undefined;
     db.exec('BEGIN IMMEDIATE');
     try {
       const admission = db.prepare(`
         SELECT base_message_count FROM execution_admissions WHERE execution_id=?
       `).get(input.executionId) as Row | undefined;
-      if (admission === undefined) throw new HistoryStoreError('history_invalid');
+      if (admission === undefined) {
+        throw new HistoryStoreError('history_invalid');
+      }
       const baseMessageCount = Number(admission.base_message_count);
       if (baseMessageCount > input.outcome.transcript.length) {
         throw new HistoryStoreError('history_invalid');
@@ -1607,10 +1898,17 @@ export class SqliteHistoryV7ProductionStore
           JSON.stringify(input.outcome.transcript[ordinal]),
         );
       }
-      this.#appendTerminalAndSettleTx(db, {
+      commitDelta = this.#appendTerminalAndSettleTx(db, {
         executionId: input.executionId,
         observedAt: settledAt,
         eventKind: 'execution_settled',
+        stopReason: input.outcome.stopReason,
+        ...(input.outcome.diagnostic === undefined ? {} : {
+          diagnostic: {
+            code: input.outcome.diagnostic!.code,
+            stage: input.outcome.diagnostic!.stage,
+          },
+        }),
         payload: { outcome, adoption: 'non_canonical' },
         outcome,
         adoption: 'non_canonical',
@@ -1645,17 +1943,20 @@ export class SqliteHistoryV7ProductionStore
       this.#baseMessageCountsBySession.delete(input.sessionCorrelation);
       this.#releaseExecutionLock(input.executionId);
     }
-    return captured;
+    return { ...captured, commitDelta: commitDelta! };
   }
 
-  reconcileExecution(input: ReconcileExecutionInput): void {
+  reconcileExecution(
+    input: ReconcileExecutionInput,
+  ): HistoryCommitDelta | undefined {
     const current = this.#coreStore().readExecution(input.executionId);
-    if (current.lifecycle !== 'active') return;
+    if (current.lifecycle !== 'active') return undefined;
     const settledAt = input.settledAt ?? now();
     const db = this.#db();
+    let commitDelta: HistoryCommitDelta | undefined;
     db.exec('BEGIN IMMEDIATE');
     try {
-      this.#appendTerminalAndSettleTx(db, {
+      commitDelta = this.#appendTerminalAndSettleTx(db, {
         executionId: input.executionId,
         observedAt: settledAt,
         eventKind: 'execution_reconciled',
@@ -1681,6 +1982,7 @@ export class SqliteHistoryV7ProductionStore
       }
       this.#releaseExecutionLock(input.executionId);
     }
+    return commitDelta;
   }
 
   recordPostCommitObservation(
@@ -1689,7 +1991,12 @@ export class SqliteHistoryV7ProductionStore
     if (!validateWorkerExecutionArtifact(artifact)) {
       throw new HistoryStoreError('history_invalid');
     }
-    this.#writeDerivedDocument('artifact', artifact.executionId, artifact.executionId, artifact);
+    this.#writeDerivedDocument(
+      'artifact',
+      artifact.executionId,
+      artifact.executionId,
+      artifact,
+    );
   }
 
   #executionRows(
@@ -1759,9 +2066,13 @@ export class SqliteHistoryV7ProductionStore
           agent: String(row.agent) as SessionRecord['agent'],
           model: parseJson<StoredExecutionRow['model']>(row.model_json),
           build: parseJson<StoredExecutionRow['build']>(row.build_json),
-          definition: parseJson<StoredExecutionRow['definition']>(row.definition_json),
+          definition: parseJson<StoredExecutionRow['definition']>(
+            row.definition_json,
+          ),
           ...(row.manifest_json === null ? {} : {
-            manifest: parseJson<NonNullable<StoredExecutionRow['manifest']>>(row.manifest_json),
+            manifest: parseJson<NonNullable<StoredExecutionRow['manifest']>>(
+              row.manifest_json,
+            ),
           }),
           ...(row.instance_correlation === null
             ? {}
@@ -1802,12 +2113,52 @@ export class SqliteHistoryV7ProductionStore
     return this.#executionRows('WHERE a.session_correlation=?', [sessionId]);
   }
 
-  /** Read the human session timeline without opening or decoding diagnostic attachments. */
-  readSessionHistory(sessionId: string): readonly StoredSessionHistoryExecution[] {
+  /** Read original semantic occurrences and latest text values from one SQLite snapshot. */
+  readSessionConversationFacts(
+    sessionId: string,
+  ): readonly StoredSessionConversationExecution[] {
     const db = this.#db();
     try {
       db.exec('BEGIN');
-      const exists = db.prepare('SELECT 1 FROM sessions WHERE session_id=?').get(sessionId);
+      const exists = db.prepare('SELECT 1 FROM sessions WHERE session_id=?')
+        .get(sessionId);
+      if (exists === undefined) throw new HistoryStoreError('history_invalid');
+      const executions = this.#executionRows(
+        'WHERE a.session_correlation=?',
+        [sessionId],
+        false,
+        db,
+      );
+      const core = this.#coreStore();
+      const facts = executions.map((execution) => ({
+        execution,
+        occurrences: core.listOccurrences(execution.executionId, db),
+        assistantTextStates: core.listAssistantTextStates(
+          execution.executionId,
+          db,
+        ),
+      }));
+      db.exec('COMMIT');
+      return facts;
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK');
+      } catch { /* preserve original read error */ }
+      throw error;
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Read the human session timeline without opening or decoding diagnostic attachments. */
+  readSessionHistory(
+    sessionId: string,
+  ): readonly StoredSessionHistoryExecution[] {
+    const db = this.#db();
+    try {
+      db.exec('BEGIN');
+      const exists = db.prepare('SELECT 1 FROM sessions WHERE session_id=?')
+        .get(sessionId);
       if (exists === undefined) throw new HistoryStoreError('history_invalid');
       const executions = this.#executionRows(
         'WHERE a.session_correlation=?',
@@ -1827,39 +2178,42 @@ export class SqliteHistoryV7ProductionStore
         SELECT payload_json FROM semantic_occurrences
         WHERE execution_id=? AND kind='assistant_message' ORDER BY ordinal
       `);
-      const timeline = executions.map((execution): StoredSessionHistoryExecution => {
-        const rows = execution.adoption === 'canonical'
-          ? canonicalMessages.all(sessionId, execution.turn) as Row[]
-          : otherMessages.all(execution.executionId) as Row[];
-        const messages = rows.map((row) => parseJson<Message>(row.message_json));
-        const thinking: StoredSessionHistoryExecution['thinking'][number][] = [];
-        // Live thinking snapshots of one model step are all durable facts; the human timeline
-        // shows one settled entry per step, keeping the last snapshot (no sequential replay).
-        const thinkingByStep = new Map<
-          string,
-          StoredSessionHistoryExecution['thinking'][number]
-        >();
-        for (const row of thinkingRows.all(execution.executionId) as Row[]) {
-          const stored = parseJson<{ event?: StoredExecutionEvent }>(row.payload_json).event;
-          if (stored?.kind !== 'runtime_event') continue;
-          const payload = stored.payload as unknown as {
-            kind?: string;
-            event?: { kind?: string; event?: unknown };
-          };
-          const candidate = payload.kind === 'runtime_event' &&
-              payload.event?.kind === 'agent_event'
-            ? payload.event.event
-            : undefined;
-          if (
-            typeof candidate !== 'object' || candidate === null ||
-            (candidate as { kind?: unknown }).kind !== 'assistant_thinking'
-          ) continue;
-          const item = candidate as StoredSessionHistoryExecution['thinking'][number];
-          thinkingByStep.set(`${item.turn}:${item.modelStep}`, item);
-        }
-        thinking.push(...thinkingByStep.values());
-        return { execution, messages, thinking };
-      });
+      const timeline = executions.map(
+        (execution): StoredSessionHistoryExecution => {
+          const rows = execution.adoption === 'canonical'
+            ? canonicalMessages.all(sessionId, execution.turn) as Row[]
+            : otherMessages.all(execution.executionId) as Row[];
+          const messages = rows.map((row) => parseJson<Message>(row.message_json));
+          const thinking: StoredSessionHistoryExecution['thinking'][number][] = [];
+          // Live thinking snapshots of one model step are all durable facts; the human timeline
+          // shows one settled entry per step, keeping the last snapshot (no sequential replay).
+          const thinkingByStep = new Map<
+            string,
+            StoredSessionHistoryExecution['thinking'][number]
+          >();
+          for (const row of thinkingRows.all(execution.executionId) as Row[]) {
+            const stored = parseJson<{ event?: StoredExecutionEvent }>(row.payload_json)
+              .event;
+            if (stored?.kind !== 'runtime_event') continue;
+            const payload = stored.payload as unknown as {
+              kind?: string;
+              event?: { kind?: string; event?: unknown };
+            };
+            const candidate = payload.kind === 'runtime_event' &&
+                payload.event?.kind === 'agent_event'
+              ? payload.event.event
+              : undefined;
+            if (
+              typeof candidate !== 'object' || candidate === null ||
+              (candidate as { kind?: unknown }).kind !== 'assistant_thinking'
+            ) continue;
+            const item = candidate as StoredSessionHistoryExecution['thinking'][number];
+            thinkingByStep.set(`${item.turn}:${item.modelStep}`, item);
+          }
+          thinking.push(...thinkingByStep.values());
+          return { execution, messages, thinking };
+        },
+      );
       db.exec('COMMIT');
       return timeline;
     } catch (error) {
@@ -1878,36 +2232,55 @@ export class SqliteHistoryV7ProductionStore
     return row;
   }
 
-  #readExecutionMetadata(id: string): StoredExecutionRow {
+  readExecutionMetadata(id: string): StoredExecutionRow {
     const row = this.#executionRows('WHERE e.execution_id=?', [id], false)[0];
     if (row === undefined) throw new HistoryStoreError('history_invalid');
     return row;
   }
 
+  readExecutionRequestCount(id: string): number {
+    const db = this.#db();
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS request_count FROM semantic_occurrences
+        WHERE execution_id=? AND kind='model_request'
+          AND json_extract(payload_json, '$.event.kind')='provider_request_start'
+      `).get(id) as Row;
+      return Number(row.request_count);
+    } finally {
+      db.close();
+    }
+  }
+
   listExecutionEvents(id: string): readonly StoredExecutionEvent[] {
-    this.#readExecutionMetadata(id);
+    this.readExecutionMetadata(id);
     return this.#listExecutionEvents(id, true);
   }
 
   listSemanticOccurrences(id: string): readonly HistoryV7SemanticOccurrence[] {
-    this.#readExecutionMetadata(id);
+    this.readExecutionMetadata(id);
     return this.#coreStore().listOccurrences(id);
   }
 
   listAssistantTextStates(id: string): readonly HistoryV7AssistantTextState[] {
-    this.#readExecutionMetadata(id);
+    this.readExecutionMetadata(id);
     return this.#coreStore().listAssistantTextStates(id);
   }
 
-  #listExecutionEvents(id: string, hydrateContext: boolean): readonly StoredExecutionEvent[] {
+  #listExecutionEvents(
+    id: string,
+    hydrateContext: boolean,
+  ): readonly StoredExecutionEvent[] {
     const occurrences = this.#coreStore().listOccurrences(id);
     const contextItems = new Map<string, ContextOccurrenceInput>();
     const contentByDigest = new Map<string, string>();
     if (hydrateContext) {
       for (const occurrence of occurrences) {
         if (
-          occurrence.kind !== 'context_item' || occurrence.contentDigest === undefined ||
-          typeof occurrence.payload !== 'object' || occurrence.payload === null ||
+          occurrence.kind !== 'context_item' ||
+          occurrence.contentDigest === undefined ||
+          typeof occurrence.payload !== 'object' ||
+          occurrence.payload === null ||
           Array.isArray(occurrence.payload)
         ) continue;
         const metadata = occurrence.payload as unknown as Omit<
@@ -1917,7 +2290,8 @@ export class SqliteHistoryV7ProductionStore
         if (typeof metadata.occurrenceId !== 'string') continue;
         let bytesBase64 = contentByDigest.get(occurrence.contentDigest);
         if (bytesBase64 === undefined) {
-          bytesBase64 = this.#coreStore().readContent(occurrence.contentDigest).toBase64();
+          bytesBase64 = this.#coreStore().readContent(occurrence.contentDigest)
+            .toBase64();
           contentByDigest.set(occurrence.contentDigest, bytesBase64);
         }
         contextItems.set(metadata.occurrenceId, { ...metadata, bytesBase64 });
@@ -1929,10 +2303,15 @@ export class SqliteHistoryV7ProductionStore
         Array.isArray(occurrence.payload)
       ) return [];
       const event = (occurrence.payload as Record<string, JsonValue>).event;
-      if (typeof event !== 'object' || event === null || Array.isArray(event)) return [];
-      const hydrated = structuredClone(event) as unknown as StoredExecutionEvent;
+      if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+        return [];
+      }
+      const hydrated = structuredClone(
+        event,
+      ) as unknown as StoredExecutionEvent;
       if (
-        hydrated.kind === 'context_observation' && hydrateContext && contextItems.size > 0 &&
+        hydrated.kind === 'context_observation' && hydrateContext &&
+        contextItems.size > 0 &&
         typeof hydrated.payload === 'object' && hydrated.payload !== null &&
         !Array.isArray(hydrated.payload)
       ) {
@@ -1944,50 +2323,68 @@ export class SqliteHistoryV7ProductionStore
           observation?.kind === 'model_request_delta' &&
           Array.isArray(observation.delta?.occurrences)
         ) {
-          observation.delta!.occurrences = observation.delta!.occurrences.map((item) => {
-            if (typeof item !== 'object' || item === null || Array.isArray(item)) return item;
-            const occurrenceId = (item as { occurrenceId?: unknown }).occurrenceId;
-            return typeof occurrenceId === 'string' && contextItems.has(occurrenceId)
-              ? structuredClone(contextItems.get(occurrenceId)!)
-              : item;
-          });
+          observation.delta!.occurrences = observation.delta!.occurrences.map(
+            (item) => {
+              if (
+                typeof item !== 'object' || item === null || Array.isArray(item)
+              ) return item;
+              const occurrenceId = (item as { occurrenceId?: unknown }).occurrenceId;
+              return typeof occurrenceId === 'string' &&
+                  contextItems.has(occurrenceId)
+                ? structuredClone(contextItems.get(occurrenceId)!)
+                : item;
+            },
+          );
         }
       }
       if (
-        hydrated.kind === 'runtime_event' && typeof hydrated.payload === 'object' &&
+        hydrated.kind === 'runtime_event' &&
+        typeof hydrated.payload === 'object' &&
         hydrated.payload !== null && !Array.isArray(hydrated.payload)
       ) {
         const payload = hydrated.payload as unknown as Record<string, unknown>;
         const outcome = payload.outcome;
         if (
-          payload.kind === 'commit_proposal' && Array.isArray(payload.transcript) &&
-          typeof outcome === 'object' && outcome !== null && !Array.isArray(outcome) &&
+          payload.kind === 'commit_proposal' &&
+          Array.isArray(payload.transcript) &&
+          typeof outcome === 'object' && outcome !== null &&
+          !Array.isArray(outcome) &&
           Array.isArray((outcome as Record<string, unknown>).transcript) &&
-          ((outcome as Record<string, unknown>).transcript as unknown[]).length === 0
+          ((outcome as Record<string, unknown>).transcript as unknown[])
+              .length === 0
         ) {
-          (outcome as Record<string, unknown>).transcript = structuredClone(payload.transcript);
+          (outcome as Record<string, unknown>).transcript = structuredClone(
+            payload.transcript,
+          );
         }
       }
       return [hydrated];
     });
     // Latest incomplete text is appended at settlement, but belongs at its original start.
-    return semantic.sort((left, right) =>
-      (left.firstEventOrdinal ?? left.ordinal) - (right.firstEventOrdinal ?? right.ordinal)
+    const controlEvents = this.#coreStore().listControlEvents(id);
+    return [...semantic, ...controlEvents].sort((left, right) =>
+      (left.firstEventOrdinal ?? left.ordinal) -
+        (right.firstEventOrdinal ?? right.ordinal) ||
+      left.ordinal - right.ordinal
     );
   }
 
   listExecutionEffects(id: string): readonly StoredExecutionEffect[] {
-    const execution = this.#readExecutionMetadata(id);
+    const execution = this.readExecutionMetadata(id);
     const effects = new Map<string, StoredExecutionEffect>();
     for (const event of this.#listExecutionEvents(id, false)) {
-      if (event.kind !== 'effect_observation' && event.kind !== 'runtime_event') continue;
+      if (
+        event.kind !== 'effect_observation' && event.kind !== 'runtime_event'
+      ) continue;
       const payload = event.payload as Record<string, unknown>;
       const providerObservation = payload.kind === 'provider_observation' &&
-          typeof payload.observation === 'object' && payload.observation !== null
+          typeof payload.observation === 'object' &&
+          payload.observation !== null
         ? payload.observation as Record<string, unknown>
         : undefined;
       const providerEvent = providerObservation?.kind === 'runtime_event' &&
-          typeof providerObservation.event === 'object' && providerObservation.event !== null
+          typeof providerObservation.event === 'object' &&
+          providerObservation.event !== null
         ? providerObservation.event as Record<string, unknown>
         : undefined;
       const effect = providerEvent ??
@@ -2025,7 +2422,8 @@ export class SqliteHistoryV7ProductionStore
           : prior?.completedEventOrdinal === undefined
           ? {}
           : { completedEventOrdinal: prior.completedEventOrdinal }),
-        ...(completed && (value.outcome === 'success' || value.outcome === 'error')
+        ...(completed &&
+            (value.outcome === 'success' || value.outcome === 'error')
           ? { resultOutcome: value.outcome }
           : prior?.resultOutcome === undefined
           ? {}
@@ -2046,7 +2444,7 @@ export class SqliteHistoryV7ProductionStore
     readonly relations: readonly ExecutionContextRelation[];
     readonly requests: readonly ContextModelRequestRecord[];
   } {
-    this.#readExecutionMetadata(executionId);
+    this.readExecutionMetadata(executionId);
     const db = this.#db();
     const relations: ExecutionContextRelation[] = [];
     try {
@@ -2055,7 +2453,12 @@ export class SqliteHistoryV7ProductionStore
       `).get(executionId) as Row | undefined;
       if (manifest !== undefined) {
         const decoded = parseJson<
-          { externalRelations: readonly Omit<ExecutionContextRelation, 'ordinal'>[] }
+          {
+            externalRelations: readonly Omit<
+              ExecutionContextRelation,
+              'ordinal'
+            >[];
+          }
         >(
           manifest.manifest_json,
         );
@@ -2082,7 +2485,10 @@ export class SqliteHistoryV7ProductionStore
         };
       };
       const delta = payload.observation?.delta;
-      if (payload.observation?.kind !== 'model_request_delta' || delta === undefined) continue;
+      if (
+        payload.observation?.kind !== 'model_request_delta' ||
+        delta === undefined
+      ) continue;
       for (const occurrence of delta.occurrences) {
         occurrences.set(occurrence.occurrenceId, occurrence);
         if (occurrence.bytesBase64 !== undefined) {
@@ -2101,7 +2507,9 @@ export class SqliteHistoryV7ProductionStore
       sequences.set(key, sequence);
       const items = sequence.map((occurrenceId, ordinal) => {
         const occurrence = occurrences.get(occurrenceId);
-        if (occurrence === undefined) throw new HistoryStoreError('history_invalid');
+        if (occurrence === undefined) {
+          throw new HistoryStoreError('history_invalid');
+        }
         const relationOrdinals = occurrence.sourceRelations.map((source) => {
           const relationOrdinal = relations.length + 1;
           relations.push({
@@ -2115,7 +2523,8 @@ export class SqliteHistoryV7ProductionStore
         return { ordinal, ...occurrence, relationOrdinals };
       });
       const decoded = items.map((item) =>
-        (item.bytesBase64 ?? bytesByDigest.get(item.content.digest)) === undefined
+        (item.bytesBase64 ?? bytesByDigest.get(item.content.digest)) ===
+            undefined
           ? undefined
           : new TextDecoder().decode(
             Uint8Array.fromBase64(
@@ -2165,13 +2574,20 @@ export class SqliteHistoryV7ProductionStore
     } finally {
       db2.close();
     }
-    return { ...(snapshot === undefined ? {} : { snapshot }), relations, requests };
+    return {
+      ...(snapshot === undefined ? {} : { snapshot }),
+      relations,
+      requests,
+    };
   }
 
-  readExecutionRequest(executionId: string, requestOrdinal: number): ContextModelRequestRecord {
-    const request = this.listExecutionContext(executionId).requests.find((item) =>
-      item.requestOrdinal === requestOrdinal
-    );
+  readExecutionRequest(
+    executionId: string,
+    requestOrdinal: number,
+  ): ContextModelRequestRecord {
+    const request = this.listExecutionContext(executionId).requests.find((
+      item,
+    ) => item.requestOrdinal === requestOrdinal);
     if (request === undefined) throw new HistoryStoreError('history_invalid');
     return request;
   }
@@ -2184,17 +2600,24 @@ export class SqliteHistoryV7ProductionStore
     const ordinals = new Set(events.flatMap((event) => {
       if (event.kind !== 'provider_request_start') return [];
       const payload = event.payload as unknown as {
-        observation?: { request?: { ordinal?: number; contextRequestOrdinal?: number } };
+        observation?: {
+          request?: { ordinal?: number; contextRequestOrdinal?: number };
+        };
       };
       const request = payload.observation?.request;
-      return request?.contextRequestOrdinal === requestOrdinal && request.ordinal !== undefined
+      return request?.contextRequestOrdinal === requestOrdinal &&
+          request.ordinal !== undefined
         ? [request.ordinal]
         : [];
     }));
     return events.filter((event) => {
       if (!event.kind.startsWith('provider_')) return false;
       const payload = event.payload as unknown as {
-        observation?: { kind?: string; requestOrdinal?: number; request?: { ordinal?: number } };
+        observation?: {
+          kind?: string;
+          requestOrdinal?: number;
+          request?: { ordinal?: number };
+        };
       };
       const ordinal = payload.observation?.kind === 'request_start'
         ? payload.observation.request?.ordinal
@@ -2222,7 +2645,9 @@ export class SqliteHistoryV7ProductionStore
     }
   }
 
-  *streamHumanHistoryExport(sessionId: string): Iterable<HumanHistoryExportRecordV1> {
+  *streamHumanHistoryExport(
+    sessionId: string,
+  ): Iterable<HumanHistoryExportRecordV1> {
     const db = this.#db();
     let transactionOpen = false;
     try {
@@ -2242,9 +2667,10 @@ export class SqliteHistoryV7ProductionStore
         false,
         db,
       );
-      const session = db.prepare('SELECT * FROM sessions WHERE session_id=?').get(sessionId) as
-        | Row
-        | undefined;
+      const session = db.prepare('SELECT * FROM sessions WHERE session_id=?')
+        .get(sessionId) as
+          | Row
+          | undefined;
       if (session === undefined) throw new HistoryStoreError('history_invalid');
       yield {
         schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
@@ -2340,12 +2766,20 @@ export class SqliteHistoryV7ProductionStore
           identity: execution.executionId,
           value: asJson(execution),
         };
-        for (const occurrence of this.#coreStore().listOccurrences(execution.executionId, db)) {
+        for (
+          const occurrence of this.#coreStore().listOccurrences(
+            execution.executionId,
+            db,
+          )
+        ) {
           if (
             occurrence.contentDigest !== undefined &&
             !exportedContentDigests.has(occurrence.contentDigest)
           ) {
-            const content = this.#coreStore().readContent(occurrence.contentDigest, db);
+            const content = this.#coreStore().readContent(
+              occurrence.contentDigest,
+              db,
+            );
             exportedContentDigests.add(occurrence.contentDigest);
             yield {
               schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
@@ -2366,7 +2800,10 @@ export class SqliteHistoryV7ProductionStore
           };
         }
         for (
-          const textState of this.#coreStore().listAssistantTextStates(execution.executionId, db)
+          const textState of this.#coreStore().listAssistantTextStates(
+            execution.executionId,
+            db,
+          )
         ) {
           yield {
             schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,

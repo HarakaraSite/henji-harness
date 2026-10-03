@@ -28,7 +28,6 @@ import {
   type ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
-import { validateWorkerContextSnapshot } from '../history/context_attribution.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const WORKER_RESPONSE_TIMEOUT_MS = 5_000;
@@ -52,12 +51,8 @@ export class WorkerHostStartupError extends Error {
 
 /** Read-only canonical projection the supervisor needs to build a start command. */
 export interface WorkerSupervisorProjection {
-  readonly transcript: readonly unknown[];
-  readonly nextTurn: number;
   readonly stateRevision: number;
-  readonly checkpoint?: unknown;
   readonly modelSelection: ModelSelection;
-  readonly privateStateFromTurn: number;
 }
 
 export interface WorkerSupervisorHost {
@@ -66,6 +61,8 @@ export interface WorkerSupervisorHost {
   handleWorkerMessage(message: WorkerToHostMessage): void;
   /** The canonical projection at the moment a start command is built. */
   projection(): WorkerSupervisorProjection;
+  /** Ask Data to create an endpoint and return its Agent-facing peer port. */
+  attachGeneration(correlation: WorkerCorrelation): Promise<MessagePort>;
   /** Called after a successful generation replacement so the coordinator can reset its view. */
   onGenerationReplaced(): void;
 }
@@ -81,16 +78,19 @@ export const validCredentialAvailability = (
 const validStartupSnapshot = (
   value: WorkerReadyMessage['startupSnapshot'],
 ): value is NonNullable<WorkerReadyMessage['startupSnapshot']> => {
-  if (value === undefined || !Array.isArray(value.skillNames)) return false;
+  if (
+    value === undefined || !Array.isArray(value.skillNames) ||
+    value.context !== undefined
+  ) {
+    return false;
+  }
   if (
     value.instructionSource !== undefined &&
     value.instructionSource !== 'AGENTS.md' &&
     value.instructionSource !== 'AGENTS.MD'
   ) return false;
   return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
-    new Set(value.skillNames).size === value.skillNames.length &&
-    (value.context === undefined ||
-      validateWorkerContextSnapshot(value.context));
+    new Set(value.skillNames).size === value.skillNames.length;
 };
 
 const validBaseInstructionManifest = (
@@ -234,7 +234,7 @@ export class WorkerSupervisor {
 
   correlation(command: string): WorkerCorrelation {
     return {
-      session: this.options.handle.id,
+      session: this.options.descriptor.id,
       instanceCorrelation: this.instanceCorrelation,
       workerGeneration: this.generation,
       baseStateRevision: this.host.projection().stateRevision,
@@ -257,9 +257,6 @@ export class WorkerSupervisor {
     ackAccepted?: boolean,
     sink?: WorkerExecutionTraceEntry[],
   ): void {
-    if (this.options.historyPersistence?.capturesProtocolTrace?.() === false) {
-      return;
-    }
     const entry: WorkerExecutionTraceEntry = {
       direction,
       kind,
@@ -275,6 +272,7 @@ export class WorkerSupervisor {
   send(
     command: import('./worker_protocol.ts').WorkerHostCommand,
     sink?: WorkerExecutionTraceEntry[],
+    transfer?: Transferable[],
   ): void {
     const subtype = workerHostCommandSubtype(command);
     this.trace(
@@ -285,7 +283,7 @@ export class WorkerSupervisor {
       subtype.ackAccepted,
       sink,
     );
-    this.capsule.send(command);
+    this.capsule.send(command, transfer);
   }
 
   receiveTrace(
@@ -306,8 +304,7 @@ export class WorkerSupervisor {
     );
   }
 
-  markUnavailable(onClearBuffer: () => void): void {
-    onClearBuffer();
+  markUnavailable(): void {
     if (!this.unavailable) {
       this.unavailable = true;
       void this.processOwner.close().catch(() => {});
@@ -316,12 +313,12 @@ export class WorkerSupervisor {
     this.messages.fail(new Error('Worker transport unavailable'));
   }
 
-  markUnavailableForReplacement(onClearBuffer: () => void): void {
+  markUnavailableForReplacement(): void {
     this.needsReplacement = true;
-    this.markUnavailable(onClearBuffer);
+    this.markUnavailable();
   }
 
-  async replaceGeneration(onClearBuffer: () => void): Promise<void> {
+  async replaceGeneration(): Promise<void> {
     if (!this.needsReplacement) return;
     if (this.replacement !== undefined) return await this.replacement;
     this.replacement = (async () => {
@@ -352,10 +349,10 @@ export class WorkerSupervisor {
       this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
       this.host.onGenerationReplaced();
       try {
-        await this.start(onClearBuffer);
+        await this.start();
         this.needsReplacement = false;
       } catch (error) {
-        this.markUnavailable(onClearBuffer);
+        this.markUnavailable();
         throw error;
       }
     })();
@@ -366,8 +363,8 @@ export class WorkerSupervisor {
     }
   }
 
-  async ensureGeneration(onClearBuffer: () => void): Promise<void> {
-    if (this.needsReplacement) await this.replaceGeneration(onClearBuffer);
+  async ensureGeneration(): Promise<void> {
+    if (this.needsReplacement) await this.replaceGeneration();
     if (this.unavailable) {
       await this.processOwner.wait();
       throw new Error('agent session unavailable');
@@ -383,7 +380,7 @@ export class WorkerSupervisor {
     }
   }
 
-  async start(onClearBuffer: () => void): Promise<void> {
+  async start(): Promise<void> {
     const projection = this.host.projection();
     const correlation = this.correlation('start');
     let revision: WorkerDefinitionLoadRequest;
@@ -407,47 +404,54 @@ export class WorkerSupervisor {
         (message.correlation === undefined ||
           sameCorrelation(message.correlation, correlation))), 5_000);
     this.correlationValue = correlation;
+    let dataPort: MessagePort | undefined;
     try {
       try {
-        this.send({
-          kind: 'start',
-          correlation,
-          module: revision,
-          ...(this.options.configRoot === undefined ? {} : {
-            configRoot: this.options.configRoot,
-          }),
-          ...(this.options.asyncAgents === undefined
-            ? {}
-            : { asyncAgents: this.options.asyncAgents }),
-          ...(this.options.toolFilter === undefined ? {} : { toolFilter: this.options.toolFilter }),
-          ...(this.options.toolDefinitions === undefined
-            ? {}
-            : { toolDefinitions: this.options.toolDefinitions }),
-          workspaceRoot: this.options.workspaceRoot,
-          physicalIoMode: this.options.physicalIoMode ?? 'production',
-          ...(this.options.rootMaxSteps === undefined
-            ? {}
-            : { rootMaxSteps: this.options.rootMaxSteps }),
-          ...(this.options.providerTimeoutMs === undefined
-            ? {}
-            : { providerTimeoutMs: this.options.providerTimeoutMs }),
-          diagnosticStageBuffer: this.stageProbeBuffer,
-          initialTranscript: projection.transcript as never,
-          nextTurn: projection.nextTurn,
-          ...(projection.checkpoint === undefined
-            ? {}
-            : { checkpoint: projection.checkpoint as never }),
-          modelSelection: projection.modelSelection,
-          privateStateFromTurn: projection.privateStateFromTurn,
-          ...(this.options.baseInstruction === undefined
-            ? {}
-            : { baseInstruction: this.options.baseInstruction }),
-          ...(this.options.providerDeclarations === undefined
-            ? {}
-            : { providerDeclarations: this.options.providerDeclarations }),
-        });
+        const agentDataPort = await this.host.attachGeneration(correlation);
+        dataPort = agentDataPort;
+        this.send(
+          {
+            kind: 'start',
+            correlation,
+            dataPort: agentDataPort,
+            module: revision,
+            ...(this.options.configRoot === undefined ? {} : {
+              configRoot: this.options.configRoot,
+            }),
+            ...(this.options.asyncAgents === undefined
+              ? {}
+              : { asyncAgents: this.options.asyncAgents }),
+            ...(this.options.toolFilter === undefined
+              ? {}
+              : { toolFilter: this.options.toolFilter }),
+            ...(this.options.toolDefinitions === undefined
+              ? {}
+              : { toolDefinitions: this.options.toolDefinitions }),
+            workspaceRoot: this.options.workspaceRoot,
+            physicalIoMode: this.options.physicalIoMode ?? 'production',
+            ...(this.options.rootMaxSteps === undefined
+              ? {}
+              : { rootMaxSteps: this.options.rootMaxSteps }),
+            ...(this.options.providerTimeoutMs === undefined
+              ? {}
+              : { providerTimeoutMs: this.options.providerTimeoutMs }),
+            diagnosticStageBuffer: this.stageProbeBuffer,
+            ...(this.options.auxiliaryStageGapMs === undefined ? {} : {
+              auxiliaryStageGapMs: this.options.auxiliaryStageGapMs,
+            }),
+            ...(this.options.baseInstruction === undefined
+              ? {}
+              : { baseInstruction: this.options.baseInstruction }),
+            ...(this.options.providerDeclarations === undefined
+              ? {}
+              : { providerDeclarations: this.options.providerDeclarations }),
+          },
+          undefined,
+          [agentDataPort],
+        );
       } catch {
-        this.markUnavailable(onClearBuffer);
+        dataPort?.close();
+        this.markUnavailable();
         // markUnavailable rejects the registered waiter; consume it before returning the error.
         await readyPromise.catch(() => {});
         throw new Error('Worker transport unavailable');
@@ -501,7 +505,12 @@ export class WorkerSupervisor {
         );
       }
       this.manifest = ready.manifest;
-      this.startupSnapshot = ready.startupSnapshot;
+      this.startupSnapshot = {
+        ...(ready.startupSnapshot.instructionSource === undefined
+          ? {}
+          : { instructionSource: ready.startupSnapshot.instructionSource }),
+        skillNames: [...ready.startupSnapshot.skillNames],
+      };
       this.credential = structuredClone(ready.credentialAvailability);
     } finally {
       this.correlationValue = undefined;

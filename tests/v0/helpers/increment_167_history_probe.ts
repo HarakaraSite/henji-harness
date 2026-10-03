@@ -123,7 +123,7 @@ export const createHistoryProbe = async (root: string) => {
     },
   });
   if (opened.kind !== 'accepted') throw new Error(`session open ${opened.kind}`);
-  const sessionId = opened.value.snapshot.session.id;
+  const sessionId = opened.value.sessionId;
   return {
     get client() {
       return client;
@@ -150,7 +150,7 @@ export const createHistoryProbe = async (root: string) => {
         selection: { kind: 'exact', sessionId },
       });
       if (reopened.kind !== 'accepted') throw new Error(`resume ${reopened.kind}`);
-      return reopened.value.snapshot;
+      return await client.sessionRead(reopened.value.sessionId);
     },
     async close() {
       releaseFinal?.();
