@@ -28,6 +28,7 @@ import type {
 } from './context_attribution.ts';
 import type {
   HistoryAssistantTextState,
+  HistorySemanticKind,
   HistorySemanticOccurrence,
 } from './history_semantic_model.ts';
 
@@ -309,6 +310,12 @@ export interface HistoryAppendResult {
   readonly semanticOccurrenceId?: string;
 }
 
+/** One explicit semantic event that follows the terminal record of an execution. */
+export interface HistoryPostSettlementSemanticEventInput {
+  readonly semanticKind: HistorySemanticKind;
+  readonly event: Omit<StoredExecutionEvent, 'ordinal'>;
+}
+
 type ExecutionEffectStatus =
   | 'observed_requested'
   | 'observed_progress'
@@ -487,6 +494,10 @@ export interface HistoryPersistencePort {
   appendExecutionControlEvents(
     inputs: readonly ExecutionControlEventInput[],
   ): readonly StoredExecutionEvent[];
+  /** Append a purpose-built semantic fact after execution settlement. */
+  appendPostSettlementSemanticEvent(
+    input: HistoryPostSettlementSemanticEventInput,
+  ): HistoryAppendResult;
   /** Append and return any semantic occurrence identity created for each event. */
   appendExecutionEventsWithSemanticIds?(
     inputs: readonly ExecutionEventInput[],

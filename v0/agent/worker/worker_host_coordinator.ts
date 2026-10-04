@@ -17,6 +17,7 @@ import type {
 } from '../data/data_contract.ts';
 import { DataRecallSelectionError } from '../data/session_data_owner.ts';
 import type {
+  WorkerClosedMessage,
   WorkerCorrelation,
   WorkerErrorMessage,
   WorkerFailureReadyMessage,
@@ -143,6 +144,7 @@ export class ExecutionCoordinator {
   private generationRequestCount = 0;
   private active = false;
   private closed = false;
+  private closeResult: WorkerClosedMessage | undefined;
   private pendingAdmission: PendingAdmission | undefined;
   private activeExecution: ActiveExecution | undefined;
   private admissionCompletion: Promise<SmallOutcome> | undefined;
@@ -244,7 +246,8 @@ export class ExecutionCoordinator {
   effectiveConfigSnapshot(): EffectiveRuntimeConfig {
     const configuration = this.supervisor.currentConfiguration;
     const configuredMaxSteps = this.options.rootMaxSteps;
-    const maxSteps = configuredMaxSteps ?? this.supervisor.currentManifest?.maxSteps ??
+    const maxSteps = configuredMaxSteps ??
+      this.supervisor.currentManifest?.maxSteps ??
       DEFAULT_AGENT_MAX_STEPS;
     const maxStepsSource: EffectiveRuntimeConfig['maxStepsSource'] =
       configuredMaxSteps === undefined ? 'default' : 'activation';
@@ -674,7 +677,9 @@ export class ExecutionCoordinator {
           'interrupted',
           terminal.message,
           terminal.details ??
-            captureFailureDetails(terminal.message, { operation: `worker_${terminal.stage}` }),
+            captureFailureDetails(terminal.message, {
+              operation: `worker_${terminal.stage}`,
+            }),
         );
         return outcome;
       }
@@ -696,6 +701,7 @@ export class ExecutionCoordinator {
           finalDataSequence: terminal.finalDataSequence,
         });
         this.acceptTerminal(result);
+        this.sendSettlementAcknowledgement(execution, result);
         await this.waitForTurnSettled(execution);
         await this.finishProcessCleanup(execution);
         this.finishExecution(execution);
@@ -758,13 +764,17 @@ export class ExecutionCoordinator {
     }
   }
 
-  private async executionChatGPTRegistrationId(): Promise<string | null | undefined> {
+  private async executionChatGPTRegistrationId(): Promise<
+    string | null | undefined
+  > {
     const selection = this.descriptorValue.modelSelection;
     if (selection.provider !== 'openai-chatgpt') return undefined;
     if (this.options.chatgptRegistrationId !== undefined) {
       return this.options.chatgptRegistrationId;
     }
-    if ('registrationId' in selection && selection.registrationId !== undefined) {
+    if (
+      'registrationId' in selection && selection.registrationId !== undefined
+    ) {
       return selection.registrationId;
     }
     return await this.chatgptAuthService().selectedRegistrationId();
@@ -830,31 +840,7 @@ export class ExecutionCoordinator {
       );
       this.acceptTerminal(result);
       const accepted = result.accepted && result.durable;
-      try {
-        this.send({
-          kind: 'commit_acknowledgement',
-          correlation: execution.correlation,
-          accepted,
-        });
-        this.recordExecutionControl(execution.reservation, {
-          kind: 'acknowledgement_requested',
-          accepted,
-        });
-        this.recordExecutionControl(execution.reservation, {
-          kind: 'acknowledgement_sent',
-          accepted,
-        });
-      } catch {
-        this.recordExecutionControl(execution.reservation, {
-          kind: 'acknowledgement_requested',
-          accepted,
-        });
-        this.recordExecutionControl(execution.reservation, {
-          kind: 'acknowledgement_failed',
-          accepted,
-        });
-        this.supervisor.markUnavailableForReplacement();
-      }
+      this.sendSettlementAcknowledgement(execution, result);
       await this.waitForTurnSettled(execution);
       await this.finishProcessCleanup(execution);
       this.finishExecution(execution);
@@ -987,6 +973,15 @@ export class ExecutionCoordinator {
   private receive(message: WorkerToHostMessage): void {
     this.supervisor.noteWorkerSequenceReceived(message);
     this.supervisor.receiveTrace(message, this.activeExecution?.protocolTrace);
+    if (message.kind === 'startup_prepared') {
+      const current = this.supervisor.currentCorrelation;
+      if (
+        current !== undefined && sameCorrelation(message.correlation, current)
+      ) {
+        this.options.onStartupPrepared?.(message);
+      }
+      return;
+    }
     if (message.kind === 'async_agent_request') {
       void this.handleAsyncAgentRequest(message);
       return;
@@ -1083,16 +1078,66 @@ export class ExecutionCoordinator {
       });
   }
 
+  private sendSettlementAcknowledgement(
+    execution: ActiveExecution,
+    result: DataSessionTerminalResult,
+  ): void {
+    const accepted = result.accepted && result.durable;
+    try {
+      this.send({
+        kind: 'commit_acknowledgement',
+        correlation: execution.correlation,
+        accepted,
+        settlement: {
+          accepted: result.accepted,
+          adopted: result.canonical,
+          durable: result.durable,
+          stateRevision: result.stateRevision,
+          terminalOutcome: {
+            ok: result.outcome.ok,
+            outcome: result.outcome.outcome,
+            stopReason: result.outcome.stopReason,
+            ...(result.outcome.error === undefined ? {} : { error: result.outcome.error }),
+          },
+        },
+      });
+      this.recordExecutionControl(execution.reservation, {
+        kind: 'acknowledgement_requested',
+        accepted,
+      });
+      this.recordExecutionControl(execution.reservation, {
+        kind: 'acknowledgement_sent',
+        accepted,
+      });
+    } catch {
+      this.recordExecutionControl(execution.reservation, {
+        kind: 'acknowledgement_requested',
+        accepted,
+      });
+      this.recordExecutionControl(execution.reservation, {
+        kind: 'acknowledgement_failed',
+        accepted,
+      });
+      this.supervisor.markUnavailableForReplacement();
+    }
+  }
+
   private async waitForTurnSettled(
     execution: ActiveExecution,
   ): Promise<boolean> {
     try {
-      await this.supervisor.messages.wait(
-        (message): message is WorkerTurnSettledMessage =>
-          message.kind === 'turn_settled' &&
-          sameCorrelation(message.correlation, execution.correlation),
-        this.workerResponseTimeoutMs(),
+      const message = await this.supervisor.messages.wait(
+        (message): message is WorkerTurnSettledMessage | WorkerErrorMessage =>
+          (message.kind === 'turn_settled' &&
+            sameCorrelation(message.correlation, execution.correlation)) ||
+          (message.kind === 'worker_error' &&
+            (message.correlation === undefined ||
+              sameCorrelation(message.correlation, execution.correlation))),
       );
+      if (message.kind === 'worker_error') {
+        this.supervisor.markUnavailableForReplacement();
+        return false;
+      }
       this.recordExecutionControl(execution.reservation, {
         kind: 'turn_settled',
         correlation: execution.correlation,
@@ -1269,7 +1314,9 @@ export class ExecutionCoordinator {
     }
   }
 
-  async steerActiveTurn(text: string): Promise<'accepted' | 'already_accepted' | 'idle'> {
+  async steerActiveTurn(
+    text: string,
+  ): Promise<'accepted' | 'already_accepted' | 'idle'> {
     const execution = this.activeExecution;
     if (
       execution === undefined || !this.active || !execution.dispatched ||
@@ -1278,10 +1325,18 @@ export class ExecutionCoordinator {
     const validated = validateSteeringText(text);
     const requestId = crypto.randomUUID();
     try {
-      this.send({ kind: 'steer', correlation: execution.correlation, requestId, text: validated });
+      this.send({
+        kind: 'steer',
+        correlation: execution.correlation,
+        requestId,
+        text: validated,
+      });
       const reply = await this.supervisor.messages.wait(
-        (message): message is import('./worker_protocol.ts').WorkerSteeringReceivedMessage =>
-          message.kind === 'steering_received' && message.requestId === requestId &&
+        (
+          message,
+        ): message is import('./worker_protocol.ts').WorkerSteeringReceivedMessage =>
+          message.kind === 'steering_received' &&
+          message.requestId === requestId &&
           sameCorrelation(message.correlation, execution.correlation),
         this.workerResponseTimeoutMs(),
       );
@@ -1323,16 +1378,17 @@ export class ExecutionCoordinator {
     return this.supervisor.correlation(command);
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
+  async close(): Promise<WorkerClosedMessage | undefined> {
+    if (this.closed) return this.closeResult;
     this.closed = true;
     if (this.active) this.cancelActiveTurn();
     await this.admissionCompletion?.catch(() => {});
     await this.children.cleanupAll().catch(() => undefined);
     this.unsubscribeWatch?.();
     this.unsubscribeAgentEvents?.();
-    await this.supervisor.terminate();
+    this.closeResult = await this.supervisor.close();
     await this.chatgptAuth?.close().catch(() => {});
     this.publishRuntimeState();
+    return this.closeResult;
   }
 }

@@ -6,6 +6,7 @@ import type {
   HistoryAppendResult,
   HistoryCaptureResult,
   HistoryCommitDelta,
+  HistoryPostSettlementSemanticEventInput,
   NonCanonicalExecutionInput,
   ReconcileExecutionInput,
   StoredExecutionEvent,
@@ -233,6 +234,24 @@ export class ConversationWriter {
       )
     );
     return { result: results, deltas };
+  }
+
+  appendPostSettlementSemanticEvent(
+    input: HistoryPostSettlementSemanticEventInput,
+  ): ConversationWriterWriteResult<HistoryAppendResult> {
+    this.#assertOpen();
+    const sessionId = this.#sessionIdForExecution(input.event.executionId);
+    const session = this.#ensureSession(sessionId);
+    const result = this.store.appendPostSettlementSemanticEvent(input);
+    const changes = applyHistoryAppendResults(
+      session.state,
+      session.normalizer,
+      [result],
+    );
+    return {
+      result,
+      deltas: [this.#publish(sessionId, session, changes)],
+    };
   }
 
   appendExecutionControlEvents(

@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement 185へ採用・移設）。
+更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11を追記し利用者の運用判断を記録）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -41,9 +41,9 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A23 | Agent実行      | `run_typescript`でファイル操作を含む小処理をHenji内で実行                    | 利用者が対象用途・実行条件の具体化や利用価値検証を指示するとき                                                         |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
-| A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                   | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
+| B11 | Agent実行      | providerのmodel×API×effort×tools受入契約の衝突（HTTP 400）                  | 同種の400再観測、またはeffort送信・route選択の対応を個別incrementへ採用するとき                                        |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                            | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -416,86 +416,6 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
 - 関連: [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
 
-### A26 — hookによる起動時・実行前後の自動処理（未採用）
-
-- 検討再開（2026-10-04）: 利用者と6種のhook、Worker単位のruntime、外部TSによる処理、
-  開始日時のcontext挿入、親・子に共通するdefaultを整理し、
-  [提案と調査根拠](../research/a26-minimal-hooks-proposal-2026-10-04.md)、
-  [Increment 189の詳細計画案](../increments/increment-189.md)へ保存した。
-  具体計画の承認・source実装は未実施。計画を採用した時点で本項を個別incrementへ移す。
-- 利用者判断（2026-09-29）: hookの組み込みを検討したが、現時点では「必ず何かを実行させたい」という
-  具体的なニーズはない。Zot／Piの調査結果と利用例をメモに残す。採用・実装は未指示。
-- 参照実装調査（2026-09-29、手元sourceと公式docsを確認、動作実測なし）:
-  - **Zot**: hook相当の仕組みをextensionとして持つ。拡張を別processで起動し、stdin/stdoutの JSON
-    frameでイベント購読と介入を登録する。実装言語は自由。Session開始・turn開始／終了等の
-    通知、tool実行前の引数変更・中止、ユーザー向けassistant本文の変更ができる。
-    拡張は標準ではインストールされず、利用者が追加する。
-    [公式extension仕様](https://github.com/patriceckhart/zot/blob/main/docs/extensions.md)、
-    手元`_refs/zot/docs/extensions.md`、`_refs/zot/packages/agent/extensions/`を参照。
-  - **Pi**: TypeScript extensionをPi process内で読み込み、`pi.on("tool_call", handler)`等で
-    handlerを登録する。入力加工、実行前のcontext追加、tool実行前の引数変更・中止、
-    tool結果変更、完了通知等ができる。通知だけのeventと、dataや動作を変更できるeventを分ける。
-    [公式extension仕様](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)、
-    手元`_refs/pi/packages/coding-agent/docs/extensions.md`、
-    `src/core/extensions/`（同package配下）を参照。
-- 参照実装調査 追記（2026-10-04、手元`_refs/`のsourceとdocsの静的読解のみ、動作実測なし）:
-  残る参照実装のhook相当機構を確認した。Zot・Piの既存記載は再確認して一致した。
-  - **OpenCode**（`_refs/opencode/packages/plugin/src/index.ts`）: pluginが`Hooks` objectを返し、
-    `"tool.execute.before"`、`"tool.execute.after"`、`"chat.params"`、`"chat.headers"`、`"chat.message"`、
-    `"permission.ask"`、`"tool.definition"`、`"command.execute.before"`、`"shell.env"`、`"event"`、
-    `"config"`、`tool`、`auth`、`provider`、`dispose`と`experimental.*`を登録する。契約は
-    `(input, output) => Promise<void>`で`output`をin-place変更する（戻り値は使わない）。tool引数の変更は
-    `tool.execute.before`、結果の変更は`tool.execute.after`、拒否は`permission.ask`の`status`のみで、
-    tool実行自体を止める汎用blockはない。登録は組込pluginと設定`plugin`
-    （`Array<string | [string, PluginOptions]>`）で、hookは登録順に直列await実行する。`event`キーは
-    `trigger`ではなくイベントバス購読経由で呼ばれ、通知はfire-and-forget。
-  - **DeepSeek Harness**（`_refs/deepseek-harness/docs/cordis-primer.md`、`docs/agent-lifecycle.md`、
-    `docs/subsystems/*.md`）: hookはCordisのtyped event。dispatch modeが公開契約で、`emit`は観測のみ、
-    `waterfall`はlistenerが`next()`で委譲するか短絡して値を置換、`serial`は順序付きで停止可。
-    turn/stepのhookは`agent/pre-step`（提案stepの拒否・messages差替え）、`agent/request`（呼出しconfigの置換）、
-    `agent/request-error`（`{kind:'retry'}`で回復）、`agent/turn-stopping`（`next()`なしの最終checkpoint）、
-    `llm/stream`（stream全体のwrap）。周辺に`system-prompt/assemble`、
-    `tools/pre-execute`／`tools/execute`／`tools/post-execute`、`tools/result`、`approval/request`がある。
-    登録はCordis plugin（`inject`と`ctx.on`）で、さらに`ctx.dynamicCordisRunner.define`でversioned packageを
-    実行時に定義・activateできる。利用者・拡張が登録する汎用機構で、通知専用eventと介入eventをmodeで
-    分ける点がPi・Zotと同型。
-  - **OpenComputer**（`_refs/opencomputer/agent/README.md`、`agent/src/index.ts`）: React風の
-    reactive authoring APIで、default exportを各model呼出しの前に同期実行し、`useInput`（`useCurrentInput`）、
-    `useModel`、`useTool`、`useConnection`、`useService`、`useSubagent`、`useMcpServer`、`useSessionData`、
-    `useMemory`でその呼出しを宣言する。
-    hookは宣言でありI/Oやloopの介入をしない（READMEに明記）。block・rewrite型のhookではない。
-    `defineTool`等の宣言APIとgated toolの承認要求は別機構。
-  - **Cloudflare Agents**（`_refs/cloudflare-agents/packages/agents/src/chat/`）: 選択sourceには
-    利用者登録型のhook機構はなく、chat層のcallback（`onExhausted`、`shouldKeepRecovering`）と
-    基底classのlifecycle（`onStart`／`onConnect`／`onMessage`）のみ。基底class本体はsnapshot選択外のため
-    全一覧は未確認。
-  - **Cloudflare Sandbox SDK**（`_refs/cloudflare-sandbox-sdk/packages/sandbox/README.md`）、
-    **Deno Docs examples**（`_refs/deno-docs/examples/scripts/`）: hook相当の機構なし。Sandbox SDKは
-    Durable ObjectとContainer、Files／S3Mount／DirectoryBackupを提供し、Denoの例はtool callを処理する
-    最小のwhile loopのみ。
-- 参照実装の共通形: 通知専用eventと介入eventを分ける（Pi・Zot・DeepSeek Harness）、介入は引数・
-  messages・結果の置換またはblock（Pi・Zot・DeepSeek Harness）、hookは登録順に直列実行
-  （Pi・Zot・OpenCode・DeepSeek Harness）。blockをpermission判定に限定するOpenCodeの形は
-  Henji現行に最も近く、`event`（イベントバス購読）は`events.ts`の同期通知に対応する。
-- 追記の境界: 上記は参照実装の静的な読解結果で、動作実測とHenjiへの採用判断を含まない。
-  Cloudflare Agentsの基底classのhook一覧は未確認のまま残す。
-- Henji現行: `v0/agent/core/events.ts`に開始・終了やtool call/resultの通知、
-  `v0/agent/tools/tools.ts`の`Registry.dispatch`に共通のtool実行経路がある。
-  ユーザーがhookを登録する汎用機構は未実装。既存event sinkは同期通知で、非同期処理の完了待ちや
-  引数・結果の変更を行うhook contractではない。
-- 利用者が挙げた例: 「環境情報を起動時に必ず確認させたい」。起動時hookで既存の環境メモを読む、
-  または必要な情報を取得し、初期contextへ渡す形が考えられる。instructionでAIへ確認を依頼する方式と
-  異なり、runtimeが処理を呼び情報を渡すところまでを確定できる。AIの理解・活用を保証するものではない。
-- 設計上の選択肢: 全利用者に共通する標準動作なら起動処理への直接実装も可能。利用者・projectごとに
-  処理を差し替えたい場合はhook登録方式が候補になる。「起動」がCore／Session／Workerのどの境界か、
-  確認項目、情報を渡す先は採用時に決める。
-- 境界: 起動時の環境確認は利用例であり、環境情報の機械的収集を採用した判断ではない。
-  A5の既存方針（人間の指示で`ambient.md`等を用意しinstructionとして読む）を変更しない。
-  credential値とAuthorizationは取得結果・context・記録へ含めない。
-- 再検討条件: 決まったタイミングで実行したい具体的な処理が通常利用で必要になったとき、
-  または利用者がhookの検討を再開するとき。
-- 関連: A5（ambient情報）、A11（instructionの与え方）、E2（追加resource kind）。
-
 ### A27 — providerの一時的な応答中断に対する自動再試行（未採用）
 
 - 利用者判断（2026-10-01）: 常に停止するわけではないため、当面は`/recall`で対処する。
@@ -806,3 +726,37 @@ Pi／OpenCode／Henjiの画面表示比較
   [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
   `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
   `v0/agent/history/sqlite_history_store.ts`。
+
+### B11 — `gpt-6.1-sol`で`reasoning_effort`とfunction toolsの併用requestがHTTP 400になる
+
+- 原観測（2026-10-04）: Session `44aab8ea`のexecution `a2d8894a`（turn 1、modelStep 1、物理request 1回目、retry 0）は、
+  provider `openai-chat`／api `openai-chat-completions`／model `gpt-6.1-sol`／effort `high`の最初のrequestで
+  HTTP 400（stage `http`／code `http_error`、`ProviderAPIError`／`invalid_request_error`、param `reasoning_effort`、
+  requestId `req_1fa60a57ccb2470e960dc9d7a8cd7f60`）となり、`contract_failure`
+  （`model contract failure: provider request failed (400)`）で停止した。provider messageは次のとおり。
+  `Function tools with reasoning_effort are not supported for gpt-6.1-sol in /v1/chat/completions.`
+  `To use function tools, use /v1/responses or set reasoning_effort to 'none'.`
+  失敗turnはnon_canonicalに保存され、同旨の再実行`81aaa578`は`mimo-v2.6-pro`でcompletedしcanonical採用された。
+- 事象の切り分け: 同Sessionのmodel変更史では08:25:27に`gpt-5.6-sol`／effort `none`、08:27:19に`gpt-6.1-sol`／effort `high`
+  へ変更されており、失敗（08:27:39）はeffort `none`→`high`の切替直後の最初のrequestで発生している。
+  model一覧はlive catalog（models.dev由来、`openai-chat`／`openai-responses`／`openai-chatgpt`は同一`openai`のmodel群）
+  から出るため、`gpt-6.1-sol`はprotocol `openai-chat-completions`の`openai-chat` routeでも選択でき、
+  model名の選択だけで`/v1/chat/completions`へ到達した。henjiのChat Completions系request組み立ては
+  effort選択時に`reasoning_effort`をtoolsと併送するため（`v0/agent/provider/openrouter_request.ts`の組立と同型）、
+  当該provider/modelの受入条件と衝突した。henjiの実装bugというより未観測のprovider variantとの組合せである。
+- 残る利用者影響: `openai-chat` routeでeffort `auto`／`high`を選んでいる間、function tools付きturnは同様に400で停止する。
+  tools不要な純粋な生成でも同制約に当たるかは未確認。
+- 対応候補（未採用）:
+  1. 運用回避: 該当modelではeffort `none`を選ぶ、またはtoolsが要るturnを別modelへ回す。
+  2. chat-completionsでtools併用時の`reasoning_effort`送信を抑制する（modelの実効effortが変わる点は要確認）。
+  3. 同一`openai-api-key`でprotocol `openai-responses`の`openai-responses` route、またはChatGPT認証の
+     `openai-chatgpt` route（いずれもResponses API）で該当modelを使う（provider messageが勧める方針。route実装は既存）。
+- 利用者の運用判断（2026-10-04）: `gpt-6.1-sol`は`openai-chat`（chat-completions）routeでは使わず、
+  Responses APIの`openai-chatgpt`または`openai-responses` routeで使う方向。chat-completionsで使う場合はeffort `none`前提。
+  対応候補1・3の運用部分をこれで代替する。henji側でrouteに6.1を出さない整理や対応候補2（effort送信抑制）は未採用のまま残す。
+- 再検討条件:
+  同種の400が通常利用で再観測される、またはeffort送信・route選択の対応を個別incrementへ採用するとき。
+- 関連:
+  history.sqlite3（schema 1）のexecution `a2d8894a`のoutcomeJsonとdiagnostic `12d1188b-0528-4a3d-a372-24ad7da58820`、
+  `v0/agent/provider/openrouter_request.ts`、
+  [provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)。

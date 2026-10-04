@@ -15,6 +15,7 @@ import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { isSessionId, SessionStoreError } from '../session/session_store_contract.ts';
 import { sessionPaths } from '../session/session_store_paths.ts';
 import type { WorkerCorrelation, WorkerToHostMessage } from '../worker/worker_protocol.ts';
+import type { AgentPostSettlementHookUpdate } from './agent_data_contract.ts';
 import { AgentDataEndpoint } from './agent_data_endpoint.ts';
 import { ConversationWriter, type ConversationWriterDelta } from './conversation_writer.ts';
 import {
@@ -30,6 +31,7 @@ import type {
   DataConversationUpdate,
   DataExecutionAdmitRequest,
   DataExecutionControlInput,
+  DataExecutionStartupAdmitRequest,
   DataPrepareProposalRequest,
   DataSealGenerationRequest,
   DataService,
@@ -106,7 +108,12 @@ const serviceError = (error: unknown): DataServiceErrorClass => {
     );
   }
   if (error instanceof HistoryStoreError) {
-    return new DataServiceErrorClass(500, error.code, error.message, captureFailureDetails(error));
+    return new DataServiceErrorClass(
+      500,
+      error.code,
+      error.message,
+      captureFailureDetails(error),
+    );
   }
   return new DataServiceErrorClass(
     500,
@@ -305,6 +312,9 @@ const projectAgentEvent = (
       kind: 'tool_call',
       turn,
       call: structuredClone(event.call),
+      ...(event.hookEffect === undefined ? {} : {
+        hookEffect: structuredClone(event.hookEffect),
+      }),
       executionId,
       workerSequence: message.sequence,
       requestKey: requestKey(executionId, event),
@@ -327,6 +337,9 @@ const projectAgentEvent = (
       kind: 'tool_result',
       turn,
       result: structuredClone(event.result),
+      ...(event.hookEffect === undefined ? {} : {
+        hookEffect: structuredClone(event.hookEffect),
+      }),
       executionId,
       workerSequence: message.sequence,
       requestKey: requestKey(executionId, event),
@@ -724,9 +737,10 @@ export const createDataService = async (input: {
         const live = owners.get(row.sessionCorrelation)?.descriptor()
           .latestExecution;
         return {
-          execution: live?.executionId === executionId
-            ? live
-            : executionView(row, history.readExecutionRequestCount(executionId)),
+          execution: live?.executionId === executionId ? live : executionView(
+            row,
+            history.readExecutionRequestCount(executionId),
+          ),
         };
       } catch (error) {
         if (
@@ -895,6 +909,22 @@ export const createDataService = async (input: {
           }
         },
         checkpoint: (message) => owner.installCheckpoint(message),
+        afterTurn: async (update, sequence) => {
+          const accepted = await withSessionMutation(
+            sessionId,
+            () => owner.installAfterTurnContext(update, sequence),
+          );
+          if (accepted) descriptors.set(sessionId, owner.descriptor());
+          return accepted;
+        },
+        postSettlementHook: async (update: AgentPostSettlementHookUpdate, sequence) => {
+          const accepted = await withSessionMutation(
+            sessionId,
+            () => owner.installPostSettlementHook(update, sequence),
+          );
+          if (accepted) descriptors.set(sessionId, owner.descriptor());
+          return accepted;
+        },
         onFailure: () => {
           // Worker/control ownership reacts to its own process and generation failure.
         },
@@ -922,6 +952,27 @@ export const createDataService = async (input: {
           ...(ready.startupSnapshot?.context === undefined
             ? {}
             : { contextSnapshot: ready.startupSnapshot.context }),
+        }));
+      executionGenerations.set(
+        value.executionId,
+        generationKey(sessionId, value.correlation),
+      );
+      descriptors.set(sessionId, admitted.descriptor);
+      return admitted;
+    },
+
+    async executionAdmitStartup(
+      sessionId: string,
+      value: DataExecutionStartupAdmitRequest,
+    ) {
+      const owner = requireOwner(sessionId);
+      endpointFor(sessionId, value.correlation);
+      const admitted = await withSessionMutation(sessionId, () =>
+        owner.admit({
+          ...value,
+          ...(value.contextSnapshot === undefined
+            ? {}
+            : { contextSnapshot: value.contextSnapshot }),
         }));
       executionGenerations.set(
         value.executionId,
@@ -1140,7 +1191,9 @@ export const createDataService = async (input: {
       };
     },
 
-    async persistCatalogFacts(facts: readonly LiveModelCatalogFact[]): Promise<void> {
+    async persistCatalogFacts(
+      facts: readonly LiveModelCatalogFact[],
+    ): Promise<void> {
       if (facts.length === 0) return;
       await currentStore();
       try {

@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { JsonValue } from '../core/contracts.ts';
-import type { StoredExecutionEvent } from './history_store_contract.ts';
+import type {
+  HistoryAppendResult,
+  HistoryPostSettlementSemanticEventInput,
+  StoredExecutionEvent,
+} from './history_store_contract.ts';
 import { exactByteDigest } from './exact_byte_plan.ts';
 import {
   HISTORY_BUSY_TIMEOUT_MS,
@@ -543,6 +547,58 @@ export class SqliteHistoryCore {
       );
     });
     return events;
+  }
+
+  /** Append a narrowly scoped semantic fact without reopening ordinary worker observations. */
+  appendPostSettlementSemanticEvent(
+    input: HistoryPostSettlementSemanticEventInput,
+  ): HistoryAppendResult {
+    let result: HistoryAppendResult | undefined;
+    this.#transaction(() => {
+      const state = this.#row(
+        'SELECT * FROM executions WHERE execution_id=?',
+        input.event.executionId,
+      );
+      if (
+        state.lifecycle !== 'settled' || state.terminal_record_id === null ||
+        Number(state.unresolved_mandatory_count) !== 0 ||
+        Number(state.latest_ordinal) !== Number(state.occurrence_count)
+      ) throw new Error('history post-settlement append fence mismatch');
+
+      const event: StoredExecutionEvent = {
+        ...input.event,
+        ordinal: Number(state.event_count) + 1,
+      };
+      const ordinal = Number(state.latest_ordinal) + 1;
+      const semanticOccurrenceId = `${event.executionId}:semantic:${ordinal}`;
+      const occurrence = {
+        occurrenceId: semanticOccurrenceId,
+        ordinal,
+        kind: input.semanticKind,
+        observedAt: event.observedAt,
+        payload: { event } as unknown as JsonValue,
+      };
+      validateHistoryOccurrence(occurrence);
+      this.#db.prepare(`
+        INSERT INTO semantic_records(
+          record_id, execution_id, ordinal, kind, observed_at, payload_json, content_digest
+        ) VALUES(?, ?, ?, ?, ?, ?, NULL)
+      `).run(
+        semanticOccurrenceId,
+        event.executionId,
+        ordinal,
+        input.semanticKind,
+        event.observedAt,
+        new TextDecoder().decode(encodeHistoryPayload(occurrence.payload)),
+      );
+      this.#db.prepare(`
+        UPDATE executions SET event_count=?, latest_ordinal=?, occurrence_count=occurrence_count+1
+        WHERE execution_id=?
+      `).run(event.ordinal, ordinal, event.executionId);
+      result = { event, semanticOccurrenceId };
+    });
+    if (result === undefined) throw new Error('history post-settlement append failed');
+    return result;
   }
 
   listControlEvents(executionId: string): readonly StoredExecutionEvent[] {

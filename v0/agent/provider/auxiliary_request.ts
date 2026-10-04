@@ -6,12 +6,16 @@ import type {
   ProviderEvidencePhase,
   ProviderEvidenceRequestMetadata,
 } from './provider_evidence.ts';
+import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
 
 interface AuxiliaryProviderEvidence {
-  readonly execution: ModelExecutionContext;
+  readonly providerEvidence: ProviderEvidenceRecorder;
   readonly phase: ProviderEvidencePhase;
   readonly modelStep: number;
   readonly requestMetadata: ProviderEvidenceRequestMetadata;
+  readonly reportAuxiliaryStage?: (
+    stage: Parameters<NonNullable<ModelExecutionContext['reportAuxiliaryStage']>>[0],
+  ) => void;
 }
 
 /** Non-secret HTTP attachment instructions supplied by the tool's request contract. */
@@ -32,9 +36,47 @@ export interface ProviderHttpRequest {
   readonly headers?: Readonly<Record<string, string>>;
   /** Request bytes passed to fetch. */
   readonly body?: Uint8Array<ArrayBuffer>;
+  /** Non-secret facts supplied by the caller when known; credentials and origin are attached by the runtime. */
+  readonly evidenceMetadata?: Omit<ProviderEvidenceRequestMetadata, 'authProfile' | 'origin'>;
   readonly evidence?: AuxiliaryProviderEvidence;
   readonly signal?: AbortSignal;
 }
+
+export interface HookProviderEvidenceScope {
+  current?: Readonly<{
+    recorder: ProviderEvidenceRecorder;
+    reportAuxiliaryStage?: AuxiliaryProviderEvidence['reportAuxiliaryStage'];
+  }>;
+}
+
+/** Add request evidence while an external hook handler is active. */
+export const createHookScopedProviderRequest = (
+  requestProvider: ProviderRequestFn,
+  scope: HookProviderEvidenceScope,
+): ProviderRequestFn =>
+async (request) => {
+  const current = scope.current;
+  if (current === undefined || request.evidence !== undefined) {
+    return await requestProvider(request);
+  }
+  return await requestProvider({
+    ...request,
+    evidence: {
+      providerEvidence: current.recorder,
+      phase: 'hook',
+      // A hook request has no model-generation step. Zero records that fact explicitly.
+      modelStep: 0,
+      requestMetadata: {
+        ...request.evidenceMetadata,
+        authProfile: request.authProfile,
+        origin: 'hook',
+      },
+      ...(current.reportAuxiliaryStage === undefined ? {} : {
+        reportAuxiliaryStage: current.reportAuxiliaryStage,
+      }),
+    },
+  });
+};
 
 export interface ProviderHttpResponse {
   readonly status: number;
@@ -74,7 +116,7 @@ export const createProviderRequestDispatcher = (
 ): ProviderRequestFn => {
   const fetcher = options.fetcher ?? fetch;
   return async (request) => {
-    const report = request.evidence?.execution.reportAuxiliaryStage ??
+    const report = request.evidence?.reportAuxiliaryStage ??
       options.reportStage;
     report?.('aux_request_provider_entered');
     report?.('credential_resolve_entered');
@@ -107,15 +149,16 @@ export const createProviderRequestDispatcher = (
       ? request.signal
       : AbortSignal.any([request.signal, deadline]);
     const evidenceInput = request.evidence;
-    const evidence = evidenceInput?.execution.providerEvidence;
+    const evidence = evidenceInput?.providerEvidence;
     if (evidenceInput !== undefined && evidence !== undefined) {
-      const execution = evidenceInput.execution;
-      execution.reportAuxiliaryStage?.('evidence_start_entered');
+      evidenceInput.reportAuxiliaryStage?.('evidence_start_entered');
       const requestStart = {
         lane: 'parent' as const,
         phase: evidenceInput.phase,
         modelStep: evidenceInput.modelStep,
-        endpoint: request.endpoint,
+        endpoint: evidenceInput.phase === 'hook'
+          ? hookEvidenceEndpoint(request.endpoint)
+          : request.endpoint,
         method: request.method,
         requestMetadata: evidenceInput.requestMetadata,
       };
@@ -187,4 +230,15 @@ export const createProviderRequestDispatcher = (
       });
     }
   };
+};
+
+const hookEvidenceEndpoint = (endpoint: string): string => {
+  try {
+    const parsed = new URL(endpoint);
+    // Keep the route needed to distinguish an API while dropping URL userinfo,
+    // query values and fragments that may carry credentials or request data.
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return 'invalid-endpoint';
+  }
 };

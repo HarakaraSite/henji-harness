@@ -40,10 +40,12 @@ deno task --config deno.v0.json henji:package
 # Run install.sh in the package directory printed by the command above.
 ```
 
-The package includes editable `search`, `web_search`, and `web_fetch` tool folders. Run its
-`install.sh` to install the binary and register these tools. Local search prefers rg and uses grep
-when rg is unavailable. Existing tool edits are retained unless `--replace-tools` is specified. See
-the [package instructions](external-tools/README.md) for installation options.
+The package includes editable `search`, `web_search`, and `web_fetch` tool folders and the
+`runtime-start-time` hook. Run its `install.sh` to install the binary, register the tools, and
+enable the default hook. Local search prefers rg and uses grep when rg is unavailable. Existing
+external source edits are retained unless the corresponding `--replace-tools` or `--replace-hooks`
+option is specified. See the [package instructions](external-tools/README.md) for installation
+options.
 
 Use `henji --help` and `henji COMMAND --help` to see the available commands and options.
 
@@ -237,6 +239,34 @@ henji tool inspect --name marker
 henji tool activate --name marker --folder tools/marker
 henji tool deactivate --name marker
 ```
+
+## External hooks
+
+The package installs `hooks.json` with `runtime-start-time` as the default hook. It adds the Worker
+start time, timezone, and UTC offset to the Agent's shared context; each new Worker records its own
+start time. Edit the TypeScript source under
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/hooks/runtime-start-time/`. A new Worker loads the
+edit; a Worker that is already running keeps its loaded hook.
+
+`hooks.json` selects the common defaults and maps hook names to TypeScript entry files. An Agent
+JSON can omit `hooks` to use those defaults, provide an ordered list to replace them, or use an
+empty list to disable external hooks:
+
+```json
+{
+  "schemaVersion": 1,
+  "default": ["runtime-start-time"],
+  "hooks": {
+    "runtime-start-time": "hooks/runtime-start-time/index.ts"
+  }
+}
+```
+
+To select a different hook for one Agent, add `"hooks": ["my-hook"]` to that Agent's JSON and map
+`my-hook` in the common catalog. Reinstalling retains both hook source edits and the catalog;
+`./install.sh --replace-hooks` replaces packaged hook files while preserving the catalog. The
+installer does not edit Agent JSON. See
+[hook package instructions](external-tools/README.md#runtime-hooks).
 
 The runtime uses a new `history.sqlite3` database. It does not migrate the prior history database;
 existing files are left available to the user.

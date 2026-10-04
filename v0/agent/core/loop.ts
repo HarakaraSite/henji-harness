@@ -10,7 +10,9 @@ import {
   type ToolCall,
   type ToolCallContent,
   type ToolMessage,
+  type ToolResultContent,
 } from './contracts.ts';
+import type { HookEffectFailure, ToolHookEffect } from './hook_effect.ts';
 import {
   type AgentEvent,
   type AgentEventSink,
@@ -87,6 +89,27 @@ interface AgentTurnOptions extends AgentLoopOptions {
   };
   /** Worker-provided causal source factory used as messages are appended to the transcript. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
+  /** Worker-owned ordered hook composition before a model-issued tool call is dispatched. */
+  readonly beforeTool?: (
+    call: ToolCall,
+    modelStep: number,
+  ) => Promise<{
+    readonly arguments: JsonValue;
+    readonly applied: boolean;
+    readonly hookEffect?: ToolHookEffect;
+    readonly failure?: HookEffectFailure;
+  }>;
+  /** Worker-owned ordered hook composition after the Registry has produced a result. */
+  readonly afterTool?: (
+    call: ToolCall,
+    argumentsValue: JsonValue,
+    result: ToolResultContent,
+    terminal: RegistryDispatchResult['terminal'],
+    modelStep: number,
+  ) => Promise<{
+    readonly result: ToolResultContent;
+    readonly hookEffect?: ToolHookEffect;
+  }>;
   /** Injectable clock for live-update cadence; production uses wall-clock time. */
   readonly now?: () => number;
 }
@@ -925,13 +948,13 @@ const runAgentTurnInternal = async (
     } | null = null;
     for (const [callIndex, call] of calls.entries()) {
       if (signal?.aborted) return finishCancelled();
-      deliverEvent(sink, { kind: 'tool_call', turn, call });
       toolCallCount += 1;
-      if (modelResultAttribution !== undefined) {
-        evidence?.recordToolCall(call, callIndex, modelResultAttribution);
-      }
-      if (signal?.aborted) return finishCancelled();
       if (invalidTerminalBatch) {
+        deliverEvent(sink, { kind: 'tool_call', turn, call });
+        if (modelResultAttribution !== undefined) {
+          evidence?.recordToolCall(call, callIndex, modelResultAttribution);
+        }
+        if (signal?.aborted) return finishCancelled();
         const resultContent = terminalBatchError(call);
         results.push(resultContent);
         deliverEvent(sink, {
@@ -945,6 +968,32 @@ const runAgentTurnInternal = async (
         }
         continue;
       }
+      let effectiveArguments = call.arguments;
+      let beforeToolApplied = false;
+      let callHookEffect: ToolHookEffect | undefined;
+      let beforeToolFailure: HookEffectFailure | undefined;
+      if (options.beforeTool !== undefined) {
+        const prepared = await options.beforeTool(call, steps);
+        effectiveArguments = snapshot(prepared.arguments);
+        beforeToolApplied = prepared.applied;
+        callHookEffect = prepared.hookEffect;
+        beforeToolFailure = prepared.failure;
+      }
+      deliverEvent(sink, {
+        kind: 'tool_call',
+        turn,
+        call,
+        ...(callHookEffect === undefined ? {} : { hookEffect: callHookEffect }),
+      });
+      if (modelResultAttribution !== undefined) {
+        evidence?.recordToolCall(
+          call,
+          callIndex,
+          modelResultAttribution,
+          callHookEffect,
+        );
+      }
+      if (signal?.aborted) return finishCancelled();
       let progressFailure: EventDeliveryError | undefined;
       let progressSettled = false;
       let acceptedProgress = 0;
@@ -981,76 +1030,119 @@ const runAgentTurnInternal = async (
         }
       };
       let dispatched: RegistryDispatchResult | undefined;
-      try {
-        const toolContext = sink === undefined
-          ? {
-            modelExecution: options.executionContext,
-            modelStep: steps,
-            callId: call.callId,
-            signal,
-            cancellation,
-          }
-          : {
-            modelExecution: options.executionContext,
-            modelStep: steps,
-            callId: call.callId,
-            signal,
-            cancellation,
-            reportProgress,
-          };
-        const dispatchPromise = registry.dispatch(snapshot(call), toolContext);
-        // Register before awaiting so the settlement gate closes before any continuation can
-        // invoke a retained reporter after dispatch has resolved or rejected.
-        void dispatchPromise.then(
-          () => {
-            progressSettled = true;
-          },
-          () => {
-            progressSettled = true;
-          },
-        );
-        dispatched = await dispatchPromise;
-      } catch (error) {
-        if (progressFailure !== undefined) {
-          if (isCancellationCleanupError(error)) {
-            cancellation?.markCleanupFailed();
-          }
-          throw progressFailure;
-        }
-        if (isCancellationCleanupError(error)) {
-          return finishContractFailure('cancellation cleanup failed', {
-            stage: 'cancellation_cleanup',
-            code: 'cleanup_error',
-            modelStep: 0,
-          }, error);
-        }
-        if (cancellationFrom(error)) return finishCancelled();
-        results.push({
+      let resultContent: ToolResultContent | undefined;
+      if (beforeToolFailure !== undefined) {
+        const message = `before_tool hook ${beforeToolFailure.name}: ${beforeToolFailure.reason}`;
+        resultContent = {
           kind: 'tool_result',
           callId: call.callId,
           name: call.name,
-          text: `tool execution error: ${errorText(error)}`,
+          text: message,
           outcome: 'error',
-          failure: captureFailureDetails(error, { operation: 'tool_dispatch' }),
-        });
-      } finally {
-        progressSettled = true;
+          failure: captureFailureDetails(new Error(message), {
+            operation: 'hook_before_tool',
+          }),
+        };
+      } else {
+        try {
+          const toolContext = sink === undefined
+            ? {
+              modelExecution: options.executionContext,
+              modelStep: steps,
+              callId: call.callId,
+              signal,
+              cancellation,
+            }
+            : {
+              modelExecution: options.executionContext,
+              modelStep: steps,
+              callId: call.callId,
+              signal,
+              cancellation,
+              reportProgress,
+            };
+          const effectiveCall = snapshot({ ...call, arguments: effectiveArguments });
+          const dispatchPromise = registry.dispatch(effectiveCall, toolContext);
+          // Register before awaiting so the settlement gate closes before any continuation can
+          // invoke a retained reporter after dispatch has resolved or rejected.
+          void dispatchPromise.then(
+            () => {
+              progressSettled = true;
+            },
+            () => {
+              progressSettled = true;
+            },
+          );
+          dispatched = await dispatchPromise;
+        } catch (error) {
+          if (progressFailure !== undefined) {
+            if (isCancellationCleanupError(error)) {
+              cancellation?.markCleanupFailed();
+            }
+            throw progressFailure;
+          }
+          if (isCancellationCleanupError(error)) {
+            return finishContractFailure('cancellation cleanup failed', {
+              stage: 'cancellation_cleanup',
+              code: 'cleanup_error',
+              modelStep: 0,
+            }, error);
+          }
+          if (cancellationFrom(error)) return finishCancelled();
+          resultContent = {
+            kind: 'tool_result',
+            callId: call.callId,
+            name: call.name,
+            text: `tool execution error: ${errorText(error)}`,
+            outcome: 'error',
+            failure: captureFailureDetails(error, { operation: 'tool_dispatch' }),
+          };
+        } finally {
+          progressSettled = true;
+        }
       }
       if (progressFailure !== undefined) throw progressFailure;
       if (dispatched !== undefined) {
-        results.push(dispatched.content);
+        resultContent = dispatched.content;
         if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
       }
       if (signal?.aborted) return finishCancelled();
-      const resultContent = results.at(-1)!;
+      if (resultContent === undefined) {
+        throw new Error('tool dispatch completed without a result');
+      }
+      let resultHookEffect: ToolHookEffect | undefined;
+      if (options.afterTool !== undefined && beforeToolFailure === undefined) {
+        const processed = await options.afterTool(
+          call,
+          effectiveArguments,
+          resultContent,
+          dispatched?.terminal ?? null,
+          steps,
+        );
+        resultContent = processed.result;
+        resultHookEffect = processed.hookEffect;
+      }
+      if (beforeToolApplied && beforeToolFailure === undefined) {
+        const supplement = `\n\n[Input used by tool after before_tool processing: ${
+          JSON.stringify(effectiveArguments)
+        }]`;
+        resultContent = { ...resultContent, text: `${resultContent.text}${supplement}` };
+      }
+      results.push(resultContent);
       deliverEvent(sink, {
         kind: 'tool_result',
         turn,
         result: resultContent,
+        ...(resultHookEffect === undefined ? {} : { hookEffect: resultHookEffect }),
       });
       toolResultCount += 1;
       if (modelResultAttribution !== undefined) {
-        evidence?.recordToolResult(resultContent, callIndex, modelResultAttribution);
+        evidence?.recordToolResult(
+          resultContent,
+          callIndex,
+          modelResultAttribution,
+          resultHookEffect,
+        );
       }
     }
     const toolMessage: ToolMessage = { role: 'tool', content: results };

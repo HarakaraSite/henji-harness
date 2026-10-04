@@ -1,3 +1,4 @@
+import { HOOK_API_CONTRACT } from '../v0/agent/hook_api.ts';
 import { TOOL_API_CONTRACT } from '../v0/agent/runtime/build_manifest.ts';
 import type { BuildManifestV1 } from '../v0/agent/runtime/build_manifest.ts';
 
@@ -204,6 +205,7 @@ const main = async (): Promise<void> => {
     embeddedRuntimeSha256,
     agentConfigurationSchemaVersion: 1,
     supportedToolApiContracts: [TOOL_API_CONTRACT],
+    supportedHookApiContracts: [HOOK_API_CONTRACT],
   } as const;
   const buildId = await sha256(
     encoder.encode(`henji-build-v1\0${JSON.stringify(identity)}`),

@@ -4,18 +4,33 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 185](../docs/increments/increment-185.md)のA18（bash timeout説明・引数エラー具体化）は
-実装・検証・利用者受入、local commit・常用配置済み。実装sourceは`d1d6dfa6`。
-稼働中の常用CoreとTUIは維持し、A18は次のCore起動から配置版を使用する。
+[Increment 188](../docs/increments/increment-188.md)は利用者による完了承認済み。
+常用配置済み。既存Core/TUIは維持し、新Coreから配置版を使う。
+
+A26の[Increment 189](../docs/increments/increment-189.md)はスライス単位のlocal実装・検証・reviewを承認された。
+S1〜S6の実装・focused検証・独立reviewと採用finding修正、compiled隔離install/API/run/readback/再開、最小実provider1
+requestの確認を完了した。
 
 ## 次の一手と承認境界
 
-次の採用判断を待つ。185の配置結果・証拠と通常利用での未確認範囲は個別increment文書を参照する。
-実provider callは未承認。
-構想・architecture・roadmapの変更は別途承認を要する。
+189の常用配置・commitを利用者が承認した。source commitとofficial
+build・隔離probe・常用配置・配置readbackを進める。
+architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。公開/release・pushは未承認。
+必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 189](../docs/increments/increment-189.md):
+  A26の要件、6スライス結果、最終compiled/実provider証拠、完了判定と未適用正本変更案。
+
+- [Increment 188](../docs/increments/increment-188.md): edit対象file 1
+  MiB拡張、実装・確認結果と承認境界。
+
+- [Increment 187](../docs/increments/increment-187.md): searchの出現数集計、実行証拠と正本変更案。
+
+- [Increment 186](../docs/increments/increment-186.md):
+  外部search、web外部化とpackage配布の採用要件・実装・確認。
 
 - [Increment 185](../docs/increments/increment-185.md): A18の採用要件、実装・確認結果と未確認範囲。
 

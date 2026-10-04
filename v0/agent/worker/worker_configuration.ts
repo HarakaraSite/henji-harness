@@ -19,6 +19,19 @@ import { finalizeWorkerInstructionComposition } from '../instructions/worker_cor
 import type { InstructionComponent } from '../instructions/component.ts';
 import type { ToolDefinition } from '../core/contracts.ts';
 import { emptySkillCatalog } from '../definitions/skills.ts';
+import { HOOK_API_CONTRACT, HOOK_PHASES, type HookPhase } from '../hook_api.ts';
+import { type LoadedWorkerHook, loadWorkerHooks } from '../../hooks/hook_loader.ts';
+import {
+  createHookScopedProviderRequest,
+  type HookProviderEvidenceScope,
+} from '../provider/auxiliary_request.ts';
+
+export interface WorkerHookRegistrationSnapshot {
+  readonly name: string;
+  readonly path: string;
+  readonly contract: typeof HOOK_API_CONTRACT;
+  readonly handlers: readonly HookPhase[];
+}
 
 /** Immutable startup facts. Execution model/effort and request contexts have separate owners. */
 export interface WorkerConfigurationSnapshot {
@@ -35,6 +48,7 @@ export interface WorkerConfigurationSnapshot {
     readonly entry?: string;
     readonly contract: ToolDefinition;
   }[];
+  readonly hooks: readonly WorkerHookRegistrationSnapshot[];
   readonly rejections: readonly ConfigurationRejection[];
 }
 
@@ -44,6 +58,10 @@ export type WorkerConfigurationResult =
     readonly ok: true;
     readonly composition: WorkerAgentComposition;
     readonly snapshot: WorkerConfigurationSnapshot;
+    /** Worker-local handler closures loaded for this generation. */
+    readonly hooks: readonly LoadedWorkerHook[];
+    /** Mutable Worker-local evidence context read by external hooks' requestProvider closure. */
+    readonly hookProviderEvidenceScope: HookProviderEvidenceScope;
   };
 
 /** One factory for default, unnamed generic and named JSON Agents inside a Worker. */
@@ -58,6 +76,7 @@ export const createConfiguredWorkerComposition = async (
   const configuration = selection.agent.configuration;
   const names = new Set(applyToolNameFilter(configuration.tools, input.toolFilter));
   const outputStore = input.physicalIo.workTools?.bashOutputStore ?? createBashOutputStore();
+  const hookProviderEvidenceScope: HookProviderEvidenceScope = {};
   try {
     const loaded = await loadWorkerTools(selection.tools.filter((tool) => names.has(tool.name)), {
       workspace: input.workspace,
@@ -68,7 +87,23 @@ export const createConfiguredWorkerComposition = async (
       requestProvider: input.physicalIo.requestProvider,
       credentialAvailability: input.physicalIo.credentialAvailability,
     });
-    const rejections = [...selection.rejections, ...loaded.rejections];
+    const loadedHooks = await loadWorkerHooks(selection.hooks, {
+      workspace: input.workspace,
+      processExecutor: input.physicalIo.processExecutor,
+      workTools: input.physicalIo.workTools ?? {},
+      requestProvider: input.physicalIo.requestProvider === undefined
+        ? undefined
+        : createHookScopedProviderRequest(
+          input.physicalIo.requestProvider,
+          hookProviderEvidenceScope,
+        ),
+      credentialAvailability: input.physicalIo.credentialAvailability,
+    });
+    const rejections = [
+      ...selection.rejections,
+      ...loaded.rejections,
+      ...loadedHooks.rejections,
+    ];
     const asyncAgents = input.physicalIo.asyncAgentRpc === undefined
       ? []
       : configuration.agents.filter((name) => {
@@ -132,9 +167,23 @@ export const createConfiguredWorkerComposition = async (
           contract: structuredClone(contract),
         });
       }),
+      hooks: Object.freeze(loadedHooks.accepted.map(({ selection, handlers }) =>
+        Object.freeze({
+          name: selection.name,
+          path: selection.path!,
+          contract: selection.contract,
+          handlers: Object.freeze(HOOK_PHASES.filter((phase) => handlers[phase] !== undefined)),
+        })
+      )),
       rejections: Object.freeze(rejections),
     });
-    return Object.freeze({ ok: true, composition, snapshot });
+    return Object.freeze({
+      ok: true,
+      composition,
+      snapshot,
+      hooks: loadedHooks.accepted,
+      hookProviderEvidenceScope,
+    });
   } catch (error) {
     await outputStore.close();
     throw error;

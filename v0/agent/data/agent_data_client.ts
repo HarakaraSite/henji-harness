@@ -1,9 +1,11 @@
 import type {
+  AgentAfterTurnContextUpdate,
   AgentDataPortClient,
   AgentDataPortRequest,
   AgentDataPortResponse,
   AgentFailureBarrier,
   AgentGenerationContextBasis,
+  AgentPostSettlementHookUpdate,
   AgentProposalBarrier,
 } from './agent_data_contract.ts';
 import type {
@@ -20,6 +22,8 @@ type PendingRequest = {
   readonly responseKind:
     | 'generation_context_result'
     | 'checkpoint_acknowledgement'
+    | 'after_turn_acknowledgement'
+    | 'post_settlement_hook_acknowledgement'
     | 'ready_acknowledgement';
   readonly resolve: (response: AgentDataPortResponse) => void;
   readonly reject: (error: Error) => void;
@@ -179,6 +183,42 @@ export class AgentDataPortClientImpl implements AgentDataPortClient {
     });
   }
 
+  afterTurn(update: AgentAfterTurnContextUpdate): Promise<boolean> {
+    const current = this.requireCurrentExecution();
+    const requestId = this.allocateRequestId();
+    const sequence = ++current.sequence;
+    current.sequence += update.providerObservations?.length ?? 0;
+    return this.request({
+      kind: 'after_turn_context',
+      requestId,
+      sequence,
+      update,
+    }, update.correlation).then((response) => {
+      if (response.kind !== 'after_turn_acknowledgement') {
+        throw new Error('unexpected Agent Data after_turn response');
+      }
+      return response.accepted;
+    });
+  }
+
+  postSettlementHook(update: AgentPostSettlementHookUpdate): Promise<boolean> {
+    const current = this.requireCurrentExecution();
+    const requestId = this.allocateRequestId();
+    const sequence = ++current.sequence;
+    current.sequence += update.providerObservations?.length ?? 0;
+    return this.request({
+      kind: 'post_settlement_hook',
+      requestId,
+      sequence,
+      update,
+    }, update.correlation).then((response) => {
+      if (response.kind !== 'post_settlement_hook_acknowledgement') {
+        throw new Error('unexpected Agent Data post-settlement hook response');
+      }
+      return response.accepted;
+    });
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -215,6 +255,10 @@ export class AgentDataPortClientImpl implements AgentDataPortClient {
       ? 'generation_context_result'
       : message.kind === 'checkpoint_proposal'
       ? 'checkpoint_acknowledgement'
+      : message.kind === 'after_turn_context'
+      ? 'after_turn_acknowledgement'
+      : message.kind === 'post_settlement_hook'
+      ? 'post_settlement_hook_acknowledgement'
       : 'ready_acknowledgement';
     return new Promise<AgentDataPortResponse>((resolve, reject) => {
       this.pending.set(message.requestId, {

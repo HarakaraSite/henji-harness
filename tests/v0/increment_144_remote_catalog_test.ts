@@ -22,6 +22,7 @@ const build = {
   embeddedRuntimeSha256: 'b'.repeat(64),
   agentConfigurationSchemaVersion: 1,
   supportedToolApiContracts: ['henji-tool/v1'],
+  supportedHookApiContracts: ['henji-hooks/v1'],
 };
 
 let selected: ApiSelection = {

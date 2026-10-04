@@ -12,6 +12,7 @@ export const workerConfigurationFixture = (
   systemInstruction: 'Data-port fixture instruction',
   instructionComponents: [],
   tools: [],
+  hooks: [],
   rejections: [],
   ...overrides,
 });

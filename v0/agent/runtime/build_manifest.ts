@@ -1,4 +1,5 @@
 import packageConfig from '../../../jsr.json' with { type: 'json' };
+import { HOOK_API_CONTRACT } from '../hook_api.ts';
 
 const BUILD_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const TOOL_API_CONTRACT = 'henji-tool/v1' as const;
@@ -14,6 +15,7 @@ export interface BuildManifestV1 {
   readonly embeddedRuntimeSha256: string;
   readonly agentConfigurationSchemaVersion: 1;
   readonly supportedToolApiContracts: readonly string[];
+  readonly supportedHookApiContracts: readonly string[];
 }
 
 const DEVELOPMENT_DIGEST = 'c738494fbbf99c577b5c91b957df9f3f0efcfc755442293665f71c8e3bd30179';
@@ -29,6 +31,7 @@ const DEVELOPMENT_MANIFEST: BuildManifestV1 = Object.freeze({
   embeddedRuntimeSha256: DEVELOPMENT_DIGEST,
   agentConfigurationSchemaVersion: 1,
   supportedToolApiContracts: Object.freeze([TOOL_API_CONTRACT]),
+  supportedHookApiContracts: Object.freeze([HOOK_API_CONTRACT]),
 });
 
 let installed: BuildManifestV1 | undefined;
@@ -63,6 +66,11 @@ export const isBuildManifest = (value: unknown): value is BuildManifestV1 => {
     Array.isArray(item.supportedToolApiContracts) &&
     item.supportedToolApiContracts.length > 0 &&
     item.supportedToolApiContracts.every((contract) =>
+      typeof contract === 'string' && contract.length > 0
+    ) &&
+    Array.isArray(item.supportedHookApiContracts) &&
+    item.supportedHookApiContracts.length > 0 &&
+    item.supportedHookApiContracts.every((contract) =>
       typeof contract === 'string' && contract.length > 0
     );
 };

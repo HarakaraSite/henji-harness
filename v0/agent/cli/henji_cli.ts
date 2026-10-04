@@ -34,6 +34,7 @@ const versionLine = (): string => {
     `runtime=${manifest.embeddedRuntimeSha256}`,
     `agent-config-schema=${manifest.agentConfigurationSchemaVersion}`,
     `tool-api=${manifest.supportedToolApiContracts.join(',')}`,
+    `hook-api=${manifest.supportedHookApiContracts.join(',')}`,
   ].join(' ') + '\n';
 };
 

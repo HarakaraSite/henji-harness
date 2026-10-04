@@ -1,7 +1,9 @@
 import type {
+  AgentAfterTurnContextUpdate,
   AgentDataPortRequest,
   AgentDataPortResponse,
   AgentGenerationContextBasis,
+  AgentPostSettlementHookUpdate,
 } from './agent_data_contract.ts';
 import type { ExecutionDataInput } from './execution_data_journal.ts';
 import type {
@@ -58,6 +60,14 @@ export class AgentDataEndpoint {
       ) => 'accepted' | 'sealed';
       readonly checkpoint: (
         message: WorkerCheckpointProposalMessage,
+      ) => boolean | Promise<boolean>;
+      readonly afterTurn: (
+        update: AgentAfterTurnContextUpdate,
+        sequence: number,
+      ) => boolean | Promise<boolean>;
+      readonly postSettlementHook: (
+        update: AgentPostSettlementHookUpdate,
+        sequence: number,
       ) => boolean | Promise<boolean>;
       readonly onFailure: (error: Error) => void;
     },
@@ -119,6 +129,32 @@ export class AgentDataEndpoint {
         request.diagnosticStageBuffer,
         request.auxiliaryStageGapMs,
       );
+      return;
+    }
+    if (request.kind === 'after_turn_context') {
+      const accepted = await this.input.afterTurn(
+        request.update,
+        request.sequence,
+      );
+      this.reply({
+        kind: 'after_turn_acknowledgement',
+        requestId: request.requestId,
+        correlation: request.update.correlation,
+        accepted,
+      });
+      return;
+    }
+    if (request.kind === 'post_settlement_hook') {
+      const accepted = await this.input.postSettlementHook(
+        request.update,
+        request.sequence,
+      );
+      this.reply({
+        kind: 'post_settlement_hook_acknowledgement',
+        requestId: request.requestId,
+        correlation: request.update.correlation,
+        accepted,
+      });
       return;
     }
     const accepted = this.input.receiveData(request);

@@ -1,4 +1,5 @@
 import {
+  type AgentConfiguration,
   bundledAgentConfiguration,
   ConfigurationFieldError,
   type ConfigurationRejection,
@@ -9,6 +10,7 @@ import {
   type SelectedAgentConfiguration,
 } from './agent_configuration.ts';
 import { TOOL_API_CONTRACT } from '../tool_api.ts';
+import { HOOK_API_CONTRACT } from '../hook_api.ts';
 
 export interface AgentConfigurationChoice {
   readonly name?: string;
@@ -27,6 +29,13 @@ export interface ToolSelection {
   readonly revision: string;
   readonly folder?: string;
   readonly entry?: string;
+  readonly rejection?: ConfigurationRejection;
+}
+
+export interface HookSelection {
+  readonly name: string;
+  readonly path?: string;
+  readonly contract: typeof HOOK_API_CONTRACT;
   readonly rejection?: ConfigurationRejection;
 }
 
@@ -65,6 +74,7 @@ export interface WorkerConfigurationSelection {
   readonly agent?: SelectedAgentConfiguration;
   readonly agents: readonly AgentConfigurationCatalogEntry[];
   readonly tools: readonly ToolSelection[];
+  readonly hooks: readonly HookSelection[];
   readonly rejections: readonly ConfigurationRejection[];
 }
 
@@ -109,6 +119,70 @@ const catalogEntries = (
     );
   }
   return value[field];
+};
+
+const configuredNames = (value: unknown, field: string): readonly string[] => {
+  if (!Array.isArray(value)) {
+    throw new ConfigurationFieldError(field, `${field} must be an array of names`);
+  }
+  return Object.freeze([...new Set(value.map((name) => configurationString(name, field)))]);
+};
+
+const resolveHookSelections = async (
+  configuration: AgentConfiguration,
+  configRoot: string,
+  rejections: ConfigurationRejection[],
+): Promise<readonly HookSelection[]> => {
+  if (configuration.hooks?.length === 0) return Object.freeze([]);
+
+  const hooksFile = `${configRoot}/hooks.json`;
+  let catalog: Record<string, unknown>;
+  let defaultNames: readonly string[] = Object.freeze([]);
+  try {
+    const value = await readOptionalJson(hooksFile);
+    if (value === undefined) {
+      if (configuration.hooks === undefined) return Object.freeze([]);
+      catalog = {};
+    } else {
+      if (
+        !isConfigurationObject(value) || value.schemaVersion !== 1 ||
+        !isConfigurationObject(value.hooks)
+      ) {
+        throw new ConfigurationFieldError(
+          'hooks',
+          'hooks.json must contain schemaVersion 1 and hooks',
+        );
+      }
+      catalog = value.hooks;
+      defaultNames = configuredNames(value.default, 'default');
+    }
+  } catch (error) {
+    rejections.push(configurationRejection('catalog', 'hooks', error, hooksFile));
+    return Object.freeze([]);
+  }
+
+  const selectedNames = configuration.hooks ?? defaultNames;
+  const selections: HookSelection[] = [];
+  for (const name of selectedNames) {
+    let path: string | undefined;
+    try {
+      if (!Object.hasOwn(catalog, name)) {
+        throw new Error(`Hook ${name} is not configured in hooks.json`);
+      }
+      path = absolutePath(configurationString(catalog[name], `hooks.${name}`), configRoot);
+      selections.push(Object.freeze({ name, path, contract: HOOK_API_CONTRACT }));
+    } catch (error) {
+      const rejection = configurationRejection('hook', name, error, hooksFile);
+      rejections.push(rejection);
+      selections.push(Object.freeze({
+        name,
+        ...(path === undefined ? {} : { path }),
+        contract: HOOK_API_CONTRACT,
+        rejection,
+      }));
+    }
+  }
+  return Object.freeze(selections);
 };
 
 export const resolveToolSelection = async (
@@ -234,6 +308,7 @@ export const resolveWorkerConfiguration = async (
   }
 
   const tools: ToolSelection[] = [];
+  let hooks: readonly HookSelection[] = Object.freeze([]);
   if (agent !== undefined) {
     const bindingsFile = `${configRoot}/tools.json`;
     try {
@@ -252,11 +327,15 @@ export const resolveWorkerConfiguration = async (
       rejections.push(configurationRejection('catalog', 'tools', error, bindingsFile));
       agent = undefined;
     }
+    if (agent !== undefined) {
+      hooks = await resolveHookSelections(agent.configuration, configRoot, rejections);
+    }
   }
   return Object.freeze({
     ...(agent === undefined ? {} : { agent }),
     agents: Object.freeze(agents),
     tools: Object.freeze(tools),
+    hooks,
     rejections: Object.freeze(rejections),
   });
 };

@@ -493,7 +493,8 @@ const isBuildView = (value: unknown): boolean => {
     typeof value.sourceDirty === 'boolean' && isText(value.denoVersion) &&
     isText(value.target) && isText(value.embeddedRuntimeSha256) &&
     value.agentConfigurationSchemaVersion === 1 &&
-    Array.isArray(value.supportedToolApiContracts);
+    Array.isArray(value.supportedToolApiContracts) &&
+    Array.isArray(value.supportedHookApiContracts);
 };
 
 export const decodeCoreReadView = (value: unknown): CoreReadView => {

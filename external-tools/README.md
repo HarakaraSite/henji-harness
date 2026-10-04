@@ -1,14 +1,18 @@
 # Henji package and external tools
 
-The package contains the `henji` executable and three editable tool folders:
+The package contains the `henji` executable, three editable tool folders, and an editable runtime
+hook:
 
 - `search`: local file-name and content search, plus occurrence counts, using rg or grep.
 - `web_search`: Exa search, using the Henji credential-resolving request API.
 - `web_fetch`: HTTP text retrieval and original-byte downloads.
+- `runtime-start-time`: adds the Worker start time, timezone, and UTC offset to shared Agent
+  context.
 
-These implementations are external TypeScript source, not embedded in the executable. They import
-the executable's `@henji/tool` API and their own local modules. Deno does not need to be installed
-separately on the target machine. Local content search needs rg or grep on PATH; it prefers rg.
+These implementations are external TypeScript source, not embedded in the executable. Tools import
+the executable's `@henji/tool` API and hooks import its `@henji/hooks` API. Deno does not need to be
+installed separately on the target machine. Local content search needs rg or grep on PATH; it
+prefers rg.
 
 Use `search` with `mode: "count"` for the total number of occurrences as `matchCount`. It uses the
 same path, glob, pattern, literal/regex and case options, and covers the full selected scope.
@@ -22,10 +26,12 @@ After extracting the archive, run:
 ./install.sh
 ```
 
-By default this installs the executable under `$HOME/.local/bin` and tool folders under
-`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/tools`. The installer registers the three folders
-in `tools.json`. The default and generic Agent configurations declare these tools. For a named Agent
-with an explicit `tools` array, add the tool names you want to use.
+By default this installs the executable under `$HOME/.local/bin`, tool folders under
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/tools`, and the hook under
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/hooks/runtime-start-time`. The installer registers
+the three tools in `tools.json` and creates `hooks.json` with `runtime-start-time` as the shared
+default. The default and generic Agent configurations declare the tools. For a named Agent with an
+explicit `tools` array, add the tool names you want to use.
 
 To choose installation directories:
 
@@ -33,11 +39,42 @@ To choose installation directories:
 ./install.sh --bin-dir /path/to/bin --config-root /path/to/config/henji-harness
 ```
 
-The installer retains existing tool folders so edits remain usable. To replace their files with the
-package's versions, run `./install.sh --replace-tools`. Other tool mappings are retained. Existing
-Agent settings, credentials, Sessions and history are not replaced by installation. Running Cores
-keep their loaded runtime and tool functions; start a new Core for the new binary. After editing
-tool source, newly started Workers load it. There is no file watcher or `/reload`.
+The installer retains existing tool and hook folders, and keeps an existing `hooks.json`, so edits
+and custom selections remain usable. Run `./install.sh --replace-tools` or
+`./install.sh --replace-hooks` to copy the corresponding packaged source files over the installed
+folders. Replacing hook files does not change `hooks.json`. Existing Agent settings, credentials,
+Sessions and history are not replaced by installation. Running Workers keep their loaded runtime;
+start a new Worker to load edited hook source, and a new Core to use the new binary. There is no
+file watcher or `/reload`.
+
+## Runtime hooks
+
+`hooks.json` at the config root defines hook path mappings and the default ordered selection:
+
+```json
+{
+  "schemaVersion": 1,
+  "default": ["runtime-start-time"],
+  "hooks": {
+    "runtime-start-time": "hooks/runtime-start-time/index.ts"
+  }
+}
+```
+
+The installed hook records a Worker start time with its local timezone and UTC offset in common
+context. This describes when that Worker began; later turns on the same Worker use the same value.
+
+An Agent JSON can omit `hooks` to use `hooks.json` defaults, set an ordered list to replace the
+defaults, or set `"hooks": []` to disable external hooks for that Agent. For example:
+
+```json
+{ "name": "reviewer", "hooks": ["runtime-start-time"] }
+```
+
+To add a custom hook, copy its TypeScript source beneath the config root, import the `HookHandlers`
+type from `@henji/hooks`, add its entry path to `hooks.json`, and list its name in the common
+defaults or an Agent's `hooks` array. The repository source for the default hook is under
+`external-hooks/runtime-start-time/`; the package ships it under `hooks/runtime-start-time/`.
 
 Exa uses the existing `exa-api-key` credential registration and `/login` flow. Key values and
 Authorization headers remain in Henji's request dispatcher and are not passed to the tool factory.
@@ -58,4 +95,4 @@ deno task --config deno.v0.json henji:package
 ```
 
 Packaging creates a directory and a `.tar.gz` archive under `dist/`, with a manifest identifying the
-executable build and the shipped tool files. It does not install, publish or activate them.
+executable build and the shipped tool and hook files. It does not install, publish or activate them.

@@ -29,7 +29,7 @@ type Waiter = {
   readonly predicate: (message: WorkerToHostMessage) => boolean;
   readonly resolve: (message: WorkerToHostMessage) => void;
   readonly reject: (error: Error) => void;
-  readonly timeout: ReturnType<typeof setTimeout>;
+  timeout?: ReturnType<typeof setTimeout>;
 };
 
 type WorkerMessageListener = (message: WorkerToHostMessage) => void;
@@ -99,37 +99,62 @@ export class WorkerCapsule {
     predicate: MessagePredicate<T>,
     timeoutMs = 5_000,
   ): Promise<T> {
+    return await this.waitForMessageWithTimeout(predicate, timeoutMs);
+  }
+
+  private async waitForMessageWithTimeout<T extends WorkerToHostMessage>(
+    predicate: MessagePredicate<T>,
+    timeoutMs?: number,
+  ): Promise<T> {
     const queuedIndex = this.messages.findIndex((message) => predicate(message));
     if (queuedIndex >= 0) {
       const [message] = this.messages.splice(queuedIndex, 1);
       return message as T;
     }
     return await new Promise<T>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        const index = this.waiters.indexOf(waiter);
-        if (index >= 0) this.waiters.splice(index, 1);
-        reject(
-          new Error(
-            `timed out waiting for Worker message after ${timeoutMs}ms`,
-          ),
-        );
-      }, timeoutMs);
       const waiter: Waiter = {
         predicate,
         resolve: (message) => resolve(message as T),
         reject,
-        timeout,
       };
+      if (timeoutMs !== undefined) {
+        waiter.timeout = setTimeout(() => {
+          const index = this.waiters.indexOf(waiter);
+          if (index >= 0) this.waiters.splice(index, 1);
+          reject(
+            new Error(
+              `timed out waiting for Worker message after ${timeoutMs}ms`,
+            ),
+          );
+        }, timeoutMs);
+      }
       this.waiters.push(waiter);
     });
   }
 
   async close(correlation: WorkerCorrelation): Promise<void> {
+    if (
+      this.currentStatus === 'error' || this.currentStatus === 'terminated' ||
+      this.currentStatus === 'closed'
+    ) return;
     this.send({ kind: 'close', correlation });
-    await this.waitForMessage(
-      (message): message is Extract<WorkerToHostMessage, { kind: 'closed' }> =>
-        message.kind === 'closed',
+    const response = await this.waitForMessageWithTimeout(
+      (message): message is Extract<WorkerToHostMessage, { kind: 'closed' | 'worker_error' }> =>
+        (message.kind === 'closed' &&
+          message.correlation.session === correlation.session &&
+          message.correlation.instanceCorrelation === correlation.instanceCorrelation &&
+          message.correlation.workerGeneration === correlation.workerGeneration &&
+          message.correlation.baseStateRevision === correlation.baseStateRevision &&
+          message.correlation.command === correlation.command) ||
+        (message.kind === 'worker_error' &&
+          (message.correlation === undefined ||
+            (message.correlation.session === correlation.session &&
+              message.correlation.instanceCorrelation === correlation.instanceCorrelation &&
+              message.correlation.workerGeneration === correlation.workerGeneration &&
+              message.correlation.baseStateRevision === correlation.baseStateRevision &&
+              message.correlation.command === correlation.command))),
     );
+    if (response.kind === 'worker_error') throw new Error(response.message);
     this.currentStatus = 'closed';
   }
 
@@ -138,7 +163,7 @@ export class WorkerCapsule {
     this.currentStatus = 'terminated';
     const error = new Error('Worker capsule terminated');
     for (const waiter of this.waiters.splice(0)) {
-      clearTimeout(waiter.timeout);
+      if (waiter.timeout !== undefined) clearTimeout(waiter.timeout);
       waiter.reject(error);
     }
   }
@@ -150,7 +175,7 @@ export class WorkerCapsule {
     const waiterIndex = this.waiters.findIndex((waiter) => waiter.predicate(message));
     if (waiterIndex >= 0) {
       const [waiter] = this.waiters.splice(waiterIndex, 1);
-      clearTimeout(waiter.timeout);
+      if (waiter.timeout !== undefined) clearTimeout(waiter.timeout);
       waiter.resolve(message);
       return;
     }

@@ -3,7 +3,10 @@
   "name": "@henji/harness",
   "version": "0.8.0",
   "license": "MIT",
-  "exports": "./mod.ts",
+  "exports": {
+    ".": "./mod.ts",
+    "./hooks": "./v0/agent/hook_api.ts"
+  },
   "publish": {
     "include": [
       "LICENSE",
@@ -15,11 +18,13 @@
       "v0/agent/core/events.ts",
       "v0/agent/core/execution_context.ts",
       "v0/agent/core/failure_details.ts",
+      "v0/agent/core/hook_effect.ts",
       "v0/agent/core/readable_thinking.ts",
       "v0/agent/definitions/agent_instructions.ts",
       "v0/agent/definitions/resource_identity.ts",
       "v0/agent/definitions/skills.ts",
       "v0/agent/history/context_attribution.ts",
+      "v0/agent/hook_api.ts",
       "v0/agent/instructions/component.ts",
       "v0/agent/provider/auxiliary_request.ts",
       "v0/agent/provider/chatgpt_auth.ts",

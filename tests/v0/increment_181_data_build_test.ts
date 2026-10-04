@@ -24,6 +24,7 @@ const buildWithDistinctSourceRevision = async (): Promise<BuildManifestV1> => {
     embeddedRuntimeSha256: current.embeddedRuntimeSha256,
     agentConfigurationSchemaVersion: current.agentConfigurationSchemaVersion,
     supportedToolApiContracts: current.supportedToolApiContracts,
+    supportedHookApiContracts: current.supportedHookApiContracts,
   };
   const bytes = new TextEncoder().encode(
     `henji-build-v1\0${JSON.stringify(identity)}`,

@@ -1,5 +1,6 @@
 import { type FailureDetails, validateFailureDetails } from '../core/failure_details.ts';
 import type { LoopOutcome, ModelResult, ToolCall, ToolResultContent } from '../core/contracts.ts';
+import type { ToolHookEffect } from '../core/hook_effect.ts';
 import { isAuthProfileId, type ReasoningEffort } from './model_selection.ts';
 import { isJsonValue } from './openrouter_value.ts';
 
@@ -12,7 +13,7 @@ interface ProviderEvidenceAttribution {
   readonly requestOrdinal?: number;
 }
 /** Identifies whether a retained request belongs to compaction or the user turn. */
-export type ProviderEvidencePhase = 'user_turn' | 'compaction';
+export type ProviderEvidencePhase = 'user_turn' | 'compaction' | 'hook';
 
 interface ProviderEvidenceRequest {
   readonly ordinal: number;
@@ -34,7 +35,8 @@ export interface ProviderEvidenceRequestMetadata {
     | 'root_model'
     | 'planner_model'
     | 'context_compaction'
-    | 'web_search';
+    | 'web_search'
+    | 'hook';
   readonly provider?: string;
   /** API identity is data: external service tools can name their own request route. */
   readonly api?: string;
@@ -76,6 +78,7 @@ export type ProviderEvidenceRuntimeEvent =
   | {
     readonly kind: 'tool_call';
     readonly call: ToolCall;
+    readonly hookEffect?: ToolHookEffect;
     readonly callIndex: number;
     readonly modelStep: number;
     readonly lane?: ProviderEvidenceLane;
@@ -94,6 +97,7 @@ export type ProviderEvidenceRuntimeEvent =
   | {
     readonly kind: 'tool_result';
     readonly result: ToolResultContent;
+    readonly hookEffect?: ToolHookEffect;
     readonly callIndex: number;
     readonly modelStep: number;
     readonly lane?: ProviderEvidenceLane;
@@ -224,7 +228,8 @@ const validProviderMetadata = (
     (record.origin === undefined || record.origin === 'root_model' ||
       record.origin === 'planner_model' ||
       record.origin === 'context_compaction' ||
-      record.origin === 'web_search') &&
+      record.origin === 'web_search' ||
+      record.origin === 'hook') &&
     (record.provider === undefined || validText(record.provider)) &&
     (record.api === undefined || validText(record.api)) &&
     (record.modelId === undefined || validText(record.modelId)) &&
@@ -256,6 +261,34 @@ const validToolResult = (value: unknown): value is ToolResultContent => {
     (value.outcome === 'success' || value.outcome === 'error') &&
     (value.terminal === undefined || value.terminal === 'json_result') &&
     (value.terminal === undefined || value.outcome === 'success');
+};
+const validHookEffectSource = (value: unknown): boolean =>
+  hasExactKeys(value, ['name'], ['path']) && validText(value.name) &&
+  (value.path === undefined || typeof value.path === 'string');
+const validHookEffect = (value: unknown): value is ToolHookEffect => {
+  if (
+    !hasExactKeys(value, [], [
+      'originalArguments',
+      'effectiveArguments',
+      'argumentHooks',
+      'originalText',
+      'textHooks',
+      'failure',
+    ])
+  ) return false;
+  const failure = value.failure;
+  return (value.originalArguments === undefined || isJsonValue(value.originalArguments)) &&
+    (value.effectiveArguments === undefined || isJsonValue(value.effectiveArguments)) &&
+    (value.argumentHooks === undefined || Array.isArray(value.argumentHooks) &&
+        value.argumentHooks.every(validHookEffectSource)) &&
+    (value.originalText === undefined || typeof value.originalText === 'string') &&
+    (value.textHooks === undefined || Array.isArray(value.textHooks) &&
+        value.textHooks.every(validHookEffectSource)) &&
+    (failure === undefined || hasExactKeys(failure, ['name', 'phase', 'reason'], ['path']) &&
+        validText(failure.name) &&
+        (failure.path === undefined || typeof failure.path === 'string') &&
+        (failure.phase === 'before_tool' || failure.phase === 'after_tool') &&
+        typeof failure.reason === 'string');
 };
 const validProviderState = (value: unknown): boolean =>
   value === undefined || (
@@ -325,8 +358,11 @@ const validRuntimeEvent = (
     return hasExactKeys(value, ['kind', 'call', 'callIndex', 'modelStep'], [
       'lane',
       'requestOrdinal',
+      'hookEffect',
     ]) &&
-      validToolCall(value.call) && validCallIndex(value.callIndex) &&
+      validToolCall(value.call) &&
+      (value.hookEffect === undefined || validHookEffect(value.hookEffect)) &&
+      validCallIndex(value.callIndex) &&
       validPositiveInteger(value.modelStep) &&
       (value.lane === undefined || value.lane === 'parent' ||
         value.lane === 'planner') &&
@@ -352,8 +388,11 @@ const validRuntimeEvent = (
     return hasExactKeys(value, ['kind', 'result', 'callIndex', 'modelStep'], [
       'lane',
       'requestOrdinal',
+      'hookEffect',
     ]) &&
-      validToolResult(value.result) && validCallIndex(value.callIndex) &&
+      validToolResult(value.result) &&
+      (value.hookEffect === undefined || validHookEffect(value.hookEffect)) &&
+      validCallIndex(value.callIndex) &&
       validPositiveInteger(value.modelStep) &&
       (value.lane === undefined || value.lane === 'parent' ||
         value.lane === 'planner') &&
@@ -380,10 +419,12 @@ const validRequest = (value: unknown): value is ProviderEvidenceRequest => {
   return validPositiveInteger(value.ordinal) &&
     (value.lane === 'parent' || value.lane === 'planner') &&
     (value.phase === undefined || value.phase === 'user_turn' ||
-      value.phase === 'compaction') &&
+      value.phase === 'compaction' || value.phase === 'hook') &&
     (value.contextRequestOrdinal === undefined ||
       validPositiveInteger(value.contextRequestOrdinal)) &&
-    validPositiveInteger(value.modelStep) && validText(value.endpoint) &&
+    (validPositiveInteger(value.modelStep) ||
+      value.phase === 'hook' && value.modelStep === 0) &&
+    validText(value.endpoint) &&
     validText(value.method) &&
     validProviderMetadata(value.requestMetadata);
 };
@@ -493,7 +534,15 @@ export class ProviderEvidenceRecorder {
       observation: ProviderEvidenceObservation,
     ) => number | undefined,
     private readonly retainSnapshot = true,
-  ) {}
+    initialRequestOrdinal = 0,
+  ) {
+    this.requestOrdinal = initialRequestOrdinal;
+  }
+
+  /** Last physical request ordinal, allowing post-settlement evidence to continue the turn. */
+  get lastRequestOrdinal(): number {
+    return this.requestOrdinal;
+  }
 
   setContextRequestOrdinal(ordinal: number | undefined): void {
     this.contextRequestOrdinal = ordinal;
@@ -621,10 +670,12 @@ export class ProviderEvidenceRecorder {
     call: ToolCall,
     callIndex: number,
     attribution: ProviderEvidenceAttribution,
+    hookEffect?: ToolHookEffect,
   ): void {
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'tool_call',
       call: cloneValue(call),
+      ...(hookEffect === undefined ? {} : { hookEffect: cloneValue(hookEffect) }),
       callIndex,
       ...attribution,
     };
@@ -663,10 +714,12 @@ export class ProviderEvidenceRecorder {
     result: ToolResultContent,
     callIndex: number,
     attribution: ProviderEvidenceAttribution,
+    hookEffect?: ToolHookEffect,
   ): void {
     const event: ProviderEvidenceRuntimeEvent = {
       kind: 'tool_result',
       result: cloneValue(result),
+      ...(hookEffect === undefined ? {} : { hookEffect: cloneValue(hookEffect) }),
       callIndex,
       ...attribution,
     };

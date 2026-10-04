@@ -1,7 +1,9 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HOOK_API_CONTRACT } from '../v0/agent/hook_api.ts';
 
 const toolNames = ['search', 'web_search', 'web_fetch'] as const;
+const hookNames = ['runtime-start-time'] as const;
 const repository = fileURLToPath(new URL('../', import.meta.url));
 
 const sha256 = async (path: string): Promise<string> =>
@@ -30,7 +32,7 @@ const fileDigests = async (root: string, prefix = ''): Promise<Record<string, st
   return result;
 };
 
-/** Package the executable and editable external tools without changing a user's configuration. */
+/** Package the executable, editable tools and hooks without changing a user's configuration. */
 export const packageHenji = async (
   binary: string,
   outputDirectory: string,
@@ -57,6 +59,7 @@ export const packageHenji = async (
     await Deno.copyFile(join(repository, 'scripts/install_henji.sh'), join(folder, 'install.sh'));
     await Deno.chmod(join(folder, 'install.sh'), 0o755);
     await Deno.copyFile(join(repository, 'external-tools/README.md'), join(folder, 'README.md'));
+    await Deno.copyFile(join(repository, 'external-hooks/README.md'), join(folder, 'HOOKS.md'));
     await Deno.copyFile(join(repository, 'LICENSE'), join(folder, 'LICENSE'));
     const tools = [];
     for (const name of toolNames) {
@@ -65,10 +68,16 @@ export const packageHenji = async (
       const metadata = JSON.parse(await Deno.readTextFile(join(target, 'tool.json')));
       tools.push({ name, revision: metadata.revision, files: await fileDigests(target) });
     }
+    const hooks: Array<{ name: string; contract: string; files: Record<string, string> }> = [];
+    for (const name of hookNames) {
+      const target = join(folder, 'hooks', name);
+      await copyFolder(join(repository, 'external-hooks', name), target);
+      hooks.push({ name, contract: HOOK_API_CONTRACT, files: await fileDigests(target) });
+    }
     await Deno.writeTextFile(
       join(folder, 'manifest.json'),
       JSON.stringify(
-        { schemaVersion: 1, binary: { build, sha256: await sha256(executable) }, tools },
+        { schemaVersion: 1, binary: { build, sha256: await sha256(executable) }, tools, hooks },
         null,
         2,
       ) + '\n',

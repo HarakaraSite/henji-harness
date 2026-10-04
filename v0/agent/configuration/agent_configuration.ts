@@ -7,10 +7,12 @@ export interface AgentConfiguration {
   readonly instruction: string;
   readonly tools: readonly string[];
   readonly agents: readonly string[];
+  /** Omitted selects hooks.json defaults; an explicit empty list disables external hooks. */
+  readonly hooks?: readonly string[];
 }
 
 export interface ConfigurationRejection {
-  readonly target: 'agent' | 'tool' | 'catalog';
+  readonly target: 'agent' | 'tool' | 'hook' | 'catalog';
   readonly name: string;
   readonly file?: string;
   readonly field?: string;
@@ -72,6 +74,7 @@ export const parseAgentConfiguration = (
       value.agents === undefined ? ['generic', ...availableAgentNames] : value.agents,
       'agents',
     ),
+    ...(value.hooks === undefined ? {} : { hooks: names(value.hooks, 'hooks') }),
   });
 };
 

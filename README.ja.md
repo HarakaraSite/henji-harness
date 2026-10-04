@@ -35,9 +35,11 @@ deno task --config deno.v0.json henji:package
 # 上のcommandが出力したpackage directoryでinstall.shを実行する。
 ```
 
-packageは編集可能な`search`、`web_search`、`web_fetch`のtool folderを含む。package内の
-`install.sh`でbinaryの配置とtoolの登録を行う。本文検索はrgを優先し、不在時にgrepを使う。既存toolの
-編集は`--replace-tools`を指定しない限り維持する。配置先等は[package手順](external-tools/README.md)を参照する。
+packageは編集可能な`search`、`web_search`、`web_fetch`のtool folderと `runtime-start-time`
+hookを含む。package内の`install.sh`でbinaryの配置、tool登録、既定hookの有効化を
+行う。本文検索はrgを優先し、不在時にgrepを使う。既存の外部sourceは対応する
+`--replace-tools`または`--replace-hooks`を指定しない限り維持する。配置先等は
+[package手順](external-tools/README.md)を参照する。
 
 利用できるcommandとoptionは`henji --help`と`henji COMMAND --help`で確認できる。
 
@@ -221,6 +223,32 @@ henji tool activate --name marker --folder tools/marker
 henji tool deactivate --name marker
 ```
 
+## 外部hook
+
+packageは`hooks.json`を作り、既定hookに`runtime-start-time`を選ぶ。このhookはWorkerの開始日時、
+timezone、UTC offsetをAgent共通contextへ追加する。新しいWorkerごとに開始日時を取得する。 TypeScript
+sourceは `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/hooks/runtime-start-time/`で編集できる。
+起動済みWorkerは読み込み済みhookを使い続け、編集は新しいWorkerで反映される。
+
+`hooks.json`は共通の既定一覧とhook名からTypeScript entryへの対応を定義する。Agent JSONで`hooks`を
+省略すると共通の既定を使い、順序付き配列を指定すると既定を置き換える。`[]`なら外部hookを無効にする。
+
+```json
+{
+  "schemaVersion": 1,
+  "default": ["runtime-start-time"],
+  "hooks": {
+    "runtime-start-time": "hooks/runtime-start-time/index.ts"
+  }
+}
+```
+
+1つのAgentだけ別hookを選ぶには、そのAgent JSONへ`"hooks": ["my-hook"]`を追加し、共通catalogへ
+`my-hook`のpathを登録する。再installではhook sourceの編集とcatalogを保持する。
+`./install.sh --replace-hooks`を指定した場合は配布sourceをコピーするが、catalogは保持する。
+installerはAgent
+JSONを書き換えない。詳細は[hook package手順](external-tools/README.md#runtime-hooks)を参照する。
+
 runtimeは新しい`history.sqlite3` databaseを使う。以前のhistory databaseはmigrationせず、既存fileは
 利用者がそのまま参照できる形で残す。
 
@@ -249,8 +277,8 @@ turn開始前に失敗する。
 
 ## JSR package
 
-[`@henji/harness`](https://jsr.io/@henji/harness)は、TypeScriptのtool factory APIを公開する。JSRから
-native binaryは配布しない。CLIを使う場合はrepository checkoutからbuildする。
+[`@henji/harness`](https://jsr.io/@henji/harness)は、TypeScriptのtool factory
+APIを公開する。JSRからnative binaryは配布しない。CLIを使う場合はrepository checkoutからbuildする。
 
 0.xではAPIやcontractが互換性なく変わることがあるため、exact versionを指定する。
 

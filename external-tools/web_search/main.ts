@@ -49,9 +49,10 @@ const createWebSearchTool = (requestProvider: ProviderRequestFn): Tool => ({
       : 'claimModelRequest' in context
       ? context
       : undefined;
-    const evidence = modelExecution?.providerEvidence;
+    const providerEvidence = modelExecution?.providerEvidence;
+    const reportAuxiliaryStage = modelExecution?.reportAuxiliaryStage;
     // Search arguments/results belong to tool history, not the parent model's wire context.
-    evidence?.setContextRequestOrdinal(undefined);
+    providerEvidence?.setContextRequestOrdinal(undefined);
     const highlights = isRecord(request.contents) ? request.contents.highlights : undefined;
     const dynamicHighlights = isRecord(highlights) &&
       (highlights.dynamic !== undefined || highlights.verbosity !== undefined);
@@ -69,9 +70,9 @@ const createWebSearchTool = (requestProvider: ProviderRequestFn): Tool => ({
         ...request,
         stream: false,
       })),
-      ...(modelExecution === undefined ? {} : {
+      ...(providerEvidence === undefined ? {} : {
         evidence: {
-          execution: modelExecution,
+          providerEvidence,
           phase: 'user_turn',
           modelStep: context && 'modelStep' in context ? context.modelStep ?? 1 : 1,
           requestMetadata: {
@@ -84,20 +85,27 @@ const createWebSearchTool = (requestProvider: ProviderRequestFn): Tool => ({
             authProfile: 'exa-api-key',
             protocol: 'json',
           },
+          ...(reportAuxiliaryStage === undefined ? {} : {
+            reportAuxiliaryStage,
+          }),
         },
       }),
       ...(context?.signal === undefined ? {} : { signal: context.signal }),
     });
     throwIfCancelled(context?.signal);
     if (response.status < 200 || response.status >= 300) {
-      evidence?.recordParserTransition({ kind: 'failure', reason: 'http_error', field: 'status' });
+      providerEvidence?.recordParserTransition({
+        kind: 'failure',
+        reason: 'http_error',
+        field: 'status',
+      });
       throw new Error(`web search provider request failed (${response.status})`);
     }
     let rawText: string;
     try {
       rawText = new TextDecoder('utf-8', { fatal: true }).decode(response.bytes);
     } catch {
-      evidence?.recordParserTransition({
+      providerEvidence?.recordParserTransition({
         kind: 'failure',
         reason: 'invalid_utf8',
         field: 'response.body',
@@ -108,7 +116,7 @@ const createWebSearchTool = (requestProvider: ProviderRequestFn): Tool => ({
     try {
       parsed = JSON.parse(rawText);
     } catch {
-      evidence?.recordParserTransition({
+      providerEvidence?.recordParserTransition({
         kind: 'failure',
         reason: 'invalid_json',
         field: 'response.body',
@@ -116,7 +124,7 @@ const createWebSearchTool = (requestProvider: ProviderRequestFn): Tool => ({
       throw new Error('web search provider response was not valid JSON');
     }
     if (!isRecord(parsed) || !Array.isArray(parsed.results)) {
-      evidence?.recordParserTransition({
+      providerEvidence?.recordParserTransition({
         kind: 'failure',
         reason: 'missing_results',
         field: 'results',

@@ -53,6 +53,13 @@ export interface AsyncAgentTerminalResult {
   readonly diagnosticPersistenceError?: string;
   readonly contextDurability?: 'complete' | 'failed' | 'none' | 'partial';
   readonly contextPersistenceError?: string;
+  /** Runtime-stop diagnostics returned with a normally collected child result. */
+  readonly runtimeStopFailures?: readonly {
+    readonly name: string;
+    readonly path?: string;
+    readonly phase: 'runtime_stop';
+    readonly reason: string;
+  }[];
   readonly finalText?: string;
   readonly error?: string;
 }

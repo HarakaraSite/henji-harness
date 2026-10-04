@@ -1,4 +1,6 @@
 import type { FailureDetails } from '../core/failure_details.ts';
+import type { AfterTurnSettlement } from '../core/hook_effect.ts';
+import type { RuntimeStopHookResult } from '../core/hook_effect.ts';
 import type { WorkerProcessReply, WorkerProcessRequest } from './worker_process_protocol.ts';
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
@@ -56,13 +58,33 @@ export interface WorkerCorrelation {
   readonly command: string;
 }
 
+/** Host-selected identity passed explicitly to the Worker generation at startup. */
+export type WorkerRuntimeIdentityInput =
+  | { readonly role: 'root' }
+  | {
+    readonly role: 'child';
+    readonly parentExecutionId: string;
+    readonly spawnCallId?: string;
+  };
+
+export interface WorkerHookFailure {
+  readonly name: string;
+  readonly path?: string;
+  readonly phase: 'runtime_start' | 'runtime_stop';
+  readonly reason: string;
+}
+
 export type WorkerHostCommand =
   | WorkerProcessReply
   | {
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
+    /** Root is the normal default; async child Hosts send their parent identity explicitly. */
+    readonly runtimeIdentity?: WorkerRuntimeIdentityInput;
     /** Direct Agent-to-Data port transferred by the Core control owner. */
     readonly dataPort?: MessagePort;
+    /** Emit the actual composed snapshot before startup hooks finish. */
+    readonly notifyStartupPrepared?: boolean;
     readonly agentChoice: AgentConfigurationChoice;
     /** User config root shared by the Host and Worker credential resolvers. */
     readonly configRoot: string;
@@ -143,6 +165,8 @@ export type WorkerHostCommand =
     readonly kind: 'commit_acknowledgement';
     readonly correlation: WorkerCorrelation;
     readonly accepted: boolean;
+    /** Data's small post-adoption result; omitted by existing non-root settlements. */
+    readonly settlement?: AfterTurnSettlement;
   }
   | {
     readonly kind: 'checkpoint_acknowledgement';
@@ -207,6 +231,15 @@ export interface WorkerReadyMessage {
   readonly credentialAvailability?: CredentialAvailability;
 }
 
+/** Actual composed Worker state available before startup hooks finish. */
+export interface WorkerStartupPreparedMessage {
+  readonly kind: 'startup_prepared';
+  readonly correlation: WorkerCorrelation;
+  readonly configuration: WorkerConfigurationSnapshot;
+  readonly manifest: NonNullable<WorkerReadyMessage['manifest']>;
+  readonly startupSnapshot: NonNullable<WorkerReadyMessage['startupSnapshot']>;
+}
+
 interface WorkerContextObservation {
   readonly kind: 'model_request_delta';
   readonly delta: ContextModelRequestDelta;
@@ -237,6 +270,12 @@ export interface WorkerRuntimeEventMessage {
 export interface WorkerClosedMessage {
   readonly kind: 'closed';
   readonly correlation: WorkerCorrelation;
+  readonly hookFailures?: readonly WorkerHookFailure[];
+  readonly runtimeStopResult?: RuntimeStopHookResult;
+  readonly cleanupFailures?: readonly {
+    readonly resource: string;
+    readonly reason: string;
+  }[];
 }
 
 export interface WorkerCancelReceivedMessage {
@@ -385,6 +424,7 @@ interface WorkerAsyncAgentRequestMessage {
 
 export type WorkerToHostMessage =
   | WorkerProcessRequest
+  | WorkerStartupPreparedMessage
   | WorkerReadyMessage
   | WorkerModelSelectedMessage
   | WorkerRuntimeEventMessage

@@ -1,0 +1,52 @@
+--- a/docs/architecture/henji-host-agent-worker.md
++++ b/docs/architecture/henji-host-agent-worker.md
+@@ -312,6 +312,38 @@
+ entryは提示とdispatchの両方から除き、理由を最終instructionとSurfaceへ渡す。
+ Agent/catalog構成が成立しなければtaskをadmitせず、Core/TUIと履歴閲覧・認証・設定操作は維持する。
+ 
++#### 外部hookとbuiltinの呼出境界
++
++Agent Workerはruntime_start、runtime_stop、before_turn、after_turn、before_tool、after_toolの
++六つのbuiltin呼出点を持つ。共通runnerは登録順のawaitと結果の受渡しを担当し、Agent側が
++context・tool値への適用とsemantic記録を担当する。環境情報の挿入等の具体処理は外部TSに置き、
++Worker-local HookFactoryへ公開specifier `@henji/hooks`、contract `henji-hooks/v1`を提供する。
++Data Workerのhookはこのincrementでは追加しない。
++
++現在のhooks.jsonがcatalogと共通defaultを選ぶ。Agentのhooks省略はdefault、明示一覧は置換、
++空一覧は無効化であり、root/named/genericへ同じ規則を使う。factoryとclosureはWorkerごとに独立し、
++編集は新Workerから反映する。外部TSにはroot/child、Agent名、Session/Worker/Executionと
++親execution等の識別情報を渡し、子を処理するかは定義側で決める。runtimeはWorkerの寿命であり、
++開始hookの寄与をready前の構成snapshotに含める。正常closeは進行中turnと終了hookを待って
++process/registry/Data portを清算する。正常hook待機へ既存5秒応答期限を適用せず、
++明示取消とWorker喪失は既存終了経路へ接続する。
++
++外部TSへ渡すcontextはlive stateではなくreadonly snapshotであり、canonical turnから
++checkpointと最近のturnのviewを導出し、元履歴とprojectionを別々に全量copyしない。
++before_turnの寄与はそのturnだけに適用する。before_toolは実効引数だけを変え、モデルの
++元callと双方の値・出所を記録する。after_toolは本文だけを変え、outcome/callId/terminal
++finalTextを保持する。
++
++after_turnはDataの採用・保存確定後に実行し、確定したterminal reasonと完成draftを渡す。summaryと保持境界の返却はData ownerの
++既存checkpoint保存へ接続し、保存ack後にturn完了と次task/子result公開へ進む。
++canonical履歴は残し、子の更新は子自身のcontextへ適用する。確定後のhook効果・例外・
++短いprovider request factはsealed executionの通常受付とは別の保存経路へ残し、
++hook失敗で採用済み結果を再失敗にしない。189ではcompaction用の外部定義の要約処理・閾値は実装しない。
++
++配布packageはruntime-start-time定義を同梱する。これはWorker開始時のDateを一度取得し、
++UTC offsetとtimezone名付きで開始日時を挿入する。installerは初回catalog/defaultを作り、
++既存catalogと編集済み定義を保持する。配布定義の置換は明示的な--replace-hooksで行う。
++
+ #### 非同期childの操作と清算
+ 
+ `spawn_subagent(agent, task, model?, tools?)`は親が宣言した利用可能Agent名を選び、Hostが現在catalog/fileを
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -89,7 +89,7 @@
+ 
+ | ID  | 必要な機能                                                                                          | architecture上の責務・境界                                                                                | 現コードの状態                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+ | --- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+-| F06 | JSON Agent設定をmodel、instruction、tool、child操作と共通AgentCompositionへ組み合わせる             | Hostが現在fileとmetadataを選び、Workerが共通factoryで構成・実行する                                       | **実装済み（現行JSON設定）**。181でname/revision/instruction/tools/agents、agents.jsonのdefault/named選択、tools.jsonの現在folder選択、Worker-local ToolFactoryを実装した。revisionは版名でcontent identityではない。defaultとgenericは同じ同梱JSONを基底とし、named親のroleをgenericへ継承しない。186でsearch/web_search/web_fetchを同じ外部folder供給へ揃え、packageのinstallerが現在configへ登録する。tools/agentsの空配列を尊重し、個別rejectの理由をinstructionとSurfaceへ示す。有効toolの同じ宣言とexecutorを提示・dispatchへ使う。起動済みWorkerは固定snapshotを使い、編集は新Workerから反映する。子は別Worker/Executionのone-shot fork/joinで、model/toolsを指定できる。model省略は親executionのselection・実効ChatGPT登録ID、明示modelは指定providerの認証を使う（182）。再帰child、任意loop/context差替え、reloadは未実装 |
++| F06 | JSON Agent設定をmodel、instruction、tool、hook、child操作と共通AgentCompositionへ組み合わせる             | Hostが現在fileとmetadataを選び、Workerが共通factoryで構成・実行する                                       | **実装済み（現行JSON設定）**。181でname/revision/instruction/tools/agents、agents.jsonのdefault/named選択、tools.jsonの現在folder選択、Worker-local ToolFactoryを実装した。revisionは版名でcontent identityではない。defaultとgenericは同じ同梱JSONを基底とし、named親のroleをgenericへ継承しない。186でsearch/web_search/web_fetchを同じ外部folder供給へ揃え、packageのinstallerが現在configへ登録する。tools/agentsの空配列を尊重し、個別rejectの理由をinstructionとSurfaceへ示す。有効toolの同じ宣言とexecutorを提示・dispatchへ使う。189でhooks.jsonとAgent hooksによる共通default/明示置換/無効化、Worker-local外部TS factoryと六hookを追加した。開始日時定義をpackageへ同梱し、確定後checkpoint更新は元履歴を保ってData ownerへ保存する。子のhookは子自身のcontextへ作用する。compaction用の外部TS定義は未実装。起動済みWorkerは固定snapshotを使い、編集は新Workerから反映する。子は別Worker/Executionのone-shot fork/joinで、model/toolsを指定できる。model省略は親executionのselection・実効ChatGPT登録ID、明示modelは指定providerの認証を使う（182）。再帰child、任意loop/context差替え、reloadは未実装 |
+ | F07 | executable Agent Definitionのmodule closureをimmutable revisionで固定・選択する旧方式               | 現行は現在Agent JSON/tool folderの選択とconfiguration snapshotへ置換                                      | **廃止（181）**。32〜34のmanaged store、closure install/検証、exact selectorとbuilt-in resource digestによる起動を撤去した。tool local importはDenoで直接読み、revisionは版名、使用内容は独立configuration IDで記録する。旧方式の再導入を残件にしない                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+ | F08 | 実効構成と各requestに使った情報をexecutionから振り返る                                              | Workerが起動snapshotとrequest attributionを返し、Dataが保存する。版名や説明をpermission authorityにしない | **部分実装**。configuration IDにAgent設定/選択元、最終instruction/components、実提示toolの版名・選択元・contract/rejectを保存し、executionへ完全build、実model/effort、maxStepsを保存する。request context、skill/tool/runtime fact、recallは専用recordから参照する。181でcompiled親子の実build保存を修正した。過去tool source closureや外部状態の完全再現は行わない                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+ | F09 | 同梱/外部JSON Agentを同じDeno Web Workerと共通runtimeで実行する                                     | Workerはlifecycle/data境界であり別trust tierではない                                                      | **実装済み**。Core対話と独立headless runが共通session factory/bootstrap/構成/runtime/protocol/commitを使う。外部toolは同じWorker内でimportし、functionをHostへ渡さない                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

@@ -6,12 +6,18 @@ import {
 } from '../session/failure_diagnostic.ts';
 import { captureFailureDetails } from '../core/failure_details.ts';
 import type { ContextView, ExecutionView } from '../../api/contract.ts';
-import type { LoopOutcome } from '../core/contracts.ts';
+import type { JsonValue, LoopOutcome } from '../core/contracts.ts';
+import type {
+  AgentAfterTurnContextUpdate,
+  AgentPostSettlementHookUpdate,
+} from './agent_data_contract.ts';
+import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type {
   BeginExecutionInput,
   ExecutionControlEventInput,
   HistoryCaptureResult,
   HistoryExecutionInput,
+  HistoryPostSettlementSemanticEventInput,
 } from '../history/history_store_contract.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { indexSessionHistory } from '../session/session_history.ts';
@@ -38,6 +44,8 @@ import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
   WorkerCorrelation,
+  WorkerProviderObservationMessage,
+  WorkerRuntimeEventMessage,
   WorkerTurnFailedMessage,
 } from '../worker/worker_protocol.ts';
 import type { AgentGenerationContextBasis } from './agent_data_contract.ts';
@@ -1243,9 +1251,14 @@ export class DataSessionOwner {
         providerRequestCount: this.#latestExecutionValue?.requestCount ?? 0,
         turnNumber: state.history.turn,
         modelStep: 0,
-        details: captureFailureDetails(error, { operation: 'data_authorize_commit' }),
+        details: captureFailureDetails(error, {
+          operation: 'data_authorize_commit',
+        }),
       });
-      this.#store.recordExecutionFailureDiagnostic(state.input.executionId, diagnostic);
+      this.#store.recordExecutionFailureDiagnostic(
+        state.input.executionId,
+        diagnostic,
+      );
     } catch {
       // A failed diagnostic save cannot replace the original commit error or adopt the turn.
     }
@@ -1278,6 +1291,187 @@ export class DataSessionOwner {
     } catch {
       this.authority.clearCheckpointNotice();
       return false;
+    }
+  }
+
+  installAfterTurnContext(
+    update: AgentAfterTurnContextUpdate,
+    sequence: number,
+  ): boolean {
+    this.#assertOpen();
+    const state = this.#executions.get(update.executionId);
+    const terminal = state?.terminal;
+    if (
+      state === undefined || terminal === undefined ||
+      !sameCorrelation(state.input.correlation, update.correlation) ||
+      update.correlation.session !== this.sessionId ||
+      state.history.turn !== update.turn ||
+      !Number.isSafeInteger(sequence) || sequence < 1 ||
+      !terminal.durable ||
+      update.effect.settlement.accepted !== terminal.accepted ||
+      update.effect.settlement.adopted !== terminal.canonical ||
+      update.effect.settlement.durable !== terminal.durable ||
+      update.effect.settlement.stateRevision !== terminal.stateRevision ||
+      update.effect.settlement.terminalOutcome.ok !== terminal.outcome.ok ||
+      update.effect.settlement.terminalOutcome.outcome !== terminal.outcome.outcome ||
+      update.effect.settlement.terminalOutcome.stopReason !== terminal.outcome.stopReason ||
+      update.effect.settlement.terminalOutcome.error !== terminal.outcome.error
+    ) return false;
+
+    const candidate = update.effect.checkpoint as
+      | SemanticContextCheckpointV1
+      | undefined;
+    if (
+      candidate !== undefined &&
+      (!terminal.accepted || candidate.sessionId !== this.sessionId ||
+        !validateSemanticContextCheckpoint(candidate) ||
+        candidate.coveredThroughTurn < 1 ||
+        candidate.coveredThroughTurn >= state.history.turn ||
+        candidate.retainedFromTurn !== candidate.coveredThroughTurn + 1)
+    ) return false;
+
+    const previousCheckpoint = this.authority.checkpointSnapshot();
+    if (candidate !== undefined) this.handle.installCheckpoint(candidate);
+    try {
+      this.#appendPostSettlementProviderObservations(
+        update.executionId,
+        update.correlation,
+        update.turn,
+        update.providerObservations ?? [],
+        sequence,
+      );
+      const message: WorkerRuntimeEventMessage = {
+        kind: 'runtime_event',
+        correlation: update.correlation,
+        sequence,
+        event: {
+          kind: 'agent_event',
+          event: {
+            kind: 'hook_context_update',
+            turn: update.turn,
+            effect: structuredClone(update.effect),
+          },
+        },
+      };
+      const historyInput: HistoryPostSettlementSemanticEventInput = {
+        semanticKind: 'context_update',
+        event: {
+          executionId: update.executionId,
+          observedAt: new Date().toISOString(),
+          direction: 'worker_to_host',
+          source: 'worker',
+          kind: 'runtime_event',
+          workerSequence: sequence,
+          payload: structuredClone(message) as unknown as import('../core/contracts.ts').JsonValue,
+        },
+      };
+      this.#writer.appendPostSettlementSemanticEvent(historyInput);
+    } catch (error) {
+      if (candidate !== undefined) {
+        if (previousCheckpoint === undefined) this.handle.rollbackCheckpoint();
+        else this.handle.installCheckpoint(previousCheckpoint);
+      }
+      throw error;
+    }
+    if (candidate !== undefined) {
+      this.authority.applyCheckpoint(candidate);
+      this.authority.recordCheckpointNotice({
+        coveredThroughTurn: candidate.coveredThroughTurn,
+        retainedFromTurn: candidate.retainedFromTurn,
+      });
+    }
+    return true;
+  }
+
+  installPostSettlementHook(
+    update: AgentPostSettlementHookUpdate,
+    sequence: number,
+  ): boolean {
+    this.#assertOpen();
+    const state = this.#executions.get(update.executionId);
+    const terminal = state?.terminal;
+    if (
+      state === undefined || terminal === undefined ||
+      !sameCorrelation(state.input.correlation, update.correlation) ||
+      update.correlation.session !== this.sessionId ||
+      state.history.turn !== update.turn ||
+      !Number.isSafeInteger(sequence) || sequence < 1 ||
+      !terminal.durable ||
+      update.settlement.accepted !== terminal.accepted ||
+      update.settlement.adopted !== terminal.canonical ||
+      update.settlement.durable !== terminal.durable ||
+      update.settlement.stateRevision !== terminal.stateRevision ||
+      update.settlement.terminalOutcome.ok !== terminal.outcome.ok ||
+      update.settlement.terminalOutcome.outcome !== terminal.outcome.outcome ||
+      update.settlement.terminalOutcome.stopReason !== terminal.outcome.stopReason ||
+      update.settlement.terminalOutcome.error !== terminal.outcome.error
+    ) return false;
+
+    this.#appendPostSettlementProviderObservations(
+      update.executionId,
+      update.correlation,
+      update.turn,
+      update.providerObservations ?? [],
+      sequence,
+    );
+    const message: WorkerRuntimeEventMessage = {
+      kind: 'runtime_event',
+      correlation: update.correlation,
+      sequence,
+      event: {
+        kind: 'agent_event',
+        event: {
+          kind: 'hook_lifecycle_update',
+          turn: update.turn,
+          effect: structuredClone(update.effect),
+        },
+      },
+    };
+    this.#writer.appendPostSettlementSemanticEvent({
+      semanticKind: 'context_update',
+      event: {
+        executionId: update.executionId,
+        observedAt: new Date().toISOString(),
+        direction: 'worker_to_host',
+        source: 'worker',
+        kind: 'runtime_event',
+        workerSequence: sequence,
+        payload: structuredClone(message) as unknown as JsonValue,
+      },
+    });
+    return true;
+  }
+
+  #appendPostSettlementProviderObservations(
+    executionId: string,
+    correlation: WorkerCorrelation,
+    turn: number,
+    observations: readonly ProviderEvidenceObservation[],
+    sequence: number,
+  ): void {
+    for (const [index, observation] of observations.entries()) {
+      const workerSequence = sequence + index + 1;
+      const message: WorkerProviderObservationMessage = {
+        kind: 'provider_observation',
+        correlation,
+        sequence: workerSequence,
+        turn,
+        observation: structuredClone(observation),
+      };
+      this.#writer.appendPostSettlementSemanticEvent({
+        semanticKind: 'model_request',
+        event: {
+          executionId,
+          observedAt: new Date().toISOString(),
+          direction: 'worker_to_host',
+          source: 'worker',
+          // The post-settlement port accepts only semantic runtime_event envelopes;
+          // the nested ProviderEvidenceObservation carries the physical fact kind.
+          kind: 'runtime_event',
+          workerSequence,
+          payload: structuredClone(message) as unknown as JsonValue,
+        },
+      });
     }
   }
 

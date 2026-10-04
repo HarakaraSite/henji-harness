@@ -42,6 +42,7 @@ import {
   type HistoryCaptureResult,
   type HistoryCommitDelta,
   type HistoryPersistencePort,
+  type HistoryPostSettlementSemanticEventInput,
   HistoryStoreError,
   type NonCanonicalExecutionInput,
   type ReconcileExecutionInput,
@@ -176,6 +177,7 @@ const semanticKindForEvent = (
       if (
         agentEvent.kind === 'tool_result' || agentEvent.kind === 'tool_progress'
       ) return 'tool_result';
+      if (agentEvent.kind === 'hook_context_update') return 'context_update';
       if (
         agentEvent.kind === 'assistant_message' ||
         agentEvent.kind === 'assistant_progress' ||
@@ -820,7 +822,9 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
           SELECT child.execution_id, parent.depth+1 FROM executions child JOIN owned parent ON child.parent_execution_id=parent.execution_id
         ) SELECT execution_id FROM owned GROUP BY execution_id ORDER BY MAX(depth) DESC
       `).all(id, id) as Row[]).map((row) => String(row.execution_id));
-      db.prepare('DELETE FROM conversation_messages WHERE session_id=?').run(id);
+      db.prepare('DELETE FROM conversation_messages WHERE session_id=?').run(
+        id,
+      );
       db.prepare('DELETE FROM session_turns WHERE session_id=?').run(id);
       for (const executionId of executions) {
         db.prepare(
@@ -1117,7 +1121,9 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
             sourceExecutionId: input.recalledContext.sourceExecutionId,
             targetExecutionId: input.executionId,
             context: input.recalledContext,
-            projectedContext: recalledExecutionProjectionText(input.recalledContext),
+            projectedContext: recalledExecutionProjectionText(
+              input.recalledContext,
+            ),
           }),
         });
       }
@@ -1356,6 +1362,29 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
       if (last !== undefined) this.#eventCounts.set(executionId, last.ordinal);
     }
     return appended;
+  }
+
+  appendPostSettlementSemanticEvent(
+    input: HistoryPostSettlementSemanticEventInput,
+  ): HistoryAppendResult {
+    if (
+      input.event.executionId.length === 0 ||
+      input.event.kind !== 'runtime_event' ||
+      input.event.direction !== 'worker_to_host' ||
+      input.event.source !== 'worker' ||
+      input.event.workerSequence === undefined ||
+      !Number.isSafeInteger(input.event.workerSequence) ||
+      input.event.workerSequence < 1 ||
+      typeof input.event.payload !== 'object' ||
+      input.event.payload === null
+    ) throw new HistoryStoreError('history_invalid');
+    try {
+      const result = this.#coreStore().appendPostSettlementSemanticEvent(input);
+      this.#eventCounts.set(result.event.executionId, result.event.ordinal);
+      return result;
+    } catch (error) {
+      throw asHistoryError(error);
+    }
   }
 
   appendExecutionEventsWithSemanticIds(
@@ -1927,7 +1956,9 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
       ...(artifact.storeError === undefined ? {} : { storeError: artifact.storeError }),
     });
     const core = this.#coreStore();
-    const previous = core.listOccurrences(artifact.executionId).findLast((record) =>
+    const previous = core.listOccurrences(artifact.executionId).findLast((
+      record,
+    ) =>
       record.kind === 'host_decision' &&
       (record.payload as Record<string, unknown>).kind === 'execution_metadata'
     );
@@ -1939,7 +1970,9 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
     const db = this.#db();
     try {
       db.exec('BEGIN IMMEDIATE');
-      const row = db.prepare('SELECT latest_ordinal FROM executions WHERE execution_id=?').get(
+      const row = db.prepare(
+        'SELECT latest_ordinal FROM executions WHERE execution_id=?',
+      ).get(
         artifact.executionId,
       ) as Row | undefined;
       if (row === undefined) throw new HistoryStoreError('history_invalid');
@@ -1953,8 +1986,10 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
         now(),
         decoder.decode(encodeHistoryPayload(payload)),
       );
-      db.prepare(`UPDATE executions SET latest_ordinal=?, occurrence_count=occurrence_count+1
-        WHERE execution_id=?`).run(ordinal, artifact.executionId);
+      db.prepare(
+        `UPDATE executions SET latest_ordinal=?, occurrence_count=occurrence_count+1
+        WHERE execution_id=?`,
+      ).run(ordinal, artifact.executionId);
       db.exec('COMMIT');
     } catch (error) {
       try {
@@ -2680,10 +2715,12 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
       throw new HistoryStoreError('history_invalid');
     }
 
-    const metadata = this.#coreStore().listOccurrences(executionId, snapshotDb).findLast((record) =>
-      record.kind === 'host_decision' &&
-      (record.payload as Record<string, unknown>).kind === 'execution_metadata'
-    )?.payload as Record<string, unknown> | undefined;
+    const metadata = this.#coreStore().listOccurrences(executionId, snapshotDb)
+      .findLast((record) =>
+        record.kind === 'host_decision' &&
+        (record.payload as Record<string, unknown>).kind ===
+          'execution_metadata'
+      )?.payload as Record<string, unknown> | undefined;
     const controls = this.#coreStore().listControlEvents(executionId);
     const turnSettled = controls.findLast((event) => event.kind === 'turn_settled') !== undefined;
     const turnEnd = controls.findLast((event) => event.kind === 'post_commit_turn_end');
@@ -2733,7 +2770,10 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
         >(recallRow.payload_json);
         const sourceExecutionId = payload.sourceExecutionId ??
           payload.context?.sourceExecutionId;
-        if (typeof payload.projectedContext === 'string' && sourceExecutionId !== undefined) {
+        if (
+          typeof payload.projectedContext === 'string' &&
+          sourceExecutionId !== undefined
+        ) {
           recall = {
             schemaVersion: 1,
             sourceExecutionId,
@@ -2778,17 +2818,22 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
         ...(execution.adoption === 'canonical'
           ? { committedStateRevision: execution.baseRevision + 1 }
           : {}),
-        protocolTrace:
-          (metadata?.protocolTrace ?? []) as WorkerExecutionArtifactV1['protocolTrace'],
+        protocolTrace: (metadata?.protocolTrace ?? []) as WorkerExecutionArtifactV1[
+          'protocolTrace'
+        ],
         ...(metadata?.childCleanup === undefined ? {} : {
           childCleanup: metadata
-            .childCleanup as unknown as WorkerExecutionArtifactV1['childCleanup'],
+            .childCleanup as unknown as WorkerExecutionArtifactV1[
+              'childCleanup'
+            ],
         }),
-        ...(metadata?.storeError === undefined
-          ? {}
-          : { storeError: metadata.storeError as WorkerExecutionArtifactV1['storeError'] }),
-        storeResult:
-          (metadata?.storeResult ?? 'committed') as WorkerExecutionArtifactV1['storeResult'],
+        ...(metadata?.storeError === undefined ? {} : {
+          storeError: metadata
+            .storeError as WorkerExecutionArtifactV1['storeError'],
+        }),
+        storeResult: (metadata?.storeResult ?? 'committed') as WorkerExecutionArtifactV1[
+          'storeResult'
+        ],
         acknowledgement,
         settlement,
         lifecycle: 'settled',

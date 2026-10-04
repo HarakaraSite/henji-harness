@@ -1,4 +1,6 @@
 import type { Message } from '../core/contracts.ts';
+import type { AfterTurnHookEffect, RuntimeStopHookEffect } from '../core/hook_effect.ts';
+import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { SemanticContextCheckpointV1 } from '../session/session_store_contract.ts';
 import type { RecalledExecutionContext } from '../worker/recalled_execution_context.ts';
@@ -33,6 +35,25 @@ export interface AgentFailureBarrier {
   readonly finalDataSequence: number;
 }
 
+/** Post-settlement hook update sent directly to the Data owner, outside its sealed journal. */
+export interface AgentAfterTurnContextUpdate {
+  readonly executionId: string;
+  readonly correlation: WorkerCorrelation;
+  readonly turn: number;
+  readonly effect: AfterTurnHookEffect;
+  /** Hook-originated auxiliary requests captured after the execution was sealed. */
+  readonly providerObservations?: readonly ProviderEvidenceObservation[];
+}
+
+export interface AgentPostSettlementHookUpdate {
+  readonly executionId: string;
+  readonly correlation: WorkerCorrelation;
+  readonly turn: number;
+  readonly settlement: import('../core/hook_effect.ts').AfterTurnSettlement;
+  readonly effect: RuntimeStopHookEffect;
+  readonly providerObservations?: readonly ProviderEvidenceObservation[];
+}
+
 export interface AgentDataPortClient {
   generationContext(
     correlation: WorkerCorrelation,
@@ -48,6 +69,8 @@ export interface AgentDataPortClient {
   sendProposal(message: WorkerCommitProposalMessage): AgentProposalBarrier;
   sendFailure(message: WorkerTurnFailedMessage): AgentFailureBarrier;
   checkpoint(message: WorkerCheckpointProposalMessage): Promise<boolean>;
+  afterTurn(update: AgentAfterTurnContextUpdate): Promise<boolean>;
+  postSettlementHook(update: AgentPostSettlementHookUpdate): Promise<boolean>;
   close(): void;
 }
 
@@ -96,6 +119,18 @@ export type AgentDataPortRequest =
     executionId: string;
     sequence: number;
     message: WorkerCheckpointProposalMessage;
+  }>
+  | Readonly<{
+    kind: 'after_turn_context';
+    requestId: number;
+    sequence: number;
+    update: AgentAfterTurnContextUpdate;
+  }>
+  | Readonly<{
+    kind: 'post_settlement_hook';
+    requestId: number;
+    sequence: number;
+    update: AgentPostSettlementHookUpdate;
   }>;
 
 export type AgentDataPortResponse =
@@ -107,6 +142,18 @@ export type AgentDataPortResponse =
   }>
   | Readonly<{
     kind: 'checkpoint_acknowledgement';
+    requestId: number;
+    correlation: WorkerCorrelation;
+    accepted: boolean;
+  }>
+  | Readonly<{
+    kind: 'after_turn_acknowledgement';
+    requestId: number;
+    correlation: WorkerCorrelation;
+    accepted: boolean;
+  }>
+  | Readonly<{
+    kind: 'post_settlement_hook_acknowledgement';
     requestId: number;
     correlation: WorkerCorrelation;
     accepted: boolean;

@@ -6,7 +6,9 @@ import {
   type ToolFactoryInput,
 } from '@henji/tool';
 import { createProviderRequestDispatcher } from '../../../v0/agent/provider/auxiliary_request.ts';
-import type { ModelExecutionContext } from '../../../v0/agent/core/execution_context.ts';
+import { ParentTurnExecutionContext } from '../../../v0/agent/core/execution_context.ts';
+import type { ProviderEvidenceRecorder } from '../../../v0/agent/provider/provider_evidence.ts';
+import type { WorkerStageName } from '../../../v0/agent/worker/worker_stage_probe.ts';
 import webSearchFactory from '../../../external-tools/web_search/main.ts';
 import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from '../../../external-tools/web_fetch/main.ts';
 
@@ -42,13 +44,28 @@ export const createWebSearchTool = (backend: WebSearchBackend): Tool =>
   createWebSearchToolWithProvider(async (request) => {
     const argumentsValue = JSON.parse(new TextDecoder().decode(request.body)) as WebSearchRequest;
     const evidence = request.evidence as {
-      readonly execution: ModelExecutionContext;
+      readonly providerEvidence: ProviderEvidenceRecorder;
       readonly modelStep: number;
+      readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void;
     } | undefined;
+    const modelExecution = evidence === undefined ? undefined : new ParentTurnExecutionContext(
+      1,
+      undefined,
+      request.signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      evidence.providerEvidence,
+      undefined,
+      undefined,
+      undefined,
+      evidence.reportAuxiliaryStage,
+    );
     const context: ToolContext = {
       ...(request.signal === undefined ? {} : { signal: request.signal }),
       ...(evidence === undefined ? {} : {
-        modelExecution: evidence.execution,
+        modelExecution,
         modelStep: evidence.modelStep,
       }),
     };

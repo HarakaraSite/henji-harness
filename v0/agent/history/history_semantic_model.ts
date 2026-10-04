@@ -40,6 +40,7 @@ export type HistorySemanticKind =
   | 'effect_observation'
   | 'model_request'
   | 'model_result'
+  | 'context_update'
   | 'context_item'
   | 'resource_revision'
   | 'host_decision'

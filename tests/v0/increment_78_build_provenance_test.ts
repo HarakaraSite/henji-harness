@@ -51,5 +51,6 @@ Deno.test('Increment 78 current build input graph includes its generator', async
   const inputs = await buildInputFiles(Deno.cwd());
   assert(inputs.includes('scripts/build_henji.ts'));
   assert(inputs.includes('v0/agent/cli/henji_cli.ts'));
+  assert(inputs.includes('v0/agent/hook_api.ts'));
   assert(inputs.includes('deno.v0.json'));
 });

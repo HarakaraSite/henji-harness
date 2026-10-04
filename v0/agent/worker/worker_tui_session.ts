@@ -27,6 +27,7 @@ import { launcherStateRoot, type SessionRecord } from '../session/session_store.
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { readDefaultSelection } from '../provider/default_selection.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
+import type { WorkerStartupPreparedMessage } from './worker_protocol.ts';
 import type { ApplicationObservationSink, ApplicationQueryPort } from '../host/application_port.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
 import {
@@ -35,6 +36,8 @@ import {
   type SelectedHenjiBaseInstruction,
 } from '../instructions/base_instruction.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
+
+const LAZY_START_CANCEL_GRACE_MS = 5_000;
 
 export interface WorkerSessionOptions {
   readonly workspaceRoot?: string;
@@ -81,7 +84,10 @@ export interface HostActiveSession {
   readonly agentChoice: AgentConfigurationChoice;
   readonly sessionId: string;
   submit(text: string): ReturnType<WorkerHostSession['submit']>;
-  admit(text: string, executionId?: string): ReturnType<WorkerHostSession['admit']>;
+  admit(
+    text: string,
+    executionId?: string,
+  ): ReturnType<WorkerHostSession['admit']>;
   startupSnapshot():
     | ReturnType<WorkerHostSession['startupSnapshot']>
     | undefined;
@@ -124,12 +130,16 @@ export interface HostActiveSession {
       | 'unavailable';
   };
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle';
-  steerActiveTurn(text: string): Promise<'accepted' | 'idle' | 'already_accepted'>;
+  steerActiveTurn(
+    text: string,
+  ): Promise<'accepted' | 'idle' | 'already_accepted'>;
   isAvailable(): boolean;
   selectModel(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
-  close(): Promise<void>;
+  close(): Promise<
+    void | Awaited<ReturnType<WorkerHostSession['close']>>
+  >;
 }
 
 /**
@@ -142,8 +152,16 @@ export interface HostActiveSession {
 class LazyWorkerSession implements HostActiveSession {
   private host: WorkerHostSession | undefined;
   private starting: Promise<WorkerHostSession> | undefined;
+  private startupAbort: AbortController | undefined;
+  private preparedStartup: WorkerStartupPreparedMessage | undefined;
   private closed = false;
-  private pendingAdmission: { executionId: string; cancelled: boolean } | undefined;
+  private pendingAdmission: {
+    executionId: string;
+    cancelled: boolean;
+    startupPrepared?: WorkerStartupPreparedMessage;
+    startupAbort?: AbortController;
+    watchdog?: ReturnType<typeof setTimeout>;
+  } | undefined;
   private localCredentialAvailability: CredentialAvailability | undefined;
   private configurationFailure:
     | readonly import('../configuration/agent_configuration.ts').ConfigurationRejection[]
@@ -151,12 +169,19 @@ class LazyWorkerSession implements HostActiveSession {
 
   constructor(
     private readonly data: DataService,
-    private readonly descriptor: DataSessionDescriptor,
+    private descriptor: DataSessionDescriptor,
     private readonly selected: AgentConfigurationChoice,
-    private readonly startHost: () => Promise<WorkerHostSession>,
+    private readonly startHost: (
+      startupAbortSignal: AbortSignal,
+      onStartupPrepared: (message: WorkerStartupPreparedMessage) => void,
+    ) => Promise<WorkerHostSession>,
     private readonly config: Pick<
       WorkerSessionOptions,
-      'rootMaxSteps' | 'providerTimeoutMs' | 'activation' | 'configRoot'
+      | 'rootMaxSteps'
+      | 'providerTimeoutMs'
+      | 'activation'
+      | 'configRoot'
+      | 'cancelSettlementGraceMs'
     >,
   ) {}
 
@@ -172,15 +197,36 @@ class LazyWorkerSession implements HostActiveSession {
     if (this.closed) throw new Error('session is closed');
     if (this.host !== undefined) return this.host;
     if (this.starting === undefined) {
-      this.starting = this.startHost().then((host) => {
-        this.host = host;
-        return host;
-      }).catch((error) => {
-        if (error instanceof WorkerHostStartupError && error.code === 'configuration_rejected') {
-          this.configurationFailure = error.configurationRejections;
+      const startupAbort = new AbortController();
+      this.startupAbort = startupAbort;
+      this.preparedStartup = undefined;
+      const starting = this.startHost(startupAbort.signal, (message) => {
+        this.preparedStartup = message;
+        if (this.pendingAdmission !== undefined) {
+          this.pendingAdmission.startupPrepared = message;
         }
-        throw error;
-      });
+      }).then(
+        (host) => {
+          this.host = host;
+          if (this.starting === starting) this.starting = undefined;
+          if (this.startupAbort === startupAbort) this.startupAbort = undefined;
+          return host;
+        },
+        (error) => {
+          if (
+            error instanceof WorkerHostStartupError &&
+            error.code === 'configuration_rejected'
+          ) {
+            this.configurationFailure = error.configurationRejections;
+          }
+          if (startupAbort.signal.aborted && this.starting === starting) {
+            this.starting = undefined;
+          }
+          if (this.startupAbort === startupAbort) this.startupAbort = undefined;
+          throw error;
+        },
+      );
+      this.starting = starting;
     }
     return await this.starting;
   }
@@ -193,13 +239,52 @@ class LazyWorkerSession implements HostActiveSession {
     text: string,
     executionId = crypto.randomUUID().toLowerCase(),
   ): ReturnType<WorkerHostSession['admit']> {
-    const reservation = { executionId, cancelled: false };
+    const reservation: NonNullable<typeof this.pendingAdmission> = {
+      executionId,
+      cancelled: false,
+    };
     this.pendingAdmission = reservation;
     try {
-      const host = await this.ensureStarted();
+      const starting = this.ensureStarted();
+      reservation.startupAbort = this.startupAbort;
+      reservation.startupPrepared = this.preparedStartup;
+      let host: WorkerHostSession;
+      try {
+        host = await starting;
+      } catch (error) {
+        if (!reservation.cancelled) throw error;
+        const prepared = reservation.startupPrepared ?? this.preparedStartup;
+        if (prepared === undefined) throw error;
+        await this.data.executionAdmitStartup(this.sessionId, {
+          executionId,
+          taskId: crypto.randomUUID().toLowerCase(),
+          task: text,
+          correlation: prepared.correlation,
+          configuration: prepared.configuration,
+          maxSteps: prepared.manifest.maxSteps,
+          ...(prepared.startupSnapshot.context === undefined ? {} : {
+            contextSnapshot: prepared.startupSnapshot.context,
+          }),
+        });
+        const terminal = await this.data.sealGeneration(this.sessionId, {
+          executionId,
+          decision: 'cancelled',
+          reason: 'cancelled during Worker startup',
+        });
+        this.descriptor = terminal.descriptor;
+        return {
+          executionId,
+          completion: Promise.resolve(terminal.outcome),
+        };
+      }
       return await host.admit(text, executionId, reservation.cancelled);
     } finally {
-      if (this.pendingAdmission === reservation) this.pendingAdmission = undefined;
+      if (reservation.watchdog !== undefined) {
+        clearTimeout(reservation.watchdog);
+      }
+      if (this.pendingAdmission === reservation) {
+        this.pendingAdmission = undefined;
+      }
     }
   }
 
@@ -225,7 +310,8 @@ class LazyWorkerSession implements HostActiveSession {
       },
       maxSteps: configuredMaxSteps ?? DEFAULT_AGENT_MAX_STEPS,
       maxStepsSource: configuredMaxSteps === undefined ? 'default' : 'activation',
-      providerTimeoutMs: this.config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      providerTimeoutMs: this.config.providerTimeoutMs ??
+        DEFAULT_PROVIDER_TIMEOUT_MS,
       activation: {
         ...(this.config.activation ?? {}),
         ...(configuredMaxSteps === undefined ? {} : { maxSteps: configuredMaxSteps }),
@@ -245,13 +331,24 @@ class LazyWorkerSession implements HostActiveSession {
     if (pending !== undefined) {
       if (pending.cancelled) return 'already_requested';
       pending.cancelled = true;
-      this.host?.cancelActiveTurn();
+      if (this.host !== undefined) {
+        this.host.cancelActiveTurn();
+      } else {
+        pending.watchdog = setTimeout(() => {
+          if (
+            this.pendingAdmission === pending && pending.cancelled &&
+            this.host === undefined
+          ) pending.startupAbort?.abort();
+        }, this.config.cancelSettlementGraceMs ?? LAZY_START_CANCEL_GRACE_MS);
+      }
       return 'requested';
     }
     return this.host?.cancelActiveTurn() ?? 'idle';
   }
 
-  async steerActiveTurn(text: string): Promise<'accepted' | 'idle' | 'already_accepted'> {
+  async steerActiveTurn(
+    text: string,
+  ): Promise<'accepted' | 'idle' | 'already_accepted'> {
     return await this.host?.steerActiveTurn(text) ?? 'idle';
   }
 
@@ -265,7 +362,8 @@ class LazyWorkerSession implements HostActiveSession {
   }
 
   currentPosition(): ReturnType<WorkerHostSession['currentPosition']> {
-    return this.host?.currentPosition() ?? structuredClone(this.descriptor.currentPosition);
+    return this.host?.currentPosition() ??
+      structuredClone(this.descriptor.currentPosition);
   }
 
   executionSnapshot(): ReturnType<WorkerHostSession['executionSnapshot']> {
@@ -418,6 +516,8 @@ export const createWorkerSession = async (
   try {
     const openHost = async (
       sessionDescriptor: DataSessionDescriptor,
+      startupAbortSignal?: AbortSignal,
+      onStartupPrepared?: (message: WorkerStartupPreparedMessage) => void,
     ): Promise<WorkerHostSession> => {
       setActiveProviderDeclarations(providerDeclarations);
       baseInstruction = await resolveBaseInstruction();
@@ -432,6 +532,8 @@ export const createWorkerSession = async (
         providerTimeoutMs: options.providerTimeoutMs,
         ...(options.activation === undefined ? {} : { activation: options.activation }),
         cancelSettlementGraceMs: options.cancelSettlementGraceMs,
+        ...(startupAbortSignal === undefined ? {} : { startupAbortSignal }),
+        ...(onStartupPrepared === undefined ? {} : { onStartupPrepared }),
         workerResponseTimeoutMs: options.workerResponseTimeoutMs,
         auxiliaryStageGapMs: options.auxiliaryStageGapMs,
         baseInstruction,
@@ -469,7 +571,8 @@ export const createWorkerSession = async (
       data,
       descriptor,
       agentChoice,
-      () => openHost(descriptor),
+      (startupAbortSignal, onStartupPrepared) =>
+        openHost(descriptor, startupAbortSignal, onStartupPrepared),
       options,
     );
     const position = () => currentHost.currentPosition();
@@ -487,7 +590,8 @@ export const createWorkerSession = async (
           effectiveConfig: currentHost.effectiveConfigSnapshot(),
           ...(pendingRecall === undefined ? {} : { pendingRecall }),
           ...(currentHost.credentialAvailabilitySnapshot() === undefined ? {} : {
-            credentialAvailability: currentHost.credentialAvailabilitySnapshot()!,
+            credentialAvailability: currentHost
+              .credentialAvailabilitySnapshot()!,
           }),
           runtime: currentHost.runtimeSnapshot(),
           execution: currentHost.executionSnapshot(),

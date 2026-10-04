@@ -534,6 +534,11 @@ export class ChildRunRegistry {
       workspaceRoot: this.deps.options.workspaceRoot,
       configRoot: this.deps.options.configRoot,
       agentChoice: entry.choice,
+      runtimeIdentity: {
+        role: 'child',
+        parentExecutionId: run.parentExecutionId,
+        ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
+      },
       enableAsyncAgents: false,
       chatgptRegistrationId: run.chatgptRegistrationId,
       ...(this.deps.options.capsuleFactory === undefined
@@ -557,7 +562,10 @@ export class ChildRunRegistry {
   }
 
   private routeChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
-    if (message.kind === 'ready' || message.kind === 'worker_error') {
+    if (
+      message.kind === 'ready' || message.kind === 'worker_error' ||
+      message.kind === 'closed' || message.kind === 'turn_settled'
+    ) {
       run.supervisor?.messages.publish(message);
     }
     if (run.terminal === undefined) {
@@ -638,11 +646,16 @@ export class ChildRunRegistry {
           executionId: message.executionId,
           finalDataSequence: message.finalDataSequence,
         });
-      if (message.kind === 'proposal_ready') {
-        this.sendCommitAcknowledgement(
-          run,
-          message.correlation,
-          result.accepted && result.durable,
+      const acknowledged = this.sendCommitAcknowledgement(run, message.correlation, result);
+      if (acknowledged) {
+        await run.supervisor!.messages.wait((value): value is Extract<
+          WorkerToHostMessage,
+          { kind: 'turn_settled' | 'worker_error' }
+        > =>
+          (value.kind === 'turn_settled' &&
+            sameCorrelation(value.correlation, message.correlation)) ||
+          (value.kind === 'worker_error' && (value.correlation === undefined ||
+            sameCorrelation(value.correlation, message.correlation)))
         );
       }
       await this.completeFromData(run, result);
@@ -790,7 +803,7 @@ export class ChildRunRegistry {
         contextPersistenceError: result.capture.contextPersistenceError,
       }),
     };
-    await this.completeLocal(run, terminal, result.durable);
+    await this.completeLocal(run, terminal, result.durable, undefined, true);
   }
 
   private async completeLocal(
@@ -798,6 +811,7 @@ export class ChildRunRegistry {
     terminal: AsyncAgentTerminalResult,
     durable: boolean,
     error?: string,
+    gracefulClose = false,
   ): Promise<void> {
     if (run.terminal === undefined) {
       run.terminal = terminal;
@@ -813,7 +827,7 @@ export class ChildRunRegistry {
     if (run.finalizing === undefined) {
       run.finalizing = (async () => {
         try {
-          await this.terminate(run);
+          await this.terminate(run, gracefulClose);
         } catch (cause) {
           run.settlementDurable = false;
           run.settlementError = errorText(cause);
@@ -837,6 +851,18 @@ export class ChildRunRegistry {
     run.cancelRequested = true;
     this.requestCancellation(run);
     await run.admission;
+    const graceMs = this.deps.options.cancelSettlementGraceMs ??
+      CHILD_SETTLEMENT_GRACE_MS;
+    const startupFinished = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), graceMs);
+      run.startupComplete.promise.then(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+    if (!startupFinished && run.terminal === undefined) {
+      await this.terminateWorker(run);
+    }
     await run.startupComplete.promise;
     const executionAdmission = run.executionAdmission;
     if (executionAdmission !== undefined) {
@@ -880,8 +906,6 @@ export class ChildRunRegistry {
     if (!run.admitted) {
       await this.completeLocal(run, this.terminal(run, 'cancelled'), true);
     } else if (run.terminal === undefined) {
-      const graceMs = this.deps.options.cancelSettlementGraceMs ??
-        CHILD_SETTLEMENT_GRACE_MS;
       const settled = await this.waitForSettlement(run, graceMs);
       if (!settled && run.terminal === undefined) {
         await this.forceSealAfterSettlementDeadline(run);
@@ -974,8 +998,9 @@ export class ChildRunRegistry {
   private sendCommitAcknowledgement(
     run: ChildRun,
     correlation: WorkerCorrelation,
-    accepted: boolean,
-  ): void {
+    result: DataSessionTerminalResult,
+  ): boolean {
+    const accepted = result.accepted && result.durable;
     this.recordExecutionControl(run, {
       kind: 'acknowledgement_requested',
       accepted,
@@ -992,8 +1017,21 @@ export class ChildRunRegistry {
         kind: 'commit_acknowledgement',
         correlation,
         accepted,
+        settlement: {
+          accepted: result.accepted,
+          adopted: result.canonical,
+          durable: result.durable,
+          stateRevision: result.stateRevision,
+          terminalOutcome: {
+            ok: result.outcome.ok,
+            outcome: result.outcome.outcome,
+            stopReason: result.outcome.stopReason,
+            ...(result.outcome.error === undefined ? {} : { error: result.outcome.error }),
+          },
+        },
       });
       this.queueExecutionControl(run, attempted);
+      return true;
     } catch {
       this.queueExecutionControl(run, {
         kind: 'acknowledgement_failed',
@@ -1002,6 +1040,7 @@ export class ChildRunRegistry {
         observedAt: attempted.observedAt,
       });
       // Data has committed the child turn; a closed Worker cannot change that result.
+      return false;
     }
   }
 
@@ -1069,7 +1108,7 @@ export class ChildRunRegistry {
     );
   }
 
-  private terminateWorker(run: ChildRun): Promise<void> {
+  private terminateWorker(run: ChildRun, gracefulClose = false): Promise<void> {
     if (run.physicalCleanup !== undefined) return run.physicalCleanup;
     const supervisor = run.supervisor;
     if (supervisor === undefined) return Promise.resolve();
@@ -1077,7 +1116,28 @@ export class ChildRunRegistry {
       let result: 'complete' | 'failed' = 'complete';
       let cleanupError: unknown;
       try {
-        await supervisor.terminate();
+        const closed = gracefulClose
+          ? await supervisor.close()
+          : (await supervisor.terminate(), undefined);
+        if (
+          closed?.hookFailures !== undefined && closed.hookFailures.length > 0
+        ) {
+          if (run.terminal !== undefined) {
+            run.terminal = {
+              ...run.terminal,
+              runtimeStopFailures: closed.hookFailures.flatMap((failure) =>
+                failure.phase === 'runtime_stop'
+                  ? [{
+                    name: failure.name,
+                    ...(failure.path === undefined ? {} : { path: failure.path }),
+                    phase: 'runtime_stop' as const,
+                    reason: failure.reason,
+                  }]
+                  : []
+              ),
+            };
+          }
+        }
       } catch (error) {
         result = 'failed';
         cleanupError = error;
@@ -1091,8 +1151,8 @@ export class ChildRunRegistry {
     })();
   }
 
-  private async terminate(run: ChildRun): Promise<void> {
-    await this.terminateWorker(run);
+  private async terminate(run: ChildRun, gracefulClose = false): Promise<void> {
+    await this.terminateWorker(run, gracefulClose);
     if (run.descriptor !== undefined) {
       await this.deps.options.data.closeSession(run.sessionId);
       run.descriptor = undefined;

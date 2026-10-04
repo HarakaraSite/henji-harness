@@ -16,6 +16,7 @@ import {
   type DataExecutionAdmitRequest,
   type DataExecutionArtifactMetadataInput,
   type DataExecutionControlInput,
+  type DataExecutionStartupAdmitRequest,
   type DataPrepareProposalRequest,
   type DataProposalToken,
   type DataSealGenerationRequest,
@@ -343,6 +344,17 @@ class DataClient implements DataService {
   executionAdmit(sessionId: string, input: DataExecutionAdmitRequest) {
     return this.value<DataExecutionAdmissionResult>({
       kind: 'execution_admit',
+      sessionId,
+      input,
+    });
+  }
+
+  executionAdmitStartup(
+    sessionId: string,
+    input: DataExecutionStartupAdmitRequest,
+  ) {
+    return this.value<DataExecutionAdmissionResult>({
+      kind: 'execution_admit_startup',
       sessionId,
       input,
     });

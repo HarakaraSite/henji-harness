@@ -10,6 +10,8 @@ import type { AgentConfigurationChoice } from '../configuration/configuration_re
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { LiveModelCatalogFact } from '../provider/live_model_catalog.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
+import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
+import type { WorkerConfigurationSnapshot } from '../worker/worker_configuration.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCorrelation,
@@ -79,6 +81,15 @@ export type DataExecutionAdmitRequest = Readonly<{
   spawnCallId?: string;
 }>;
 
+/** Admission using the real Worker composition sent before startup hooks run. */
+export type DataExecutionStartupAdmitRequest =
+  & DataExecutionAdmitRequest
+  & Readonly<{
+    configuration: WorkerConfigurationSnapshot;
+    maxSteps: number;
+    contextSnapshot?: WorkerContextSnapshot;
+  }>;
+
 export type DataPrepareProposalRequest = Readonly<{
   proposalId: string;
   executionId: string;
@@ -137,6 +148,10 @@ export interface DataService {
   executionAdmit(
     sessionId: string,
     input: DataExecutionAdmitRequest,
+  ): Promise<DataExecutionAdmissionResult>;
+  executionAdmitStartup(
+    sessionId: string,
+    input: DataExecutionStartupAdmitRequest,
   ): Promise<DataExecutionAdmissionResult>;
   recordExecutionControl(
     sessionId: string,
@@ -256,6 +271,14 @@ export type DataWorkerRequest =
       kind: 'execution_admit';
       sessionId: string;
       input: DataExecutionAdmitRequest;
+    }
+  >
+  | Readonly<
+    {
+      id: number;
+      kind: 'execution_admit_startup';
+      sessionId: string;
+      input: DataExecutionStartupAdmitRequest;
     }
   >
   | Readonly<{

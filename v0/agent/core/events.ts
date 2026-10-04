@@ -11,6 +11,7 @@ import type {
   FailureDiagnosticPersistenceErrorCode,
   FailureDiagnosticV1,
 } from '../session/failure_diagnostic.ts';
+import type { AfterTurnHookEffect, RuntimeStopHookEffect, ToolHookEffect } from './hook_effect.ts';
 import { PresentationDeliveryError as EventDeliveryError } from '../../presentation/contract.ts';
 
 // Compatibility export: core delivery and the presentation boundary intentionally share one
@@ -57,6 +58,7 @@ export type AgentEvent =
     readonly kind: 'tool_call';
     readonly turn: number;
     readonly call: ToolCall;
+    readonly hookEffect?: ToolHookEffect;
     readonly executionId?: string;
     readonly workerSequence?: number;
     readonly requestKey?: AgentRequestKey;
@@ -65,6 +67,7 @@ export type AgentEvent =
     readonly kind: 'tool_result';
     readonly turn: number;
     readonly result: ToolResultContent;
+    readonly hookEffect?: ToolHookEffect;
     readonly executionId?: string;
     readonly workerSequence?: number;
     readonly requestKey?: AgentRequestKey;
@@ -78,6 +81,18 @@ export type AgentEvent =
     readonly executionId?: string;
     readonly workerSequence?: number;
     readonly requestKey?: AgentRequestKey;
+  }
+  | {
+    /** Data-owned semantic sidecar appended after successful turn settlement. */
+    readonly kind: 'hook_context_update';
+    readonly turn: number;
+    readonly effect: AfterTurnHookEffect;
+  }
+  | {
+    /** Ordered runtime_stop outcomes retained after an execution settles. */
+    readonly kind: 'hook_lifecycle_update';
+    readonly turn: number;
+    readonly effect: RuntimeStopHookEffect;
   }
   | {
     readonly kind: 'steering_message';

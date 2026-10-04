@@ -1,4 +1,5 @@
 import { captureFailureDetails } from '../core/failure_details.ts';
+import type { AfterTurnSettlement } from '../core/hook_effect.ts';
 import { WorkerProcessExecutor } from './worker_process_executor.ts';
 import {
   type DataValue,
@@ -6,9 +7,11 @@ import {
   type WorkerChildProgressMessage,
   type WorkerCorrelation,
   type WorkerEffectObservation,
+  type WorkerHookFailure,
   type WorkerHostCommand,
   type WorkerReadyMessage,
   type WorkerRuntimeEvent,
+  type WorkerRuntimeIdentityInput,
   type WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
@@ -42,6 +45,7 @@ import { recordWorkerStage, type WorkerStageName } from './worker_stage_probe.ts
 import { TurnCancelledError } from '../core/cancellation.ts';
 import { createAgentDataPortClient } from '../data/agent_data_client.ts';
 import type { AgentDataPortClient } from '../data/agent_data_contract.ts';
+import type { HookRuntimeIdentity } from '../hook_api.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -66,6 +70,7 @@ const preparingTurns = new Map<
   string,
   { readonly correlation: WorkerCorrelation; cancelRequested: boolean }
 >();
+let activeTurnPromise: Promise<void> | undefined;
 
 const reportAuxiliaryStage = (
   stage: WorkerStageName,
@@ -85,7 +90,7 @@ const reportAuxiliaryStage = (
 
 type PendingAcknowledgement = {
   readonly correlation: WorkerCorrelation;
-  readonly finish: (accepted: boolean) => void;
+  readonly finish: (value: boolean | AfterTurnSettlement) => void;
 };
 
 const acknowledgements = new Map<string, PendingAcknowledgement>();
@@ -230,16 +235,16 @@ const waitForAcknowledgement = (
   kind: 'commit' | 'checkpoint',
   correlation: WorkerCorrelation,
   signal?: AbortSignal,
-): Promise<boolean> => {
+): Promise<boolean | AfterTurnSettlement> => {
   const key = acknowledgementKey(kind, correlation);
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean | AfterTurnSettlement>((resolve) => {
     let settled = false;
-    const finish = (accepted: boolean): void => {
+    const finish = (value: boolean | AfterTurnSettlement): void => {
       if (settled) return;
       settled = true;
       acknowledgements.delete(key);
       signal?.removeEventListener('abort', onAbort);
-      resolve(accepted);
+      resolve(value);
     };
     const onAbort = (): void => finish(false);
     acknowledgements.set(key, { correlation, finish });
@@ -248,7 +253,7 @@ const waitForAcknowledgement = (
 };
 
 const awaitCheckpointAcknowledgement = (
-  acknowledgement: Promise<boolean>,
+  acknowledgement: Promise<boolean | AfterTurnSettlement>,
   signal: AbortSignal,
 ): Promise<boolean> => {
   if (signal.aborted) {
@@ -265,7 +270,9 @@ const awaitCheckpointAcknowledgement = (
     };
     const onAbort = (): void => finish(false);
     signal.addEventListener('abort', onAbort, { once: true });
-    acknowledgement.then(finish, (error: unknown) => {
+    acknowledgement.then((value) => {
+      finish(typeof value === 'boolean' ? value : value.accepted);
+    }, (error: unknown) => {
       if (settled) return;
       settled = true;
       signal.removeEventListener('abort', onAbort);
@@ -409,7 +416,21 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     post({ kind: 'proposal_ready', ...barrier });
     return await waitForAcknowledgement('commit', correlation);
   },
-  turnFailed: (correlation, outcome, contextManifest) => {
+  afterTurnContext: (update) => requireAgentDataClient().afterTurn(update),
+  postSettlementHook: (update) => requireAgentDataClient().postSettlementHook(update),
+  settlementFailure: (correlation, error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    post({
+      kind: 'worker_error',
+      correlation,
+      stage: 'turn',
+      message: `after_turn context save failed: ${message}`,
+      details: captureFailureDetails(error, {
+        operation: 'after_turn_context',
+      }),
+    });
+  },
+  turnFailed: async (correlation, outcome, contextManifest) => {
     sendRequestCount(correlation, outcome);
     const executionId = processContext?.executionId;
     if (executionId === undefined) {
@@ -423,6 +444,7 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
     });
     post({ kind: 'failure_ready', executionId, ...barrier });
+    return await waitForAcknowledgement('commit', correlation);
   },
   turnSettled: (correlation) => post({ kind: 'turn_settled', correlation }),
 });
@@ -453,6 +475,7 @@ const createGeneration = async (
   toolFilter: readonly string[] | undefined = undefined,
   privateStateFromTurn = 1,
   enableAsyncAgents = true,
+  runtimeIdentityInput: WorkerRuntimeIdentityInput = { role: 'root' },
 ): Promise<WorkerGeneration> => {
   const workspace = await resolveWorkspace(workspaceRoot);
   const instructionSnapshot = await discoverAgentInstructionSnapshot(
@@ -530,6 +553,27 @@ const createGeneration = async (
     ),
     runtimeFacts: Object.freeze({ cwd: workspace.root }),
   });
+  const runtimeIdentity: HookRuntimeIdentity = runtimeIdentityInput.role === 'child'
+    ? Object.freeze({
+      component: 'agent',
+      agentName: configured.snapshot.agent.name,
+      role: 'child',
+      workspaceRoot: workspace.root,
+      sessionId: correlation.session,
+      workerGeneration: correlation.workerGeneration,
+      parentExecutionId: runtimeIdentityInput.parentExecutionId,
+      ...(runtimeIdentityInput.spawnCallId === undefined
+        ? {}
+        : { spawnCallId: runtimeIdentityInput.spawnCallId }),
+    })
+    : Object.freeze({
+      component: 'agent',
+      agentName: configured.snapshot.agent.name,
+      role: 'root',
+      workspaceRoot: workspace.root,
+      sessionId: correlation.session,
+      workerGeneration: correlation.workerGeneration,
+    });
   return new WorkerGeneration(
     composition,
     correlation.session,
@@ -553,6 +597,9 @@ const createGeneration = async (
     reportAuxiliaryStage,
     privateStateFromTurn,
     configured.snapshot,
+    configured.hooks,
+    runtimeIdentity,
+    configured.hookProviderEvidenceScope,
   );
 };
 
@@ -628,6 +675,73 @@ const requestAsyncAgent = (
       ...(callId === undefined ? {} : { callId }),
     });
   });
+
+const handleTurn = async (
+  command: Extract<WorkerHostCommand, { kind: 'turn' }>,
+): Promise<void> => {
+  if (generation === undefined) {
+    post({
+      kind: 'worker_error',
+      correlation: command.correlation,
+      stage: 'worker_command',
+      message: 'Worker generation is not started',
+    });
+    return;
+  }
+  if (agentDataClient === undefined || command.executionId === undefined) {
+    post({
+      kind: 'worker_error',
+      correlation: command.correlation,
+      stage: 'worker_command',
+      message: 'Worker generation requires an execution id and Agent Data port',
+    });
+    return;
+  }
+  const dataClient = agentDataClient;
+  const workerGeneration = generation;
+  const preparationKey = preparingTurnKey(command.correlation);
+  const preparation = {
+    correlation: command.correlation,
+    cancelRequested: false,
+  };
+  preparingTurns.set(preparationKey, preparation);
+  processContext = {
+    correlation: command.correlation,
+    executionId: command.executionId,
+  };
+  try {
+    const generationBasis = await dataClient.generationContext(
+      command.correlation,
+    );
+    dataClient.beginExecution(
+      command.executionId,
+      command.correlation,
+      diagnosticStageBuffer,
+      auxiliaryStageGapMs,
+    );
+    preparingTurns.delete(preparationKey);
+    await workerGeneration.runTurn(
+      command.correlation,
+      command.task,
+      generationBasis.recalledContext,
+      command.chatgptRegistrationId,
+      generationBasis,
+      preparation.cancelRequested,
+      command.executionId,
+    );
+  } catch (error) {
+    post({
+      kind: 'worker_error',
+      correlation: command.correlation,
+      stage: 'turn',
+      message: error instanceof Error ? error.message : String(error),
+      details: captureFailureDetails(error, { operation: 'worker_turn' }),
+    });
+  } finally {
+    preparingTurns.delete(preparationKey);
+    processContext = undefined;
+  }
+};
 
 const handle = async (command: WorkerHostCommand): Promise<void> => {
   if (command.kind === 'process_response' || command.kind === 'process_event') {
@@ -715,7 +829,28 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           command.toolFilter,
           generationBasis.privateStateFromTurn,
           command.enableAsyncAgents ?? true,
+          command.runtimeIdentity ?? { role: 'root' },
         );
+        if (command.notifyStartupPrepared) {
+          const startupConfiguration = workerGeneration.configuration;
+          const startupContext = workerGeneration.startupSnapshot;
+          if (
+            startupConfiguration === undefined ||
+            startupContext.context === undefined
+          ) {
+            throw new Error(
+              'Worker startup composition snapshot is unavailable',
+            );
+          }
+          post({
+            kind: 'startup_prepared',
+            correlation: command.correlation,
+            configuration: startupConfiguration,
+            manifest: workerGeneration.manifest,
+            startupSnapshot: startupContext,
+          });
+        }
+        await workerGeneration.start();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (error instanceof WorkerConfigurationRejectedError) {
@@ -824,65 +959,12 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       return;
     }
     case 'turn': {
-      if (generation === undefined) {
-        post({
-          kind: 'worker_error',
-          correlation: command.correlation,
-          stage: 'worker_command',
-          message: 'Worker generation is not started',
-        });
-        return;
-      }
-      if (agentDataClient === undefined || command.executionId === undefined) {
-        post({
-          kind: 'worker_error',
-          correlation: command.correlation,
-          stage: 'worker_command',
-          message: 'Worker generation requires an execution id and Agent Data port',
-        });
-        return;
-      }
-      const dataClient = agentDataClient;
-      const preparationKey = preparingTurnKey(command.correlation);
-      const preparation = {
-        correlation: command.correlation,
-        cancelRequested: false,
-      };
-      preparingTurns.set(preparationKey, preparation);
-      processContext = {
-        correlation: command.correlation,
-        executionId: command.executionId,
-      };
+      const currentTurn = handleTurn(command);
+      activeTurnPromise = currentTurn;
       try {
-        const generationBasis = await dataClient.generationContext(
-          command.correlation,
-        );
-        dataClient.beginExecution(
-          command.executionId,
-          command.correlation,
-          diagnosticStageBuffer,
-          auxiliaryStageGapMs,
-        );
-        preparingTurns.delete(preparationKey);
-        await generation.runTurn(
-          command.correlation,
-          command.task,
-          generationBasis.recalledContext,
-          command.chatgptRegistrationId,
-          generationBasis,
-          preparation.cancelRequested,
-        );
-      } catch (error) {
-        post({
-          kind: 'worker_error',
-          correlation: command.correlation,
-          stage: 'turn',
-          message: error instanceof Error ? error.message : String(error),
-          details: captureFailureDetails(error, { operation: 'worker_turn' }),
-        });
+        await currentTurn;
       } finally {
-        preparingTurns.delete(preparationKey);
-        processContext = undefined;
+        if (activeTurnPromise === currentTurn) activeTurnPromise = undefined;
       }
       return;
     }
@@ -968,7 +1050,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         acknowledgement !== undefined &&
         sameCorrelation(acknowledgement.correlation, command.correlation)
       ) {
-        acknowledgement.finish(command.accepted);
+        acknowledgement.finish(command.settlement ?? command.accepted);
       }
       return;
     }
@@ -983,15 +1065,63 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       }
       return;
     }
-    case 'close':
+    case 'close': {
+      for (const preparation of preparingTurns.values()) {
+        preparation.cancelRequested = true;
+      }
       generation?.cancelActiveTurn();
-      await processExecutor?.close();
-      await generation?.close();
-      agentDataClient?.close();
+      await activeTurnPromise?.catch(() => {});
+      const hookFailures: WorkerHookFailure[] = [];
+      try {
+        hookFailures.push(...await (generation?.stop('normal_close') ?? []));
+      } catch (error) {
+        hookFailures.push({
+          name: 'worker-runtime',
+          phase: 'runtime_stop',
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const cleanupFailures: {
+        readonly resource: string;
+        readonly reason: string;
+      }[] = [];
+      try {
+        await processExecutor?.close();
+      } catch (error) {
+        cleanupFailures.push({
+          resource: 'process executor',
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+      try {
+        await generation?.close();
+      } catch (error) {
+        cleanupFailures.push({
+          resource: 'tool registry',
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+      try {
+        agentDataClient?.close();
+      } catch (error) {
+        cleanupFailures.push({
+          resource: 'Agent Data port',
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
       agentDataClient = undefined;
-      post({ kind: 'closed', correlation: command.correlation });
+      post({
+        kind: 'closed',
+        correlation: command.correlation,
+        ...(hookFailures.length === 0 ? {} : { hookFailures }),
+        ...(generation?.runtimeStopResult === undefined ? {} : {
+          runtimeStopResult: generation.runtimeStopResult,
+        }),
+        ...(cleanupFailures.length === 0 ? {} : { cleanupFailures }),
+      });
       scope.close();
       return;
+    }
   }
 };
 

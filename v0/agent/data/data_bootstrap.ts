@@ -186,6 +186,12 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
           await data.executionAdmit(request.sessionId, request.input),
         );
         return;
+      case 'execution_admit_startup':
+        replyValue(
+          request.id,
+          await data.executionAdmitStartup(request.sessionId, request.input),
+        );
+        return;
       case 'execution_control':
         replyValue(
           request.id,

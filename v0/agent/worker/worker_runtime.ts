@@ -1,8 +1,22 @@
 import type { AgentEvent, AgentEventSink } from '../core/events.ts';
-import { type LoopOutcome, type Message } from '../core/contracts.ts';
+import { type JsonValue, type LoopOutcome, type Message } from '../core/contracts.ts';
+import type {
+  AfterTurnHookContribution,
+  AfterTurnHookEffect,
+  AfterTurnSettlement,
+  HookEffectFailure,
+  HookEffectSource,
+  RuntimeStopHookEffect,
+  RuntimeStopHookResult,
+  ToolHookEffect,
+} from '../core/hook_effect.ts';
+import { causalTranscriptIndex } from '../session/session_store.ts';
 import { projectSemanticContext } from '../session/semantic_context.ts';
 import { indexSessionHistory } from '../session/session_history.ts';
-import { type SemanticContextCheckpointV1 } from '../session/session_store.ts';
+import {
+  type SemanticContextCheckpointV1,
+  validateSemanticContextCheckpoint,
+} from '../session/session_store.ts';
 import { runAgentTurn } from '../core/loop.ts';
 import {
   ParentTurnExecutionContext,
@@ -58,7 +72,37 @@ import {
 } from './recalled_execution_context.ts';
 import type { WorkerStageName } from './worker_stage_probe.ts';
 import type { AgentGenerationContextBasis } from '../data/agent_data_contract.ts';
+import type {
+  AgentAfterTurnContextUpdate,
+  AgentPostSettlementHookUpdate,
+} from '../data/agent_data_contract.ts';
 import type { WorkerConfigurationSnapshot } from './worker_configuration.ts';
+import type { LoadedWorkerHook } from '../../hooks/hook_loader.ts';
+import type { HookProviderEvidenceScope } from '../provider/auxiliary_request.ts';
+import { runHookPhase } from '../../hooks/hook_runner.ts';
+import {
+  type AfterToolInput,
+  type AfterTurnInput,
+  type BeforeToolInput,
+  type HookContextSnapshot,
+  type HookRuntimeIdentity,
+  type HookToolResult,
+  type HookTranscriptTurn,
+} from '../hook_api.ts';
+import {
+  type ConfigurationRejection,
+  configurationRejection,
+} from '../configuration/agent_configuration.ts';
+import {
+  defineInstructionComponent,
+  type InstructionComponent,
+} from '../instructions/component.ts';
+import {
+  compareAgentResourceIdentities,
+  createAgentResourceIdentity,
+  createAgentResourceSelection,
+} from '../definitions/resource_identity.ts';
+import type { WorkerHookFailure } from './worker_protocol.ts';
 
 export interface WorkerGenerationPort {
   readonly runtimeEvent: (
@@ -87,12 +131,22 @@ export interface WorkerGenerationPort {
     correlation: WorkerCorrelation,
     proposal: WorkerCommitProposalMessage,
     signal: AbortSignal,
+  ) => Promise<boolean | AfterTurnSettlement>;
+  readonly afterTurnContext?: (
+    update: AgentAfterTurnContextUpdate,
   ) => Promise<boolean>;
+  readonly postSettlementHook?: (
+    update: AgentPostSettlementHookUpdate,
+  ) => Promise<boolean>;
+  readonly settlementFailure?: (
+    correlation: WorkerCorrelation,
+    error: unknown,
+  ) => void;
   readonly turnFailed: (
     correlation: WorkerCorrelation,
     outcome: LoopOutcome,
     contextManifest?: import('../history/context_attribution.ts').ExecutionContextManifestV2,
-  ) => void | PromiseLike<void>;
+  ) => void | boolean | AfterTurnSettlement | PromiseLike<void | boolean | AfterTurnSettlement>;
   /** Synchronous Core receipt emitted only after runtime turn cleanup clears `active`. */
   readonly turnSettled?: (correlation: WorkerCorrelation) => void;
 }
@@ -101,6 +155,67 @@ type TurnEndEvent = Extract<AgentEvent, { readonly kind: 'turn_end' }>;
 
 const snapshotMessages = (messages: readonly Message[]): Message[] =>
   structuredClone(messages) as Message[];
+
+const isHookJsonValue = (
+  value: unknown,
+  ancestors = new Set<object>(),
+): value is JsonValue => {
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean'
+  ) return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object' || ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = (Array.isArray(value) ? value : Object.values(value)).every((
+    part,
+  ) => isHookJsonValue(part, ancestors));
+  ancestors.delete(value);
+  return valid;
+};
+
+const hookFailure = (
+  hook: LoadedWorkerHook | undefined,
+  phase: HookEffectFailure['phase'],
+  error: unknown,
+): HookEffectFailure => ({
+  name: hook?.selection.name ?? 'hook',
+  ...(hook?.selection.path === undefined ? {} : { path: hook.selection.path }),
+  phase,
+  reason: errorText(error),
+});
+
+const hookFailureDescription = (failure: HookEffectFailure): string =>
+  `${failure.phase} hook ${failure.name}${
+    failure.path === undefined ? '' : ` (${failure.path})`
+  }: ${failure.reason}`;
+
+const hookEffectSource = (
+  name: string,
+  path: string | undefined,
+): HookEffectSource => ({ name, ...(path === undefined ? {} : { path }) });
+
+const freezeData = <T>(value: T): T => {
+  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeData(child);
+    Object.freeze(value);
+  }
+  return value;
+};
+
+/** Structural turn ranges retain canonical message references without copying their bodies. */
+const hookTranscriptTurns = (
+  messages: readonly Message[],
+): readonly HookTranscriptTurn[] => {
+  const indexed = causalTranscriptIndex(messages);
+  return Object.freeze((indexed?.turns ?? []).map((turn) =>
+    Object.freeze({
+      turn: turn.turn,
+      messages: Object.freeze(
+        messages.slice(turn.start, turn.end).map((message) => freezeData(message)),
+      ),
+    })
+  ));
+};
 
 const failureOutcome = (
   task: string,
@@ -119,29 +234,46 @@ const failureOutcome = (
   transcript: snapshotMessages(transcript),
 });
 
+const withTerminalOutcome = (
+  draft: LoopOutcome,
+  terminalOutcome: AfterTurnSettlement['terminalOutcome'],
+  transcript: readonly Message[] = draft.transcript,
+): LoopOutcome => {
+  const draftWithoutError = { ...draft };
+  // Data's optional error is authoritative too: an omitted value clears a draft error.
+  delete draftWithoutError.error;
+  return {
+    ...draftWithoutError,
+    ...terminalOutcome,
+    transcript,
+  };
+};
+
 const rejectedCommitOutcome = (
   task: string,
-  transcript: readonly Message[],
   outcome: LoopOutcome,
-): LoopOutcome => ({
-  ok: false,
-  task,
-  outcome: 'contract_failure',
-  stopReason: 'contract_failure',
-  error: 'Host did not acknowledge the commit proposal',
-  steps: outcome.steps,
-  toolCallCount: outcome.toolCallCount,
-  toolResultCount: outcome.toolResultCount,
-  transcript: snapshotMessages(transcript),
-});
+  terminalOutcome?: AfterTurnSettlement['terminalOutcome'],
+): LoopOutcome =>
+  withTerminalOutcome(
+    { ...outcome, task },
+    terminalOutcome ?? {
+      ok: false,
+      outcome: 'contract_failure',
+      stopReason: 'contract_failure',
+      error: 'Host did not acknowledge the commit proposal',
+    },
+  );
 
 const isEffect = (event: AgentEvent): event is WorkerEffectObservation =>
   event.kind === 'tool_call' || event.kind === 'tool_result' ||
   event.kind === 'tool_progress';
 
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 /** One ephemeral Worker generation with local turn/context semantics and Host proposal ports. */
 export class WorkerGeneration {
-  private committedTranscript: Message[] = [];
+  private committedTranscript: readonly Message[] = [];
   private nextTurn = 1;
   private checkpoint: SemanticContextCheckpointV1 | undefined;
   private activeCancellation: TurnCancellationOwner | null = null;
@@ -149,9 +281,35 @@ export class WorkerGeneration {
   private active = false;
   private rootModelSelection: ModelSelection;
   private privateStateFromTurn: number;
+  private composition: WorkerAgentComposition;
+  private hooks: readonly LoadedWorkerHook[];
+  private startupSnapshotValue: {
+    readonly instructionSource?: AgentInstructionSource;
+    readonly skillNames: readonly string[];
+    readonly context?: WorkerContextSnapshot;
+  };
+  private configurationValue: WorkerConfigurationSnapshot | undefined;
+  private readonly runtimeIdentity: HookRuntimeIdentity | undefined;
+  private readonly startupContextContributions: InstructionComponent[] = [];
+  private started = false;
+  private stopped = false;
+  private stopFailures: readonly WorkerHookFailure[] = Object.freeze([]);
+  private stopResult: RuntimeStopHookResult | undefined;
+  private lastSettlement: {
+    readonly executionId: string;
+    readonly correlation: WorkerCorrelation;
+    readonly turn: number;
+    readonly settlement: AfterTurnSettlement;
+    readonly providerRequestOrdinal: number;
+  } | undefined;
+  private postSettlementProviderEvidence: {
+    readonly executionId: string;
+    readonly recorder: ProviderEvidenceRecorder;
+    readonly observations: ProviderEvidenceObservation[];
+  } | undefined;
 
   constructor(
-    private readonly composition: WorkerAgentComposition,
+    composition: WorkerAgentComposition,
     private readonly sessionId: string,
     private readonly port: WorkerGenerationPort,
     initialTranscript: readonly Message[] = [],
@@ -167,15 +325,23 @@ export class WorkerGeneration {
       authProfile: ModelSelection['authProfile'],
       registrationId?: string | null,
     ) => Promise<CredentialAvailabilityStatus> = () => Promise.resolve('unknown'),
-    readonly startupSnapshot: {
+    startupSnapshot: {
       readonly instructionSource?: AgentInstructionSource;
       readonly skillNames: readonly string[];
       readonly context?: WorkerContextSnapshot;
     } = { skillNames: [] },
     private readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
     initialPrivateStateFromTurn = 1,
-    readonly configuration?: WorkerConfigurationSnapshot,
+    configuration?: WorkerConfigurationSnapshot,
+    hooks: readonly LoadedWorkerHook[] = [],
+    runtimeIdentity?: HookRuntimeIdentity,
+    private readonly hookProviderEvidenceScope: HookProviderEvidenceScope = {},
   ) {
+    this.composition = composition;
+    this.hooks = hooks;
+    this.startupSnapshotValue = startupSnapshot;
+    this.configurationValue = configuration;
+    this.runtimeIdentity = runtimeIdentity;
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
     this.checkpoint = initialCheckpoint === undefined
@@ -183,6 +349,343 @@ export class WorkerGeneration {
       : structuredClone(initialCheckpoint);
     this.rootModelSelection = structuredClone(initialModelSelection);
     this.privateStateFromTurn = initialPrivateStateFromTurn;
+  }
+
+  get startupSnapshot(): {
+    readonly instructionSource?: AgentInstructionSource;
+    readonly skillNames: readonly string[];
+    readonly context?: WorkerContextSnapshot;
+  } {
+    return this.startupSnapshotValue;
+  }
+
+  get configuration(): WorkerConfigurationSnapshot | undefined {
+    return this.configurationValue;
+  }
+
+  get runtimeStopResult(): RuntimeStopHookResult | undefined {
+    return this.stopResult;
+  }
+
+  private postSettlementEvidenceForCurrentExecution(): {
+    readonly recorder: ProviderEvidenceRecorder;
+    readonly observations: ProviderEvidenceObservation[];
+  } | undefined {
+    const settlement = this.lastSettlement;
+    if (settlement === undefined) return undefined;
+    if (this.postSettlementProviderEvidence?.executionId !== settlement.executionId) {
+      const observations: ProviderEvidenceObservation[] = [];
+      const recorder = new ProviderEvidenceRecorder(
+        crypto.randomUUID().toLowerCase(),
+        settlement.turn,
+        new Date().toISOString(),
+        (observation) => {
+          observations.push(observation);
+          return undefined;
+        },
+        false,
+        settlement.providerRequestOrdinal,
+      );
+      this.postSettlementProviderEvidence = {
+        executionId: settlement.executionId,
+        recorder,
+        observations,
+      };
+    }
+    return this.postSettlementProviderEvidence;
+  }
+
+  /** Apply startup hooks once, before this generation can report ready. */
+  async start(): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+    const accepted: LoadedWorkerHook[] = [];
+    const startupRejections: ConfigurationRejection[] = [];
+    let turns: readonly HookTranscriptTurn[] | undefined;
+    for (const hook of this.hooks) {
+      try {
+        await runHookPhase(
+          [hook],
+          'runtime_start',
+          () => {
+            turns ??= hookTranscriptTurns(this.committedTranscript);
+            return {
+              runtime: this.requireRuntimeIdentity(),
+              context: this.hookContext(turns),
+            };
+          },
+          ({ name, path, result }) => this.applyStartupContext(name, path, result),
+        );
+        accepted.push(hook);
+      } catch (error) {
+        const reason = `runtime_start: ${errorText(error)}`;
+        const rejection = configurationRejection(
+          'hook',
+          hook.selection.name,
+          new Error(reason),
+          hook.selection.path,
+        );
+        startupRejections.push(
+          Object.freeze({ ...rejection, field: 'runtime_start' }),
+        );
+      }
+    }
+    this.hooks = Object.freeze(accepted);
+    this.configurationValue = this.configurationValue === undefined ? undefined : Object.freeze({
+      ...this.configurationValue,
+      systemInstruction: this.composition.systemInstruction ?? '',
+      instructionComponents: structuredClone(
+        this.composition.instructionComponents ?? [],
+      ),
+      hooks: Object.freeze(
+        this.configurationValue.hooks.filter(({ name }) =>
+          accepted.some((hook) => hook.selection.name === name)
+        ),
+      ),
+      rejections: Object.freeze([
+        ...this.configurationValue.rejections,
+        ...startupRejections,
+      ]),
+    });
+  }
+
+  /** Run all registered stop handlers, retaining each failure while continuing cleanup. */
+  async stop(reason: string): Promise<readonly WorkerHookFailure[]> {
+    if (this.stopped) return this.stopFailures;
+    this.stopped = true;
+    const failures: WorkerHookFailure[] = [];
+    const contributions: RuntimeStopHookEffect['contributions'][number][] = [];
+    const settlement = this.lastSettlement?.settlement;
+    const settledEvidence = this.postSettlementEvidenceForCurrentExecution();
+    const executionlessObservations: ProviderEvidenceObservation[] = [];
+    const providerEvidence = settledEvidence?.recorder ?? new ProviderEvidenceRecorder(
+      crypto.randomUUID().toLowerCase(),
+      this.lastSettlement?.turn ?? this.nextTurn - 1,
+      new Date().toISOString(),
+      (observation) => {
+        executionlessObservations.push(observation);
+        return undefined;
+      },
+      false,
+    );
+    const providerObservations = settledEvidence?.observations ?? executionlessObservations;
+    const priorEvidence = this.hookProviderEvidenceScope.current;
+    const currentEvidence = {
+      recorder: providerEvidence,
+      ...(this.reportAuxiliaryStage === undefined ? {} : {
+        reportAuxiliaryStage: this.reportAuxiliaryStage,
+      }),
+    };
+    this.hookProviderEvidenceScope.current = currentEvidence;
+    let context: HookContextSnapshot | undefined;
+    for (const hook of this.hooks.filter((entry) => entry.handlers.runtime_stop !== undefined)) {
+      try {
+        await runHookPhase(
+          [hook],
+          'runtime_stop',
+          () => ({
+            runtime: this.requireRuntimeIdentity(),
+            reason,
+            context: context ??= this.hookContext(),
+          }),
+          () => {},
+        );
+        contributions.push(Object.freeze({
+          name: hook.selection.name,
+          ...(hook.selection.path === undefined ? {} : { path: hook.selection.path }),
+          outcome: 'completed',
+        }));
+      } catch (error) {
+        const reason = errorText(error);
+        contributions.push(Object.freeze({
+          name: hook.selection.name,
+          ...(hook.selection.path === undefined ? {} : { path: hook.selection.path }),
+          outcome: 'failed',
+          reason,
+        }));
+        failures.push(Object.freeze({
+          name: hook.selection.name,
+          ...(hook.selection.path === undefined ? {} : { path: hook.selection.path }),
+          phase: 'runtime_stop',
+          reason,
+        }));
+      }
+    }
+    this.hookProviderEvidenceScope.current = priorEvidence;
+    const effect: RuntimeStopHookEffect = freezeData({
+      phase: 'runtime_stop',
+      ...(settlement === undefined ? {} : { settlement }),
+      contributions,
+    });
+    this.stopResult = Object.freeze({
+      effect,
+      providerObservations: Object.freeze(providerObservations),
+    });
+    if (
+      contributions.length > 0 && this.lastSettlement !== undefined &&
+      this.port.postSettlementHook !== undefined
+    ) {
+      try {
+        const saved = await this.port.postSettlementHook({
+          executionId: this.lastSettlement.executionId,
+          correlation: this.lastSettlement.correlation,
+          turn: this.lastSettlement.turn,
+          settlement: this.lastSettlement.settlement,
+          effect,
+          providerObservations,
+        });
+        if (!saved) throw new Error('Data owner did not acknowledge runtime_stop effects');
+      } catch (error) {
+        failures.push(Object.freeze({
+          name: 'worker-runtime',
+          phase: 'runtime_stop',
+          reason: `runtime_stop effect persistence failed: ${errorText(error)}`,
+        }));
+      }
+    }
+    this.stopFailures = Object.freeze(failures);
+    return this.stopFailures;
+  }
+
+  private requireRuntimeIdentity(): HookRuntimeIdentity {
+    if (this.runtimeIdentity === undefined) {
+      throw new Error('Worker hook runtime identity is unavailable');
+    }
+    return this.runtimeIdentity;
+  }
+
+  private applyStartupContext(
+    hookName: string,
+    hookPath: string | undefined,
+    result: import('../hook_api.ts').ContextAddition | void,
+  ): void {
+    if (result === undefined) return;
+    if (
+      typeof result !== 'object' || result === null ||
+      !Array.isArray(result.context) ||
+      !result.context.every((part) => typeof part === 'string')
+    ) {
+      throw new Error('runtime_start must return a context string array');
+    }
+    const text = result.context.join('\n');
+    if (text.trim().length === 0) return;
+    const sourceLocator = JSON.stringify({
+      hook: hookName,
+      ...(hookPath === undefined ? {} : { path: hookPath }),
+    });
+    const component = Object.freeze({
+      ...defineInstructionComponent(
+        `instruction:runtime-start-hook-${this.startupContextContributions.length + 1}`,
+        text,
+      ),
+      sourceLocator,
+    });
+    this.startupContextContributions.push(component);
+    this.rebuildStartupInstruction();
+  }
+
+  private rebuildStartupInstruction(): void {
+    if (this.startupContextContributions.length === 0) return;
+    const contributionIds = new Set(
+      this.startupContextContributions.map((component) => component.identity),
+    );
+    const priorComponents = (this.composition.instructionComponents ?? [])
+      .filter((entry) => !contributionIds.has(entry.identity));
+    const instructionComponents = Object.freeze([
+      ...priorComponents,
+      ...this.startupContextContributions,
+    ]);
+    const systemInstruction = instructionComponents.map((entry) => entry.text)
+      .join('\n\n');
+    const instructionResources = [
+      ...new Set([
+        ...this.composition.resolved.capabilities.instructions,
+        ...this.startupContextContributions.map((component) => component.identity),
+      ]),
+    ].sort(compareAgentResourceIdentities);
+    const resources = [
+      ...new Set([
+        ...this.composition.resolved.resourceSelection.resources.map(String),
+        ...this.startupContextContributions.map((component) => String(component.identity)),
+      ]),
+    ].map((identity) => createAgentResourceIdentity(identity))
+      .sort(compareAgentResourceIdentities);
+    const manifestResources = [
+      ...new Set([
+        ...this.composition.manifest.resources,
+        ...this.startupContextContributions.map((component) => String(component.identity)),
+      ]),
+    ].sort();
+    const resolved = Object.freeze({
+      ...this.composition.resolved,
+      systemInstruction,
+      capabilities: Object.freeze({
+        ...this.composition.resolved.capabilities,
+        instructions: Object.freeze(instructionResources),
+      }),
+      resourceSelection: createAgentResourceSelection(
+        resources.map(String),
+        this.composition.maxSteps,
+      ),
+    });
+    this.composition = Object.freeze({
+      ...this.composition,
+      systemInstruction,
+      instructionComponents,
+      manifest: Object.freeze({
+        ...this.composition.manifest,
+        resources: Object.freeze(manifestResources),
+      }),
+      resolved,
+    });
+    const startupContext = this.startupSnapshotValue.context;
+    if (startupContext !== undefined) {
+      this.startupSnapshotValue = Object.freeze({
+        ...this.startupSnapshotValue,
+        context: Object.freeze({
+          ...startupContext,
+          instructionComponents: structuredClone(instructionComponents),
+          systemInstruction,
+        }),
+      });
+    }
+  }
+
+  private hookContext(
+    turns: readonly HookTranscriptTurn[] = hookTranscriptTurns(
+      this.committedTranscript,
+    ),
+    systemInstruction = this.composition.systemInstruction ?? '',
+    currentInstructionComponents = this.composition.instructionComponents ?? [],
+    checkpointValue = this.checkpoint,
+  ): HookContextSnapshot {
+    const checkpoint = checkpointValue === undefined ? undefined : Object.freeze({
+      summary: checkpointValue.summary,
+      coveredThroughTurn: checkpointValue.coveredThroughTurn,
+      retainedFromTurn: checkpointValue.coveredThroughTurn + 1,
+    });
+    const instructionComponents = freezeData(
+      structuredClone(currentInstructionComponents),
+    );
+    const tools = freezeData(
+      structuredClone(this.composition.registry.definitions()),
+    );
+    const transcript = Object.freeze({ turns });
+    return Object.freeze({
+      systemInstruction,
+      instructionComponents,
+      tools,
+      transcript,
+      ...(checkpoint === undefined ? {} : { checkpoint }),
+      projectedContext: Object.freeze({
+        ...(checkpoint === undefined ? {} : { checkpoint }),
+        retainedTurns: Object.freeze(
+          checkpoint === undefined
+            ? [...turns]
+            : turns.filter((turn) => turn.turn >= checkpoint.retainedFromTurn),
+        ),
+      }),
+    });
   }
 
   close(): Promise<void> {
@@ -254,6 +757,7 @@ export class WorkerGeneration {
     chatgptRegistrationId?: string | null,
     generationBasis?: AgentGenerationContextBasis,
     cancelledDuringPreparation = false,
+    executionId?: string,
   ): Promise<void> {
     if (this.active) {
       this.port.turnFailed(
@@ -303,6 +807,43 @@ export class WorkerGeneration {
     const cancellation = new TurnCancellationOwner();
     const steering = new SteeringOwner();
     const turn = this.nextTurn;
+    const baseSystemInstruction = this.composition.systemInstruction;
+    let turnInstructionComponents = [
+      ...(this.composition.instructionComponents ?? []),
+    ];
+    if (
+      turnInstructionComponents.length === 0 &&
+      baseSystemInstruction !== undefined && baseSystemInstruction.trim() !== ''
+    ) {
+      turnInstructionComponents = [Object.freeze({
+        identity: createAgentResourceIdentity('instruction:worker-composition'),
+        text: baseSystemInstruction,
+        sourceLocator: 'worker-composition',
+      })];
+    }
+    let turnSystemInstruction = baseSystemInstruction;
+    let turnHookTurns: readonly HookTranscriptTurn[] | undefined;
+    const currentTurnHookContext = (): HookContextSnapshot => {
+      turnHookTurns ??= hookTranscriptTurns(this.committedTranscript);
+      return this.hookContext(
+        turnHookTurns,
+        turnSystemInstruction ?? '',
+        turnInstructionComponents,
+      );
+    };
+    const turnRuntime = (
+      signal: AbortSignal,
+    ): import('../hook_api.ts').HookTurnRuntime => {
+      if (executionId === undefined) {
+        throw new Error('Worker hook execution identity is unavailable');
+      }
+      return {
+        ...this.requireRuntimeIdentity(),
+        executionId,
+        turnNumber: turn,
+        signal,
+      };
+    };
     let requestCountAtAdmission = this.requestCounter.count();
     let userTurnAdmitted = false;
     const turnProviderRequestCount = () =>
@@ -349,6 +890,14 @@ export class WorkerGeneration {
       },
       false,
     );
+    const previousHookProviderEvidence = this.hookProviderEvidenceScope.current;
+    const activeHookProviderEvidence = {
+      recorder: evidence,
+      ...(this.reportAuxiliaryStage === undefined ? {} : {
+        reportAuxiliaryStage: this.reportAuxiliaryStage,
+      }),
+    };
+    this.hookProviderEvidenceScope.current = activeHookProviderEvidence;
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
     if (cancelledDuringPreparation) cancellation.request();
@@ -364,6 +913,7 @@ export class WorkerGeneration {
       readonly toolCount: number;
     }>();
     const committedHistoryIndex = indexSessionHistory(this.committedTranscript);
+    let skipTurnSettled = false;
     let contextObservationFailed = false;
     let contextRequestOrdinal = 0;
     // Skill selection is a causal fact of the call occurrence.  The tool name is always
@@ -675,9 +1225,7 @@ export class WorkerGeneration {
           observation.request.systemInstruction !== undefined
         ) {
           const blob = await textBlob(observation.request.systemInstruction);
-          const rootInstructionComponents = this.startupSnapshot.context?.instructionComponents ??
-            [];
-          const namedInstructionComponents = rootInstructionComponents;
+          const namedInstructionComponents = turnInstructionComponents;
           const hasNamedInstructionComponents = namedInstructionComponents.length > 0;
           let componentByteOffset = 0;
           const componentRelations: ContextOccurrenceSource[] = [];
@@ -1051,17 +1599,377 @@ export class WorkerGeneration {
         return undefined;
       }
     };
-    const failTurn = async (outcome: LoopOutcome): Promise<void> => {
+    const failTurn = async (
+      outcome: LoopOutcome,
+    ): Promise<{ readonly outcome: LoopOutcome; readonly settlement?: AfterTurnSettlement }> => {
       const finalized = finalizeEvidence(outcome);
-      await this.port.turnFailed(
+      const result = await this.port.turnFailed(
         correlation,
         finalized,
         await makeContextManifest(),
       );
+      const settlement = typeof result === 'object' && result !== null ? result : undefined;
+      if (executionId !== undefined && settlement?.durable === true) {
+        this.lastSettlement = {
+          executionId,
+          correlation,
+          turn,
+          settlement,
+          providerRequestOrdinal: evidence.lastRequestOrdinal,
+        };
+        this.postSettlementProviderEvidence = undefined;
+      }
+      return { outcome: finalized, ...(settlement === undefined ? {} : { settlement }) };
+    };
+    const persistAfterTurn = async (
+      settlement: AfterTurnSettlement,
+      outcome: LoopOutcome,
+      canonicalOutcome: boolean,
+    ): Promise<void> => {
+      const afterTurnHooks = this.hooks.filter((hook) => hook.handlers.after_turn !== undefined);
+      if (afterTurnHooks.length === 0) return;
+      if (
+        executionId === undefined || this.port.afterTurnContext === undefined
+      ) throw new Error('after_turn Data settlement port is unavailable');
+
+      // This one structural snapshot is shared by every handler and context projection.
+      const canonicalTranscript = Object.freeze([...this.committedTranscript]);
+      const committedTurns = hookTranscriptTurns(canonicalTranscript);
+      const afterTurnOutcome = freezeData(
+        withTerminalOutcome(
+          outcome,
+          settlement.terminalOutcome,
+          canonicalOutcome ? canonicalTranscript : outcome.transcript,
+        ),
+      );
+      let effectiveCheckpoint = this.checkpoint;
+      const postSettlementEvidence = this.postSettlementEvidenceForCurrentExecution();
+      if (postSettlementEvidence === undefined) {
+        throw new Error('post-settlement provider evidence owner is unavailable');
+      }
+      const providerObservations = postSettlementEvidence.observations;
+      const providerEvidence = postSettlementEvidence.recorder;
+      for (const hook of afterTurnHooks) {
+        let contribution: AfterTurnHookContribution = hookEffectSource(
+          hook.selection.name,
+          hook.selection.path,
+        );
+        let candidateCheckpoint: SemanticContextCheckpointV1 | undefined;
+        try {
+          const priorEvidence = this.hookProviderEvidenceScope.current;
+          const currentEvidence = {
+            recorder: providerEvidence,
+            ...(this.reportAuxiliaryStage === undefined ? {} : {
+              reportAuxiliaryStage: this.reportAuxiliaryStage,
+            }),
+          };
+          this.hookProviderEvidenceScope.current = currentEvidence;
+          try {
+            await runHookPhase(
+              [hook],
+              'after_turn',
+              (): AfterTurnInput => ({
+                runtime: turnRuntime(cancellation.signal),
+                outcome: afterTurnOutcome,
+                settlement,
+                context: this.hookContext(
+                  committedTurns,
+                  turnSystemInstruction ?? '',
+                  turnInstructionComponents,
+                  effectiveCheckpoint,
+                ),
+              }),
+              ({ result }) => {
+                if (result === undefined) return;
+                if (
+                  typeof result !== 'object' || result === null ||
+                  typeof result.checkpoint !== 'object' ||
+                  result.checkpoint === null ||
+                  typeof result.checkpoint.summary !== 'string' ||
+                  !Number.isSafeInteger(result.checkpoint.coveredThroughTurn)
+                ) {
+                  throw new Error(
+                    'after_turn must return a checkpoint summary and coveredThroughTurn',
+                  );
+                }
+                const candidate: SemanticContextCheckpointV1 = {
+                  contextSchemaVersion: 1,
+                  sessionId: this.sessionId,
+                  createdAt: new Date().toISOString(),
+                  sourceProfileId: modelRouteProfileId(this.rootModelSelection),
+                  coveredThroughTurn: result.checkpoint.coveredThroughTurn,
+                  retainedFromTurn: result.checkpoint.coveredThroughTurn + 1,
+                  summary: result.checkpoint.summary,
+                };
+                if (
+                  candidate.coveredThroughTurn >= turn ||
+                  !validateSemanticContextCheckpoint(candidate)
+                ) {
+                  throw new Error(
+                    'after_turn returned an invalid semantic context checkpoint',
+                  );
+                }
+                contribution = {
+                  ...contribution,
+                  checkpoint: {
+                    summary: candidate.summary,
+                    coveredThroughTurn: candidate.coveredThroughTurn,
+                  },
+                };
+                if (settlement.accepted) candidateCheckpoint = candidate;
+              },
+            );
+          } finally {
+            if (this.hookProviderEvidenceScope.current === currentEvidence) {
+              this.hookProviderEvidenceScope.current = priorEvidence;
+            }
+          }
+        } catch (error) {
+          contribution = {
+            ...hookEffectSource(hook.selection.name, hook.selection.path),
+            failure: { reason: errorText(error) },
+          };
+        }
+        const observations = providerObservations.splice(0);
+        const effect: AfterTurnHookEffect = freezeData({
+          settlement,
+          contributions: [contribution],
+          ...(candidateCheckpoint === undefined ? {} : { checkpoint: candidateCheckpoint }),
+        });
+        const persisted = await this.port.afterTurnContext({
+          executionId,
+          correlation,
+          turn,
+          effect,
+          ...(observations.length === 0 ? {} : { providerObservations: observations }),
+        });
+        if (!persisted) {
+          throw new Error('Data owner did not acknowledge the after_turn context update');
+        }
+        if (candidateCheckpoint !== undefined) {
+          effectiveCheckpoint = candidateCheckpoint;
+          this.checkpoint = candidateCheckpoint;
+        }
+      }
+    };
+    const afterSettlement = async (
+      settlement: AfterTurnSettlement | undefined,
+      outcome: LoopOutcome,
+      canonicalOutcome: boolean,
+    ): Promise<void> => {
+      if (settlement?.durable !== true) return;
+      try {
+        await persistAfterTurn(settlement, outcome, canonicalOutcome);
+      } catch (error) {
+        if (this.port.settlementFailure !== undefined) {
+          this.port.settlementFailure(correlation, error);
+          skipTurnSettled = true;
+        }
+      }
+    };
+    const beforeTool = async (
+      call: import('../core/contracts.ts').ToolCall,
+      modelStep: number,
+    ): Promise<{
+      readonly arguments: JsonValue;
+      readonly applied: boolean;
+      readonly hookEffect?: ToolHookEffect;
+      readonly failure?: HookEffectFailure;
+    }> => {
+      let effectiveArguments = structuredClone(call.arguments) as JsonValue;
+      const argumentHooks: HookEffectSource[] = [];
+      let applied = false;
+      let activeHook: LoadedWorkerHook | undefined;
+      let context: HookContextSnapshot | undefined;
+      let failure: HookEffectFailure | undefined;
+      try {
+        await runHookPhase(
+          this.hooks,
+          'before_tool',
+          (hook): BeforeToolInput => {
+            activeHook = hook;
+            return {
+              runtime: {
+                ...turnRuntime(cancellation.signal),
+                modelStep,
+                callId: call.callId,
+              },
+              toolName: call.name,
+              arguments: freezeData(structuredClone(effectiveArguments)),
+              context: context ??= currentTurnHookContext(),
+            };
+          },
+          ({ name, path, result }) => {
+            if (result === undefined) return;
+            if (
+              typeof result !== 'object' || result === null ||
+              !isHookJsonValue(result.arguments)
+            ) {
+              throw new Error(
+                'before_tool must return a JSON arguments update',
+              );
+            }
+            effectiveArguments = structuredClone(result.arguments) as JsonValue;
+            applied = true;
+            argumentHooks.push(hookEffectSource(name, path));
+          },
+        );
+      } catch (error) {
+        failure = hookFailure(activeHook, 'before_tool', error);
+      }
+      const hookEffect: ToolHookEffect | undefined = applied || failure !== undefined
+        ? {
+          originalArguments: structuredClone(call.arguments),
+          effectiveArguments: structuredClone(effectiveArguments),
+          ...(argumentHooks.length === 0 ? {} : { argumentHooks }),
+          ...(failure === undefined ? {} : { failure }),
+        }
+        : undefined;
+      return {
+        arguments: effectiveArguments,
+        applied,
+        ...(hookEffect === undefined ? {} : { hookEffect }),
+        ...(failure === undefined ? {} : { failure }),
+      };
+    };
+    const afterTool = async (
+      call: import('../core/contracts.ts').ToolCall,
+      argumentsValue: JsonValue,
+      originalResult: import('../core/contracts.ts').ToolResultContent,
+      terminal: import('../tools/tools.ts').RegistryDispatchResult['terminal'],
+      modelStep: number,
+    ): Promise<{
+      readonly result: import('../core/contracts.ts').ToolResultContent;
+      readonly hookEffect?: ToolHookEffect;
+    }> => {
+      let currentText = originalResult.text;
+      const textHooks: HookEffectSource[] = [];
+      let applied = false;
+      let activeHook: LoadedWorkerHook | undefined;
+      let context: HookContextSnapshot | undefined;
+      let failure: HookEffectFailure | undefined;
+      const currentHookResult = (): HookToolResult =>
+        terminal !== null
+          ? {
+            outcome: 'terminal',
+            text: currentText,
+            finalText: terminal.finalText,
+            terminalKind: terminal.kind,
+          }
+          : originalResult.outcome === 'error'
+          ? { outcome: 'error', text: currentText }
+          : { outcome: 'success', text: currentText };
+      try {
+        await runHookPhase(
+          this.hooks,
+          'after_tool',
+          (hook): AfterToolInput => {
+            activeHook = hook;
+            return {
+              runtime: {
+                ...turnRuntime(cancellation.signal),
+                modelStep,
+                callId: call.callId,
+              },
+              toolName: call.name,
+              arguments: freezeData(structuredClone(argumentsValue)),
+              result: currentHookResult(),
+              context: context ??= currentTurnHookContext(),
+            };
+          },
+          ({ name, path, result }) => {
+            if (result === undefined) return;
+            if (
+              typeof result !== 'object' || result === null ||
+              typeof result.text !== 'string'
+            ) {
+              throw new Error('after_tool must return a text update');
+            }
+            currentText = result.text;
+            applied = true;
+            textHooks.push(hookEffectSource(name, path));
+          },
+        );
+      } catch (error) {
+        failure = hookFailure(activeHook, 'after_tool', error);
+        currentText = `${currentText}\n\n[${hookFailureDescription(failure)}]`;
+      }
+      const hookEffect: ToolHookEffect | undefined = applied || failure !== undefined
+        ? {
+          originalText: originalResult.text,
+          ...(textHooks.length === 0 ? {} : { textHooks }),
+          ...(failure === undefined ? {} : { failure }),
+        }
+        : undefined;
+      return {
+        result: { ...originalResult, text: currentText },
+        ...(hookEffect === undefined ? {} : { hookEffect }),
+      };
     };
     try {
       requestCountAtAdmission = this.requestCounter.count();
       userTurnAdmitted = true;
+
+      let beforeTurnContext: HookContextSnapshot | undefined;
+      let activeBeforeTurnHook: LoadedWorkerHook | undefined;
+      let turnContextContribution = 0;
+      try {
+        await runHookPhase(
+          this.hooks,
+          'before_turn',
+          (hook) => {
+            activeBeforeTurnHook = hook;
+            return {
+              runtime: turnRuntime(cancellation.signal),
+              task,
+              context: beforeTurnContext ??= currentTurnHookContext(),
+            };
+          },
+          ({ name, path, result }) => {
+            if (result === undefined) return;
+            if (
+              typeof result !== 'object' || result === null ||
+              !Array.isArray(result.context) ||
+              !result.context.every((part) => typeof part === 'string')
+            ) {
+              throw new Error('before_turn must return a context string array');
+            }
+            const text = result.context.join('\n');
+            if (text.trim().length === 0) return;
+            turnContextContribution += 1;
+            const sourceLocator = JSON.stringify({
+              hook: name,
+              ...(path === undefined ? {} : { path }),
+            });
+            turnInstructionComponents.push(Object.freeze({
+              ...defineInstructionComponent(
+                `instruction:before-turn-hook-${turnContextContribution}`,
+                text,
+              ),
+              sourceLocator,
+            }));
+            turnSystemInstruction = turnInstructionComponents.map((component) => component.text)
+              .join('\n\n');
+            if (beforeTurnContext !== undefined) {
+              beforeTurnContext = Object.freeze({
+                ...beforeTurnContext,
+                systemInstruction: turnSystemInstruction,
+                instructionComponents: freezeData(
+                  structuredClone(turnInstructionComponents),
+                ),
+              });
+            }
+          },
+        );
+      } catch (error) {
+        const hook = activeBeforeTurnHook;
+        throw new Error(
+          `before_turn hook ${hook?.selection.name ?? 'hook'}${
+            hook?.selection.path === undefined ? '' : ` (${hook.selection.path})`
+          }: ${errorText(error)}`,
+          { cause: error },
+        );
+      }
 
       let proposal: WorkerCommitProposalMessage | undefined;
       let terminal: TurnEndEvent | undefined;
@@ -1114,13 +2022,15 @@ export class WorkerGeneration {
         this.composition.registry,
         {
           maxSteps: this.composition.maxSteps,
-          systemInstruction: this.composition.systemInstruction,
+          systemInstruction: turnSystemInstruction,
           turn: this.nextTurn,
           eventSink,
           executionContext,
           cancellation,
           signal: cancellation.signal,
           steering,
+          beforeTool,
+          afterTool,
           requestMessageSource: sourceForMessage,
           projectParentRequestWithSources:
             this.checkpoint === undefined && recalledContext === undefined
@@ -1139,7 +2049,8 @@ export class WorkerGeneration {
       await Promise.all(contextObservations);
       const finalized = finalizeEvidence(outcome);
       if (!outcome.ok || proposal === undefined) {
-        await failTurn(finalized);
+        const failed = await failTurn(finalized);
+        await afterSettlement(failed.settlement, failed.outcome, false);
         return;
       }
       proposal = {
@@ -1150,23 +2061,47 @@ export class WorkerGeneration {
           diagnostic: finalized.diagnostic,
         }),
       };
-      const accepted = await this.port.commitProposal(
+      const commitResult = await this.port.commitProposal(
         correlation,
         proposal,
         cancellation.signal,
       );
+      const settlement = typeof commitResult === 'boolean' ? undefined : commitResult;
+      const accepted = typeof commitResult === 'boolean' ? commitResult : commitResult.accepted;
       if (!accepted) {
-        await failTurn(
-          rejectedCommitOutcome(
-            task,
-            this.committedTranscript,
-            finalized,
-          ),
+        const rejected = rejectedCommitOutcome(
+          task,
+          finalized,
+          settlement?.terminalOutcome,
         );
+        if (settlement?.durable === true && executionId !== undefined) {
+          this.lastSettlement = {
+            executionId,
+            correlation,
+            turn,
+            settlement,
+            providerRequestOrdinal: evidence.lastRequestOrdinal,
+          };
+          this.postSettlementProviderEvidence = undefined;
+          await afterSettlement(settlement, rejected, false);
+        } else {
+          const failed = await failTurn(rejected);
+          await afterSettlement(failed.settlement, failed.outcome, false);
+        }
         return;
       }
-      this.committedTranscript = snapshotMessages(proposal.transcript);
+      this.committedTranscript = proposal.transcript;
       this.nextTurn = proposal.nextTurn;
+      if (settlement?.durable === true && executionId !== undefined) {
+        this.lastSettlement = {
+          executionId,
+          correlation,
+          turn,
+          settlement,
+          providerRequestOrdinal: evidence.lastRequestOrdinal,
+        };
+        this.postSettlementProviderEvidence = undefined;
+      }
       this.port.runtimeEvent(
         correlation,
         terminal ?? {
@@ -1176,19 +2111,24 @@ export class WorkerGeneration {
           committed: true,
         },
       );
+      await afterSettlement(settlement, finalized, true);
     } catch (error) {
-      await failTurn(failureOutcome(
+      const failed = await failTurn(failureOutcome(
         task,
         this.committedTranscript,
         error instanceof Error ? error.message : String(error),
         cancellation.signal.aborted,
       ));
+      await afterSettlement(failed.settlement, failed.outcome, false);
     } finally {
       steering.close();
       this.activeSteering = null;
       this.activeCancellation = null;
       this.active = false;
-      this.port.turnSettled?.(correlation);
+      if (this.hookProviderEvidenceScope.current === activeHookProviderEvidence) {
+        this.hookProviderEvidenceScope.current = previousHookProviderEvidence;
+      }
+      if (!skipTurnSettled) this.port.turnSettled?.(correlation);
     }
   }
 }

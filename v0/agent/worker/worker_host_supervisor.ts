@@ -1,6 +1,7 @@
 import { WorkerProcessOwner } from './worker_process_owner.ts';
 import { WorkerCapsule } from './worker_capsule.ts';
 import type {
+  WorkerClosedMessage,
   WorkerCorrelation,
   WorkerErrorMessage,
   WorkerReadyMessage,
@@ -160,6 +161,8 @@ export class WorkerSupervisor {
   private startupSnapshot: WorkerReadyMessage['startupSnapshot'];
   private credential: CredentialAvailability | undefined;
   private unavailable = false;
+  private started = false;
+  private closePromise: Promise<WorkerClosedMessage | undefined> | undefined;
   private needsReplacement = false;
   private replacement: Promise<void> | undefined;
   private traceSequence = 0;
@@ -394,18 +397,35 @@ export class WorkerSupervisor {
         sameCorrelation(message.correlation, correlation)) ||
       (message.kind === 'worker_error' &&
         (message.correlation === undefined ||
-          sameCorrelation(message.correlation, correlation))), 5_000);
+          sameCorrelation(message.correlation, correlation)))
+    );
+    void readyPromise.catch(() => {});
     this.correlationValue = correlation;
+    const startupAbortSignal = this.options.startupAbortSignal;
+    const abortStartup = (): void => this.markUnavailable();
+    startupAbortSignal?.addEventListener('abort', abortStartup, { once: true });
+    if (startupAbortSignal?.aborted) abortStartup();
     let dataPort: MessagePort | undefined;
     try {
       try {
+        if (startupAbortSignal?.aborted) {
+          throw new Error('Worker startup cancelled');
+        }
         const agentDataPort = await this.host.attachGeneration(correlation);
         dataPort = agentDataPort;
+        if (startupAbortSignal?.aborted) {
+          agentDataPort.close();
+          throw new Error('Worker startup cancelled');
+        }
         this.send(
           {
             kind: 'start',
             correlation,
+            runtimeIdentity: this.options.runtimeIdentity ?? { role: 'root' },
             dataPort: agentDataPort,
+            ...(this.options.onStartupPrepared === undefined
+              ? {}
+              : { notifyStartupPrepared: true }),
             agentChoice: this.options.agentChoice,
             configRoot: this.options.configRoot,
             ...(this.options.enableAsyncAgents === undefined
@@ -444,6 +464,9 @@ export class WorkerSupervisor {
         throw new Error('Worker transport unavailable');
       }
       const ready = await readyPromise;
+      if (startupAbortSignal?.aborted) {
+        throw new Error('Worker startup cancelled');
+      }
       if (ready.kind === 'worker_error') {
         if (ready.configurationRejections !== undefined) {
           throw new WorkerHostStartupError(
@@ -514,7 +537,9 @@ export class WorkerSupervisor {
         skillNames: [...ready.startupSnapshot.skillNames],
       };
       this.credential = structuredClone(ready.credentialAvailability);
+      this.started = true;
     } finally {
+      startupAbortSignal?.removeEventListener('abort', abortStartup);
       this.correlationValue = undefined;
     }
   }
@@ -535,10 +560,59 @@ export class WorkerSupervisor {
     this.startupSnapshot = value;
   }
 
+  /** Complete an ordinary close through the Worker so runtime_stop can finish. */
+  close(): Promise<WorkerClosedMessage | undefined> {
+    if (!this.started || this.unavailable) {
+      return this.terminate().then(() => undefined);
+    }
+    if (this.closePromise !== undefined) return this.closePromise;
+    this.closePromise = (async () => {
+      const correlation = this.correlation('close');
+      this.correlationValue = correlation;
+      const responsePromise = this.messages.wait(
+        (message): message is WorkerClosedMessage | WorkerErrorMessage =>
+          (message.kind === 'closed' &&
+            sameCorrelation(message.correlation, correlation)) ||
+          (message.kind === 'worker_error' &&
+            (message.correlation === undefined ||
+              sameCorrelation(message.correlation, correlation))),
+      );
+      let response: WorkerClosedMessage | WorkerErrorMessage;
+      try {
+        this.send({ kind: 'close', correlation });
+        response = await responsePromise;
+      } catch {
+        this.markUnavailable();
+        await this.processOwner.close().catch(() => {});
+        return undefined;
+      } finally {
+        this.correlationValue = undefined;
+      }
+      if (response.kind === 'worker_error') {
+        this.markUnavailable();
+        await this.processOwner.close().catch(() => {});
+        return undefined;
+      }
+      await this.processOwner.close();
+      this.unsubscribe();
+      this.messages.fail(new Error('Worker host session closed'));
+      this.started = false;
+      this.unavailable = true;
+      try {
+        this.capsule.terminate();
+      } catch {
+        // Worker already closed its message scope.
+      }
+      return response;
+    })();
+    return this.closePromise;
+  }
+
   terminate(): Promise<void> {
     this.unsubscribe();
     this.messages.fail(new Error('Worker host session closed'));
     this.unavailable = true;
+    this.started = false;
     const cleanup = this.processOwner.close();
     try {
       this.capsule.terminate();

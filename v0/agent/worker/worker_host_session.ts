@@ -1,7 +1,7 @@
 import type { LoopOutcome } from '../core/contracts.ts';
 import type { ContextView, ExecutionView } from '../../api/contract.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
-import type { WorkerReadyMessage } from './worker_protocol.ts';
+import type { WorkerClosedMessage, WorkerReadyMessage } from './worker_protocol.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { ExecutionCoordinator } from './worker_host_coordinator.ts';
 export {
@@ -141,7 +141,7 @@ export class WorkerHostSession {
     return this.coordinator.contextSnapshot();
   }
 
-  async close(): Promise<void> {
-    await this.coordinator.close();
+  async close(): Promise<WorkerClosedMessage | undefined> {
+    return await this.coordinator.close();
   }
 }

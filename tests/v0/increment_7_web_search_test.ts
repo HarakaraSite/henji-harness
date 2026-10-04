@@ -36,6 +36,7 @@ import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
 } from '../../v0/agent/worker/worker_physical_io.ts';
+import type { WorkerStageName } from '../../v0/agent/worker/worker_stage_probe.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -167,6 +168,7 @@ const contextFor = (
   evidence?: ProviderEvidenceRecorder,
   signal?: AbortSignal,
   requestCount?: () => number,
+  reportAuxiliaryStage?: (stage: WorkerStageName) => void,
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     1,
@@ -177,6 +179,10 @@ const contextFor = (
     requestCount,
     requestCount,
     evidence,
+    undefined,
+    undefined,
+    undefined,
+    reportAuxiliaryStage,
   );
 
 Deno.test('web_search completes main-Exa-main with full results and shared evidence', async () => {
@@ -318,12 +324,15 @@ Deno.test('web_search completes main-Exa-main with full results and shared evide
 
 Deno.test('web_search forwards Exa search options and preserves an empty result response', async () => {
   const response = { results: [], output: { answer: 'No matching pages.' } };
+  const auxiliaryStages: WorkerStageName[] = [];
   const evidence = new ProviderEvidenceRecorder(
     '77777777-7777-4777-8777-777777777778',
     1,
     '2026-09-07T00:00:00.000Z',
   );
-  const execution = contextFor(evidence);
+  const execution = contextFor(evidence, undefined, undefined, (stage) => {
+    auxiliaryStages.push(stage);
+  });
   evidence.setContextRequestOrdinal(17);
   let seenUrl: string | undefined;
   let seenAuthorization: string | undefined;
@@ -396,6 +405,7 @@ Deno.test('web_search forwards Exa search options and preserves an empty result 
     evidence.snapshot().requests[0].request.contextRequestOrdinal,
     undefined,
   );
+  assert(auxiliaryStages.includes('evidence_start_entered'));
 });
 
 Deno.test('web_search exposes provider response errors with short facts', async () => {
