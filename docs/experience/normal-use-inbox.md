@@ -466,6 +466,47 @@ Pi／OpenCode／Henjiの画面表示比較
     [公式extension仕様](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)、
     手元`_refs/pi/packages/coding-agent/docs/extensions.md`、
     `src/core/extensions/`（同package配下）を参照。
+- 参照実装調査 追記（2026-10-04、手元`_refs/`のsourceとdocsの静的読解のみ、動作実測なし）:
+  残る参照実装のhook相当機構を確認した。Zot・Piの既存記載は再確認して一致した。
+  - **OpenCode**（`_refs/opencode/packages/plugin/src/index.ts`）: pluginが`Hooks` objectを返し、
+    `"tool.execute.before"`、`"tool.execute.after"`、`"chat.params"`、`"chat.headers"`、`"chat.message"`、
+    `"permission.ask"`、`"tool.definition"`、`"command.execute.before"`、`"shell.env"`、`"event"`、
+    `"config"`、`tool`、`auth`、`provider`、`dispose`と`experimental.*`を登録する。契約は
+    `(input, output) => Promise<void>`で`output`をin-place変更する（戻り値は使わない）。tool引数の変更は
+    `tool.execute.before`、結果の変更は`tool.execute.after`、拒否は`permission.ask`の`status`のみで、
+    tool実行自体を止める汎用blockはない。登録は組込pluginと設定`plugin`
+    （`Array<string | [string, PluginOptions]>`）で、hookは登録順に直列await実行する。`event`キーは
+    `trigger`ではなくイベントバス購読経由で呼ばれ、通知はfire-and-forget。
+  - **DeepSeek Harness**（`_refs/deepseek-harness/docs/cordis-primer.md`、`docs/agent-lifecycle.md`、
+    `docs/subsystems/*.md`）: hookはCordisのtyped event。dispatch modeが公開契約で、`emit`は観測のみ、
+    `waterfall`はlistenerが`next()`で委譲するか短絡して値を置換、`serial`は順序付きで停止可。
+    turn/stepのhookは`agent/pre-step`（提案stepの拒否・messages差替え）、`agent/request`（呼出しconfigの置換）、
+    `agent/request-error`（`{kind:'retry'}`で回復）、`agent/turn-stopping`（`next()`なしの最終checkpoint）、
+    `llm/stream`（stream全体のwrap）。周辺に`system-prompt/assemble`、
+    `tools/pre-execute`／`tools/execute`／`tools/post-execute`、`tools/result`、`approval/request`がある。
+    登録はCordis plugin（`inject`と`ctx.on`）で、さらに`ctx.dynamicCordisRunner.define`でversioned packageを
+    実行時に定義・activateできる。利用者・拡張が登録する汎用機構で、通知専用eventと介入eventをmodeで
+    分ける点がPi・Zotと同型。
+  - **OpenComputer**（`_refs/opencomputer/agent/README.md`、`agent/src/index.ts`）: React風の
+    reactive authoring APIで、default exportを各model呼出しの前に同期実行し、`useInput`（`useCurrentInput`）、
+    `useModel`、`useTool`、`useConnection`、`useService`、`useSubagent`、`useMcpServer`、`useSessionData`、
+    `useMemory`でその呼出しを宣言する。
+    hookは宣言でありI/Oやloopの介入をしない（READMEに明記）。block・rewrite型のhookではない。
+    `defineTool`等の宣言APIとgated toolの承認要求は別機構。
+  - **Cloudflare Agents**（`_refs/cloudflare-agents/packages/agents/src/chat/`）: 選択sourceには
+    利用者登録型のhook機構はなく、chat層のcallback（`onExhausted`、`shouldKeepRecovering`）と
+    基底classのlifecycle（`onStart`／`onConnect`／`onMessage`）のみ。基底class本体はsnapshot選択外のため
+    全一覧は未確認。
+  - **Cloudflare Sandbox SDK**（`_refs/cloudflare-sandbox-sdk/packages/sandbox/README.md`）、
+    **Deno Docs examples**（`_refs/deno-docs/examples/scripts/`）: hook相当の機構なし。Sandbox SDKは
+    Durable ObjectとContainer、Files／S3Mount／DirectoryBackupを提供し、Denoの例はtool callを処理する
+    最小のwhile loopのみ。
+- 参照実装の共通形: 通知専用eventと介入eventを分ける（Pi・Zot・DeepSeek Harness）、介入は引数・
+  messages・結果の置換またはblock（Pi・Zot・DeepSeek Harness）、hookは登録順に直列実行
+  （Pi・Zot・OpenCode・DeepSeek Harness）。blockをpermission判定に限定するOpenCodeの形は
+  Henji現行に最も近く、`event`（イベントバス購読）は`events.ts`の同期通知に対応する。
+- 追記の境界: 上記は参照実装の静的な読解結果で、動作実測とHenjiへの採用判断を含まない。
+  Cloudflare Agentsの基底classのhook一覧は未確認のまま残す。
 - Henji現行: `v0/agent/core/events.ts`に開始・終了やtool call/resultの通知、
   `v0/agent/tools/tools.ts`の`Registry.dispatch`に共通のtool実行経路がある。
   ユーザーがhookを登録する汎用機構は未実装。既存event sinkは同期通知で、非同期処理の完了待ちや
