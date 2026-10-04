@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11を追記し利用者の運用判断を記録）。
+更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11はIncrement 190へ採用・移設）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -43,7 +43,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                   | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
-| B11 | Agent実行      | providerのmodel×API×effort×tools受入契約の衝突（HTTP 400）                  | 同種の400再観測、またはeffort送信・route選択の対応を個別incrementへ採用するとき                                        |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                            | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -726,37 +725,3 @@ Pi／OpenCode／Henjiの画面表示比較
   [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
   `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
   `v0/agent/history/sqlite_history_store.ts`。
-
-### B11 — `gpt-6.1-sol`で`reasoning_effort`とfunction toolsの併用requestがHTTP 400になる
-
-- 原観測（2026-10-04）: Session `44aab8ea`のexecution `a2d8894a`（turn 1、modelStep 1、物理request 1回目、retry 0）は、
-  provider `openai-chat`／api `openai-chat-completions`／model `gpt-6.1-sol`／effort `high`の最初のrequestで
-  HTTP 400（stage `http`／code `http_error`、`ProviderAPIError`／`invalid_request_error`、param `reasoning_effort`、
-  requestId `req_1fa60a57ccb2470e960dc9d7a8cd7f60`）となり、`contract_failure`
-  （`model contract failure: provider request failed (400)`）で停止した。provider messageは次のとおり。
-  `Function tools with reasoning_effort are not supported for gpt-6.1-sol in /v1/chat/completions.`
-  `To use function tools, use /v1/responses or set reasoning_effort to 'none'.`
-  失敗turnはnon_canonicalに保存され、同旨の再実行`81aaa578`は`mimo-v2.6-pro`でcompletedしcanonical採用された。
-- 事象の切り分け: 同Sessionのmodel変更史では08:25:27に`gpt-5.6-sol`／effort `none`、08:27:19に`gpt-6.1-sol`／effort `high`
-  へ変更されており、失敗（08:27:39）はeffort `none`→`high`の切替直後の最初のrequestで発生している。
-  model一覧はlive catalog（models.dev由来、`openai-chat`／`openai-responses`／`openai-chatgpt`は同一`openai`のmodel群）
-  から出るため、`gpt-6.1-sol`はprotocol `openai-chat-completions`の`openai-chat` routeでも選択でき、
-  model名の選択だけで`/v1/chat/completions`へ到達した。henjiのChat Completions系request組み立ては
-  effort選択時に`reasoning_effort`をtoolsと併送するため（`v0/agent/provider/openrouter_request.ts`の組立と同型）、
-  当該provider/modelの受入条件と衝突した。henjiの実装bugというより未観測のprovider variantとの組合せである。
-- 残る利用者影響: `openai-chat` routeでeffort `auto`／`high`を選んでいる間、function tools付きturnは同様に400で停止する。
-  tools不要な純粋な生成でも同制約に当たるかは未確認。
-- 対応候補（未採用）:
-  1. 運用回避: 該当modelではeffort `none`を選ぶ、またはtoolsが要るturnを別modelへ回す。
-  2. chat-completionsでtools併用時の`reasoning_effort`送信を抑制する（modelの実効effortが変わる点は要確認）。
-  3. 同一`openai-api-key`でprotocol `openai-responses`の`openai-responses` route、またはChatGPT認証の
-     `openai-chatgpt` route（いずれもResponses API）で該当modelを使う（provider messageが勧める方針。route実装は既存）。
-- 利用者の運用判断（2026-10-04）: `gpt-6.1-sol`は`openai-chat`（chat-completions）routeでは使わず、
-  Responses APIの`openai-chatgpt`または`openai-responses` routeで使う方向。chat-completionsで使う場合はeffort `none`前提。
-  対応候補1・3の運用部分をこれで代替する。henji側でrouteに6.1を出さない整理や対応候補2（effort送信抑制）は未採用のまま残す。
-- 再検討条件:
-  同種の400が通常利用で再観測される、またはeffort送信・route選択の対応を個別incrementへ採用するとき。
-- 関連:
-  history.sqlite3（schema 1）のexecution `a2d8894a`のoutcomeJsonとdiagnostic `12d1188b-0528-4a3d-a372-24ad7da58820`、
-  `v0/agent/provider/openrouter_request.ts`、
-  [provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)。
