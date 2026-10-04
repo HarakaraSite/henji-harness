@@ -4,16 +4,15 @@
 
 ## 現在地（2026-10-04）
 
-B11の[Increment 190](../docs/increments/increment-190.md)はlocal実装・focused確認・
-隔離tmuxのcompiled production TUI確認・常用配置・source commit済み。
+B11の[Increment 190](../docs/increments/increment-190.md)は利用者による確認・完了承認済み。
+実装・検証・常用配置・source commit済み。
 source commitは`def02bb2`。配置結果はincrement文書を参照する。
 
 常用binaryは190の配置版。既存Core/TUIは再起動しておらず、一覧フィルタは新Coreから有効。
 
 ## 次の一手と承認境界
 
-新Coreから190を通常利用する。利用者の通常利用確認・完了承認は未実施。
-未採用候補は通常利用メモを参照し、個別採用前に実装しない。
+通常利用を続ける。未採用候補は通常利用メモを参照し、個別採用前に実装しない。
 architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。公開/release・pushは未承認。
 必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。

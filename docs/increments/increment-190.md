@@ -1,6 +1,7 @@
 # Increment 190 — openai-chatのモデル一覧からgpt-6.1-solを除外
 
-状態: 実装・検証・常用配置・source commit済み（2026-10-04）。利用者による通常利用確認は未実施。
+状態: 完了（2026-10-04、利用者による通常利用確認・完了承認済み）。実装・検証・常用配置・source
+commit済み。
 
 ## 必要な動作と採用範囲
 
@@ -168,3 +169,9 @@ requestは本修正の配置に不要であり、変更・呼出を行わない�
 
 190の常用配置・source commitは終了した。配置結果と現在地を記録commitへ保存する。
 公開/release・push、構想・architecture・roadmap変更は行っていない。
+
+## 利用者確認・完了承認（2026-10-04）
+
+利用者の「確認しました 完了です」により、常用配置後の確認と完了が承認された。
+`openai-chat`の一覧から`gpt-6.1-sol`を除外し、Responses側で使う採用範囲についてIncrement
+190を完了とする。 公開/release・push、構想・architecture・roadmap正本変更の追加承認は含まない。
