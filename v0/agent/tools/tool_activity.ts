@@ -136,7 +136,8 @@ export const toolActivityPreview = (name: string, args: unknown): string => {
       preview = firstLine(args.name);
       break;
     case 'spawn_subagent':
-      preview = firstLine(args.agent);
+      preview = [firstLine(args.agent), firstLine(args.task)]
+        .filter((part) => part !== undefined).join(' ');
       break;
     default:
       return '';

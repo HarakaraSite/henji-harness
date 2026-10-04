@@ -40,20 +40,20 @@ const spawnResult: ToolResultContent = {
   outcome: 'success',
 };
 
-Deno.test('spawn_subagent preview keeps its agent name from call to result', () => {
+Deno.test('spawn_subagent preview keeps its agent name and task head from call to result', () => {
   let state = reduceUiEvent(createUiState(), { kind: 'tool_call', turn: 1, call: spawnCall });
   assertEquals(
     state.log.entries.map((entry) => [entry.label, entry.text]),
-    [['tool>', 'spawn_subagent reviewer …']],
+    [['tool>', 'spawn_subagent reviewer Review the implementation. …']],
   );
   state = reduceUiEvent(state, { kind: 'tool_result', turn: 1, result: spawnResult });
   assertEquals(
     state.log.entries.map((entry) => [entry.label, entry.text]),
-    [['tool>', 'spawn_subagent reviewer ✓']],
+    [['tool>', 'spawn_subagent reviewer Review the implementation. ✓']],
   );
 });
 
-Deno.test('spawn_subagent preview keeps its agent name in saved entity rows', () => {
+Deno.test('spawn_subagent preview keeps its agent name and task head in saved entity rows', () => {
   const rows = conversationFixtureRows('review the implementation', [
     {
       kind: 'model_result',
@@ -96,19 +96,34 @@ Deno.test('spawn_subagent preview keeps its agent name in saved entity rows', ()
   ]);
   assertEquals(
     rows.filter((entry) => entry.kind === 'tool').map((entry) => [entry.label, entry.text]),
-    [['tool>', 'spawn_subagent reviewer ✓']],
+    [['tool>', 'spawn_subagent reviewer Review the implementation. ✓']],
   );
 });
 
-Deno.test('spawn_subagent preview stays name-only when the agent argument is missing', () => {
+Deno.test('spawn_subagent preview abbreviates a long Japanese task and keeps only its first line', () => {
+  assertEquals(
+    toolCallText('spawn_subagent', {
+      agent: 'reviewer',
+      task: '認証処理を調べる。\n結果を報告する。',
+    }),
+    'spawn_subagent reviewer 認証処理を調べる。',
+  );
+  const task =
+    '認証処理を調べて、トークン更新に失敗する原因を特定してください。\n結果を報告してください。';
   let state = reduceUiEvent(createUiState(), {
     kind: 'tool_call',
     turn: 1,
-    call: { ...spawnCall, arguments: { task: 'Review the implementation.' } },
+    call: { ...spawnCall, arguments: { agent: 'reviewer', task } },
   });
-  assertEquals(state.log.entries[0].text, 'spawn_subagent …');
+  assertEquals(
+    state.log.entries[0].text,
+    'spawn_subagent reviewer 認証処理を調べて、トークン更新に失敗する原因を特定してくだ… …',
+  );
   state = reduceUiEvent(state, { kind: 'tool_result', turn: 1, result: spawnResult });
-  assertEquals(state.log.entries[0].text, 'spawn_subagent ✓');
+  assertEquals(
+    state.log.entries[0].text,
+    'spawn_subagent reviewer 認証処理を調べて、トークン更新に失敗する原因を特定してくだ… ✓',
+  );
 });
 
 Deno.test('tool preview shows the bash head on one line', () => {

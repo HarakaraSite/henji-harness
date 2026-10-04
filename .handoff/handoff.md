@@ -4,18 +4,19 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 183](../docs/increments/increment-183.md)のS26は、利用者受入・local
-commit・常用配置まで完了。
-実装sourceは`2b22cbae`。通常利用メモからS26を移設済み。稼働中常用Coreは維持し、次回Core起動から
-配置版を使用する。
+[Increment 184](../docs/increments/increment-184.md)のS24（task冒頭表示）は実装・検証・受入済み。
+利用者は既存agent名へのtask冒頭追加を指示し、runId表示を不要とした。
 
 ## 次の一手と承認境界
 
-次の採用判断を待つ。183の配置結果・証拠は個別increment文書を参照する。
-構想・architecture・roadmapの変更は183の採用に含めず、変更時は別途承認を要する。
+利用者の「コミット・常用配置して」に従い、184のlocal commit・公式build・常用配置と
+配置後確認を行う。稼働中の常用Coreは維持し、実provider callは行わない。
+構想・architecture・roadmapの変更は184の採用に含めず、変更時は別途承認を要する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 184](../docs/increments/increment-184.md): S24の採用要件、実装・確認計画と結果。
 
 - [Increment 183](../docs/increments/increment-183.md): S26の採用要件、実装・確認計画と結果。
 

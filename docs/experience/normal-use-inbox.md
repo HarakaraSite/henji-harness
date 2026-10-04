@@ -27,7 +27,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                          | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | browserから通常利用する画面が必要になるとき                                                                            |
-| S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき                                                        |
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
@@ -111,21 +110,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
   [8slice計画](../plans/s22-detailed-design-and-slices.md)を参照する。
   現行は[複数Core](../increments/increment-153.md)で別Sessionを並行実行できる。
   WebUI本体とACPは未実装であり、HTTP/API Workerの存在だけで成立済みとしない。
-
-### S24 — subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応（F01）
-
-- 観測（2026-09-27、Increment 136計画時のsource照合）:
-  runIdはHostの`ChildRunRegistry.spawn`が発行し、 `spawn_subagent`のcall引数には無い（tool result
-  JSONと`subagent_status`／`collect_subagent`／
-  `cancel_subagent`の引数にのみ現れる）。起動行へのrunId表示はresult textの解析を要し、操作行の
-  agent名対応はrunId→agent名の対応付け（transcriptからの導出、TUI stateの保持、またはspawn result
-  契約の拡張のいずれか）を要する。task断片はcall引数`task`から表示できる。
-- 候補: [Increment 136](../increments/increment-136.md)で採用したagent名表示に加え、runId短縮表示で
-  起動行とstatus／collect／cancel行を対応付けられるようにする。
-- 再検討条件: 複数の子Agentを並行運用し、操作行がどのagent・runのものか履歴から追えなくなったとき。
-- 関連: [Increment 138（A20・A22）](../increments/increment-138.md)、
-  [`increment-136.md`](../increments/increment-136.md)、
-  [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
 
 ### S28 — `@`によるコンテキスト注入（未採用、メモのみ）
 

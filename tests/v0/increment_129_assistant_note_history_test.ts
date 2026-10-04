@@ -111,7 +111,7 @@ const execution: StoredExecutionRow = {
   contextCapture: 'complete',
 };
 
-Deno.test('Increment 136 keeps the spawned agent name in the Session timeline', () => {
+Deno.test('spawn_subagent keeps the agent name and task head in the Session timeline', () => {
   const messages: readonly Message[] = [
     {
       role: 'assistant',
@@ -136,7 +136,7 @@ Deno.test('Increment 136 keeps the spawned agent name in the Session timeline', 
   const rendered = renderSessionTimeline([{ execution, messages, thinking: [] }]);
   assertEquals(
     rendered.split('\n').filter((line) => line.startsWith('tool>')),
-    ['tool> spawn_subagent reviewer ✓'],
+    ['tool> spawn_subagent reviewer Review the implementation. ✓'],
   );
 });
 
