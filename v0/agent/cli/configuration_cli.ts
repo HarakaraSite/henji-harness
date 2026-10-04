@@ -1,4 +1,11 @@
 import {
+  cliErrorMessage,
+  cliErrorText,
+  CliInvocationError,
+  commandError,
+  parseCliOptions,
+} from './cli_error.ts';
+import {
   bundledAgentConfiguration,
   configurationString,
   isConfigurationObject,
@@ -35,18 +42,6 @@ const readCatalog = async (
   return value;
 };
 
-const options = (args: readonly string[]): Map<string, string> => {
-  if (args.length % 2 !== 0) throw new Error('Options need a value');
-  const result = new Map<string, string>();
-  for (let i = 0; i < args.length; i += 2) {
-    if (!['--name', '--file', '--folder'].includes(args[i]) || result.has(args[i])) {
-      throw new Error(`Invalid option ${args[i]}`);
-    }
-    result.set(args[i], configurationString(args[i + 1], args[i]));
-  }
-  return result;
-};
-
 /** Catalog edits select current external files; they never archive or execute source. */
 export const configurationMain = async (
   kind: 'agent' | 'tool',
@@ -54,16 +49,31 @@ export const configurationMain = async (
   dependencies: ConfigurationCliDependencies = {},
 ): Promise<number> => {
   const encoder = new TextEncoder();
-  const emit = async (value: unknown, error = false): Promise<void> => {
+  const emit = async (value: unknown): Promise<void> => {
     const text = JSON.stringify(value) + '\n';
-    const writer = error ? dependencies.writeStderr : dependencies.writeStdout;
-    if (writer === undefined) await (error ? Deno.stderr : Deno.stdout).write(encoder.encode(text));
-    else await writer(text);
+    if (dependencies.writeStdout === undefined) await Deno.stdout.write(encoder.encode(text));
+    else await dependencies.writeStdout(text);
+  };
+  const fail = async (message: string): Promise<void> => {
+    const text = cliErrorText(kind, message, true);
+    if (dependencies.writeStderr === undefined) await Deno.stderr.write(encoder.encode(text));
+    else await dependencies.writeStderr(text);
   };
   try {
-    const configRoot = dependencies.configRoot ?? resolveRuntimePaths().configRoot;
     const command = args[0];
-    const flags = options(args.slice(1));
+    if (!['list', 'inspect', 'activate', 'deactivate'].includes(command)) {
+      throw commandError(command, 'list, inspect, activate or deactivate');
+    }
+    const allowed = command === 'list'
+      ? []
+      : kind === 'agent'
+      ? command === 'deactivate' ? ['--name'] : ['--name', '--file']
+      : command === 'activate'
+      ? ['--name', '--folder']
+      : ['--name'];
+    const flags = parseCliOptions(args.slice(1), allowed);
+    for (const [flag, value] of flags) configurationString(value, flag);
+    const configRoot = dependencies.configRoot ?? resolveRuntimePaths().configRoot;
     const name = flags.get('--name');
     const file = flags.get('--file');
     const folder = flags.get('--folder');
@@ -72,12 +82,10 @@ export const configurationMain = async (
     const catalog = await readCatalog(catalogFile, catalogKind);
     const entries = catalog[catalogKind] as Record<string, unknown>;
     if (kind === 'agent') {
-      if (
-        folder !== undefined || name !== undefined && file !== undefined && command !== 'activate'
-      ) {
-        throw new Error('Choose an Agent name or JSON file');
+      if (name !== undefined && file !== undefined && command === 'inspect') {
+        throw new CliInvocationError('--name and --file are mutually exclusive for agent inspect');
       }
-      if (command === 'list' && flags.size === 0) {
+      if (command === 'list') {
         const selected = await resolveWorkerConfiguration(configRoot);
         await emit({
           default: selected.agent ?? null,
@@ -91,8 +99,15 @@ export const configurationMain = async (
           configRoot,
           file === undefined ? name === undefined ? {} : { name } : { file },
         );
+        if (selected.agent === undefined) {
+          await fail(
+            selected.rejections.map((entry) => entry.reason).join('; ') ||
+              'Agent configuration is unavailable',
+          );
+          return 1;
+        }
         await emit(selected);
-        return selected.agent === undefined ? 1 : 0;
+        return 0;
       }
       if (command === 'activate' && file !== undefined) {
         const absoluteFile = decodeURIComponent(configurationFileUrl(file).pathname);
@@ -106,13 +121,12 @@ export const configurationMain = async (
         }
         if (name === undefined) catalog.default = absoluteFile;
         else entries[name] = absoluteFile;
-      } else if (command === 'deactivate' && file === undefined) {
+      } else if (command === 'deactivate') {
         if (name === undefined) delete catalog.default;
         else delete entries[name];
-      } else throw new Error('Invalid Agent configuration command');
+      } else throw new CliInvocationError('Missing required --file for agent activate');
     } else {
-      if (file !== undefined) throw new Error('Tools use --folder');
-      if (command === 'list' && flags.size === 0) {
+      if (command === 'list') {
         const names = [
           ...new Set([...bundledAgentConfiguration().configuration.tools, ...Object.keys(entries)]),
         ];
@@ -126,8 +140,8 @@ export const configurationMain = async (
         await emit({ tools });
         return 0;
       }
-      if (name === undefined) throw new Error('Tool name is required');
-      if (command === 'inspect' && folder === undefined) {
+      if (name === undefined) throw new CliInvocationError('Missing required --name');
+      if (command === 'inspect') {
         if (
           !Object.hasOwn(entries, name) &&
           !bundledAgentConfiguration().configuration.tools.includes(name)
@@ -137,29 +151,27 @@ export const configurationMain = async (
         const tool = Object.hasOwn(entries, name)
           ? await resolveToolSelection(name, entries[name], configRoot, catalogFile)
           : { name, source: 'bundled', revision: '1' };
+        if ('rejection' in tool && tool.rejection !== undefined) {
+          await fail(tool.rejection.reason);
+          return 1;
+        }
         await emit(tool);
-        return 'rejection' in tool ? 1 : 0;
+        return 0;
       }
       if (command === 'activate' && folder !== undefined) {
         const absoluteFolder = decodeURIComponent(configurationFileUrl(folder).pathname);
         const selection = await resolveToolSelection(name, absoluteFolder, configRoot, catalogFile);
         if (selection.rejection !== undefined) throw new Error(selection.rejection.reason);
         entries[name] = absoluteFolder;
-      } else if (command === 'deactivate' && folder === undefined) delete entries[name];
-      else throw new Error('Invalid tool configuration command');
+      } else if (command === 'deactivate') delete entries[name];
+      else throw new CliInvocationError('Missing required --folder for tool activate');
     }
     await Deno.mkdir(configRoot, { recursive: true });
     await Deno.writeTextFile(catalogFile, JSON.stringify(catalog, null, 2) + '\n');
     await emit({ ok: true, file: catalogFile });
     return 0;
   } catch (error) {
-    await emit({
-      ok: false,
-      error: {
-        code: 'configuration_command_failed',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    }, true);
+    await fail(cliErrorMessage(error));
     return 1;
   }
 };

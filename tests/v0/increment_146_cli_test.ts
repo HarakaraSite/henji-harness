@@ -73,7 +73,8 @@ Deno.test('Increment 146 invalid invocation and an unreachable explicit URL fail
     }),
     1,
   );
-  strictEqual(JSON.parse(text).error.code, 'invalid_invocation');
+  strictEqual(text.includes('unexpected TUI option --definition-revision'), true);
+  strictEqual(text.includes('henji tui --help'), true);
   strictEqual(terminal.rawCalls, 0);
   text = '';
   const listener = Deno.listen({ hostname: '127.0.0.1', port: 0 });

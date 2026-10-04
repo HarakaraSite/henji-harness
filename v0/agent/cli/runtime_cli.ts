@@ -1,3 +1,4 @@
+import { cliErrorText } from './cli_error.ts';
 import type { HeadlessWorkerRun } from '../worker/worker_headless_runner.ts';
 import type { AgentEventSink } from '../core/events.ts';
 import {
@@ -26,10 +27,12 @@ const parseOutputMode = (args: readonly string[]): OutputMode => {
   let mode: OutputMode = 'text';
   for (const argument of args) {
     if (argument === '--json') {
-      if (mode === 'stream') throw new AgentInputError();
+      if (mode === 'stream') {
+        throw new AgentInputError('--json and --stream are mutually exclusive');
+      }
       mode = 'json';
     } else if (argument === '--stream') {
-      if (mode === 'json') throw new AgentInputError();
+      if (mode === 'json') throw new AgentInputError('--json and --stream are mutually exclusive');
       mode = 'stream';
     }
   }
@@ -37,8 +40,8 @@ const parseOutputMode = (args: readonly string[]): OutputMode => {
 };
 
 class AgentInputError extends Error {
-  constructor() {
-    super('invalid agent invocation');
+  constructor(message = 'Invalid agent invocation') {
+    super(message);
     this.name = 'AgentInputError';
   }
 }
@@ -63,12 +66,15 @@ interface RuntimeCliDependencies {
   readonly writeStderr?: OutputWriter;
 }
 
-const invalidInput = (): AgentInputError => new AgentInputError();
+const invalidInput = (message?: string): AgentInputError => new AgentInputError(message);
 
 const normalizedTask = (text: string): string => {
   const task = text.trim();
-  if (task.length === 0 || encoder.encode(task).byteLength > MAX_TASK_BYTES) {
-    throw invalidInput();
+  if (task.length === 0) {
+    throw invalidInput('Task must not be blank; use --task TEXT or pipe a task on stdin');
+  }
+  if (encoder.encode(task).byteLength > MAX_TASK_BYTES) {
+    throw invalidInput('Task exceeds 65536 UTF-8 bytes');
   }
   return task;
 };
@@ -94,36 +100,40 @@ const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
       argument !== '--task' && argument !== '--agent' &&
       argument !== '--agent-file' && argument !== '--max-steps' &&
       argument !== '--provider-timeout-ms'
-    ) throw invalidInput();
-    if (index + 1 >= args.length) throw invalidInput();
+    ) throw invalidInput(`Unknown option '${argument}'`);
+    if (index + 1 >= args.length) throw invalidInput(`Missing value for ${argument}`);
     if (argument === '--task') {
-      if (task !== undefined) throw invalidInput();
+      if (task !== undefined) throw invalidInput('Duplicate --task');
       task = args[index + 1];
     } else if (argument === '--max-steps' || argument === '--provider-timeout-ms') {
       const value = args[index + 1];
-      if (!/^[0-9]+$/.test(value)) throw invalidInput();
+      if (!/^[0-9]+$/.test(value)) throw invalidInput(`${argument} must be a positive integer`);
       const parsed = Number(value);
-      if (!Number.isSafeInteger(parsed) || parsed <= 0) throw invalidInput();
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+        throw invalidInput(`${argument} must be a positive integer`);
+      }
       if (argument === '--max-steps') {
-        if (rootMaxSteps !== undefined) throw invalidInput();
+        if (rootMaxSteps !== undefined) throw invalidInput('Duplicate --max-steps');
         rootMaxSteps = parsed;
       } else {
-        if (providerTimeoutMs !== undefined) throw invalidInput();
+        if (providerTimeoutMs !== undefined) throw invalidInput('Duplicate --provider-timeout-ms');
         providerTimeoutMs = parsed;
       }
     } else {
       if (argument === '--agent') {
-        if (rawAgentName !== undefined) throw invalidInput();
+        if (rawAgentName !== undefined) throw invalidInput('Duplicate --agent');
         rawAgentName = args[index + 1];
       } else {
-        if (rawAgentFile !== undefined) throw invalidInput();
+        if (rawAgentFile !== undefined) throw invalidInput('Duplicate --agent-file');
         rawAgentFile = args[index + 1];
-        if (rawAgentFile.length === 0) throw invalidInput();
+        if (rawAgentFile.length === 0) throw invalidInput('Missing value for --agent-file');
       }
     }
     index += 1;
   }
-  if (rawAgentName !== undefined && rawAgentFile !== undefined) throw invalidInput();
+  if (rawAgentName !== undefined && rawAgentFile !== undefined) {
+    throw invalidInput('--agent and --agent-file are mutually exclusive');
+  }
   return {
     taskArg: task,
     rawAgentName,
@@ -154,7 +164,7 @@ const readBoundedStdin = async (
         } catch {
           // Best-effort cancellation: the input is already rejected.
         }
-        throw invalidInput();
+        throw invalidInput('Task exceeds 65536 UTF-8 bytes');
       }
       if (value.byteLength > 0) {
         chunks.push(value);
@@ -179,7 +189,7 @@ const decodeTask = (bytes: Uint8Array): string => {
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    throw invalidInput();
+    throw invalidInput('Task stdin must be valid UTF-8');
   }
   return normalizedTask(text);
 };
@@ -262,7 +272,10 @@ const instructionFailureValue = (error: HenjiInstructionErrorValue): Record<stri
   error,
 });
 
-const line = (value: Record<string, unknown>): string => JSON.stringify(value) + '\n';
+const humanErrorMessage = (value: Record<string, unknown>): string => {
+  const error = value.error as { message?: string; reason?: string } | undefined;
+  return [error?.message ?? 'Agent run failed', error?.reason].filter(Boolean).join(': ');
+};
 
 /** Curated terminal result for `--json`, covering both success and failure. */
 const resultRecord = (
@@ -294,22 +307,22 @@ export const main = async (
   const stdout = new OrderedTextWriter(dependencies.writeStdout ?? defaultStdout);
   const stderr = new OrderedTextWriter(dependencies.writeStderr ?? defaultStderr);
   let mode: OutputMode = 'text';
-  let modeInvalid = false;
+  let modeError: AgentInputError | undefined;
   try {
     mode = parseOutputMode(args);
-  } catch {
-    // `--json` and `--stream` together are invalid; report through the default text channel.
-    modeInvalid = true;
+  } catch (error) {
+    // Conflicting output modes use the default human error channel.
+    modeError = error as AgentInputError;
   }
-  const emitError = (value: Record<string, unknown>): void => {
+  const emitError = (value: Record<string, unknown>, message?: string, usage = false): void => {
     if (mode === 'json') {
       stdout.enqueue(serializeCliRunRecord({ kind: 'error', error: value }));
     } else {
-      stderr.enqueue(line(value));
+      stderr.enqueue(cliErrorText('run', message ?? humanErrorMessage(value), usage));
     }
   };
   try {
-    if (modeInvalid) throw invalidInput();
+    if (modeError !== undefined) throw modeError;
     const parsed = parseTaskArg(args.filter((argument) => !OUTPUT_FLAGS.has(argument)));
     // Only the current name/file choice crosses the CLI port; the Agent Worker loads settings.
     try {
@@ -327,13 +340,17 @@ export const main = async (
     const argvTask = parsed.taskArg;
     const terminal = dependencies.stdinIsTerminal?.() ??
       Deno.stdin.isTerminal();
-    if (argvTask !== undefined && !terminal) throw invalidInput();
+    if (argvTask !== undefined && !terminal) {
+      throw invalidInput(
+        'Choose --task from a terminal or pipe the task on stdin, rather than supplying both',
+      );
+    }
 
     let task: string;
     if (argvTask !== undefined) {
       task = normalizedTask(argvTask);
     } else {
-      if (terminal) throw invalidInput();
+      if (terminal) throw invalidInput('Missing task; use --task TEXT or pipe a task on stdin');
       let bytes: Uint8Array;
       try {
         bytes = dependencies.readStdin
@@ -387,7 +404,13 @@ export const main = async (
     if (mode === 'json') {
       stdout.enqueue(serializeCliRunRecord(resultRecord(run, projector.wasCommitted)));
     } else {
-      stderr.enqueue(line(runtimeFailureValue(run)));
+      stderr.enqueue(
+        cliErrorText(
+          'run',
+          humanErrorMessage(runtimeFailureValue(run)) +
+            (run.outcome.error ? `: ${run.outcome.error}` : ''),
+        ),
+      );
     }
     return 1;
   } catch (error) {
@@ -413,7 +436,7 @@ export const main = async (
       }
     }
     if (error instanceof AgentInputError) {
-      emitError(preflightFailureValue());
+      emitError(preflightFailureValue(), error.message, true);
       return 1;
     }
     emitError(failureValue(

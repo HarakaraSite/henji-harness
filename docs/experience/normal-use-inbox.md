@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。採用済み項目と旧方式の前提を整理）。
+更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183へ採用・移設）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -27,8 +27,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                          | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | browserから通常利用する画面が必要になるとき                                                                            |
-| S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14採用時                                             |
-| S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
+| S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき                                                        |
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
@@ -39,7 +38,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A6  | Agent実行      | Web searchの取得品質・backend比較                                            | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A14 | Agent実行      | 名前付き子Agent設定の専用model指定                                           | reviewerなどを親Sessionとは別のmodelで動かしたいとき                                                                   |
 | A15 | Agent実行      | searchツールコールの実装                                                     | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討                                                       |
 | A18 | Agent実行      | bash toolのtimeout説明と引数エラーの具体化                                   | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測                                                   |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
@@ -124,37 +122,10 @@ Definition/transportを候補の必須前提として復活させず、候補自
   契約の拡張のいずれか）を要する。task断片はcall引数`task`から表示できる。
 - 候補: [Increment 136](../increments/increment-136.md)で採用したagent名表示に加え、runId短縮表示で
   起動行とstatus／collect／cancel行を対応付けられるようにする。
-- 再検討条件: 複数の子Agentを並行運用し、操作行がどのagent・runのものか履歴から追えなくなったとき、
-  またはA14を採用するincrementに含めるとき。
-- 関連: A14、[Increment 138（A20・A22）](../increments/increment-138.md)、
+- 再検討条件: 複数の子Agentを並行運用し、操作行がどのagent・runのものか履歴から追えなくなったとき。
+- 関連: [Increment 138（A20・A22）](../increments/increment-138.md)、
   [`increment-136.md`](../increments/increment-136.md)、
   [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
-
-### S26 — CLIエラーを人間向けの理由・使い方案内へ統一（未採用）
-
-- 観測（2026-09-29、利用者の通常操作）: `henji list`で
-  `{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}`
-  がそのまま表示された。Core一覧の正しい操作は`henji core list`だが、何を間違え、どう直せばよいか
-  メッセージから分からない。
-- 原観測時の常用binaryでの確認（2026-09-29、隔離HOME／XDG、実provider requestなし）:
-  不明なcommand／optionに対し、root、通常起動／`tui`、`run`の通常表示／`--stream`、`history`、
-  `sessions`、`module`、`tool`、`diagnostics`はJSONエラーを出す。TUI optionの指定漏れ等は
-  具体的な理由がJSON内にあるが、ほかは`invalid invocation`だけの場合が多い。
-  `core`／`serve`はテキストで、command間で表示が統一されていない。
-  `sessions`のエラーはstderrではなくstdoutへ出る。
-  `henji core list --help`もhelpとして処理されずエラーになる。
-- 現行差分（2026-10-04、source照合）: 181で旧module commandは廃止し、JSON設定のagent/tool
-  commandへ切り替えた。configuration_cli.tsは理由を含むJSON errorを返す。
-  当時のcommand全件のbinary再確認は行っておらず、表示統一・出力先・helpは採用時に現在の入口で確認する。
-- 利用者判断（同日）: CLIらしいメッセージへ改善したい。今回はメモだけを残し、まだ修正しない。
-- 候補: 通常表示ではstderrへ、不明なcommand／option名、値の指定漏れや不正な値の理由、
-  該当commandの使い方またはhelpへの案内を短いテキストで出す。例えば`henji list`には
-  未知のcommandであることと、Core一覧は`henji core list`であることを案内する。
-  明示的な`run --json`等の機械向け出力は維持し、成功時の出力形式は別の変更として扱う。
-  エラーの出力先とsubcommandのhelpも、今回観測した不整合の改善候補に含める。
-- 再検討条件: 利用者がこの改善を個別Incrementへ採用するとき。対象command、表示文言、
-  機械向け出力との境界を採用時に決める。
-- 関連: `v0/agent/cli/henji_cli.ts`、`v0/agent/cli/cli_help.ts`、`v0/agent/cli/`の各command入口。
 
 ### S28 — `@`によるコンテキスト注入（未採用、メモのみ）
 
@@ -346,24 +317,6 @@ Pi／OpenCode／Henjiの画面表示比較
   検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
 - 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
 
-### A14 — 名前付き子Agent設定の専用model指定
-
-- 利用者希望（2026-09-25）: reviewerに専用model既定を設定し、親のmodelと独立に動かしたい。
-  spawnごとの任意model指定とは別の要望である。
-- 現行境界（2026-10-04、source照合）: named Agentはagents.jsonと現在Agent JSONで選び、
-  repositoryの例はagents/reviewer.jsonである。Agent
-  JSONの選択項目はname/revision/instruction/tools/agentsで、
-  model/effort既定を宣言するcontractはない。 spawn_subagent(agent, task, model?,
-  tools?)は明示modelを選べる。省略時は親executionのselectionと
-  実効ChatGPT登録IDを使い、明示providerでは指定先認証を使う。非secret参照の継承とcredential値の配送を混同しない。
-- 候補: named Agent設定で子の既定model/effortを宣言し、Hostが起動時に適用する。
-  親selection、明示spawn指定、named既定の優先順位と保存scopeは採用時に決める。
-- 再検討条件:
-  reviewer等を親と異なるmodelで通常利用したいとき、または毎回の明示指定が負担になるとき。
-- 関連: [131](../increments/increment-131.md)、[181](../increments/increment-181.md)、
-  [182](../increments/increment-182.md)、v0/agent/configuration/configuration_resolver.ts、
-  v0/agent/worker/worker_host_children.ts。
-
 ### A15 — searchツールコールの実装
 
 - 利用者指示（2026-09-25）:
@@ -439,9 +392,10 @@ Pi／OpenCode／Henjiの画面表示比較
   [Increment 175](../increments/increment-175.md)でWorkerの受付確認と、tool後に加えてmodelがfinalを
   返した際の取込み・同じexecutionの次requestへの継続を成立させた。複数回の受付は175の対象外であり、
   本候補として残る。これはHenjiの実装上の制約であり、provider APIの制約ではない。
-- 候補: 同じturnの実行中に追加のsteeringを受け付け、既存のtool実行後・次のmodel request前の
-  経路（final後の継続を含む）でモデルへ渡す。未消費の指示がある間に届いた追加分の保持方法と適用順序は、個別Incrementへ
-  採用するときに定める。
+- 利用者方針（2026-10-04、実装は未採用）: 前の指示が適用されたら、同じexecutionで次の指示を
+  受け付ける。未適用の指示がある間は次を受け付けない。実装はまだ行わない。
+- 候補: 上記の受付方針で、同じturnの実行中にsteeringを複数回受け付け、既存のtool実行後・ 次のmodel
+  request前の経路（final後の継続を含む）でモデルへ渡す。
 - 対象範囲: 実行中turnへの追加指示。別枠のchatや子Agentへの直接steeringは、この候補には含めない。
 - 関連: [Increment 175](../increments/increment-175.md)、`v0/agent/core/steering.ts`、
   `v0/agent/core/loop.ts`、`v0/tui/remote_session.ts`。
@@ -509,8 +463,7 @@ Pi／OpenCode／Henjiの画面表示比較
 - 検討候補: どのtaskを親自身で扱い、どのtaskを子へ任せるか、任せる際のAgent選択と
   provider・model・effort・toolの選び方を検討する。親設定の継承と明示指定を使い分ける基準も未決である。
 - 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
-- 関連: A14（名前付き子Agent設定の専用model指定）、
-  [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
+- 関連: [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
 
 ### A26 — hookによる起動時・実行前後の自動処理（未採用）
 

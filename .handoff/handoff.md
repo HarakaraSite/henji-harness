@@ -4,24 +4,21 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 182](../docs/increments/increment-182.md)は利用者受入・commit/push・常用配置まで完了。
-親execution開始時にChatGPTの実効認証登録IDを解決し、model省略childへ継承する。
-181は実装・検証・常用配置と、利用者による再認証後の通常利用確認まで完了済み。
+[Increment 183](../docs/increments/increment-183.md)としてS26のCLIエラー表示とsubcommand helpを
+実装・検証と利用者受入は完了。利用者の「コミットして配置して」に従い、local
+commit・常用配置を進める。 通常利用メモからS26を移設済み。
+182までのruntimeは利用者受入・commit/push・常用配置まで完了している。
 
 ## 次の一手と承認境界
 
-182のfocused 16件、type/fmt/lint/diff、compiled buildが通過した。
-同一provider継承と異なるprovider両方向を実Worker＋localhostで確認済み。
-承認済みの実provider三フローは六execution・15requestで全て完了。停止DB照合もpassed=true。
-証拠は`.tools/increment-182/real-provider/`。
-実装commitは`417e2af4`。常用配置版は受入済みruntimeと一致し、隔離Core/TUI起動・DB保存確認も完了。
-配置証拠は`.tools/increment-182/deployment/`。稼働中Coreは維持し、次回Core起動から配置版を使用する。
-次の採用判断を待つ。 構想・Host/Worker architecture・provider/auth
-architecture・roadmapは、2026-10-04の個別承認により source `a78c2076`・Increment
-182までの現行方式へ照合・反映済み。181 §8の未反映境界は解消した。
+183の変更差分・検証結果は個別increment文書を参照する。確認用compiled binaryは
+`.tools/increment-183/henji`。provider requestは行っていない。
+構想・architecture・roadmapの変更は183の採用に含めず、変更時は別途承認を要する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 183](../docs/increments/increment-183.md): S26の採用要件、実装・確認計画と結果。
 
 - [Increment 182](../docs/increments/increment-182.md): B10の採用要件、実装・確認計画。
 

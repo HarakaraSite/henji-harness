@@ -1,3 +1,4 @@
+import { cliErrorMessage, cliErrorText } from './cli_error.ts';
 import { type CoreInitialSession, createCoreService } from '../host/core_service.ts';
 import { startCoreServer } from '../http/api_worker_client.ts';
 import { parseTuiInvocation } from './session_invocation.ts';
@@ -50,21 +51,42 @@ const parseServeInvocation = (args: readonly string[]): ServeInvocation => {
       json = true;
     } else if (flag === '--host') {
       const value = args[++index];
-      if (hostSeen || !value || value.startsWith('--')) throw new Error('invalid --host');
+      if (hostSeen) throw new Error('Duplicate --host');
+      if (!value || value.startsWith('--')) throw new Error('Missing value for --host');
       hostname = value;
       hostSeen = true;
     } else if (flag === '--port') {
       const value = args[++index];
       if (portSeen || value === undefined || !/^\d+$/.test(value)) {
-        throw new Error('invalid --port');
+        throw new Error(
+          portSeen
+            ? 'Duplicate --port'
+            : value === undefined || value.startsWith('--')
+            ? 'Missing value for --port'
+            : '--port must be an integer from 0 to 65535',
+        );
       }
       port = Number(value);
-      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('invalid --port');
+      if (!Number.isInteger(port) || port < 0 || port > 65535) {
+        throw new Error('--port must be an integer from 0 to 65535');
+      }
       portSeen = true;
     } else if (flag === '--new') {
       if (openInitialSession) throw new Error('duplicate Session target');
       openInitialSession = true;
     } else {
+      if (
+        ![
+          '--session',
+          '--continue',
+          '--no-session',
+          '--agent',
+          '--agent-file',
+          '--max-steps',
+          '--provider-timeout-ms',
+          '--root-provider',
+        ].includes(flag)
+      ) throw new Error(`Unknown option '${flag}'`);
       if (flag === '--session' || flag === '--continue' || flag === '--no-session') {
         if (openInitialSession) throw new Error('duplicate Session target');
         openInitialSession = true;
@@ -221,7 +243,7 @@ export const main = async (
       }
     }
     await Deno.stderr.write(
-      encoder.encode(`serve failed: ${error instanceof Error ? error.message : String(error)}\n`),
+      encoder.encode(cliErrorText('serve', cliErrorMessage(error), true)),
     );
     return 1;
   } finally {

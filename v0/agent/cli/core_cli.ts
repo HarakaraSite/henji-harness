@@ -1,3 +1,4 @@
+import { cliErrorMessage, cliErrorText, commandError } from './cli_error.ts';
 import { HenjiApiClient } from '../../api/client.ts';
 import {
   coreCollectionLocation,
@@ -32,10 +33,10 @@ const parseConnectUrl = (value: string): string => {
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error('invalid --connect URL');
+    throw new Error('--connect must be an HTTP or HTTPS URL');
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('invalid --connect URL');
+    throw new Error('--connect must be an HTTP or HTTPS URL');
   }
   return value;
 };
@@ -43,7 +44,7 @@ const parseConnectUrl = (value: string): string => {
 export const parseCoreInvocation = (args: readonly string[]): CoreInvocation => {
   const command = args[0];
   if (command !== 'status' && command !== 'stop' && command !== 'list') {
-    throw new Error('expected core list, core status or core stop');
+    throw commandError(command, 'list, status or stop');
   }
   let connect: string | undefined;
   let coreId: string | undefined;
@@ -53,13 +54,15 @@ export const parseCoreInvocation = (args: readonly string[]): CoreInvocation => 
     if (flag === '--connect' && command !== 'list') {
       const value = args[++index];
       if (connect !== undefined || value === undefined || value.startsWith('--')) {
-        throw new Error('invalid --connect');
+        throw new Error(
+          connect !== undefined ? 'Duplicate --connect' : 'Missing value for --connect',
+        );
       }
       connect = parseConnectUrl(value);
     } else if (flag === '--core' && command !== 'list') {
       const value = args[++index];
       if (coreId !== undefined || !value || value.startsWith('--')) {
-        throw new Error('invalid --core');
+        throw new Error(coreId !== undefined ? 'Duplicate --core' : 'Missing value for --core');
       }
       coreId = value;
     } else if (flag === '--json' && command !== 'stop') {
@@ -197,8 +200,7 @@ export const main = async (args: readonly string[]): Promise<number> => {
       ? await status(invocation)
       : await stop(invocation);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'core command failed';
-    await writeStderr(`core command failed: ${message}\n`);
+    await writeStderr(cliErrorText('core', cliErrorMessage(error), true));
     return 1;
   }
 };

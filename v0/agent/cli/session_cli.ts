@@ -1,3 +1,10 @@
+import {
+  cliErrorMessage,
+  cliErrorText,
+  CliInvocationError,
+  commandError,
+  parseCliOptions,
+} from './cli_error.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { isSessionId, launcherStateRoot, SessionStoreError } from '../session/session_store.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
@@ -17,30 +24,23 @@ type SessionCliCommand =
   | { readonly kind: 'list' }
   | { readonly kind: 'delete'; readonly id: string };
 
-class SessionCliInvocationError extends Error {
-  constructor() {
-    super('invalid invocation');
-    this.name = 'SessionCliInvocationError';
-  }
-}
-
-const parseSessionArgs = (
-  args: readonly string[],
-): SessionCliCommand => {
-  if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
-  if (
-    args.length === 4 && args[0] === 'delete' && args[1] === '--session' &&
-    isSessionId(args[2]) && args[3] === '--yes'
-  ) return { kind: 'delete', id: args[2] };
-  throw new SessionCliInvocationError();
+const parseSessionArgs = (args: readonly string[]): SessionCliCommand => {
+  const command = args[0];
+  if (command !== 'list' && command !== 'delete') throw commandError(command, 'list or delete');
+  const flags = parseCliOptions(
+    args.slice(1),
+    command === 'delete' ? ['--session'] : [],
+    command === 'delete' ? ['--yes'] : [],
+  );
+  if (command === 'list') return { kind: 'list' };
+  const id = flags.get('--session');
+  if (id === undefined) throw new CliInvocationError('Missing required --session');
+  if (!isSessionId(id)) throw new CliInvocationError('--session must be a full Session UUID');
+  if (!flags.has('--yes')) throw new CliInvocationError('Session deletion requires --yes');
+  return { kind: 'delete', id };
 };
 
-const line = (code: string): string =>
-  JSON.stringify({
-    ok: false,
-    error: { code, message: errorMessages[code] ?? 'invalid invocation' },
-  }) +
-  '\n';
+const line = (code: string): string => cliErrorText('sessions', errorMessages[code] ?? code, true);
 
 interface SessionCliDependencies {
   readonly writeStdout?: (text: string) => void | PromiseLike<void>;
@@ -52,9 +52,10 @@ interface SessionCliDependencies {
 const writeOut = async (
   writer: ((text: string) => void | PromiseLike<void>) | undefined,
   text: string,
+  fallback: 'stdout' | 'stderr' = 'stdout',
 ) => {
   if (writer !== undefined) return await writer(text);
-  await Deno.stdout.write(encoder.encode(text));
+  await (fallback === 'stdout' ? Deno.stdout : Deno.stderr).write(encoder.encode(text));
 };
 
 export const main = async (
@@ -64,8 +65,12 @@ export const main = async (
   let command: SessionCliCommand;
   try {
     command = parseSessionArgs(args);
-  } catch {
-    await writeOut(dependencies.writeStderr, line('invalid_invocation'));
+  } catch (error) {
+    await writeOut(
+      dependencies.writeStderr,
+      cliErrorText('sessions', cliErrorMessage(error), true),
+      'stderr',
+    );
     return 1;
   }
   try {
@@ -101,7 +106,7 @@ export const main = async (
         ? 'session_invalid'
         : 'session_io_failure'
       : 'session_io_failure';
-    await writeOut(dependencies.writeStderr, line(code));
+    await writeOut(dependencies.writeStderr, line(code), 'stderr');
     return 1;
   }
 };

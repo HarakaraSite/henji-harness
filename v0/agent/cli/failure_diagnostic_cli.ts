@@ -1,3 +1,10 @@
+import {
+  cliErrorMessage,
+  cliErrorText,
+  CliInvocationError,
+  commandError,
+  parseCliOptions,
+} from './cli_error.ts';
 import { FailureDiagnosticStoreError } from '../session/failure_diagnostic_store.ts';
 import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import type { StoredExecutionRow } from '../history/history_store_contract.ts';
@@ -37,57 +44,49 @@ type FailureDiagnosticCliCommand =
   | { readonly kind: 'execution_context'; readonly id: string }
   | { readonly kind: 'execution_request'; readonly id: string; readonly ordinal: number };
 
-class FailureDiagnosticCliInvocationError extends Error {
-  constructor() {
-    super('invalid invocation');
-    this.name = 'FailureDiagnosticCliInvocationError';
+const parseFailureDiagnosticArgs = (args: readonly string[]): FailureDiagnosticCliCommand => {
+  const execution = args[0] === 'executions';
+  const command = args[execution ? 1 : 0];
+  const commands = execution
+    ? ['list', 'show', 'events', 'context', 'request']
+    : ['list', 'latest', 'show', 'delete'];
+  if (!commands.includes(command)) throw commandError(command, commands.join(', '));
+  const needsId = !['list', 'latest'].includes(command);
+  const flags = parseCliOptions(
+    args.slice(execution ? 2 : 1),
+    needsId ? command === 'request' ? ['--id', '--ordinal'] : ['--id'] : [],
+    command === 'delete' ? ['--yes'] : [],
+  );
+  const id = flags.get('--id');
+  if (needsId && id === undefined) throw new CliInvocationError('Missing required --id');
+  if (id !== undefined && !UUID_V4.test(id)) {
+    throw new CliInvocationError('--id must be a full execution or diagnostic UUID');
   }
-}
-
-const parseFailureDiagnosticArgs = (
-  args: readonly string[],
-): FailureDiagnosticCliCommand => {
-  if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
-  if (args.length === 1 && args[0] === 'latest') return { kind: 'latest' };
-  if (args.length === 2 && args[0] === 'executions' && args[1] === 'list') {
-    return { kind: 'execution_list' };
+  if (command === 'delete' && !flags.has('--yes')) {
+    throw new CliInvocationError('Diagnostic deletion requires --yes');
   }
-  if (
-    args.length === 4 && args[0] === 'executions' && args[1] === 'show' &&
-    args[2] === '--id' && UUID_V4.test(args[3])
-  ) return { kind: 'execution_show', id: args[3] };
-  if (
-    args.length === 4 && args[0] === 'executions' && args[1] === 'events' &&
-    args[2] === '--id' && UUID_V4.test(args[3])
-  ) return { kind: 'execution_events', id: args[3] };
-  if (
-    args.length === 4 && args[0] === 'executions' && args[1] === 'context' &&
-    args[2] === '--id' && UUID_V4.test(args[3])
-  ) return { kind: 'execution_context', id: args[3] };
-  if (
-    args.length === 6 && args[0] === 'executions' && args[1] === 'request' &&
-    args[2] === '--id' && UUID_V4.test(args[3]) && args[4] === '--ordinal' &&
-    /^\d+$/u.test(args[5]) && Number(args[5]) >= 1 && Number.isSafeInteger(Number(args[5]))
-  ) return { kind: 'execution_request', id: args[3], ordinal: Number(args[5]) };
-  if (
-    args.length === 3 && args[0] === 'show' && args[1] === '--id' &&
-    UUID_V4.test(args[2])
-  ) return { kind: 'show', id: args[2] };
-  if (
-    args.length === 4 && args[0] === 'delete' && args[1] === '--id' &&
-    UUID_V4.test(args[2]) && args[3] === '--yes'
-  ) return { kind: 'delete', id: args[2] };
-  throw new FailureDiagnosticCliInvocationError();
+  if (execution) {
+    if (command === 'list') return { kind: 'execution_list' };
+    if (command === 'request') {
+      const value = flags.get('--ordinal');
+      if (value === undefined) throw new CliInvocationError('Missing required --ordinal');
+      const ordinal = Number(value);
+      if (!/^\d+$/u.test(value) || !Number.isSafeInteger(ordinal) || ordinal < 1) {
+        throw new CliInvocationError('--ordinal must be a positive integer starting at 1');
+      }
+      return { kind: 'execution_request', id: id!, ordinal };
+    }
+    return {
+      kind: `execution_${command}` as 'execution_show' | 'execution_events' | 'execution_context',
+      id: id!,
+    };
+  }
+  if (command === 'list' || command === 'latest') return { kind: command };
+  return { kind: command as 'show' | 'delete', id: id! };
 };
 
 const errorLine = (code: string): string =>
-  JSON.stringify({
-    ok: false,
-    error: {
-      code,
-      message: ERROR_MESSAGES[code] ?? ERROR_MESSAGES.invalid_invocation,
-    },
-  }) + '\n';
+  cliErrorText('diagnostics', ERROR_MESSAGES[code] ?? code, true);
 
 const executionSummary = (execution: StoredExecutionRow) => ({
   executionId: execution.executionId,
@@ -171,10 +170,10 @@ export const main = async (
   let command: FailureDiagnosticCliCommand;
   try {
     command = parseFailureDiagnosticArgs(args);
-  } catch {
+  } catch (error) {
     await writeOutput(
       dependencies.writeStderr,
-      errorLine('invalid_invocation'),
+      cliErrorText('diagnostics', cliErrorMessage(error), true),
       'stderr',
     );
     return 1;

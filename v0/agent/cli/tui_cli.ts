@@ -1,3 +1,4 @@
+import { cliErrorMessage, cliErrorText } from './cli_error.ts';
 import { DenoTerminal } from '../../tui/terminal.ts';
 import { parseRemoteTuiInvocation, runRemoteTuiInvocation } from './remote_tui_cli.ts';
 import type { RemoteTuiDependencies } from '../../tui/remote_session.ts';
@@ -16,34 +17,18 @@ export const main = async (
   try {
     invocation = parseRemoteTuiInvocation(args);
   } catch (error) {
-    await stderr(
-      JSON.stringify({
-        ok: false,
-        error: {
-          code: 'invalid_invocation',
-          message: error instanceof Error ? error.message : 'invalid invocation',
-        },
-      }) + '\n',
-    );
+    await stderr(cliErrorText('tui', cliErrorMessage(error), true));
     return 1;
   }
   const terminal = dependencies.terminal ?? new DenoTerminal();
   if (!terminal.stdinIsTerminal() || !terminal.stdoutIsTerminal()) {
-    await stderr('TUI requires a terminal\n');
+    await stderr(cliErrorText('tui', 'TUI requires a terminal'));
     return 1;
   }
   try {
     return await runRemoteTuiInvocation(invocation, { ...dependencies, terminal });
   } catch (error) {
-    await stderr(
-      JSON.stringify({
-        ok: false,
-        error: {
-          code: 'startup_failure',
-          message: error instanceof Error ? error.message : 'Core startup failed',
-        },
-      }) + '\n',
-    );
+    await stderr(cliErrorText('tui', cliErrorMessage(error)));
     return 1;
   }
 };

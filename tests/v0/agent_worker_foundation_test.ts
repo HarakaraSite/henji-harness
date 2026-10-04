@@ -704,7 +704,7 @@ Deno.test('run passes both limits to the headless Worker invocation', async () =
   assertEquals(observed, [{ rootMaxSteps: 160, providerTimeoutMs: 420_000 }]);
 });
 
-Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () => {
+Deno.test('runtime CLI explains max-step failure on stderr and preserves exit code', async () => {
   let stdout = '';
   let stderr = '';
   const exit = await runtimeCliMain(['--task', 'bounded task'], {
@@ -734,16 +734,7 @@ Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () 
   });
   assertEquals(exit, 1);
   assertEquals(stdout, '');
-  assertEquals(JSON.parse(stderr), {
-    ok: false,
-    outcome: 'max_steps',
-    stopReason: 'max_steps',
-    steps: 64,
-    toolCallCount: 63,
-    toolResultCount: 63,
-    requestCount: 64,
-    error: { code: 'max_steps', message: 'agent request limit reached' },
-  });
+  assertEquals(stderr, 'henji run: agent request limit reached: maximum model steps reached\n');
 });
 
 Deno.test('headless development task uses the unified TypeScript entry', async () => {

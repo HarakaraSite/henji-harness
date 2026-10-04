@@ -23,10 +23,10 @@ const valueAfter = (
 };
 
 const positiveSafeInteger = (value: string, flag: string): number => {
-  if (!/^\d+$/u.test(value)) throw new Error(`invalid ${flag}`);
+  if (!/^\d+$/u.test(value)) throw new Error(`${flag} must be a positive integer`);
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`invalid ${flag}`);
+    throw new Error(`${flag} must be a positive integer`);
   }
   return parsed;
 };
@@ -60,10 +60,10 @@ export const parseRemoteTuiInvocation = (
       try {
         parsed = new URL(value);
       } catch {
-        throw new Error('invalid --connect');
+        throw new Error('--connect must be an HTTP or HTTPS URL');
       }
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        throw new Error('invalid --connect');
+        throw new Error('--connect must be an HTTP or HTTPS URL');
       }
       url = value;
       index += 2;
@@ -82,7 +82,7 @@ export const parseRemoteTuiInvocation = (
       index += 1;
     } else if (flag === '--session') {
       const value = valueAfter(args, index, flag);
-      if (!isSessionId(value)) throw new Error('invalid --session');
+      if (!isSessionId(value)) throw new Error('--session must be a full Session UUID');
       setTarget({ kind: 'session', sessionId: value });
       index += 2;
     } else if (flag === '--agent') {
@@ -123,7 +123,7 @@ export const parseRemoteTuiInvocation = (
   if (
     (agent !== undefined && agentFile !== undefined)
   ) {
-    throw new Error('invalid TUI invocation');
+    throw new Error('--agent and --agent-file are mutually exclusive');
   }
   if (url !== undefined && coreId !== undefined) {
     throw new Error('--core and --connect are mutually exclusive');

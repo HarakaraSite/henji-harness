@@ -61,8 +61,15 @@ Read history without starting a task or activating a Session.
     'Usage: henji agent list | inspect [--name NAME | --file FILE]\n       henji agent activate --file FILE [--name NAME] | deactivate [--name NAME]\n',
   tool:
     'Usage: henji tool list | inspect --name NAME\n       henji tool activate --name NAME --folder FOLDER | deactivate --name NAME\n',
-  diagnostics:
-    'Usage: henji diagnostics runtime | list | latest | show | delete | executions [options]\n',
+  diagnostics: `Usage: henji diagnostics runtime | list | latest
+       henji diagnostics show --id ID
+       henji diagnostics delete --id ID --yes
+       henji diagnostics executions list
+       henji diagnostics executions show | events | context --id ID
+       henji diagnostics executions request --id ID --ordinal N
+
+ID is a full execution or diagnostic UUID. N is the physical request ordinal, starting at 1.
+`,
   webui: 'WebUI is not implemented.\n',
 };
 
@@ -70,11 +77,21 @@ Read history without starting a task or activating a Session.
 export const cliHelp = (args: readonly string[]): string | undefined => {
   if (args.length === 1 && args[0] === '--help') return help.henji;
   if (args.length === 2 && args[1] === '--help') return help[args[0]];
+  const subcommands: Readonly<Record<string, readonly string[]>> = {
+    core: ['list', 'status', 'stop'],
+    sessions: ['list', 'delete'],
+    agent: ['list', 'inspect', 'activate', 'deactivate'],
+    tool: ['list', 'inspect', 'activate', 'deactivate'],
+    diagnostics: ['runtime', 'list', 'latest', 'show', 'delete', 'executions'],
+  };
+  if (args.length === 3 && args[2] === '--help' && subcommands[args[0]]?.includes(args[1])) {
+    return help[args[0]];
+  }
   if (
-    args.length === 3 && args[0] === 'core' &&
-    (args[1] === 'status' || args[1] === 'stop') && args[2] === '--help'
+    args.length === 4 && args[0] === 'diagnostics' && args[1] === 'executions' &&
+    ['list', 'show', 'events', 'context', 'request'].includes(args[2]) && args[3] === '--help'
   ) {
-    return help.core;
+    return help.diagnostics;
   }
   return undefined;
 };

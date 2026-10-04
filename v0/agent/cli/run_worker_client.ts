@@ -1,3 +1,4 @@
+import { cliErrorMessage, cliErrorText } from './cli_error.ts';
 import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import { WorkerHostStartupError } from '../worker/worker_host_session.ts';
 import type { AgentEvent } from '../core/events.ts';
@@ -30,8 +31,13 @@ const workerFailureLine = (): string =>
     })
   }\n`;
 
-const workerFailure = async (): Promise<number> => {
-  await Deno.stderr.write(encoder.encode(workerFailureLine()));
+const workerFailure = async (
+  args: readonly string[],
+  message = 'Agent run failed',
+): Promise<number> => {
+  await Deno.stderr.write(
+    encoder.encode(args.includes('--json') ? workerFailureLine() : cliErrorText('run', message)),
+  );
   return 1;
 };
 
@@ -52,8 +58,8 @@ const runError = (error: unknown): RunWorkerErrorData =>
     ? { kind: 'instruction', value: henjiInstructionErrorValue(error) }
     : { kind: 'agent_failure' };
 
-/** Launch the CLI Worker; the selected executable Definition remains owned by this process. */
-export const runCliWorker = async (args: readonly string[] = Deno.args): Promise<number> => {
+/** Launch the CLI Worker; the Host starts the Agent Worker with its current name/file choice. */
+const launchCliWorker = async (args: readonly string[]): Promise<number> => {
   const paths = resolveRuntimePaths();
   const worker = new Worker(new URL('./run_bootstrap.ts', import.meta.url), { type: 'module' });
   let workerAlive = true;
@@ -154,5 +160,13 @@ export const runCliWorker = async (args: readonly string[] = Deno.args): Promise
   );
 
   const exitCode = await done;
-  return workerFailed ? await workerFailure() : exitCode;
+  return workerFailed ? await workerFailure(args) : exitCode;
+};
+
+export const runCliWorker = async (args: readonly string[] = Deno.args): Promise<number> => {
+  try {
+    return await launchCliWorker(args);
+  } catch (error) {
+    return await workerFailure(args, cliErrorMessage(error));
+  }
 };

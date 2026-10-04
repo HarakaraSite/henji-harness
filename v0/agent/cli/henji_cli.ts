@@ -1,3 +1,4 @@
+import { cliErrorMessage, cliErrorText, parseCliOptions } from './cli_error.ts';
 import { cliHelp } from './cli_help.ts';
 import { runProcessRunner } from '../runtime/process_runner.ts';
 import { main as tuiMain } from './tui_cli.ts';
@@ -17,15 +18,8 @@ const writeStdout = async (text: string): Promise<void> => {
   await Deno.stdout.write(encoder.encode(text));
 };
 
-const writeInvalid = async (): Promise<number> => {
-  await Deno.stderr.write(encoder.encode(
-    `${
-      JSON.stringify({
-        ok: false,
-        error: { code: 'invalid_invocation', message: 'invalid invocation' },
-      })
-    }\n`,
-  ));
+const writeInvalid = async (message: string): Promise<number> => {
+  await Deno.stderr.write(encoder.encode(cliErrorText('', message, true)));
   return 1;
 };
 
@@ -43,8 +37,9 @@ const versionLine = (): string => {
   ].join(' ') + '\n';
 };
 
-const runtimeDiagnostics = async (): Promise<number> => {
+const runtimeDiagnostics = async (args: readonly string[]): Promise<number> => {
   try {
+    parseCliOptions(args, []);
     const paths = resolveRuntimePaths();
     await writeStdout(`${
       JSON.stringify({
@@ -60,8 +55,11 @@ const runtimeDiagnostics = async (): Promise<number> => {
       })
     }\n`);
     return 0;
-  } catch {
-    return await writeInvalid();
+  } catch (error) {
+    await Deno.stderr.write(
+      encoder.encode(cliErrorText('diagnostics', cliErrorMessage(error), true)),
+    );
+    return 1;
   }
 };
 
@@ -73,7 +71,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   }
   if (args[0] === '--internal-core-bootstrap') {
     if (args.length !== 3 || args[1].length === 0 || args[2].length === 0) {
-      return await writeInvalid();
+      return await writeInvalid('Invalid internal Core bootstrap arguments');
     }
     return await serveMain([], { bootstrapToken: args[1], coreEpoch: args[2] });
   }
@@ -91,7 +89,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   if (args[0] === 'core') return await coreMain(args.slice(1));
   if (args[0] === 'tui') return await tuiMain(args.slice(1));
   if (args[0] === 'webui') {
-    await Deno.stderr.write(encoder.encode('WebUI is not implemented.\n'));
+    await Deno.stderr.write(encoder.encode(cliErrorText('webui', 'WebUI is not implemented.')));
     return 1;
   }
   if (args[0] === 'sessions') return await sessionsMain(args.slice(1));
@@ -99,11 +97,15 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   if (args[0] === 'agent') return await configurationMain('agent', args.slice(1));
   if (args[0] === 'tool') return await configurationMain('tool', args.slice(1));
   if (args[0] === 'diagnostics') {
-    if (args.length === 2 && args[1] === 'runtime') return await runtimeDiagnostics();
+    if (args[1] === 'runtime') return await runtimeDiagnostics(args.slice(2));
     return await diagnosticsMain(args.slice(1));
   }
   if (args.length === 0 || args[0].startsWith('--')) return await tuiMain(args);
-  return await writeInvalid();
+  return await writeInvalid(
+    `Unknown command '${args[0]}'.${
+      args[0] === 'list' ? " To list Cores, use 'henji core list'." : ''
+    }`,
+  );
 };
 
 if (import.meta.main) Deno.exit(await main());
