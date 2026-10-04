@@ -1,8 +1,4 @@
-import {
-  createProviderFreeWebSearchBackend,
-  createWorkerComposition,
-  type ToolComponent,
-} from '../../v0/agent/worker_agent_api.ts';
+import { createWorkerComposition, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
 import type { Model } from '../../v0/agent/core/contracts.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
@@ -35,7 +31,6 @@ Deno.test('Worker composition materializes and dispatches a selected tool', asyn
     skillCatalog: emptySkillCatalog(),
     physicalIo: {
       createModel: () => probeModel,
-      webSearchBackend: createProviderFreeWebSearchBackend(),
     },
     toolComponents: [component],
     asyncAgentNames: [],

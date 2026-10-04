@@ -237,7 +237,11 @@ Worker内でchildを同期実行せず、Hostへ要求して別Worker・Executio
 
 HenjiはDeno runtime・production entry・共通Agent設定/構成・tool APIを含むstandalone
 executableとして配布する。 任意path・任意workspaceから使え、repository
-checkoutや別途導入したDenoをruntime dependencyにしない。
+checkoutや別途導入したDenoをruntime dependencyにしない。配布packageはexecutableと編集可能な
+`search`、`web_search`、`web_fetch`の外部tool folder、installer、build/file
+manifestを含む。installerは
+config配下へfolderを配置し、既存のtool選択CLIで登録する。既存folderの編集は保持し、明示的な
+`--replace-tools`指定時にpackageのfileを上書きする。
 
 writableなscopeはconfigにcredential・preference・Agent/tool/provider選択、stateにSession・履歴・診断を置く。
 workspace fileとnative discoveryはworkspace/userの所定scopeが所有する。binary隣接pathをwritable
@@ -285,14 +289,15 @@ selectorは現行commandではない。
 `tools.json`は`schemaVersion: 1`と`tools: { "<name>": "<folder>" }`を持つ。
 folderのtool.jsonはname、revision label、`apiContract: henji-tool/v1`、entryを持つ。 folderはconfig
 root相対または絶対path、entryはfolder相対または絶対pathである。
-Agentが宣言したtoolにfolder指定があれば置換し、指定がなければ同梱実装を使う。
+Agentが宣言したtoolにfolder指定があればそのfolderを使う。指定がなく、同梱実装のないtoolは
+未設定としてrejectする。folderを推測したり、外部web/searchを旧同梱実装へ代替したりしない。
 metadata/import/factory/返却Toolの失敗は当該toolだけrejectし、選択された不正toolを同梱へ代替しない。
 
 外部moduleは`@henji/tool`をimportし、default
 exportの`ToolFactory(input)`からToolまたはPromiseLike<Tool>を返す。 inputはworkspace、skill
-catalog、process executor、work-tool seams、Worker共通BashOutputStore、web backend、
-request/credential presence seamであり、model/Core/DBのownerをfactoryへ移さない。 local
-importはDenoがその場で読み、source closureの列挙・hash照合・永続copyを行わない。
+catalog、process executor、work-tool seams、Worker共通BashOutputStore、 request/credential presence
+seamであり、model/Core/DBのownerをfactoryへ移さない。 local importはDenoがその場で読み、source
+closureの列挙・hash照合・永続copyを行わない。
 
 Workerはfactoryを起動時に一度呼び、name/description/inputSchema/executeと任意guideline/terminalを確認する。
 構成確認のためexecuteを呼ばない。受理した同じToolをmodel宣言とRegistry
@@ -300,9 +305,11 @@ dispatchに使い、function/内部stateをpostMessageしない。
 JSONのtoolsが空ならskill/submit_json_resultを自動追加しない。native
 skillは実catalogと選択toolがあるとき提示する。
 
-同梱defaultはread/write/edit/bash/bash_output、web_search/web_fetch、skill/submit_json_resultを選ぶ。
-child操作はAgent JSONのagentsから別に構成し、child Workerには再帰spawn toolを提示しない。
-rejectされたtool/named entryは提示とdispatchの両方から除き、理由を最終instructionとSurfaceへ渡す。
+同梱default/genericはread/write/edit/bash/bash_output、search/web_search/web_fetch、
+skill/submit_json_resultを選ぶ。searchと二つのweb toolはpackageに含む外部sourceを使い、
+executableへ実装を埋め込まない。明示toolsを持つnamed Agentは必要な名前を宣言する。 child操作はAgent
+JSONのagentsから別に構成し、child Workerには再帰spawn toolを提示しない。 rejectされたtool/named
+entryは提示とdispatchの両方から除き、理由を最終instructionとSurfaceへ渡す。
 Agent/catalog構成が成立しなければtaskをadmitせず、Core/TUIと履歴閲覧・認証・設定操作は維持する。
 
 #### 非同期childの操作と清算
@@ -413,7 +420,13 @@ bindingの詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing
 
 #### 検索・URL取得・process tool
 
-同梱web_searchはExa APIを使い、非modelの検索requestとしてauthProfile `exa-api-key`を解決する。
+外部searchはpaths（file名一覧）、files（本文が一致するfile）、content（一致行）、count（出現数）を提供する。
+共通列挙したfileを明示引数として渡し、rgを優先して不在時だけgrepへfallbackする。hidden/ignore対象も
+同じ範囲へ含める。regexpの方言とゼロ幅一致の扱いはbackendに従う。paths/files/contentは完全なrecord単位で
+offset/limitと続き情報を持ち、contentのtotalは一致行数である。countは同じ検索条件で選択対象全体の
+非重複の一致数をmatchCountへ合算し、offset/limitを適用しない。
+
+外部web_searchはExa APIを使い、非modelの検索requestとしてauthProfile `exa-api-key`を解決する。
 親modelのcredentialやmodel request budgetを使わず、tool semantic履歴とprovider=exa/api=exa-searchの
 短いphysical request
 factを保存する。通常はauto検索とhighlightsで資料を返し、親modelが回答・引用を作る。 Sonar

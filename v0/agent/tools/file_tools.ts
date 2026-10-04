@@ -11,6 +11,7 @@ import {
   exactKeys,
   invalidToolArguments,
   isObject,
+  MAX_EDIT_FILE_BYTES,
   MAX_TEXT_BYTES,
   validateObject,
   validTextArgument,
@@ -166,7 +167,7 @@ export const createEditTool = (
 ): Tool => ({
   name: 'edit',
   description:
-    'Apply up to 32 non-overlapping exact replacements to one existing UTF-8 text file. Each oldText must match exactly once in the original file.',
+    'Apply up to 32 non-overlapping exact replacements to one existing UTF-8 text file (maximum 1 MiB before and after editing). Each oldText must match exactly once in the original file; each oldText/newText is limited to 64 KiB.',
   inputSchema: editSchema,
   async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'edits'], 'edit');
@@ -237,8 +238,8 @@ export const createEditTool = (
     }
     output += snapshot.text.slice(cursor);
     const encoded = encoder.encode(output);
-    if (encoded.byteLength > MAX_TEXT_BYTES) {
-      throw new Error('file exceeds 64 KiB');
+    if (encoded.byteLength > MAX_EDIT_FILE_BYTES) {
+      throw new Error('file exceeds 1 MiB');
     }
     throwIfCancelled(context?.signal);
     let latest: Uint8Array;

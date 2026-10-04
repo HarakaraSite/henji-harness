@@ -1,4 +1,4 @@
-import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from '../../v0/agent/tools/web_fetch.ts';
+import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from './helpers/external_web_tools.ts';
 import { Registry, type Tool, ToolInputError } from '../../v0/agent/tools/tools.ts';
 import type { Model, ModelResult } from '../../v0/agent/core/contracts.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';

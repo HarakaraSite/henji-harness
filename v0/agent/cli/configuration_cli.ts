@@ -12,7 +12,9 @@ import {
   parseAgentConfiguration,
 } from '../configuration/agent_configuration.ts';
 import {
+  BUNDLED_TOOL_NAMES,
   configurationFileUrl,
+  defaultToolSelection,
   resolveToolSelection,
   resolveWorkerConfiguration,
 } from '../configuration/configuration_resolver.ts';
@@ -134,7 +136,7 @@ export const configurationMain = async (
           names.map((name) =>
             Object.hasOwn(entries, name)
               ? resolveToolSelection(name, entries[name], configRoot, catalogFile)
-              : Promise.resolve({ name, source: 'bundled', revision: '1' })
+              : Promise.resolve(defaultToolSelection(name, catalogFile))
           ),
         );
         await emit({ tools });
@@ -144,13 +146,14 @@ export const configurationMain = async (
       if (command === 'inspect') {
         if (
           !Object.hasOwn(entries, name) &&
-          !bundledAgentConfiguration().configuration.tools.includes(name)
+          !bundledAgentConfiguration().configuration.tools.includes(name) &&
+          !BUNDLED_TOOL_NAMES.includes(name)
         ) {
           throw new Error(`Tool ${name} is unavailable`);
         }
         const tool = Object.hasOwn(entries, name)
           ? await resolveToolSelection(name, entries[name], configRoot, catalogFile)
-          : { name, source: 'bundled', revision: '1' };
+          : defaultToolSelection(name, catalogFile);
         if ('rejection' in tool && tool.rejection !== undefined) {
           await fail(tool.rejection.reason);
           return 1;

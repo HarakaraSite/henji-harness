@@ -17,8 +17,6 @@ import {
   createWriteTool,
 } from '../tools/work_tools.ts';
 import { createBashOutputTool } from '../tools/bash_output.ts';
-import { createWebFetchTool } from '../tools/web_fetch.ts';
-import { createWebSearchTool, ExaWebSearchBackend } from '../tools/web_search.ts';
 import { createAgentResourceIdentity } from '../definitions/resource_identity.ts';
 
 const bundledTool = (name: string, input: ToolFactoryInput): Tool => {
@@ -39,16 +37,6 @@ const bundledTool = (name: string, input: ToolFactoryInput): Tool => {
       );
     case 'bash_output':
       return createBashOutputTool(input.bashOutputStore);
-    case 'web_fetch':
-      return createWebFetchTool(fetch, { workspace: input.workspace });
-    case 'web_search':
-      if (input.webSearchBackend !== undefined) return createWebSearchTool(input.webSearchBackend);
-      if (input.requestProvider === undefined) {
-        throw new Error('web search request seam is unavailable');
-      }
-      return createWebSearchTool(
-        new ExaWebSearchBackend({ requestProvider: input.requestProvider }),
-      );
     case 'skill':
       return createSkillTool(input.skillCatalog);
     case 'submit_json_result':

@@ -22,7 +22,7 @@ import {
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
-import { ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createWebSearchToolWithProvider } from './helpers/external_web_tools.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
@@ -1266,11 +1266,11 @@ Deno.test('Increment 14 keeps Exa web search usable beside an OpenAI root', asyn
     fetcher,
   });
   assert(physical.requestProvider !== undefined);
-  const backend = new ExaWebSearchBackend({
-    requestProvider: physical.requestProvider,
+  const result = await createWebSearchToolWithProvider(physical.requestProvider!).execute({
+    query: 'What is Deno?',
   });
-  const result = await backend.search({ query: 'What is Deno?' });
-  assertEquals(result, {
+  assert(typeof result === 'string');
+  assertEquals(JSON.parse(result), {
     results: [{
       title: 'Deno Docs',
       url: 'https://docs.deno.com/',

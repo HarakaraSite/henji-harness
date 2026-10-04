@@ -1,13 +1,13 @@
-import type { JsonObject } from '../core/contracts.ts';
+import type { JsonValue } from '@henji/tool';
 
 const strings = { type: 'array', items: { type: 'string' } } as const;
-const nullable = (schema: JsonObject): JsonObject => ({ anyOf: [schema, { type: 'null' }] });
-const retrieval = (properties: JsonObject): JsonObject => ({
+const nullable = (schema: JsonValue): JsonValue => ({ anyOf: [schema, { type: 'null' }] });
+const retrieval = (properties: JsonValue): JsonValue => ({
   anyOf: [{ type: 'boolean' }, { type: 'object', properties }, { type: 'null' }],
 });
 
 /** Current Exa Search options. Exa owns option validation and combination constraints. */
-export const EXA_SEARCH_INPUT_SCHEMA: JsonObject = {
+export const EXA_SEARCH_INPUT_SCHEMA: JsonValue = {
   type: 'object',
   properties: {
     query: { type: 'string', description: 'Specific search query or research question.' },

@@ -17,6 +17,7 @@ import { createDataService } from '../../v0/agent/data/data_service.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import { createChildDataTestRegistry } from './helpers/increment_170_child_data.ts';
 import type { AsyncAgentProgress } from '../../v0/agent/tools/async_agents.ts';
+import { activateRepositoryExternalToolBindings } from './helpers/external_web_tools.ts';
 
 function assert(value: unknown, message = 'assertion failed'): asserts value {
   if (!value) throw new Error(message);
@@ -82,6 +83,7 @@ const withLocalProvider = async (
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
+  await activateRepositoryExternalToolBindings(configRoot);
   await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'local-i138-key', { mode: 0o600 });
   await Deno.writeTextFile(`${workspaceRoot}/marker.txt`, 'independent parent check');
   const server = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen() {} }, handler);

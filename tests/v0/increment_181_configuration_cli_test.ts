@@ -1,6 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { configurationMain } from '../../v0/agent/cli/configuration_cli.ts';
 import { resolveWorkerConfiguration } from '../../v0/agent/configuration/configuration_resolver.ts';
+import { activateRepositoryExternalToolBindings } from './helpers/external_web_tools.ts';
 
 Deno.test('181 CLI selects external Agent files and tool folders without archiving source', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-181-config-cli-' });
@@ -21,6 +22,7 @@ Deno.test('181 CLI selects external Agent files and tool folders without archivi
     });
   };
   try {
+    await activateRepositoryExternalToolBindings(configRoot);
     await Deno.writeTextFile(
       file,
       JSON.stringify({ name: 'Reviewer', revision: 'stable', instruction: 'first' }),

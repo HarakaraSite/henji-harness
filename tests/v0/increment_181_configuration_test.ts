@@ -8,6 +8,7 @@ import {
 } from '../../v0/agent/configuration/configuration_resolver.ts';
 import type { WorkerConfigurationSnapshot } from '../../v0/agent/worker/worker_configuration.ts';
 import type { JsonValue, ToolDefinition } from '../../v0/agent/core/contracts.ts';
+import { activateRepositoryExternalToolBindings } from './helpers/external_web_tools.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -109,6 +110,7 @@ Deno.test('181 a real Worker dispatches the basic five tools including retained 
   const root = await Deno.makeTempDir({ prefix: 'henji-181-tools-' });
   const worker = new ConfigurationWorker();
   try {
+    await activateRepositoryExternalToolBindings(`${root}/config`);
     const ready = await worker.start(root);
     assert(ready.ok);
     equal(ready.snapshot.rejections, []);
@@ -373,6 +375,7 @@ Deno.test('181 a named catalog entry preserves its JSON name without breaking th
   const root = await Deno.makeTempDir({ prefix: 'henji-181-named-' });
   const worker = new ConfigurationWorker();
   try {
+    await activateRepositoryExternalToolBindings(`${root}/config`);
     await writeJson(`${root}/config/agents.json`, {
       schemaVersion: 1,
       agents: { Reviewer: 'agents/reviewer.json' },

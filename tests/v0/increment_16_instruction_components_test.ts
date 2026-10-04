@@ -11,13 +11,12 @@ import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.
 import type { OpenAIModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
+import { createWorkerComposition, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
 import {
-  createWorkerComposition,
-  type PhysicalIoBindings,
-  type ToolComponent,
-} from '../../v0/agent/worker_agent_api.ts';
-import { createWebSearchTool, type WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
-import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+  createWebFetchTool,
+  createWebSearchTool,
+  type WebSearchBackend,
+} from './helpers/external_web_tools.ts';
 import {
   createBashTool,
   createEditTool,
@@ -26,9 +25,7 @@ import {
 } from '../../v0/agent/tools/work_tools.ts';
 import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
 
-const bundledToolComponents = (
-  physicalIo: PhysicalIoBindings,
-): readonly ToolComponent[] => [
+const bundledToolComponents = (): readonly ToolComponent[] => [
   {
     identity: createAgentResourceIdentity('tool:bash'),
     materialize: (bindings) =>
@@ -57,10 +54,7 @@ const bundledToolComponents = (
   },
   {
     identity: createAgentResourceIdentity('tool:web_search'),
-    materialize: (bindings) =>
-      createWebSearchTool(
-        bindings.webSearchBackend ?? physicalIo.webSearchBackend!,
-      ),
+    materialize: () => createWebSearchTool(providerFreeWebSearchBackend),
   },
   {
     identity: createAgentResourceIdentity('tool:web_fetch'),
@@ -180,14 +174,13 @@ Deno.test('Increment 16 composes JSON Agent roles, active tools, and manifest id
   });
   const physicalIo = {
     createModel: finalModel,
-    webSearchBackend: providerFreeWebSearchBackend,
   };
   const input = {
     workspace: { root: '/work/increment-16' },
     agentInstructions: 'WORKSPACE INSTRUCTION',
     skillCatalog,
     physicalIo,
-    toolComponents: bundledToolComponents(physicalIo),
+    toolComponents: bundledToolComponents(),
     asyncAgentNames: [],
   };
   const defaultRoleInstruction = bundledAgentConfiguration().configuration.instruction;

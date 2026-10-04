@@ -6,7 +6,6 @@ import type {
   ModelResult,
 } from '../core/contracts.ts';
 import { throwIfCancelled } from '../core/cancellation.ts';
-import { createProviderFreeWebSearchBackend } from '../tools/web_search.ts';
 import type { PhysicalIoBindings } from '../worker_agent_api.ts';
 
 const probeTask = {
@@ -385,5 +384,26 @@ class WorkerProbeModel implements Model {
 /** Construct deterministic physical bindings for focused Worker/Host integration tests. */
 export const createProviderFreePhysicalIo = (): PhysicalIoBindings => ({
   createModel: () => new WorkerProbeModel(),
-  webSearchBackend: createProviderFreeWebSearchBackend(),
+  requestProvider: (request) => {
+    if (request.authProfile !== 'exa-api-key') {
+      return Promise.reject(
+        new Error(`provider-free request unavailable for ${request.authProfile}`),
+      );
+    }
+    const body = JSON.parse(new TextDecoder().decode(request.body)) as {
+      readonly query?: unknown;
+    };
+    const query = typeof body.query === 'string' ? body.query : '';
+    return Promise.resolve({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      bytes: new TextEncoder().encode(JSON.stringify({
+        results: [{
+          title: 'test source',
+          url: 'provider-free://web-search',
+          highlights: [`search result for ${query}`],
+        }],
+      })),
+    });
+  },
 });

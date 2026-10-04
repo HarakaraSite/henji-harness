@@ -36,7 +36,14 @@ git clone https://forge.harakara.site/littleisland/henji-harness.git
 cd henji-harness
 deno task --config deno.v0.json henji:compile
 ./dist/henji --version
+deno task --config deno.v0.json henji:package
+# Run install.sh in the package directory printed by the command above.
 ```
+
+The package includes editable `search`, `web_search`, and `web_fetch` tool folders. Run its
+`install.sh` to install the binary and register these tools. Local search prefers rg and uses grep
+when rg is unavailable. Existing tool edits are retained unless `--replace-tools` is specified. See
+the [package instructions](external-tools/README.md) for installation options.
 
 Use `henji --help` and `henji COMMAND --help` to see the available commands and options.
 
@@ -282,8 +289,9 @@ export default marker;
 ```
 
 Import `ToolFactory` or `ToolFactoryInput` from `jsr:@henji/harness@0.8.0`. The standalone binary
-bundles its default Agent and built-in tools; named Agent and tool files are selected from the
-config directory.
+bundles its default Agent and core tools. `search`, `web_search`, and `web_fetch` are supplied as
+editable folders in the package and registered by its installer. Named Agent and tool files are
+selected from the config directory.
 
 ## Links
 

@@ -14,14 +14,17 @@ import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts'
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { bundledAgentConfiguration } from '../../v0/agent/configuration/agent_configuration.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
-import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import {
   createWorkerComposition,
   type PhysicalIoBindings,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
-import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import {
+  createExaTestRequestProvider,
+  createWebFetchTool,
+  createWebSearchToolWithProvider,
+} from './helpers/external_web_tools.ts';
 import {
   createBashTool,
   createEditTool,
@@ -78,12 +81,7 @@ const bundledToolComponents = (
   },
   {
     identity: createAgentResourceIdentity('tool:web_search'),
-    materialize: () =>
-      createWebSearchTool(
-        new ExaWebSearchBackend({
-          requestProvider: physicalIo.requestProvider!,
-        }),
-      ),
+    materialize: () => createWebSearchToolWithProvider(physicalIo.requestProvider!),
   },
   {
     identity: createAgentResourceIdentity('tool:web_fetch'),
@@ -331,7 +329,7 @@ Deno.test('web_search forwards Exa search options and preserves an empty result 
   let seenAuthorization: string | undefined;
   let seenExaBeta: string | undefined;
   let seenBody: Record<string, unknown> | undefined;
-  const backend = new ExaWebSearchBackend({
+  const requestProvider = createExaTestRequestProvider({
     credential: 'test-credential',
     fetcher: (input, init) => {
       seenUrl = input instanceof Request ? input.url : String(input);
@@ -366,7 +364,7 @@ Deno.test('web_search forwards Exa search options and preserves an empty result 
       properties: { answer: { type: 'string' } },
     },
   };
-  const result = await new Registry([createWebSearchTool(backend)]).dispatch({
+  const result = await new Registry([createWebSearchToolWithProvider(requestProvider)]).dispatch({
     callId: 'exa-search-options',
     name: 'web_search',
     arguments: request,
@@ -429,7 +427,7 @@ Deno.test('web_search exposes provider response errors with short facts', async 
   ] as const;
   for (const [index, item] of cases.entries()) {
     let fetches = 0;
-    const backend = new ExaWebSearchBackend({
+    const requestProvider = createExaTestRequestProvider({
       credential: 'test-credential',
       fetcher: () => {
         fetches += 1;
@@ -442,7 +440,7 @@ Deno.test('web_search exposes provider response errors with short facts', async 
       '2026-09-07T00:00:00.000Z',
     );
     const execution = contextFor(evidence);
-    const result = await new Registry([createWebSearchTool(backend)]).dispatch({
+    const result = await new Registry([createWebSearchToolWithProvider(requestProvider)]).dispatch({
       callId: `search-invalid-${index}`,
       name: 'web_search',
       arguments: { query: 'current information' },
@@ -466,7 +464,7 @@ Deno.test('web_search exposes provider response errors with short facts', async 
 
 Deno.test('web_search retains response status when the body is interrupted', async () => {
   let pulls = 0;
-  const backend = new ExaWebSearchBackend({
+  const requestProvider = createExaTestRequestProvider({
     credential: 'test-credential',
     fetcher: () =>
       Promise.resolve(
@@ -491,15 +489,15 @@ Deno.test('web_search retains response status when the body is interrupted', asy
     1,
     '2026-09-07T00:00:00.000Z',
   );
-  let error: unknown;
-  try {
-    await backend.search({ query: 'interrupted response' }, {
-      modelExecution: contextFor(evidence),
-    });
-  } catch (caught) {
-    error = caught;
-  }
-  assert(error instanceof Error && error.message.includes('body interrupted'));
+  const result = await new Registry([createWebSearchToolWithProvider(requestProvider)]).dispatch({
+    callId: 'interrupted-response',
+    name: 'web_search',
+    arguments: { query: 'interrupted response' },
+  }, {
+    modelExecution: contextFor(evidence),
+  });
+  assertEquals(result.content.outcome, 'error');
+  assert(result.content.text.includes('body interrupted'), result.content.text);
   const response = evidence.snapshot().requests[0].response;
   assertEquals(response?.status, 200);
   assertEquals(Object.keys(response ?? {}), ['status']);
@@ -508,7 +506,7 @@ Deno.test('web_search retains response status when the body is interrupted', asy
 Deno.test('web_search Exa request does not consume a model request budget', async () => {
   let credentials = 0;
   let fetches = 0;
-  const backend = new ExaWebSearchBackend({
+  const requestProvider = createExaTestRequestProvider({
     credentialSource: () => {
       credentials += 1;
       return 'test-credential';
@@ -523,7 +521,7 @@ Deno.test('web_search Exa request does not consume a model request budget', asyn
     new TurnRequestBudget({ parent: 1, aggregate: 1 }),
   );
   assert(execution.claimModelRequest());
-  const result = await new Registry([createWebSearchTool(backend)]).dispatch({
+  const result = await new Registry([createWebSearchToolWithProvider(requestProvider)]).dispatch({
     callId: 'search-budget-exhausted',
     name: 'web_search',
     arguments: { query: 'current information' },
@@ -544,7 +542,7 @@ Deno.test('web_search cancellation aborts the nested fetch and settles the turn 
     resolveStarted = resolve;
   });
   let fetches = 0;
-  const backend = new ExaWebSearchBackend({
+  const requestProvider = createExaTestRequestProvider({
     credential: 'test-credential',
     fetcher: (_input, init) => {
       fetches += 1;
@@ -584,7 +582,7 @@ Deno.test('web_search cancellation aborts the nested fetch and settles the turn 
   const pending = runAgent(
     'cancel web search',
     model,
-    new Registry([createWebSearchTool(backend)]),
+    new Registry([createWebSearchToolWithProvider(requestProvider)]),
     {
       maxSteps: 4,
       executionContext: execution,

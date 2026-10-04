@@ -1,7 +1,6 @@
 import type { ProcessExecutor } from './runtime/process_contract.ts';
 import type { Workspace, WorkToolSeams } from './tools/work_tools.ts';
 import type { BashOutputStore } from './tools/bash_output.ts';
-import type { WebSearchBackend } from './tools/web_search.ts';
 import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
 import type { SkillCatalog } from './definitions/skills.ts';
 import type { ProviderRequestFn } from './provider/auxiliary_request.ts';
@@ -15,7 +14,6 @@ export interface ToolFactoryInput {
   readonly workspace: Workspace;
   readonly workTools: WorkToolSeams;
   readonly bashOutputStore: BashOutputStore;
-  readonly webSearchBackend?: WebSearchBackend;
   readonly skillCatalog: SkillCatalog;
   readonly requestProvider?: ProviderRequestFn;
   readonly credentialAvailability?: (
@@ -28,6 +26,13 @@ export interface ToolFactoryInput {
 export type ToolFactory = (input: ToolFactoryInput) => Tool | PromiseLike<Tool>;
 
 export { type Tool, type ToolContext, ToolInputError } from './tools/tools.ts';
+export {
+  CancellationCleanupError,
+  isCancellationCleanupError,
+  isTurnCancelledError,
+  throwIfCancelled,
+  TurnCancelledError,
+} from './core/cancellation.ts';
 export type { JsonValue, ToolExecutionResult } from './core/contracts.ts';
 export type {
   ProcessCommand,

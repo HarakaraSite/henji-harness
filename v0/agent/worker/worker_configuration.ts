@@ -65,7 +65,6 @@ export const createConfiguredWorkerComposition = async (
       processExecutor: input.physicalIo.processExecutor,
       workTools: input.physicalIo.workTools ?? {},
       bashOutputStore: outputStore,
-      webSearchBackend: input.physicalIo.webSearchBackend,
       requestProvider: input.physicalIo.requestProvider,
       credentialAvailability: input.physicalIo.credentialAvailability,
     });

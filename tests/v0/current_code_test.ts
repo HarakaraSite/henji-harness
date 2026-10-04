@@ -25,9 +25,11 @@ import {
   finalizeWorkerComposition,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
-import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
-import { createWebSearchTool } from '../../v0/agent/tools/web_search.ts';
-import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import {
+  createWebFetchTool,
+  createWebSearchTool,
+  type WebSearchBackend,
+} from './helpers/external_web_tools.ts';
 import {
   createBashTool,
   createEditTool,
@@ -98,7 +100,7 @@ const bundledWorkToolComponents = (
   },
   {
     identity: createAgentResourceIdentity('tool:web_search'),
-    materialize: (bindings) => createWebSearchTool(bindings.webSearchBackend ?? webSearchBackend),
+    materialize: () => createWebSearchTool(webSearchBackend),
   },
   {
     identity: createAgentResourceIdentity('tool:web_fetch'),
@@ -382,7 +384,6 @@ Deno.test('active tool guidelines compose only where their tools are materialize
           return { kind: 'final' as const, text: 'done' };
         },
       }),
-      webSearchBackend: providerFreeWebSearchBackend,
     },
     toolComponents: bundledWorkToolComponents(providerFreeWebSearchBackend),
   };
@@ -520,7 +521,6 @@ Deno.test('Worker composition materializes the configured tool implementation', 
           return { kind: 'final' as const, text: 'done' };
         },
       }),
-      webSearchBackend: providerFreeWebSearchBackend,
     },
   };
   const root = createWorkerComposition({
@@ -576,7 +576,6 @@ Deno.test('root maxSteps finalization keeps Worker composition evidence coherent
       createModel: () => ({
         generate: () => ({ kind: 'final' as const, text: 'done' }),
       }),
-      webSearchBackend: providerFreeWebSearchBackend,
     },
     toolComponents: bundledWorkToolComponents(providerFreeWebSearchBackend),
     asyncAgentNames: [],

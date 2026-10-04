@@ -37,7 +37,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A6  | Agent実行      | Web searchの取得品質・backend比較                                            | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A15 | Agent実行      | searchツールコールの実装                                                     | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討                                                       |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A23 | Agent実行      | `run_typescript`でファイル操作を含む小処理をHenji内で実行                    | 利用者が対象用途・実行条件の具体化や利用価値検証を指示するとき                                                         |
@@ -300,16 +299,6 @@ Pi／OpenCode／Henjiの画面表示比較
   検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
 - 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
 
-### A15 — searchツールコールの実装
-
-- 利用者指示（2026-09-25）:
-  searchツールコールを実装する。findとgrepを兼ね備えるかは実装時に検討する。
-- 現行境界: Henjiのtool setは`read`／`write`／`edit`／`bash`等で、検索専用のtool callはない。
-- 候補: modelが使えるsearch tool
-  callを実装する。findとgrep（対象探索と本文検索）を兼ね備える一つのtoolに
-  するか、分けるかは実装時に検討する。
-- 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
-
 ### A19 — requestごとの実行状況・日時・地域context
 
 - 観測（2026-09-27）: [A18の元観測](../increments/increment-185.md)のsession `51b47299`では、maxSteps・現在step・turn経過時間を
@@ -429,6 +418,11 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### A26 — hookによる起動時・実行前後の自動処理（未採用）
 
+- 検討再開（2026-10-04）: 利用者と6種のhook、Worker単位のruntime、外部TSによる処理、
+  開始日時のcontext挿入、親・子に共通するdefaultを整理し、
+  [提案と調査根拠](../research/a26-minimal-hooks-proposal-2026-10-04.md)、
+  [Increment 189の詳細計画案](../increments/increment-189.md)へ保存した。
+  具体計画の承認・source実装は未実施。計画を採用した時点で本項を個別incrementへ移す。
 - 利用者判断（2026-09-29）: hookの組み込みを検討したが、現時点では「必ず何かを実行させたい」という
   具体的なニーズはない。Zot／Piの調査結果と利用例をメモに残す。採用・実装は未指示。
 - 参照実装調査（2026-09-29、手元sourceと公式docsを確認、動作実測なし）:

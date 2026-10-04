@@ -8,6 +8,7 @@ import { createProviderFreePhysicalIo } from '../../v0/agent/worker/worker_probe
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { createWorkerComposition, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
 import { bundledToolComponents } from './bundled_tool_components.ts';
+import { activateRepositoryExternalToolBindings } from './helpers/external_web_tools.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -45,6 +46,7 @@ const writeReviewerConfiguration = async (
     agents: rootAgents,
   });
   await writeJson(`${configRoot}/agents/reviewer.json`, reviewer);
+  await activateRepositoryExternalToolBindings(configRoot);
 };
 
 Deno.test('Increment 127 keeps the bundled JSON default and has no bundled planner', async () => {
@@ -90,7 +92,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
     };
     const configuredTools = new Set(agent.tools);
     const components: readonly ToolComponent[] = [
-      ...bundledToolComponents(physicalIo),
+      ...bundledToolComponents(),
       {
         identity: createAgentResourceIdentity('tool:skill'),
         materialize: () => createSkillTool(skillCatalog),

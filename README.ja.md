@@ -8,9 +8,10 @@ executableから、対話型TUIと非対話実行、Session履歴、切り替え
 
 現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker lifecycle、SQLiteへ保存する履歴、
 Sessionで使用する現在のJSON Agent設定の選択を担う。headlessなAgent Workerは、選択された設定を現在の
-model、共通instructions、具体的なtoolと組み合わせる。Agentは`agents` listで子Agentを宣言でき、modelは
-`spawn_subagent`で別Deno Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む
-（V1 fork/join）。一般的なSurfaceの置換とdurable AgentInstanceのrevision transitionはまだ実装していない。
+model、共通instructions、具体的なtoolと組み合わせる。Agentは`agents`
+listで子Agentを宣言でき、modelは `spawn_subagent`で別Deno
+Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む （V1
+fork/join）。一般的なSurfaceの置換とdurable AgentInstanceのrevision transitionはまだ実装していない。
 
 長期的には、実際の利用経験から改訂候補を作り、人間が明示的に採用する自己改訂workflowを目指している。
 この自己改訂workflowはまだ実装していない。
@@ -30,7 +31,13 @@ git clone https://forge.harakara.site/littleisland/henji-harness.git
 cd henji-harness
 deno task --config deno.v0.json henji:compile
 ./dist/henji --version
+deno task --config deno.v0.json henji:package
+# 上のcommandが出力したpackage directoryでinstall.shを実行する。
 ```
+
+packageは編集可能な`search`、`web_search`、`web_fetch`のtool folderを含む。package内の
+`install.sh`でbinaryの配置とtoolの登録を行う。本文検索はrgを優先し、不在時にgrepを使う。既存toolの
+編集は`--replace-tools`を指定しない限り維持する。配置先等は[package手順](external-tools/README.md)を参照する。
 
 利用できるcommandとoptionは`henji --help`と`henji COMMAND --help`で確認できる。
 
@@ -118,7 +125,8 @@ providerは`/provider`、modelは`/model`、reasoning effortは`/effort`で切�
 - `henji sessions list | delete --session ID --yes` — 保存済みSessionを管理する
 - `henji agent list | inspect | activate | deactivate` — 現在のJSON Agent設定を選択・確認する
 - `henji tool list | inspect | activate | deactivate` — 外部tool folderを選択・確認する
-- `henji diagnostics runtime | list | latest | show | delete | executions` — runtime配置と診断情報を読む
+- `henji diagnostics runtime | list | latest | show | delete | executions` —
+  runtime配置と診断情報を読む
 - `henji webui` — 将来のWebUI用に予約されており、現在は利用できない
 
 `tui`・`serve`・`run`は`--agent NAME`または`--agent-file FILE`、`--max-steps N`、
@@ -202,7 +210,8 @@ contract`henji-tool/v1`、entry moduleを持つ`tool.json`を含む。
 { "name": "marker", "revision": "local-1", "apiContract": "henji-tool/v1", "entry": "index.ts" }
 ```
 
-entry moduleのdefault exportはtool factoryである。factoryはWorker起動時に一度実行され、同じfolder内の
+entry moduleのdefault exportはtool
+factoryである。factoryはWorker起動時に一度実行され、同じfolder内の
 別fileをimportできる。Agentが選んだtoolにfolder mappingがある場合、その名前の同梱実装を置き換える。
 
 ```sh
@@ -263,7 +272,8 @@ export default marker;
 ```
 
 `ToolFactory`と`ToolFactoryInput`は`jsr:@henji/harness@0.8.0`からimportする。単体binaryは既定の
-Agentとbuilt-in toolを同梱し、名前付きのAgentとtool fileはconfig directoryから選択する。
+Agentとcore toolを同梱する。`search`、`web_search`、`web_fetch`はpackageの編集可能なfolderを
+installerで登録する。名前付きのAgentとtool fileはconfig directoryから選択する。
 
 ## Links
 

@@ -3,17 +3,17 @@ import {
   ParentTurnExecutionContext,
   TurnRequestBudget,
 } from '../v0/agent/core/execution_context.ts';
+import type { JsonValue } from '../v0/agent/core/contracts.ts';
 import { ProviderEvidenceRecorder } from '../v0/agent/provider/provider_evidence.ts';
 import { Registry } from '../v0/agent/tools/tools.ts';
-import {
-  createWebSearchTool,
-  ExaWebSearchBackend,
-  type WebSearchRequest,
-} from '../v0/agent/tools/web_search.ts';
+import type { ToolFactoryInput } from '../v0/agent/tool_api.ts';
+import webSearchFactory from '../external-tools/web_search/main.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
 } from '../v0/agent/worker/worker_physical_io.ts';
+
+type WebSearchRequest = { readonly [key: string]: JsonValue; readonly query: string };
 
 const requests: readonly WebSearchRequest[] = [
   {
@@ -38,11 +38,9 @@ if (import.meta.main) {
   const outputRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-increment-172-exa-' });
   const counter = createWorkerRequestCounter();
   const physicalIo = createProductionPhysicalIo(counter);
-  const registry = new Registry([
-    createWebSearchTool(
-      new ExaWebSearchBackend({ requestProvider: physicalIo.requestProvider! }),
-    ),
-  ]);
+  const registry = new Registry([webSearchFactory({
+    requestProvider: physicalIo.requestProvider!,
+  } as unknown as ToolFactoryInput)]);
   const evidence = new ProviderEvidenceRecorder();
   const execution = new ParentTurnExecutionContext(
     1,

@@ -1,7 +1,7 @@
 import { TurnCancelledError } from '../../v0/agent/core/cancellation.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
-import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from '../../v0/agent/tools/web_fetch.ts';
-import type { Workspace } from '../../v0/agent/tools/work_tool_contract.ts';
+import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from './helpers/external_web_tools.ts';
+import type { Workspace } from '@henji/tool';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,

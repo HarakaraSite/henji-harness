@@ -30,6 +30,36 @@ export interface ToolSelection {
   readonly rejection?: ConfigurationRejection;
 }
 
+/** Tool names with implementations embedded in the Worker executable. */
+export const BUNDLED_TOOL_NAMES: readonly string[] = Object.freeze([
+  'read',
+  'write',
+  'edit',
+  'bash',
+  'bash_output',
+  'skill',
+  'submit_json_result',
+]);
+
+/** Resolve an unbound name without guessing an external folder path. */
+export const defaultToolSelection = (
+  name: string,
+  bindingsFile: string,
+): ToolSelection =>
+  BUNDLED_TOOL_NAMES.includes(name)
+    ? Object.freeze({ name, source: 'bundled' as const, revision: '1' })
+    : Object.freeze({
+      name,
+      source: 'external' as const,
+      revision: 'unavailable',
+      rejection: configurationRejection(
+        'tool',
+        name,
+        new Error(`Tool ${name} is not configured in tools.json`),
+        bindingsFile,
+      ),
+    });
+
 /** Serializable Host result; external executable values are created only inside a Worker. */
 export interface WorkerConfigurationSelection {
   readonly agent?: SelectedAgentConfiguration;
@@ -212,7 +242,7 @@ export const resolveWorkerConfiguration = async (
       for (const name of agent.configuration.tools) {
         const selected: ToolSelection = Object.hasOwn(entries, name)
           ? await resolveToolSelection(name, entries[name], configRoot, bindingsFile)
-          : Object.freeze({ name, source: 'bundled' as const, revision: '1' });
+          : defaultToolSelection(name, bindingsFile);
         tools.push(selected);
         if (selected.rejection !== undefined) rejections.push(selected.rejection);
       }

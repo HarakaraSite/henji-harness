@@ -111,7 +111,7 @@ Deno.test('declared work components preserve write, edit, and read behavior', as
   });
 });
 
-Deno.test('read bounds large output without changing edit whole-file behavior', async () => {
+Deno.test('read bounds large output while edit can replace text beyond the read result limit', async () => {
   await withTempWorkspace(async (_stateRoot, workspaceRoot) => {
     const large = Array.from(
       { length: 900 },
@@ -130,12 +130,15 @@ Deno.test('read bounds large output without changing edit whole-file behavior', 
     assert(tail.includes(`${String(next).padStart(4, '0')}:`));
 
     const edit = createEditTool(workspace);
-    await expectReject(
+    await asText(
       edit.execute({
         path: 'large.txt',
         edits: [{ oldText: '0001:', newText: 'first:' }],
       }),
-      /file exceeds 64 KiB/u,
+    );
+    assertEquals(
+      await Deno.readTextFile(`${workspaceRoot}/large.txt`),
+      large.replace('0001:', 'first:'),
     );
 
     await Deno.writeTextFile(`${workspaceRoot}/one-line.txt`, 'z'.repeat(65_537));
@@ -164,6 +167,69 @@ Deno.test('read validates the complete UTF-8 file even after the selected window
       read.execute({ path: 'invalid.txt', limit: 1 }),
       /file is not valid UTF-8 text/u,
     );
+  });
+});
+
+Deno.test('edit inserts three UTF-8 lines up to 1 MiB and can edit the resulting file again', async () => {
+  await withTempWorkspace(async (_stateRoot, workspaceRoot) => {
+    const encoder = new TextEncoder();
+    const maxFileBytes = 1_048_576;
+    const anchor = '挿入位置\n';
+    const inserted = '追加1\n追加2\n追加3\n';
+    const paddingBytes = maxFileBytes - encoder.encode(anchor + inserted).byteLength;
+    const padding = '本文\n'.repeat(Math.floor(paddingBytes / 7)) +
+      'x'.repeat(paddingBytes % 7);
+    const original = padding + anchor;
+    await Deno.writeTextFile(`${workspaceRoot}/note.md`, original);
+    const registry = new Registry([createEditTool(await resolveWorkspace(workspaceRoot))]);
+    const first = await registry.dispatch({
+      callId: 'insert-three-lines',
+      name: 'edit',
+      arguments: {
+        path: 'note.md',
+        edits: [{ oldText: anchor, newText: anchor + inserted }],
+      },
+    });
+    assertEquals(first.content.outcome, 'success');
+    assertEquals(JSON.parse(first.content.text), {
+      path: 'note.md',
+      edits: 1,
+      bytes: maxFileBytes,
+    });
+    assertEquals(await Deno.readTextFile(`${workspaceRoot}/note.md`), original + inserted);
+    const second = await registry.dispatch({
+      callId: 'edit-one-MiB-file',
+      name: 'edit',
+      arguments: {
+        path: 'note.md',
+        edits: [{ oldText: '追加2\n', newText: '変更2\n' }],
+      },
+    });
+    assertEquals(second.content.outcome, 'success');
+    assertEquals(
+      await Deno.readTextFile(`${workspaceRoot}/note.md`),
+      (original + inserted).replace('追加2\n', '変更2\n'),
+    );
+  });
+});
+
+Deno.test('edit applies the 1 MiB file limit before and after replacement without writing on failure', async () => {
+  await withTempWorkspace(async (_stateRoot, workspaceRoot) => {
+    const edit = createEditTool(await resolveWorkspace(workspaceRoot));
+    const atLimit = 'x'.repeat(1_048_575) + 'A';
+    await Deno.writeTextFile(`${workspaceRoot}/note.txt`, atLimit);
+    await expectReject(
+      edit.execute({ path: 'note.txt', edits: [{ oldText: 'A', newText: '追加' }] }),
+      /file exceeds 1 MiB/u,
+    );
+    assertEquals(await Deno.readTextFile(`${workspaceRoot}/note.txt`), atLimit);
+    const overLimit = atLimit + 'B';
+    await Deno.writeTextFile(`${workspaceRoot}/note.txt`, overLimit);
+    await expectReject(
+      edit.execute({ path: 'note.txt', edits: [{ oldText: 'AB', newText: 'A' }] }),
+      /file exceeds 1 MiB/u,
+    );
+    assertEquals(await Deno.readTextFile(`${workspaceRoot}/note.txt`), overLimit);
   });
 });
 

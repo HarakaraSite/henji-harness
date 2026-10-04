@@ -11,7 +11,6 @@ import {
   createAgentResourceSelection,
 } from './definitions/resource_identity.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
-import type { WebSearchBackend } from './tools/web_search.ts';
 import type { InstructionComponent } from './instructions/component.ts';
 import { resolveCommonInstructionComposition } from './instructions/compose.ts';
 import { createBashOutputStore } from './tools/bash_output.ts';
@@ -35,16 +34,6 @@ export {
   type ProviderRequestAuthentication,
   type ProviderRequestFn,
 } from './provider/auxiliary_request.ts';
-export {
-  createProviderFreeWebSearchBackend,
-  ExaWebSearchBackend,
-  type ExaWebSearchBackendOptions,
-  type WebSearchBackend,
-  type WebSearchRequest,
-  type WebSearchResult,
-  type WebSearchSource,
-} from './tools/web_search.ts';
-
 export type {
   ProcessCommand,
   ProcessExecutor,
@@ -63,7 +52,6 @@ export interface PhysicalIoBindings {
     selection?: ModelSelection,
   ) => Model;
   readonly workTools?: WorkToolSeams;
-  readonly webSearchBackend?: WebSearchBackend;
   /** Credential-resolving provider request seam used by tool factories. */
   readonly requestProvider?: ProviderRequestFn;
   /** Worker-local metadata probe. It never returns credential material. */
@@ -224,7 +212,6 @@ export const createWorkerComposition = (
     processExecutor: input.physicalIo.processExecutor,
     workTools,
     bashOutputStore: outputStore,
-    webSearchBackend: input.physicalIo.webSearchBackend,
   });
   const concreteTools = input.toolComponents.map((component) => component.materialize(bindings));
   const asyncNames = Object.freeze([...new Set(input.asyncAgentNames)].sort());

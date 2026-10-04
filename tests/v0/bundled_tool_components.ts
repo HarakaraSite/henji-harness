@@ -1,7 +1,10 @@
-import { type PhysicalIoBindings, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
+import type { ToolComponent } from '../../v0/agent/worker_agent_api.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
-import { createWebSearchTool } from '../../v0/agent/tools/web_search.ts';
-import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import {
+  createProviderFreeWebSearchBackend,
+  createWebFetchTool,
+  createWebSearchTool,
+} from './helpers/external_web_tools.ts';
 import {
   createBashTool,
   createEditTool,
@@ -11,9 +14,7 @@ import {
 import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
 
 /** Test-only component set for bundled tool implementations selected by Agent JSON configuration. */
-export const bundledToolComponents = (
-  physicalIo: PhysicalIoBindings,
-): readonly ToolComponent[] => [
+export const bundledToolComponents = (): readonly ToolComponent[] => [
   {
     identity: createAgentResourceIdentity('tool:bash'),
     materialize: (bindings) =>
@@ -42,8 +43,7 @@ export const bundledToolComponents = (
   },
   {
     identity: createAgentResourceIdentity('tool:web_search'),
-    materialize: (bindings) =>
-      createWebSearchTool(bindings.webSearchBackend ?? physicalIo.webSearchBackend!),
+    materialize: () => createWebSearchTool(createProviderFreeWebSearchBackend()),
   },
   {
     identity: createAgentResourceIdentity('tool:web_fetch'),

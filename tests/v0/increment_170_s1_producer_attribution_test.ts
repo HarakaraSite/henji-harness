@@ -19,7 +19,10 @@ import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createBashOutputStore } from '../../v0/agent/tools/bash_output.ts';
 import type { Tool } from '../../v0/agent/tools/tools.ts';
-import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import {
+  createExaTestRequestProvider,
+  createWebSearchToolWithProvider,
+} from './helpers/external_web_tools.ts';
 import type { ToolComponent } from '../../v0/agent/tools/tool_components.ts';
 import {
   applyHistoryAppendResults,
@@ -198,7 +201,7 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
       recorder,
     );
 
-    const backend = new ExaWebSearchBackend({
+    const requestProvider = createExaTestRequestProvider({
       credential: 'local-test-credential',
       endpoint: 'https://provider.invalid/search',
       fetcher: () =>
@@ -215,7 +218,7 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
           ),
         ),
     });
-    const declaredSearchTool = createWebSearchTool(backend);
+    const declaredSearchTool = createWebSearchToolWithProvider(requestProvider);
     const searchIdentity = createAgentResourceIdentity(
       'tool:external_research',
     );

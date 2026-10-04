@@ -3,6 +3,7 @@ import { ToolInputError } from './tools.ts';
 
 export const encoder = new TextEncoder();
 export const MAX_TEXT_BYTES = 65_536;
+export const MAX_EDIT_FILE_BYTES = 1_048_576;
 export const MAX_PATH_BYTES = 4_096;
 export const MAX_COMMAND_BYTES = 16_384;
 export const MAX_CAPTURE_BYTES = 4_096;

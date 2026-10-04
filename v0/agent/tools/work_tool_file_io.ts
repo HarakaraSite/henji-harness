@@ -6,7 +6,7 @@ import {
 import { ToolInputError } from './tools.ts';
 import type { Workspace, WorkToolSeams } from './work_tool_contract.ts';
 import { type CheckedPath, checkedPath, ensureParent } from './work_tool_workspace.ts';
-import { encoder, MAX_TEXT_BYTES } from './work_tool_value.ts';
+import { encoder, MAX_EDIT_FILE_BYTES, MAX_TEXT_BYTES } from './work_tool_value.ts';
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEMP_ATTEMPTS = 8;
@@ -17,7 +17,7 @@ export const readBytesBounded = async (path: string): Promise<Uint8Array> => {
   let total = 0;
   try {
     for (;;) {
-      const remaining = MAX_TEXT_BYTES + 1 - total;
+      const remaining = MAX_EDIT_FILE_BYTES + 1 - total;
       if (remaining <= 0) return concatBytes(chunks, total);
       const chunk = new Uint8Array(Math.min(8192, remaining));
       const count = await file.read(chunk);
@@ -26,7 +26,7 @@ export const readBytesBounded = async (path: string): Promise<Uint8Array> => {
         chunks.push(chunk.slice(0, count));
         total += count;
       }
-      if (total > MAX_TEXT_BYTES) return concatBytes(chunks, total);
+      if (total > MAX_EDIT_FILE_BYTES) return concatBytes(chunks, total);
     }
   } finally {
     file.close();
@@ -48,7 +48,7 @@ const concatBytes = (
 };
 
 const decodeText = (bytes: Uint8Array): string => {
-  if (bytes.byteLength > MAX_TEXT_BYTES) throw new Error('file exceeds 64 KiB');
+  if (bytes.byteLength > MAX_EDIT_FILE_BYTES) throw new Error('file exceeds 1 MiB');
   let text: string;
   try {
     text = decoder.decode(bytes);
@@ -86,7 +86,7 @@ export const readTarget = async (
     if (isTurnCancelledError(error)) throw error;
     if (
       error instanceof Error &&
-      (error.message === 'file exceeds 64 KiB' ||
+      (error.message === 'file exceeds 1 MiB' ||
         error.message === 'file is not valid UTF-8 text')
     ) throw error;
     throw new Error(`local ${toolName} failed`);

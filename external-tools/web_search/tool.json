@@ -1,0 +1,6 @@
+{
+  "name": "web_search",
+  "apiContract": "henji-tool/v1",
+  "revision": "1",
+  "entry": "main.ts"
+}

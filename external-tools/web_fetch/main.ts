@@ -1,8 +1,13 @@
-import type { JsonValue } from '../core/contracts.ts';
-import { TurnCancelledError } from '../core/cancellation.ts';
-import type { ToolExecutionContext } from '../core/execution_context.ts';
-import type { Workspace } from './work_tool_contract.ts';
-import { type Tool, ToolInputError } from './tools.ts';
+import {
+  type JsonValue,
+  throwIfCancelled,
+  type Tool,
+  type ToolContext,
+  type ToolFactoryInput,
+  ToolInputError,
+  TurnCancelledError,
+  type Workspace,
+} from '@henji/tool';
 import { resolveWebDownloadTarget } from './web_download.ts';
 
 export const MAX_WEB_FETCH_BYTES = 1_048_576;
@@ -197,12 +202,13 @@ export const createWebFetchTool = (
   ],
   async execute(
     argumentsValue: JsonValue,
-    context?: ToolExecutionContext,
+    context?: ToolContext,
   ): Promise<string> {
     const { url, saveTo } = parseArguments(argumentsValue);
     const downloadTarget = saveTo === undefined
       ? undefined
       : await resolveWebDownloadTarget(saveTo, options.workspace);
+    throwIfCancelled(context?.signal);
     const signal = context?.signal === undefined
       ? AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS)
       : AbortSignal.any([
@@ -319,3 +325,7 @@ export const createWebFetchTool = (
     }
   },
 });
+
+/** Worker factory used by the current external tool folder binding. */
+export default (input: ToolFactoryInput): Tool =>
+  createWebFetchTool(fetch, { workspace: input.workspace });

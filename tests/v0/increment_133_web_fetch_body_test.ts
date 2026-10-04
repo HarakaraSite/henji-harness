@@ -1,4 +1,4 @@
-import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import { createWebFetchTool } from './helpers/external_web_tools.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { runAgent } from '../../v0/agent/core/loop.ts';
 

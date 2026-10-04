@@ -38,6 +38,7 @@ import {
   readIncrement170FoundationArtifacts,
 } from './helpers/increment_170_foundation_data.ts';
 import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
+import { activateRepositoryExternalToolBindings } from './helpers/external_web_tools.ts';
 import { ConversationWriter } from '../../v0/agent/data/conversation_writer.ts';
 import {
   DataRecallSelectionError,
@@ -581,6 +582,7 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
     prefix: 'henji-guidelines-foundation-',
   });
   try {
+    await activateRepositoryExternalToolBindings(`${root}/config`);
     const result = await runHeadlessWorker(
       'return active tool guidelines',
       {},

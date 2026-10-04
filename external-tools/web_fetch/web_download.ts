@@ -1,5 +1,4 @@
-import type { Workspace } from './work_tool_contract.ts';
-import { ToolInputError } from './tools.ts';
+import { ToolInputError, type Workspace } from '@henji/tool';
 
 interface WebDownloadTarget {
   readonly path: string;
