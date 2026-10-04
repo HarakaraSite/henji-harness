@@ -1,6 +1,6 @@
 # Increment 184 — S24 子Agent起動行にtaskの冒頭を表示
 
-状態: 実装・検証・利用者受入済み（commit・常用配置を実施中）。
+状態: 完了（実装・検証、利用者受入、local commit・常用配置）。
 
 ## 必要な動作と根拠
 
@@ -74,3 +74,27 @@ S24の元観測（2026-09-27、Increment 136計画時）では、runIdはHostの
 candidateとのruntime digest一致を確認する。旧binaryを保存し、`dist/henji`と常用の`henji`へ
 atomic配置する。配置後は隔離HOME/XDGのtmuxでtask冒頭表示・再接続・履歴を確認し、実provider
 callは行わない。稼働中の常用Coreは維持する。
+
+## 配置結果（2026-10-04）
+
+実装と関連文書をsource commit `442d4cfbfde696598f2cd148b5091154d98199ae`
+（`feat: show subagent task head in tool activity`）へ確定した。
+公式buildでsourceDirty=false、runtime digest
+`f86282b13f60d1de4eb79e6fb03d93bef627a45a39d2f0cd4c652c2e6bd82e74`が実装検証済みcandidateと
+一致することを確認した。配置版はhenji 0.8.0／Deno 2.9.7、build ID
+`38f7972666ce1386ddbf76fe1e92c9a147eb2dfa29896245141ba9971e4b65f5`。
+
+旧binaryを`.tools/increment-184/deployment/henji.{dist,local}.previous`へ保存し、staging fileから
+`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。両配置先のversionとbinary SHA-256
+`cae02515cbeec67dce1e3e6bf7d62058864383bf897a4511853ed65466e9ec40`が一致した。
+
+常用配置したbinaryを隔離HOME/XDGのtmuxで起動し、保存履歴のtask冒頭表示、detach後の再接続、
+CLI履歴のtask冒頭表示を確認した。確認用Coreはshutdown accepted、exit 0で終了した。
+コピーDBのexecution増加は0件、実provider requestは0件。実config・元DBは変更していない。
+配置前後で常用CoreのID・PIDが同一であることを確認した。稼働中のTUIは維持し、次回TUI起動から
+配置版のtask表示を使用する。
+
+証拠は`.tools/increment-184/deployment/`の`build.log`、`deployment.json`、`tmux-result.json`、
+`tui-history.txt`、`tui-reconnected.txt`、`history.txt`、`existing-core-check.json`。
+runtimeが実装検証済みcandidateと一致するため、focused testとfull gateは繰り返していない。
+配置結果と完了状態を記録commitへ保存する。

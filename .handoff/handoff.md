@@ -4,13 +4,13 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 184](../docs/increments/increment-184.md)のS24（task冒頭表示）は実装・検証・受入済み。
-利用者は既存agent名へのtask冒頭追加を指示し、runId表示を不要とした。
+[Increment 184](../docs/increments/increment-184.md)のS24（task冒頭表示）は実装・検証・受入、
+local commit・常用配置まで完了。実装sourceは`442d4cfb`。
+稼働中の常用CoreとTUIは維持し、次回TUI起動から配置版を使用する。
 
 ## 次の一手と承認境界
 
-利用者の「コミット・常用配置して」に従い、184のlocal commit・公式build・常用配置と
-配置後確認を行う。稼働中の常用Coreは維持し、実provider callは行わない。
+次の採用判断を待つ。184の配置結果・証拠は個別increment文書を参照する。
 構想・architecture・roadmapの変更は184の採用に含めず、変更時は別途承認を要する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
