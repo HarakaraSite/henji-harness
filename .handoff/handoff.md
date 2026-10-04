@@ -4,15 +4,14 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 183](../docs/increments/increment-183.md)としてS26のCLIエラー表示とsubcommand helpを
-実装・検証と利用者受入は完了。利用者の「コミットして配置して」に従い、local
-commit・常用配置を進める。 通常利用メモからS26を移設済み。
-182までのruntimeは利用者受入・commit/push・常用配置まで完了している。
+[Increment 183](../docs/increments/increment-183.md)のS26は、利用者受入・local
+commit・常用配置まで完了。
+実装sourceは`2b22cbae`。通常利用メモからS26を移設済み。稼働中常用Coreは維持し、次回Core起動から
+配置版を使用する。
 
 ## 次の一手と承認境界
 
-183の変更差分・検証結果は個別increment文書を参照する。確認用compiled binaryは
-`.tools/increment-183/henji`。provider requestは行っていない。
+次の採用判断を待つ。183の配置結果・証拠は個別increment文書を参照する。
 構想・architecture・roadmapの変更は183の採用に含めず、変更時は別途承認を要する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 

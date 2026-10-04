@@ -1,7 +1,6 @@
 # Increment 183 — S26 CLIエラーの理由・使い方案内
 
-状態:
-利用者の「S26をやろうか」（2026-10-04）により採用。実装・検証完了、利用者受入済み。commit・常用配置を進める。
+状態: 完了（実装・検証、利用者受入、local commit、常用配置）。
 
 ## 必要な動作と根拠
 
@@ -60,8 +59,8 @@ A14の削除とA21の受付方針は既存の利用者指示によるメモ整�
   初回の終了待ちは候補確定だけで実行しておらずタイムアウトしたが、隔離Coreを明示停止し、
   操作を修正した再確認で通過した。appの変更は不要だった。証拠は
   `.tools/increment-183/tmux-result.json`と`tmux-*.txt`。
-- tmux確認の保存履歴でexecutionは0件。provider requestは行っていない。実configや常用binaryへの配置も
-  行っていない。確認用binaryは`.tools/increment-183/henji`。
+- tmux確認の保存履歴でexecutionは0件。provider requestは行っていない。この実装検証では実configや
+  常用binaryを変更していない。確認用binaryは`.tools/increment-183/henji`。
 
 通常利用メモのS26は本書へ移設した。構想・architecture・roadmapは変更していない。
 
@@ -98,3 +97,28 @@ A14の削除とA21の受付方針は既存の利用者指示によるメモ整�
 sourceから公式buildを作り、検証済みcandidateとのruntime digest一致を確認する。
 旧binaryを保存し、`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置する。
 配置後は隔離HOME/XDGのCLI/tmuxで確認する。実provider requestは行わず、稼働中Coreは維持する。
+
+## 配置結果と完了（2026-10-04）
+
+実装と関連メモをsource commit `2b22cbae166b0ba372bc31661b886cbc61a99252`
+（`feat: explain CLI errors and support subcommand help`）へ確定した。 clean
+sourceから公式buildを作り、sourceDirty=false、runtime digest
+`4d8be1a3ec51c541f9ca0fb3cd9b35b5896ed61288e475935ac323f825dc5e53`が実装検証済みcandidateと一致することを確認した。
+配置版はhenji 0.8.0／Deno 2.9.7、build ID
+`79e50882b3fb867c969883506fe5492598d9ddb42146eea513cf19d0e7ec904b`。
+
+旧binaryを`.tools/increment-183/deployment/henji.{dist,local}.previous`へ保存し、staging fileから
+`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。両配置先のversionとbinary SHA-256
+`b59456b877138226db682184f557d73b1b63e17a62bd53e545bd629652eaf0c5`が一致した。
+
+配置版の隔離HOME/XDGでCLIの未知command、core list help、run JSON
+error、sessionsのstderr、TUI不正値を
+確認した。tmuxで通常TUIのready、`/quit`、確認用Coreの停止まで通過した。
+保存履歴のexecutionは0件で、provider requestも0件。実config・credential・旧DBは変更していない。
+配置前後で常用CoreのID・PIDが同一であることを確認した。次回Core起動から配置版を使用する。
+
+証拠は`.tools/increment-183/deployment/`の`build.log`、`deployment.json`、`tmux-result.json`、
+`tmux-*.txt`、`existing-core-check.json`。受入済みruntimeと同一のため、full gateと実provider確認は
+繰り返していない。配置結果と完了状態を記録commitへ保存する。
+
+利用者の「完了とします」に従い、Increment 183を完了とする。
