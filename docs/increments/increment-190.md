@@ -1,6 +1,6 @@
 # Increment 190 — openai-chatのモデル一覧からgpt-6.1-solを除外
 
-状態: local実装・検証済み（2026-10-04）。常用配置・commitが追加承認され、反映中。
+状態: 実装・検証・常用配置・source commit済み（2026-10-04）。利用者による通常利用確認は未実施。
 
 ## 必要な動作と採用範囲
 
@@ -140,3 +140,31 @@ Chat側の一覧・検索・お気に入り更新とResponses側の表示・選�
 既存Core/TUIは再起動しない。実configとprovider
 requestは本修正の配置に不要であり、変更・呼出を行わない。
 構想・architecture・roadmap正本への反映、公開/release・push、旧実データ削除はこの承認に含めない。
+
+## 常用配置結果（2026-10-04）
+
+- 実装と関連文書をsource commit `def02bb2659cc70d84ae7779245fa5af35b7c915`
+  （`fix: filter gpt-6.1-sol from OpenAI Chat model choices`）へ保存した。
+- 公式build scriptでsourceDirty=falseのbinaryを作成した。build IDは
+  `33bf9e59e3937a228d734d64c4f96d8f916bfe4e38d9d1ebcf7cb2cd9dc3a00d`、embedded runtime SHA-256は
+  `a06c60eac7ea6646663fc495b34d55424b7b26aa1b1c4b8862385402d3300507`。実装検証済みcandidateとruntime
+  digestが一致した。
+- 旧binaryを`.tools/increment-190/deployment/henji.dist.previous`と`henji.local.previous`へ保存し、
+  staging fileから`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。
+  両配置先のversion・build manifest・binary SHA-256が一致した。 binary
+  SHA-256は`beab8a61ef5911bf13b3eb1833fe6f2ac6ffe642b611fe49305e9d885dcbe5dd`。
+- 常用配置したbinaryのproduction CoreとTUIを隔離HOME/XDG/workspaceのtmuxで起動し、
+  Chat側の対象model非表示・お気に入り変更後の非表示継続・検索の`no matching models`を確認した。
+  Responses側では対象modelの表示・検索・選択と、Session API readback・隔離default
+  selection保存を確認した。 新executionは0件、実provider requestは0回。確認用Coreはshutdown
+  accepted、exit 0で終了した。
+- 実configの非credential 26fileは配置前後でhash一致した。既存Core 1件のID・PID・URLも一致し、
+  既存Core/TUIを再起動していない。フィルタはCoreが一覧を生成する処理にあるため、
+  既存CoreへTUIを再接続するだけでは切り替わらず、新しく起動するCoreから有効になる。
+- 証拠は`.tools/increment-190/deployment/`の`build.log`、`deployment.json`、`local-runtime.json`、
+  `dist-runtime.json`、`tmux-result.json`、`tui-*.txt`、`existing-core-check.json`とconfig/Core
+  snapshot。 既存source検証済みruntimeとの一致を確認したため、focused testとfull
+  gateは繰り返していない。
+
+190の常用配置・source commitは終了した。配置結果と現在地を記録commitへ保存する。
+公開/release・push、構想・architecture・roadmap変更は行っていない。
