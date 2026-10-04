@@ -2,6 +2,12 @@
 
 確認日: 2026-09-29
 
+位置付け更新日: 2026-10-04。以下はIncrement 158時点の表示調査の履歴であり、本文中の「現行」は当時のsourceを指す。
+フッター・キー・picker整理の採用結果は[159](../increments/increment-159.md)、その後の共通会話更新は
+[170](../increments/increment-170.md)を参照する。現在の表示・操作は
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md#surfaceと現在のtui)と
+[TUI command一覧](../../v0/tui/slash_command.ts)、未採用候補は[通常利用メモ](normal-use-inbox.md)を正本とする。
+
 Increment 158の配置済み実装（source `aacf90cc`）を対象とした、通常HTTP接続TUIの現行表示一覧。
 フッター整理前の表示であり、会話で検討した変更はまだ実装されていない。
 画面幅によって要素が省略・短縮され、画面の高さが不足するとフッターの行数も減る。

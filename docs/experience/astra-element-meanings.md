@@ -2,6 +2,12 @@
 
 相談日: 2026-09-29
 
+位置付け更新日: 2026-10-04。以下は9月29日時点の相談結果であり、本文中の「現行」や未決案は当時を指す。
+この相談を受けた要件・実装結果は[159](../increments/increment-159.md)、その後の共通会話更新は
+[170](../increments/increment-170.md)を参照する。現在の表示・操作は
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md#surfaceと現在のtui)、
+未採用候補は[通常利用メモ](normal-use-inbox.md)を正本とする。
+
 利用者の「現行要素の意味もastraに整理させて」という依頼に基づき、gpt-6-astraが通常HTTP接続TUIのcurrent
 sourceをread-onlyで確認した相談結果。rootがdocsへ移し、参照リンクを整えた。設計・割当の確定、実装、実機検証はしていない。対象一覧は[現行要素一覧](footer-elements.md)、利用者の最新方針は[整理案の追加判断](astra-proposal.md#利用者の追加判断観測と更新案2026-09-29)を参照する。
 

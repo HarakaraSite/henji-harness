@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（E6とbuild保存B9を181へ移動。B10の認証登録ID継承を182へ採用）。
+更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。採用済み項目と旧方式の前提を整理）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -10,14 +10,15 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   ここには候補を選ぶための現在の観測、候補、再検討条件だけを残す。
 - 一覧IDは文書内の参照用であり、順序や大小は優先度を表さない。
 
-採用済みのExa検索・download（A17とA6の一部）は[Increment 172](../increments/increment-172.md)、
-共通APIキー登録は[173](../increments/increment-173.md)、B6は[174](../increments/increment-174.md)、
-B7は[175](../increments/increment-175.md)、B8と共通の短い失敗診断は[176](../increments/increment-176.md)を参照する。
-API/CLI adapter分離（S31とrun追加案）は[179](../increments/increment-179.md)、
-Coreの全件転記・重複再投影の削除（A28）は[180](../increments/increment-180.md)、
-Agent設定・tool管理と履歴DBの簡素化（E6）は[181](../increments/increment-181.md)、
-model省略childのChatGPT認証登録ID継承（B10）は[182](../increments/increment-182.md)を参照する。
-B8の元の実失敗原因は未確定で、再発時の調査方針も176を参照する。
+現在の目的・境界・実装状態は[構想](../concepts/experience-driven-self-revision.md)、
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md)、
+[provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)、[roadmap](../roadmap.md)を参照する。
+採用した要件・原観測・受入結果は[個別increment](../increments/)へ置く。
+
+現行はJSON Agent設定・現在tool folder・configuration snapshotとhistory.sqlite3（schema 1）を使う。
+以下の過去観測は観測日当時の事実として残し、「現行境界」は現在sourceへ照合する。 廃止済みのmanaged
+Definition/transportを候補の必須前提として復活させず、候補自体の採否は利用者へ戻す。
+未解決のB8原失敗原因と再発時調査は[176](../increments/increment-176.md)の担当範囲であり、診断拡充だけで原因特定済みとはしない。
 
 ## 候補一覧
 
@@ -25,7 +26,7 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | --- | -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                          | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
-| S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
+| S22 | Surface        | 将来のWebUI本体                                                              | browserから通常利用する画面が必要になるとき                                                                            |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14採用時                                             |
 | S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
@@ -38,7 +39,7 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | A6  | Agent実行      | Web searchの取得品質・backend比較                                            | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A14 | Agent実行      | 名前付き子Agent Definitionの専用model指定                                    | reviewerなどを親Sessionとは別のmodelで動かしたいとき                                                                   |
+| A14 | Agent実行      | 名前付き子Agent設定の専用model指定                                           | reviewerなどを親Sessionとは別のmodelで動かしたいとき                                                                   |
 | A15 | Agent実行      | searchツールコールの実装                                                     | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討                                                       |
 | A18 | Agent実行      | bash toolのtimeout説明と引数エラーの具体化                                   | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測                                                   |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
@@ -47,12 +48,12 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
-| B9  | 保存履歴       | compiled実行のbuildIdがdevelopment値になる                                   | 履歴の実build attribution修正を個別incrementへ採用するとき                                                             |
+| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                   | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
-| R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
+| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                            | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
 | R4  | F24            | instruction componentのrevision化                                            | instructionを自己改訂candidateとして採用する                                                                           |
-| E1  | 配布・外部化   | Agent Definition後のresource外部化                                           | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
+| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                          | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
 | E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                      | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
 | E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                        | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
 | E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）         | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
@@ -67,12 +68,12 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 
 ### S4 — `/reload`によるinstruction・Agent設定・toolの再読込（F01、F03、F08、F10、F11、F27）
 
-- 現行の観測（2026-10-03、source照合）: workspace instructionとskill本文はWorker起動時に
+- 現行の観測（2026-10-04、source照合）: workspace instructionとskill本文はWorker起動時に
   snapshot化され、toolも起動時に読み込まれる。稼働中Workerへの明示的な再読込操作はない。
 - 利用者方針（2026-10-03、個別incrementへの採用・実装は未実施）:
   操作名を`/rebuild`から`/reload`へ変更する。
   Agent設定・tool管理の簡素化、revisionの扱い、新DBへの整理は
-  [Increment 181](../increments/increment-181.md)で扱い、S4とは別の採用範囲とする。
+  [Increment 181](../increments/increment-181.md)の現在file読込み・snapshot方式を前提にし、S4の再読込操作とは区別する。
 - 候補:
   起動時の読込・検証・構成と共通の経路を人間の`/reload`から使い、instruction・Agent設定・toolの
   現在内容を同じSessionの後続executionへ適用する。canonical
@@ -110,7 +111,8 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
 - 関連: 採用済みの独立HTTPコア・TUI分離・第三者APIは
   [Increment 139](../increments/increment-139.md)と
   [8slice計画](../plans/s22-detailed-design-and-slices.md)を参照する。
-  初回scope外の複数Session同時root実行、WebUI本体、ACPの実装を完了扱いにしない。
+  現行は[複数Core](../increments/increment-153.md)で別Sessionを並行実行できる。
+  WebUI本体とACPは未実装であり、HTTP/API Workerの存在だけで成立済みとしない。
 
 ### S24 — subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応（F01）
 
@@ -134,13 +136,16 @@ B8の元の実失敗原因は未確定で、再発時の調査方針も176を参
   `{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}`
   がそのまま表示された。Core一覧の正しい操作は`henji core list`だが、何を間違え、どう直せばよいか
   メッセージから分からない。
-- 現行常用binaryでの確認（同日、隔離HOME／XDG、実provider requestなし）:
+- 原観測時の常用binaryでの確認（2026-09-29、隔離HOME／XDG、実provider requestなし）:
   不明なcommand／optionに対し、root、通常起動／`tui`、`run`の通常表示／`--stream`、`history`、
   `sessions`、`module`、`tool`、`diagnostics`はJSONエラーを出す。TUI optionの指定漏れ等は
   具体的な理由がJSON内にあるが、ほかは`invalid invocation`だけの場合が多い。
   `core`／`serve`はテキストで、command間で表示が統一されていない。
   `sessions`のエラーはstderrではなくstdoutへ出る。
   `henji core list --help`もhelpとして処理されずエラーになる。
+- 現行差分（2026-10-04、source照合）: 181で旧module commandは廃止し、JSON設定のagent/tool
+  commandへ切り替えた。configuration_cli.tsは理由を含むJSON errorを返す。
+  当時のcommand全件のbinary再確認は行っておらず、表示統一・出力先・helpは採用時に現在の入口で確認する。
 - 利用者判断（同日）: CLIらしいメッセージへ改善したい。今回はメモだけを残し、まだ修正しない。
 - 候補: 通常表示ではstderrへ、不明なcommand／option名、値の指定漏れや不正な値の理由、
   該当commandの使い方またはhelpへの案内を短いテキストで出す。例えば`henji list`には
@@ -202,9 +207,9 @@ Pi／OpenCode／Henjiの画面表示比較
   Henjiはframe末尾のcursor位置指定で 入力位置を示しており、目的は現状で満たしている。 再検討条件:
   IME候補位置がずれる観測が得られたとき。
 - xterm.js仮想terminal（`@xterm/headless`）のtest基盤:
-  単独では採らない。S17を採用するincrementなど、
+  単独では採らない。Surface変更を採用するincrementで、
   frameの実挙動検証が要件に直結するときに限って検討する。 再検討条件:
-  S17の採用incrementを計画するとき。
+  terminalの実表示・操作確認を補う具体的な必要が出たとき。
 
 ### S32 — 入力履歴機能の削除（未採用、メモのみ）
 
@@ -239,8 +244,8 @@ Pi／OpenCode／Henjiの画面表示比較
   29で 採用済みである。将来のcompactionは容量対策だけでなく、何を覚え、捨て、抽象化するかを決める
   Context Strategyとして扱う必要がある。
 - 候補: 発動判断、対象選択、保持予算、semantic summary、model、failure方針、結果説明を交換可能な
-  component境界にする。Agent Definitionに選択させても、canonical
-  transcript、checkpointの永続化と相関、 tool call/resultの因果構造、credential、provider
+  component境界にする。Agent設定から選ぶ場合も、canonical transcript、checkpointの永続化と相関、
+  tool call/resultの因果構造、credential、provider
   evidence、strategy結果の採否はHenji-owned境界に残す。
 - 再検討条件: 長期Sessionの実token usage、provider/model
   context契約、turn中/間checkpointを比較できる 利用証拠が得られること。
@@ -306,7 +311,7 @@ Pi／OpenCode／Henjiの画面表示比較
   backendと比較する。modelに実装名の異なるtoolを無条件に並べない。
   同時公開するなら品質、費用、検索範囲等で選択理由を説明できる別contractにする。
 - 再検討条件: searchとfetchの混在、または現backendの品質/費用/取得範囲が具体的に問題になること。 Web
-  search自体をAgent Definitionにするかは、conversation、prompt、model、tool利用を独立所有する必要が
+  search自体を別Agent実行にするかは、conversation、prompt、model、tool利用を独立所有する必要が
   出たときだけ比較する。
 - 残候補は実taskでの取得品質・費用・取得範囲の比較と、必要になった場合の別backend採用である。
 
@@ -330,7 +335,7 @@ Pi／OpenCode／Henjiの画面表示比較
   古いSessionの整理や、Sessionと関連履歴をいつまで残すかを決める必要が通常利用で出たとき。
 - 関連: [`increment-121.md`](../increments/increment-121.md)、
   [`pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)（旧P7の調査）、
-  `v0/agent/cli/session_cli.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`の`delete`。
+  `v0/agent/cli/session_cli.ts`、`v0/agent/history/sqlite_history_store.ts`の`delete`。
 
 ### A11 — instructionの与え方
 
@@ -341,21 +346,23 @@ Pi／OpenCode／Henjiの画面表示比較
   検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
 - 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
 
-### A14 — 名前付き子Agent Definitionの専用model指定
+### A14 — 名前付き子Agent設定の専用model指定
 
-- 利用者希望（2026-09-25）: 外部`reviewer`
-  Definitionにreviewer専用のmodelを定義し、親Sessionのmodelと
-  独立に動かしたい。起動ごとにmodelを任意指定するIncrement 131とは別の要望。
-- 現行境界:
-  `agents/reviewer.ts`は役割instructionとtoolを定義するが、`createAgentComposition`にmodel指定
-  optionはない。session
-  `b3aa7c49`では親とreviewerがともに`opencode-go-chat / mimo-v2.6-pro`で実行された。
-  現在は[`increment-131.md`](../increments/increment-131.md)の`spawn_subagent(agent, task, model?, tools?)`で
-  起動時にmodelを指定でき、省略時は親Sessionの現在selectionを使う。Definitionの専用model既定は未実装である。
-- 候補: 外部Agent
-  Definitionが子実行の既定model選択を宣言し、Hostが子Worker起動時にその選択を適用する。
-  親Sessionの選択や既存の起動時指定との優先順位は、採用時に決める。
-- 再検討条件: reviewerなど名前付き子Agentを親と異なるmodelで通常利用するとき。
+- 利用者希望（2026-09-25）: reviewerに専用model既定を設定し、親のmodelと独立に動かしたい。
+  spawnごとの任意model指定とは別の要望である。
+- 現行境界（2026-10-04、source照合）: named Agentはagents.jsonと現在Agent JSONで選び、
+  repositoryの例はagents/reviewer.jsonである。Agent
+  JSONの選択項目はname/revision/instruction/tools/agentsで、
+  model/effort既定を宣言するcontractはない。 spawn_subagent(agent, task, model?,
+  tools?)は明示modelを選べる。省略時は親executionのselectionと
+  実効ChatGPT登録IDを使い、明示providerでは指定先認証を使う。非secret参照の継承とcredential値の配送を混同しない。
+- 候補: named Agent設定で子の既定model/effortを宣言し、Hostが起動時に適用する。
+  親selection、明示spawn指定、named既定の優先順位と保存scopeは採用時に決める。
+- 再検討条件:
+  reviewer等を親と異なるmodelで通常利用したいとき、または毎回の明示指定が負担になるとき。
+- 関連: [131](../increments/increment-131.md)、[181](../increments/increment-181.md)、
+  [182](../increments/increment-182.md)、v0/agent/configuration/configuration_resolver.ts、
+  v0/agent/worker/worker_host_children.ts。
 
 ### A15 — searchツールコールの実装
 
@@ -502,7 +509,7 @@ Pi／OpenCode／Henjiの画面表示比較
 - 検討候補: どのtaskを親自身で扱い、どのtaskを子へ任せるか、任せる際のAgent選択と
   provider・model・effort・toolの選び方を検討する。親設定の継承と明示指定を使い分ける基準も未決である。
 - 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
-- 関連: A14（名前付き子Agent Definitionの専用model指定）、
+- 関連: A14（名前付き子Agent設定の専用model指定）、
   [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
 
 ### A26 — hookによる起動時・実行前後の自動処理（未採用）
@@ -572,35 +579,37 @@ Pi／OpenCode／Henjiの画面表示比較
   Definition、とくにrole定義はmodel能力への依存が大きく、有用なvariationも多くない
   可能性がある。Definition variantの増加自体を自己改訂の中心にしない。tool定義と実装、作業方針、
   instruction、policy、workflowの方が改善余地を観測しやすい。
-- 現行境界: `AgentDefinition`はmodel、instruction、tool/skill/subagent resource
-  identity、`maxSteps`を選ぶ composition envelopeである。「外部対象ならweb
-  search」のような判断規則はinstruction/workflow、人間gateは Host/Surface側のadmissionに置ける。tool
-  executionの並列化、自動dispatch、turn確定条件を変える場合は runtime/loop semanticsの改訂になる。
-- 候補: 最初の自己改訂実証はDefinition sourceの変更だけでなく、tool
-  componentまたは作業方針componentの
-  candidate生成、差分確認、人間による採用、通常利用への反映を対象とする案を比較する。Definition、tool、
-  instruction/policy/workflow、core loop、Host enforcementのrevision
-  boundaryを、どの経験から改訂するか 判断できる単位にする。
+- 現行境界（2026-10-04）: Agent
+  JSONはinstruction/tools/agentsを選び、共通runtimeがmodel/loop/contextと
+  compositionを構築する。maxStepsはruntime既定と起動optionで決まり、JSONの任意項目からは選ばない。
+  task中の判断規則はinstruction/workflow、tool実行順やdispatch・turn確定条件はruntime/loopの改訂対象である。
+- 候補: 最初の実証対象をAgent JSONに限定せず、tool実装、作業方針、instruction/policy/workflow、core
+  loop、
+  Hostのいずれかから経験に必要な対象を選ぶ。経験の解釈、候補生成、差分確認、人間の採用、通常利用への
+  反映をつなぐ。現在fileと使用snapshotを使い、全対象共通のrevision storeを必須にしない。
+
 - 不変条件: candidateの採用は人間の明示操作・承認に限定する。candidate自身にこの境界を外させない。
 - 再検討条件: Self-revision Cycleで最初のcandidate kindと採用flowを選ぶとき。
 - 調査:
   [`agent-loop-and-durable-state-comparison.md`](../research/agent-loop-and-durable-state-comparison.md)。
 
-### R2 — revision付きtool componentとMCP component
+### R2 — tool改訂の版・使用内容の記録とMCP component
 
-- 現行境界: Increment 69〜71でmanaged tool
-  Definition、model向けcontract（name、description、schema、
-  `promptGuidelines`）、Worker内のmaterialize、Manifestへのresolved exact
-  revision記録を実装済みである。 catalog外の新tool identityもexternal
-  Definitionの`additionalTools`宣言と`tools.json` bindingで追加できる。
-- 候補: tool dependency revisionをDefinition lineageへ固定し、tool
-  candidate生成から人間の採用、通常利用への 反映までを自己改訂flowとして接続する。一般的なMCP
-  componentは将来候補として残る（Exa MCPの採用は却下済み）。
-- 完了境界候補: component schemaだけではF24の完了とせず、tool
-  candidate生成、revision保存、人間の採用、 通常利用への反映までをproduct flowとして確認する。
-- 再検討条件: Self-revisionのtool candidate、または具体的なMCP integrationを採用するとき。
-- 関連: E1、[`increment-69.md`](../increments/increment-69.md)、
-  [`increment-70.md`](../increments/increment-70.md)、[`increment-71.md`](../increments/increment-71.md)。
+- 現行境界（2026-10-04）: Agent JSONのtoolsが名前を宣言し、tools.jsonが現在folderを選ぶ。
+  Workerが@henji/toolのfactoryを一度呼び、同じToolのcontract/executorを提示・dispatchする。
+  revisionは版名であり、実提示contract・選択元・rejectは独立configuration snapshotへ保存する。
+  source closureの保存・exact revision pin・transportは現行方式ではない。
+- 候補: tool候補の生成・内容確認・人間の採用・新Workerへの適用を経験へ結び付ける。
+  履歴snapshotに加えてtool
+  sourceの版やdependencyを固定する必要があるかは、具体的な改訂で振り返る材料から判断する。
+  旧案のDefinition lineageへの固定を現行方式の必須追加機能にしない。 一般MCP
+  componentは別の将来候補で、Exa MCPの採用は却下済みである。
+- 確認する動作:
+  schemaや版名の導入だけでF24の完了とせず、必要な候補内容と由来を人間が確認・採用でき、
+  後続通常利用へ反映して使用内容を振り返れること。
+- 再検討条件: tool改訂のcandidate flow、または具体的なMCP integrationを採用するとき。
+- 関連: E1/E2、[181 contract](../increments/increment-181-contract.md)、
+  [Host/Worker architecture](../architecture/henji-host-agent-worker.md)。
 
 ### R3 — tool実行profileとsandboxed Deno program
 
@@ -611,7 +620,7 @@ Pi／OpenCode／Henjiの画面表示比較
   sudoがあった。あるturnでpackage導入を選ばなかったことは強制境界の 証拠にならない。
 - 候補: startupの`trusted-local · no hard sandbox`をtrust、tool capability、permission、human gate、
   isolationの独立軸で扱う。read-only、approval-gated、workspace-sandbox、isolated-runner等を構造化profileで
-  表し、Agent Definition/tool componentはHost-owned permission ceilingの範囲内だけを選ぶ。
+  表し、Agent設定/tool componentはHost-owned permission ceilingの範囲内だけを選ぶ。
 - hard sandboxの条件:
   `deno run --allow-run`やcommand名の禁止ではなく、subprocess自体をbubblewrap、Landlock、
   container、専用VM等へ置き、workspace
@@ -634,82 +643,59 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### R4 — instruction componentのrevision化と自己改訂
 
-- 現行境界: Henji共通、agent role、active tool guideline、workspace instruction、skill
-  manifest、runtime factsを順に
-  合成する。`AGENTS.md`はworkspace固有instructionで、Henji共通/built-in
-  roleは`v0/agent/instructions/`が所有する。 standalone
-  binaryの静的importはinstructionを埋め込むため、built-in
-  source変更のrelease反映はrebuild/installを必要とする。
+- 現行境界（2026-10-04）: 共通baseはuser instruction.mdまたはbinary内の最小coreを選び、 Agent
+  JSONのrole寄与と構成不足の案内、実tool guideline、workspace AGENTS、skill manifest、runtime
+  factsを合成する。 起動snapshotは当時の最終instruction/componentsを保持し、request
+  contextとexecutionから参照する。 user
+  file/JSONの編集は新Workerから反映し、現在fileの変更で過去snapshotを上書きしない。
 - 候補:
-  instruction/policy/workflowをrevision付きresourceとして保存・比較し、candidate生成、人間の採用、
-  rollbackの対象にする。named agentがcomponentを選ぶauthoring contract、dependency
-  lineage、複数componentの 合成順/競合規則/Manifest
-  attribution、standaloneでの書換可能storeとactivation境界を決める。各executionを
-  当時使用したinstruction/context
-  attributionへ結び付け、完全再現ではなく振り返りに必要な内容を残す。 `/reload`によるnative
-  resourceの再解決と、managed candidateの承認/promotion/binding transitionを同じoperationへ
-  まとめるかは、対象kindを採用するincrementで決める。
-- 再検討条件: instructionまたはworkflowをSelf-revisionの対象として選ぶとき。
-- 正本: 現行runtime instruction合成は
-  [`multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)。
+  instruction/policy/workflowの候補内容・由来を現在採用状態と区別し、人間の採用・rollback対象にする。
+  現在fileとsnapshotで足りるか、独立revision保存や複数component選択が必要かは対象動作から決める。
+  合成順・競合・使用内容のattributionを維持し、旧managed
+  loader/promotion/bindingを必須方式にしない。
+  /reloadで現在内容を取り込むことと候補を人間が採用することを同じoperationにするかも未決である。
+- 再検討条件: instructionまたはworkflowを自己改訂対象として選ぶとき。
+- 正本: [構想](../concepts/experience-driven-self-revision.md)、
+  [Host/Worker architecture](../architecture/henji-host-agent-worker.md)、[181 contract](../increments/increment-181-contract.md)。
 - 関連: S4、E1。
 
 ## 配布・外部化
 
-### E1 — Agent Definition後のresource外部化
+### E1 — Agent設定・tool以外のresource外部化
 
-- 現行境界: standalone executable、Agent Definition専用のmanaged revision store/resolver、portable
-  transportは Increment 32〜34で採用・実装済みである。`instruction:henji-base`はIncrement
-  51でmanaged revisionとして 導入され、Increment 103でbuilt-in最小core＋user
-  `instruction.md`直接読み込みへ置換された。Agent Definitionで
-  得たloader、dependency、promotion、activationのsemanticsをinstruction、tool、Provider、MCP、Surfaceへ
-  自動的に一般化しない。
-- toolの現行境界: Increment 69〜71でmanaged tool Definitionのinstall/bindと、external Agent
-  Definitionによる catalog外のtool identityの追加宣言・合成、Manifestへのresolved exact
-  revision記録を実装済みである。 tool dependency revisionのDefinition
-  lineageへの固定と自己改訂flowはR2の候補として残る。
-- 未実装境界: 複数slotのinstruction revision化、external Provider registry、互換providerの data-only
-  Definition、独自protocolのexecutable Definition、resourceごとのmutable instance state、context
-  rebuild、共通package/plugin
-  discoveryは未採用である。Providerは`openrouter-chat`／`openrouter-responses`／`openai-chat`／`openai-responses`と
-  external宣言で、auth profileはpattern一般化済み（Increment 101）だが、external Provider
-  registryと宣言の exact revision化は未採用である。
-- 利用者希望（2026-09-17）: Provider設定を外部化したい。OpenRouter Responses API経路はIncrement
-  58で、 Provider外部化はIncrement 58〜68／101で成立済みであり、残る対象は上記の未実装境界に限る。
-- 候補: resource kindごとにscope/activation owner、execution
-  placement、lifecycle、durability、dependency identity、 Manifest attribution、mutable
-  stateを決める。Agent、instruction、tool、Providerを同じloaderへ載せる必要が実利用から
-  出るまで、共通化を目的にしない。
-- Provider候補: 互換providerをdata-only、独自protocol/OAuth/dynamic model取得をexecutable
-  Definitionとして 分けるか、credential非継承、adapter state、raw SSE evidence、request
-  count、timeout、network permissionのどこまでを Henji-owned contractに固定するかを決める。
-  [Increment 135のcredential登録](../increments/increment-135.md)と接続する。
-- activation候補: LLM-callableなmodule installはcandidate
-  receiptを返して現turnを終え、人間の採用後に次Worker
-  generationでactivateする。`define/install -> inspect -> activate/update -> stop/rollback`を分け、新revisionの起動成功後だけ
-  current bindingを更新する。
-- 分離候補: canonical transcript、provider context
-  projection、外部moduleの作業用stateを同じ保存機構へ混ぜず、
-  個別のlifecycleと復元保証で扱う。prompt note、memory、skill reference、subagent
-  specのような軽量補助stateと executable code revisionも分けて検討する。
+- 現行境界（2026-10-04）: standalone executable、JSON Agent設定、folder-based tool、native
+  AGENTS/Skill、 user instruction.md、data-only
+  provider/credential宣言を利用できる。model一覧・お気に入り・effort、
+  APIキーとChatGPT認証も既存ownerが持つ。旧managed Agent/tool store、closure install、exact
+  selectorとtransportは廃止済み。
+- 残る対象: instruction複数component、任意context/loop strategy、MCP、Surfaceのload/置換、
+  resource固有のmutable stateや移送等は、具体的な動作を採用するときに境界を定める。
+  provider宣言の追加や現在tool folderの読込み自体を未実装候補として重複計上しない。
+- 候補: 更新・共有・rollback・分離実行が必要な対象ごとにselection owner、scope、placement、
+  lifetime、使用内容の記録を定める。file方式で足りるか、pin/transportが必要かもその利用目的から判断する。
+  Agent/instruction/tool/providerを同じloaderへ載せること自体を目標にしない。
+- Provider候補: 既存protocolで表せないadapterや認証・一覧取得を外部実装にする必要が出た場合に、
+  binary-owned adapter、credential resolver、短いrequest fact、deadlineとの責務を比較する。 raw
+  SSEの常設記録は前提にせず、追加確認は別probeを使う。
+- 適用候補: candidate生成と人間の採用、現在設定の選択、新Workerへの反映、rollbackを区別する。
+  廃止済みmodule install/managed activationを現行の利用入口として扱わない。
+- 状態の分離: canonical会話、request
+  context、tool/外部moduleの作業stateは、それぞれのownerとlifetimeを保つ。
 - 再検討条件:
-  instruction、tool、Provider、MCP、Surfaceのいずれかに対し、通常利用で更新・共有・rollback・
-  分離実行が必要になること。
-- 正本: 採用済みの境界は[`roadmap.md`](../roadmap.md)、
-  [`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)、Increment 32〜34。
-- 調査:
-  [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
+  instruction/tool/provider/MCP/Surface等の更新・共有・rollback・分離実行が通常利用で必要になること。
+- 正本:
+  [roadmap](../roadmap.md)、[Host/Worker architecture](../architecture/henji-host-agent-worker.md)、
+  [provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)。
+- 調査: [外部化の比較記録](../research/externalization-reference-comparison.md)。
 
 ### E2 — 追加managed resource kind候補（未採用）
 
-- 観測（2026-09-18）: Agent Definition、Henji Instruction、tool Definitionの3 kindがmanaged
-  revisionとして
-  存在し、kindごとにref/framing/store/CLI/binding/loadが別実装になっている。「任意kindの一般化」を検討したが、
-  Skillは他harness互換のnative
-  `SKILL.md`形式に価値があり、Henji固有revisionとして管理する実利が薄いため
-  最初の適用例から外した。その後Increment 103でHenji Instructionはmanaged revisionをやめ、user
-  `instruction.md`の直接読み込みへ移行した（現行managed revision kindはAgent Definitionとtool
-  Definition）。 base instructionのcontent revisionはR4の対象として残る。
+- 原観測（2026-09-18）: 当時のmanaged kind間の重複から一般化を検討した。native Skillの互換形式には
+  独立した価値があり、最初のmanaged化対象から外した。
+- 現行境界（2026-10-04）: instructionはuser file、AgentはJSON、toolは現在folderを使い、 旧managed
+  Agent/tool revision基盤は181で廃止した。追加kindの必要性は、現在fileとsnapshot方式で足りない
+  利用目的から改めて判断する。既存managed kindへの単純な追加・共通化を前提にしない。
+
 - 候補（Henjiが単独でownerになれるcontractに限る）。優先順は未定で、通常利用で必要になった時点で個別incrementへ
   採用する。
   - provider declaration revision: data-only宣言をexact
@@ -723,10 +709,9 @@ Pi／OpenCode／Henjiの画面表示比較
   - integration declaration（MCP connection）revision: connection/transport/capability（E1）。
   - Surface data/code revision: Host側Surface差し替え（F10/F24）。規模大。
   - Agent loop／runtime policy revision: loop semantics置換。core変更で高リスク。
-- framework自体の扱い: 共通kind基盤（ref/framing/store/CLI/binding/loadをkind
-  descriptor化）は、実利用から
-  必要になった具体的なkindが決まってから、そのために必要なseamだけ切り出す。仮想的な汎用plugin
-  discovery/loaderは 現時点で採用しない（architectureの「必要になるまで共通化しない」方針）。
+- framework自体の扱い:
+  共通kind基盤は、具体的なkindと必要な動作が決まってから、そのために必要なseamだけ切り出す。仮想的な汎用plugin
+  discovery/loaderは現時点で採用しない（architectureの「必要になるまで共通化しない」方針）。
 - 再検討条件:
   上記候補のいずれかを通常利用で更新・pin・transport・activationする具体的必要が出ること。
 - 正本: [`roadmap.md`](../roadmap.md)
@@ -734,27 +719,24 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### E3 — Host runtime tunablesの設定ファイル化（未採用）
 
-- 観測（2026-09-19）: 固定値が分散している。provider request deadlineは`DEFAULT_PROVIDER_TIMEOUT_MS`
-  （`openrouter_contract.ts`、利用者指示で120,000→180,000へ変更）、assistant maxStepsは
-  `DEFAULT_AGENT_MAX_STEPS=64`（`agent_definition.ts`、Definition入力）、toolは`WEB_FETCH_TIMEOUT_MS=30_000`・
-  `MAX_WEB_FETCH_BYTES=1MiB`・`BASH_OUTPUT_*_WINDOW_BYTES=49,152`、resource
-  limitsは`resource_limits.ts`。
-- 既存のHost
-  configは`$XDG_CONFIG_HOME/henji-harness/`の`default-selection.json`・`providers/*.json`・
-  `tools.json`・`agents.json`。
-- 2026-09-24のIncrement 126では、provider deadlineを300,000
-  ms、組み込みAgentの`maxSteps`を128へ拡張し、
-  TUIと`henji run`の両方でCLI引数から上書きできるようにした。`runtime.json`は採用していない。
-- 候補: `runtime.json`を追加し、厳格schema＋検証でHost runtime tunablesを読む。precedenceはCLI flag
-  > config > built-in
-  > default。CLI引数を毎回指定する負担が実利用で残る場合は`providerTimeoutMs`を第一候補として再検討する。
-- authority境界: `maxSteps`は現在**Agent Definition所有者**であり、Host
-  configに置くと二重authorityになる。 既定値のHost config化はroadmap F06（loop/context
-  externalization）の判断が必要。provider timeoutは Host/provider側なので衝突しない。
-- 再検討条件: provider
-  timeout・tool限界・maxSteps既定を通常利用で調整したくなったとき、または別incrementで
-  採用するとき。
-- 正本候補: `docs/roadmap.md` F06、`docs/architecture/henji-host-agent-worker.md`。
+- 現行境界（2026-10-04、source照合）: provider deadlineはDEFAULT_PROVIDER_TIMEOUT_MS=300000、
+  maxStepsはworker_agent_api.tsのDEFAULT_AGENT_MAX_STEPS=128が既定である。
+  TUI/runは--provider-timeout-ms/--max-stepsでHost起動optionを渡し、共通Workerへ適用する。 Agent
+  JSONはmaxStepsを宣言しない。runtime.jsonはない。
+- 既存configはdefault-selection.json、providers/_.json、model-catalogs、agents.json、tools.json、
+  credentials/_.json、user instruction.md等で、それぞれselection/contentのownerを持つ。
+- tool定数はweb_fetchのtimeout=30000/本文readback上限1 MiB、bash_outputのwindow既定・上限49152
+  bytes等にある。
+  web_fetchのdownloadと本文readbackの上限を混同せず、調整したい具体的な動作から対象を選ぶ。
+- 候補: CLI引数を毎回指定する負担が残る場合にruntime configで既定を選ぶ。 CLI > config >
+  runtime既定の優先関係は案であり、対象設定とscopeを採用時に決める。
+  providerTimeoutMsを最初の候補として比較し、他tool限界やmaxStepsを一括外部化しない。
+- authority境界: Host起動optionと共通runtime既定の選択経路を使い、廃止済みAgent
+  Definitionとの二重authorityを 仮定しない。JSON Agent設定、Session
+  selection、executionの実効maxStepsとは役割を分ける。
+- 再検討条件: timeout/tool限界/maxSteps既定の継続設定を通常利用で必要とするとき。
+- 正本:
+  [roadmap](../roadmap.md)、[Host/Worker architecture](../architecture/henji-host-agent-worker.md)。
 
 ### E5 — 追加protocol adapter候補（未採用）
 
@@ -796,7 +778,7 @@ Pi／OpenCode／Henjiの画面表示比較
   - `!command`はHost実行経路を増やす割にtool loopと重複するため候補から除外（調査記録には残す）。
   - Session tree/fork: 有用性が未確認。採用判断は保留。
   - `/btw` side-chat: Henjiにそぐわないため対象外。
-  - `/swarm`: 時期尚早。非同期subagentは同期subagent廃止後の別incrementで採用する（採用済み）。
+  - `/swarm`: 時期尚早。既存async childのone-shot fork/joinとは別の候補として扱う。
   - extension/package管理: 将来課題（E2／F24）。
   - messaging bridge: 将来Surfaceの拡張で検討する可能性がある（未採用）。
   - sandbox/permission系: 対象外（R3領域）。
@@ -849,14 +831,15 @@ Pi／OpenCode／Henjiの画面表示比較
   同日の隔離XDG・実provider確認では別原因のprovider timeoutとなり、commit却下は再現しなかった。
   詳細なDB観測、自動復元の由来、再現試行は
   [`increment-85.md`](../increments/increment-85.md#b5の原観測と切り分け2026-09-19)へ移した。
-- 現行境界（2026-10-03、source照合）: [Increment 170](../increments/increment-170.md)で
+- 現行境界（2026-10-04、source照合）: [Increment 170](../increments/increment-170.md)で
   record組立て・保存はAgent Data側へ移った。`session_authority.ts`の`proposalRecord`はcanonical
-  Sessionの`validateSessionRecordV6`がfalseなら`undefined`を返し、`session_data_owner.ts`の
+  Session schema
+  1の`validateStoredSessionRecord`がfalseなら`undefined`を返し、`session_data_owner.ts`の
   `prepareProposal`が`commit proposal invalid`をthrowする。validatorはbooleanのままで、
   不合格になった項目・値の形は返さない。元の却下原因も未特定である。
 - 対応済みの境界: 自動入力復元と停止理由の上書きはIncrement 85／97で解消した。
-  却下proposalのtranscriptを保存・readbackする経路はIncrement 94のhistory v7へ移行済みであり、
-  原観測時の「却下transcriptをDBから読めない」は現行storeの制約ではない。
+  却下proposalのtranscriptを保存・readbackする経路は181のhistory.sqlite3（schema
+  1）へ接続されており、 原観測時の「却下transcriptをDBから読めない」は現行storeの制約ではない。
   [Increment 176](../increments/increment-176.md)でWorker／Data／commitの例外に取得可能な処理段階・
   例外種類・短いmessage等を残すが、boolean validatorを項目別理由付きへ置き換える作業は対象外である。
 - 残る利用者影響:
@@ -872,4 +855,4 @@ Pi／OpenCode／Henjiの画面表示比較
   [`increment-97.md`](../increments/increment-97.md)、[Increment 170](../increments/increment-170.md)、
   [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
   `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
-  `v0/agent/history/sqlite_history_v7_production_store.ts`。
+  `v0/agent/history/sqlite_history_store.ts`。

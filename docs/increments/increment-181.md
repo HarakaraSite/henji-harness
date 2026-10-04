@@ -4,7 +4,7 @@
 
 ステータス:
 **完了（実装・検証・commit/push・常用配置）。P0と全六スライスの実装・test・独立review、最終gate615件、実provider
-E1〜E11・停止DB照合、採用した実build保存P2の修正と指摘限定re-review、配置版の隔離起動確認を完了した。構想/architecture/roadmapの意味変更は別途承認前のため未反映。**
+E1〜E11・停止DB照合、採用した実build保存P2の修正と指摘限定re-review、配置版の隔離起動確認を完了した。構想/architecture/roadmapの意味変更は、2026-10-04の別途承認で反映済み（§8）。**
 
 利用者のE6検討、四項目の推奨案への採用判断、検証失敗時の個別rejectへの合意、 「お願いします
 反映したらレビュアに批判的レビューをさせてください」により、
@@ -386,7 +386,7 @@ request/provider/model/API/HTTP/error等の短いfact、semanticなtool引数/�
 保存Sessionの再開、CLI runを最終compiled binaryのproduction経路で確認する。 機械的gate成功やoffline
 testだけで完了にしない。実装・test・各review・最終E2Eの結果をまとめて完了判定へ進む。
 
-## 8. 構想・architecture・roadmapの変更案（未反映・別途承認）
+## 8. 構想・architecture・roadmapの変更案（当時の案・別途承認で反映済み）
 
 | 正本                                               | 変更理由と意味上の変更案                                                                                                                                                                      |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -394,7 +394,12 @@ testだけで完了にしない。実装・test・各review・最終E2Eの結果
 | `docs/architecture/henji-host-agent-worker.md`     | executable Agent Definition/module closureの取込・評価・managed immutable storeから、Hostの現在設定選択とWorkerの共通構成へ変更。revisionは履歴ラベル。起動継続と個別reject、新DBの正本を反映 |
 | `docs/roadmap.md`                                  | F06と関連するtool/Definition管理の現行方式、F04の保存schema/責務、旧exact selector/transport機能の廃止範囲を更新する。S4のreload実装済みとは記載しない                                        |
 
-これらは本incrementの包括承認と別に提示・承認する。現在の正本は変更していない。
+これらは本incrementの包括承認とは分けて提示した。2026-10-04、利用者の「4文書への反映を承認する」により、
+構想・Host/Worker architecture・provider/auth architecture・roadmapをsource
+`a78c2076`（182まで）へ照合して反映した。 JSON設定・使用内容snapshot、現在tool
+folder、新DB、Exa/service認証、182の実効認証参照継承を現行方式として記載した。
+旧Definition/revision/transportの導入記録は履歴として区別し、S4/reload・rebuild等の未実装範囲と人間の採用境界を維持した。
+本書の実装・配置時点で「未反映」とした後続記述は、その時点の履歴である。
 
 ## 9. Reviewと結果
 

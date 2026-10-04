@@ -2,6 +2,13 @@
 
 相談日: 2026-09-29
 
+位置付け更新日: 2026-10-04。以下は9月29日の提案・判断の履歴である。「今回の表示案」「未実装」「最新」は
+当時の検討段階を指し、現在の採用状態・キー割当・表示仕様を定義しない。
+採用後の要件と結果は[159](../increments/increment-159.md)、その後の表示更新は
+[170](../increments/increment-170.md)、現行仕様は
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md#surfaceと現在のtui)を参照する。
+残る候補は[通常利用メモ](normal-use-inbox.md)へ置く。
+
 利用者の指示によりgpt-6-astraへ現状、利用者の判断、現行要素一覧、実装の参照先を渡して相談した。
 以下は、その提案と利用者の追加判断をrootが文書として整理したもの。各部分の了承・未決事項は整理版を参照する。実装変更は行っていない。
 対象はIncrement 158の配置済みsource `aacf90cc`、repository HEAD `027d1bdd`。

@@ -10,12 +10,12 @@
 
 Agent自身の観測・構成操作と自己改訂の位置付け更新日: 2026-09-26
 
-現行との境界の照合日: 2026-10-01（Increment 168まで完了）
+現行との境界の照合日: 2026-10-04（Increment 182まで完了。source `a78c2076`）
 
 ## 構想
 
-Henjiは、使う中で得た経験から、指示、skill、実行方法を含むHenji自身の機能を継続的に改訂できる
-agent harnessを目指す。
+Henjiは、使う中で得た経験から、指示、skill、実行方法を含むHenji自身の機能を継続的に改訂できる agent
+harnessを目指す。
 
 Henjiは同時に、正常に成立した会話だけを正本へ原子的に採用しながら、cancel、failure、途中のtool
 result等も後から振り返れる材料として失わないagent harnessを目指す。このアトミックな履歴は、
@@ -31,17 +31,20 @@ result等も後から振り返れる材料として失わないagent harnessを�
 ## アトミックな履歴
 
 Henjiが保持する履歴全体は、会話として採用されたturnだけではない。Hostが観測できた成功、cancel、failure、
-途中のassistant出力、tool call/result、終了状態と、それらを解釈するためのAgent側の状態をdurable historyとして
-残す。そのうち、Hostが正常完了と会話への採用を確定したturnだけをcanonical conversationとして以後の通常会話へ
+途中のassistant出力、tool call/result、終了状態と、それらを解釈するためのAgent側の状態をdurable
+historyとして 残す。そのうち、Hostが正常完了と会話への採用を確定したturnだけをcanonical
+conversationとして以後の通常会話へ
 引き継ぐ。ここでいう正常完了は、回答内容の正しさや利用者の満足を意味しない。
 
 人間はcanonicalとnon-canonicalの双方を履歴として参照できる必要がある。AIが過去executionから既定で引き継ぐ
-会話履歴はcanonical conversationに限定するが、現在execution内で得たtool result等や、人間または依頼の目的に
-沿ってAgentが明示的に選んだ過去の材料は、その目的に応じてmodel contextへ投影できる。Agentが観測材料として
+会話履歴はcanonical conversationに限定するが、現在execution内で得たtool
+result等や、人間または依頼の目的に 沿ってAgentが明示的に選んだ過去の材料は、その目的に応じてmodel
+contextへ投影できる。Agentが観測材料として
 履歴を読むことと、過去executionを通常会話へ自動継承することは区別する。
 
 履歴は過去の実行を完全に再現するためのsnapshotではない。過去にHenjiが観測できた内容と、その判断に関与した
-instruction、skill、Agent Definition、tool contract、供給・観測した環境情報等を振り返り、次の改訂を考えるための
+instruction、skill、Agent設定、tool
+contract、供給・観測した環境情報等を振り返り、次の改訂を考えるための
 材料である。過去Worker、model内部状態、OS、filesystem、外部service、toolの副作用を再現することはこの構想の
 目的に含めない。
 
@@ -55,13 +58,15 @@ Henjiの履歴は、相互に関係するが同一ではない三つの目的を
 
 通常履歴の背景は、表示された出来事から、人間の入力・判断、Agentへ実際に渡したcontentまたはimmutable
 revision、tool／providerから得たsemantic result、Hostのadmission／outcome／canonical decision、
-明示的な未観測境界へ至るまでの最小説明閉包とする。exact transport、chunk、parser内部遷移、Worker stage、
-physical storage位置は、それが無くてもsemanticな出来事と直接原因を説明できる限り、通常履歴ではなく
+明示的な未観測境界へ至るまでの最小説明閉包とする。exact transport、chunk、parser内部遷移、Worker
+stage、 physical
+storage位置は、それが無くてもsemanticな出来事と直接原因を説明できる限り、通常履歴ではなく
 診断detailである。
 
 診断detailの欠落や不一致だけを理由に、semanticなexecutionまたはcanonical adoptionを失敗させない。
 一方、通常履歴のsemantic authority自体をdurableにできない場合は、成立していない会話をcanonicalとして
-採用しない。通常履歴にはtool event、runtime outcome、provider／modelと物理requestの順番、HTTP／error、
+採用しない。通常履歴にはtool event、runtime
+outcome、provider／modelと物理requestの順番、HTTP／error、
 解析失敗の項目と値の形を短いfactとして保存し、人間とAgentが次の調査を決める材料にする。通常実行でraw
 request／responseやSSE断片を常設収集せず、必要な場合は別probeで取得する。
 
@@ -71,7 +76,7 @@ request／responseやSSE断片を常設収集せず、必要な場合は別probe
 
 ## 自由度の意味
 
-この構想でいう自由度は、目的別に多数のagent variantやAgent Definitionを保有し、その都度別のagentを
+この構想でいう自由度は、目的別に多数のagent variantやAgent設定を保有し、その都度別のagentを
 生成・選択できることを主に意味しない。同じHenjiが経験に応じて、自身の構成と振る舞いを継続的に
 改訂できる自由度を意味する。
 
@@ -81,7 +86,7 @@ request／responseやSSE断片を常設収集せず、必要な場合は別probe
 - sessionをまたいで残す事実、目的、判断理由と、それらを選択・圧縮するcontext
 - tool、delegation、modelの選択と使い方
 - 実行、待機、介入のtimingとagent loop
-- executable Definition、runtime、HostとWorkerの連携
+- JSON Agent設定、tool実装、runtime、HostとWorkerの連携
 - 利用者がHenjiを継続して使うためのinterface
 
 対象をあらかじめ文章ファイルや固定されたcomponent一覧へ限定しない。観測された利用上の必要に応じて、
@@ -101,8 +106,8 @@ TUIを含むSurfaceは、内部機能を呼び出す付属画面ではなく、�
 
 現在の主な対話Surfaceは、独立CoreへHTTP/SSEで接続するTUIである。TUIを切り離しても受付済みの実行と
 Coreは継続し、保存Sessionの閲覧・再開や接続の選択を分けて操作できる。Henjiの目的をTUIそのものへ固定せず、
-同じCoreと保存Sessionを別のSurfaceからも利用できる方向を保つ。durable Instanceを採用する場合もこの方向を維持する。
-改訂候補の生成を指示し、候補を確認し、採用または
+同じCoreと保存Sessionを別のSurfaceからも利用できる方向を保つ。durable
+Instanceを採用する場合もこの方向を維持する。 改訂候補の生成を指示し、候補を確認し、採用または
 承認する人間の操作も、採用時点のSurfaceを通じて行う。
 
 Surfaceの使いやすさは、機械testやhelpの記載だけでは確定しない。人間が実際のproduct経路を通常利用して
@@ -115,7 +120,8 @@ Surfaceの使いやすさは、機械testやhelpの記載だけでは確定し�
 読み、意味を考え、自身の変更候補を作る。採用された変更はその後の通常利用に現れ、そこで観測された変化が
 また新しい経験になる。
 
-経験を解釈するには、会話とtool activityだけでなく、そのexecutionがどのAgent側の状態と会話状態を使ったかを
+経験を解釈するには、会話とtool
+activityだけでなく、そのexecutionがどのAgent側の状態と会話状態を使ったかを
 相関できる必要がある。改訂後は、人間が定めた目的、改訂範囲、採用境界に従い、人間またはAgentの操作で
 新しい実効状態を後続実行へ適用し、過去のturnとその来歴は書き換えない。改訂候補の生成、候補の採用、
 現在resourceからの実効状態の再構築をどの操作へ分けるかは、
@@ -148,24 +154,32 @@ repository上の記録を基盤に段階的に進められ、durable AgentInstan
 その範囲での実行と、採用境界そのものを変える判断を区別する。操作ごとの承認を一律に要求することや、
 Agentによる候補の自動採用を、この原則から導かない。
 
-## Agent Definitionの位置付け
+## Agent設定と使用内容の位置付け
 
-Executable Agent Definitionは、Henjiの改訂された構成を表現・実行する手段になり得る。Definitionの
-variantを増やすこと自体は目的ではなく、Definitionを読み込めることだけでも自己改訂の証拠にはならない。
+JSON Agent設定は、Henjiの構成と振る舞いを表す手段の一つである。Agentのname、revisionという版名、
+instruction、tools、agentsを選べることやvariantを増やすことだけで、経験に基づく自己改訂を実証したとはみなさない。
+Hostが現在の設定を選び、Workerが共通runtimeで構成する具体的な責務はarchitectureで定める。
 
-現在のDefinition APIがmodel、registry、system instruction、maxStepsを組み合わせられることも、Henjiが
-経験から自身を改訂できることを示さない。DefinitionとHost / Workerの具体的な役割はarchitectureで定め、
-将来どの機構を自己改訂へ使うかは、その段階の実装計画で決める。
+Henji executableの改訂はversion・build・source
+commitで追う。Agent設定とtoolのrevisionは人間が付ける版名であり、
+内容identity、実行許可、再現可能性を保証しない。同じ版名の内容が変更される場合も、起動時の実効Agent設定、
+最終instruction、実提示tool contract等を独立したconfiguration
+snapshotとして保持し、executionへ相関する。 model
+selectionとrequestごとのcontextは、それぞれの実行に関与した情報として区別する。
 
-Henji executableの改訂はversion・build・source commit、Definitionの改訂は個別resourceのexact revisionで
-追う。instructionの内容やmodel selection等も各実行へ相関する。Definition revisionをHenji全体の
-改訂identityとみなさず、全実効状態を一つのrevisionへ統合することを前提にしない。
+現在のsource fileだけで過去の使用内容を説明せず、保存した観測内容から振り返る。Agent/toolのsource
+closureの
+保存や過去版からの再実行を前提にせず、全実効状態を一つの統一revisionへまとめることも要求しない。
 
 ## 現在との境界
 
-Increment 168までの採用範囲は利用者が完了とした。現行の通常利用では、複数Coreによる別Sessionの並行実行、
+Increment
+182までの採用範囲は利用者が完了とした。現行の通常利用では、複数Coreによる別Sessionの並行実行、
 共有semantic履歴、TUIの切離し・再接続、Session閲覧・再開・個別削除、model一覧・お気に入り・effort選択、
-API keyとChatGPT認証、Markdown本文とexecutionに対応する結果表示を利用できる。
+API keyとChatGPT認証、Markdown本文とexecutionに対応する結果表示を利用できる。 JSON
+Agent設定・現在tool folderの読込み、実効構成snapshotと新履歴DB、Exa検索とファイル取得、外部tool用の
+APIキー登録、最終回答時の追加指示取込みも通常経路へ接続されている。model省略の子は親executionの実効model・
+認証参照を使い、異なるproviderを明示した子は指定先の認証を使う。
 これは通常利用と観測の基盤の到達点であり、以下の自己改訂専用操作を一括して完成扱いにするものではない。
 
 利用者の通常利用の経験を基に、人間が改訂を指示し、Henji自身が一部incrementの実装を担う運用は始まっている。
@@ -174,8 +188,8 @@ API keyとChatGPT認証、Markdown本文とexecutionに対応する結果表示�
 
 TUI、history、executionとAgent状態のattribution、短いrequest factにより、人間がAgentの挙動を観測する
 経路は充実してきた。Agentも現在の会話・tool resultやbash/history等から間接的に情報を参照できるが、
-自分の実効構成と対象executionを発見し、必要な履歴を選んで振り返る操作は今後整える。
-Increment 131の無名subagentは、用途ごとのDefinition準備を要求せず、Agentが起動時にtask・model・toolsを
+自分の実効構成と対象executionを発見し、必要な履歴を選んで振り返る操作は今後整える。 Increment
+131の無名subagentは、用途ごとの名前付きAgent設定の準備を要求せず、Agentが起動時にtask・model・toolsを
 選ぶ手段として実装済みである。
 
 rootの`/model`相当操作をAgentから要求する経路と、`/rebuild`相当操作は未実装である。model変更の適用時点・
@@ -183,5 +197,5 @@ rootの`/model`相当操作をAgentから要求する経路と、`/rebuild`相�
 resourceから実効構成を再構築する操作であり、binaryの再compile・配置・再起動と同一の操作とは決めない。
 
 現在のroadmapは、通常利用で必要な改善と、Agent自身の観測・構成選択・変更反映に不足する動作から
-狭い増分を選ぶ。最初の改訂対象をDefinitionに限定せず、改訂手段自体を次の対象にできる。
+狭い増分を選ぶ。最初の改訂対象をAgent設定に限定せず、改訂手段自体を次の対象にできる。
 個別incrementの対象、要件、計画、実装認可は、その都度利用者の目的に沿って定める。

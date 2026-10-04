@@ -16,8 +16,9 @@
 証拠は`.tools/increment-182/real-provider/`。
 実装commitは`417e2af4`。常用配置版は受入済みruntimeと一致し、隔離Core/TUI起動・DB保存確認も完了。
 配置証拠は`.tools/increment-182/deployment/`。稼働中Coreは維持し、次回Core起動から配置版を使用する。
-次の採用判断を待つ。
-181の§8にある構想・architecture・roadmapの意味変更案は別途承認が必要で、正本へ未反映。
+次の採用判断を待つ。 構想・Host/Worker architecture・provider/auth
+architecture・roadmapは、2026-10-04の個別承認により source `a78c2076`・Increment
+182までの現行方式へ照合・反映済み。181 §8の未反映境界は解消した。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
