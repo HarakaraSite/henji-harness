@@ -1,6 +1,6 @@
 # Increment 185 — A18 bash timeout説明・引数エラーの具体化
 
-状態: 実装・検証・利用者受入済み。commit・常用配置中。
+状態: 実装・検証・利用者受入、local commit・常用配置済み。
 
 ## 必要な動作と根拠
 
@@ -73,7 +73,7 @@ tunables）は別候補のままとする。
   実modelがこの説明を使って自律的に引数を直す通常利用での判断は未確認。
 
 通常利用メモのA18を本書へ移設した。構想・architecture・roadmapは変更していない。
-commit・常用配置は未実施。
+commit・常用配置は下記の追加承認に従う。
 
 ## Commit・常用配置の承認（2026-10-04）
 
@@ -81,3 +81,23 @@ commit・常用配置は未実施。
 配置結果の記録commitを承認された。公式buildのsourceDirty=falseとsource commitを確認し、
 旧binaryを保存して`dist/henji`と常用の`henji`へatomic配置する。配置先のbinary・build情報の一致と、
 稼働中の常用Coreの維持を確認する。既に通過したfocused testは繰り返さず、実provider callは行わない。
+
+## 配置結果（2026-10-04）
+
+実装と関連文書をsource commit `d1d6dfa6ab694d1868724926048861b8142c1202`
+（`fix: explain bash timeout argument errors`）へ確定した。公式buildでsourceDirty=falseと このsource
+commitを確認した。配置版はhenji 0.8.0／Deno 2.9.7、build ID
+`26cd62e67618299ec18c6421684c1cd1145a8ee89b0aff9bdb46d7cb729bbef4`、runtime digest
+`35a205d511cc61563518f2c747f62b6147d9670f1e1b26381d02181816c4d68c`。
+
+旧binaryを`.tools/increment-185/deployment/henji.{dist,local}.previous`へ保存し、staging fileから
+`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。両配置先のversionとbuild manifest、
+binary SHA-256 `22cc019d3a739ec1c953202a36f00e3ba088168fc048084dd76dd4f0f46b5856`が一致した。
+
+配置版の`--version`と`diagnostics runtime`は隔離HOME/XDG・workspaceで確認し、実configを変更していない。
+常用Coreの配置前後のID・PIDが同一であることを確認した。稼働中のCoreとTUIは維持し、A18は次のCore起動から
+配置版を使用する。実provider requestは0件。配置binaryでの実modelによる引数修正は未確認であり、
+既存のprovider-free実Worker確認とclean sourceのbuild情報を配置根拠とした。
+
+証拠は`.tools/increment-185/deployment/`の`build.log`、`build-manifest.json`、`deployment.json`、
+`cores-before.json`、`cores-after.json`、`existing-core-check.json`。配置結果を記録commitへ保存する。

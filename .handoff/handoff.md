@@ -5,12 +5,13 @@
 ## 現在地（2026-10-04）
 
 [Increment 185](../docs/increments/increment-185.md)のA18（bash timeout説明・引数エラー具体化）は
-実装・検証・利用者受入済み。承認されたlocal commit・常用配置を進めている。
-常用配置済みの前Incrementは[184](../docs/increments/increment-184.md)（source `442d4cfb`）。
+実装・検証・利用者受入、local commit・常用配置済み。実装sourceは`d1d6dfa6`。
+稼働中の常用CoreとTUIは維持し、A18は次のCore起動から配置版を使用する。
 
 ## 次の一手と承認境界
 
-185をcommit・公式build・常用配置し、配置結果を記録する。実provider callは未承認。
+次の採用判断を待つ。185の配置結果・証拠と通常利用での未確認範囲は個別increment文書を参照する。
+実provider callは未承認。
 構想・architecture・roadmapの変更は別途承認を要する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
