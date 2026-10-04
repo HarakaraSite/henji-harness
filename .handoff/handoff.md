@@ -4,8 +4,9 @@
 
 ## 現在地（2026-10-04）
 
-A26の[Increment 189](../docs/increments/increment-189.md)は実装・検証・常用配置・local commit済み。
-source commitは`ecb63510`。日時hookを初回登録し、既存Core/TUIは再起動していない。
+A26の[Increment 189](../docs/increments/increment-189.md)は利用者による完了承認済み。
+実装・検証・常用配置・local commit済み。 source
+commitは`ecb63510`。日時hookを初回登録し、既存Core/TUIは再起動していない。
 新Coreから配置版を使う。配置結果と証拠はincrement文書§16を参照する。
 
 ## 次の一手と承認境界
