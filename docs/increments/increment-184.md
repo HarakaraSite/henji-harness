@@ -98,3 +98,8 @@ CLI履歴のtask冒頭表示を確認した。確認用Coreはshutdown accepted�
 `tui-history.txt`、`tui-reconnected.txt`、`history.txt`、`existing-core-check.json`。
 runtimeが実装検証済みcandidateと一致するため、focused testとfull gateは繰り返していない。
 配置結果と完了状態を記録commitへ保存する。
+
+## 利用者確認・完了承認（2026-10-04）
+
+利用者の「確認しました 完了とします」により、常用配置後の確認と完了を承認された。
+Increment 184を完了とする。

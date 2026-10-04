@@ -6,6 +6,7 @@
 
 [Increment 184](../docs/increments/increment-184.md)のS24（task冒頭表示）は実装・検証・受入、
 local commit・常用配置まで完了。実装sourceは`442d4cfb`。
+利用者の常用配置後の確認・完了承認済み。
 稼働中の常用CoreとTUIは維持し、次回TUI起動から配置版を使用する。
 
 ## 次の一手と承認境界
