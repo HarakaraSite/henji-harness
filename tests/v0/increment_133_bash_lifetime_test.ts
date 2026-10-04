@@ -116,6 +116,44 @@ const alive = async (pid: string): Promise<boolean> =>
 const resistant =
   "trap '' TERM; bash -c 'trap \"\" TERM; while :; do sleep 10; done' & printf '%s' $! > descendant; printf '%s' $$ > command; while :; do sleep 10; done";
 
+Deno.test('bundled bash explains excessive timeout before execution and accepts corrected retry', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i185-bash-timeout-' });
+  const events: AgentEvent[] = [];
+  let processStarts = 0;
+  const session = await open(root, events, () => processStarts++);
+  const command = 'printf corrected > marker; printf completed';
+  try {
+    for (const timeoutMs of [180000, 300000]) {
+      const outcome = await session.submit(
+        `bash-tool-call:${JSON.stringify({ name: 'bash', arguments: { command, timeoutMs } })}`,
+      );
+      assert(outcome.ok, JSON.stringify(outcome));
+      const expected =
+        `invalid arguments: timeoutMs must be an integer from 1 to 120000; received ${timeoutMs}. Command was not executed.`;
+      equal(outcome.finalText, expected);
+      const result = events.filter((event) => event.kind === 'tool_result').at(-1);
+      if (result?.kind !== 'tool_result') throw new Error('missing bash tool result');
+      equal([result.result.outcome, result.result.text], ['error', expected]);
+      equal(processStarts, 0);
+      let markerMissing = false;
+      try {
+        await Deno.stat(`${root}/marker`);
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+        markerMissing = true;
+      }
+      assert(markerMissing, 'invalid timeout executed the command');
+    }
+    const corrected = await submit(session, command, 120000);
+    equal([corrected.stdout, corrected.exitCode, corrected.timedOut], ['completed', 0, false]);
+    equal(processStarts, 1);
+    equal(await Deno.readTextFile(`${root}/marker`), 'corrected');
+  } finally {
+    await session.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test('bundled bash keeps fresh shell/status/output and later-turn bash_output readback', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i133-bash-' });
   const session = await open(root);

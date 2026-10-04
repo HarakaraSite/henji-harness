@@ -4,18 +4,19 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 184](../docs/increments/increment-184.md)のS24（task冒頭表示）は実装・検証・受入、
-local commit・常用配置まで完了。実装sourceは`442d4cfb`。
-利用者の常用配置後の確認・完了承認済み。
-稼働中の常用CoreとTUIは維持し、次回TUI起動から配置版を使用する。
+[Increment 185](../docs/increments/increment-185.md)のA18（bash timeout説明・引数エラー具体化）は
+実装・検証・利用者受入済み。承認されたlocal commit・常用配置を進めている。
+常用配置済みの前Incrementは[184](../docs/increments/increment-184.md)（source `442d4cfb`）。
 
 ## 次の一手と承認境界
 
-次の採用判断を待つ。184の配置結果・証拠は個別increment文書を参照する。
-構想・architecture・roadmapの変更は184の採用に含めず、変更時は別途承認を要する。
+185をcommit・公式build・常用配置し、配置結果を記録する。実provider callは未承認。
+構想・architecture・roadmapの変更は別途承認を要する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 185](../docs/increments/increment-185.md): A18の採用要件、実装・確認結果と未確認範囲。
 
 - [Increment 184](../docs/increments/increment-184.md): S24の採用要件、実装・確認計画と結果。
 

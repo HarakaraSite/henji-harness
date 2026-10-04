@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183へ採用・移設）。
+更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement 185へ採用・移設）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -38,7 +38,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
 | A15 | Agent実行      | searchツールコールの実装                                                     | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討                                                       |
-| A18 | Agent実行      | bash toolのtimeout説明と引数エラーの具体化                                   | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測                                                   |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A23 | Agent実行      | `run_typescript`でファイル操作を含む小処理をHenji内で実行                    | 利用者が対象用途・実行条件の具体化や利用価値検証を指示するとき                                                         |
@@ -311,30 +310,9 @@ Pi／OpenCode／Henjiの画面表示比較
   するか、分けるかは実装時に検討する。
 - 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
 
-### A18 — bash toolのtimeout説明と引数エラーの具体化
-
-- 観測（2026-09-27、session `51b47299`、execution `6598b5eb-f405-4dbc-b213-eaa0b93bc145`）:
-  `opencode-go-chat / mimo-v2.6-pro / effort=auto`によるIncrement 135のslice 1〜3実装・検証が、
-  約43分、128 model step、172 tool呼出しで`max_steps`停止した。128回のmodel responseはすべて
-  tool呼出しで、最終回答はなかった。bash引数エラー29回の内訳は`timeoutMs=180000`が28回、
-  `300000`が1回で、いずれも上限超過だった。modelはcommandやファイル名、wrapperの不調と
-  誤解して再試行し、stepを浪費した。これが長時間turnの唯一の原因とは断定しない。
-- 現行境界: bash toolの説明とinput schemaは既に上限`120000`を明示しているが、timeoutの
-  検証失敗も`invalid arguments: invalid bash arguments`だけを返す。command実行前の拒否なのか、
-  どの引数が不適合なのかが結果から分からない。
-- 候補: 説明に`timeoutMs`の整数範囲`1〜120000`と、引数検証失敗時はcommandが未実行であること、
-  再試行前にschemaと引数を照合することを明示する。timeoutエラーは、例えば
-  `invalid arguments: timeoutMs must be an integer from 1 to 120000; received 180000. Command was not executed.`
-  として原因と修正方法を示す。今回の観測に対応するtimeoutの説明・エラー改善から検討する。
-- 利用者指示（2026-09-27）: 今回は通常利用メモへの追加のみ。採用・実装は指示していない。
-- 再検討条件: 個別Incrementへ採用するとき。改善後の通常利用で、引数エラーから適切に修正して
-  作業を継続できるかを確認する。
-- 関連: A11（報告する時点の指示）、E3（runtime tunables）、
-  `v0/agent/tools/bash_tool.ts`のdescription・input schema・timeout検証。
-
 ### A19 — requestごとの実行状況・日時・地域context
 
-- 観測（2026-09-27）: A18のsession `51b47299`では、maxSteps・現在step・turn経過時間を
+- 観測（2026-09-27）: [A18の元観測](../increments/increment-185.md)のsession `51b47299`では、maxSteps・現在step・turn経過時間を
   modelへ自動通知していなかった。現行`Runtime facts`は作業directoryだけで、内部の`modelStep`は
   診断・履歴用である。利用者は、turnを返す判断材料に加え、現在日時と地域の情報も有用と考えた。
 - 候補: Worker内のAgent loopが既存のmaxSteps・stepとturn開始時刻から実行状況を生成し、
@@ -364,7 +342,7 @@ Pi／OpenCode／Henjiの画面表示比較
 - 利用者指示（2026-09-27）: 今回はアイデアのメモのみ。runtime通知・地域設定の実装は未指示。
 - 再検討条件: 個別Incrementへ採用するとき。実際に通知が報告・作業継続の判断に使われるかを
   通常利用で確認する。
-- 関連: A18、A11、S4、E3、`v0/agent/core/loop.ts`、 `v0/agent/worker/worker_runtime.ts`のrequest
+- 関連: [A18（Increment 185）](../increments/increment-185.md)、A11、S4、E3、`v0/agent/core/loop.ts`、 `v0/agent/worker/worker_runtime.ts`のrequest
   projection・context attribution。
 
 ### A21 — 1ターン内でsteeringを複数回受け付ける
