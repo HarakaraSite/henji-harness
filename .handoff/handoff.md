@@ -4,17 +4,13 @@
 
 ## 現在地（2026-10-04）
 
-[Increment 188](../docs/increments/increment-188.md)は利用者による完了承認済み。
-常用配置済み。既存Core/TUIは維持し、新Coreから配置版を使う。
-
-A26の[Increment 189](../docs/increments/increment-189.md)はスライス単位のlocal実装・検証・reviewを承認された。
-S1〜S6の実装・focused検証・独立reviewと採用finding修正、compiled隔離install/API/run/readback/再開、最小実provider1
-requestの確認を完了した。
+A26の[Increment 189](../docs/increments/increment-189.md)は実装・検証・常用配置・local commit済み。
+source commitは`ecb63510`。日時hookを初回登録し、既存Core/TUIは再起動していない。
+新Coreから配置版を使う。配置結果と証拠はincrement文書§16を参照する。
 
 ## 次の一手と承認境界
 
-189の常用配置・commitを利用者が承認した。source commitとofficial
-build・隔離probe・常用配置・配置readbackを進める。
+新Coreで通常利用する。未採用候補は通常利用メモを参照し、個別採用前に実装しない。
 architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。公開/release・pushは未承認。
 必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。

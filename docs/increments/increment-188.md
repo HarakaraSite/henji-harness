@@ -94,3 +94,9 @@ provider/APIは変更しない。構想・architecture・roadmapに必要な意�
 MiBへの拡張、source/compiledの実経路確認、常用配置とこの承認をもって完了とする。
 著しい遅延が通常利用で観測された場合は、利用者の方針に従って処理方式を再考する。
 この完了承認はcommit・公開/release・実provider callの追加承認を含まない。
+
+## 後続のsource commit（2026-10-04）
+
+Increment 189で利用者が「常用配置・commit」を承認した際、反映済み186〜188のsourceを 先行commit
+`560031e9`へまとめた。188のproduct動作は変更していない。
+189の常用配置と確認結果は[Increment 189](increment-189.md)の§16を参照する。

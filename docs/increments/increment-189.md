@@ -1,11 +1,11 @@
 # Increment 189 — A26 最小hook機構とruntime開始日時の外部定義
 
-状態: local実装・検証完了（2026-10-04）。6スライスそれぞれの実装・focused
-test・独立reviewを完了した。
+状態: 実装・検証・常用配置・local commit済み（2026-10-04）。6スライスそれぞれの実装・focused
+test・独立reviewを完了した。配置結果は§16に記録する。
 6種のhook、Worker単位のruntime、外部TSによる処理、開始日時の挿入、親・子に共通するデフォルト適用は
 会話で合意した入力である。local実装・非破壊検証・スライスごとのreviewを承認された。
 必要な最小限の実provider利用も承認された。使用時は対象・回数・保存先を事前に提示し、結果を本書へ記録する。
-常用配置、commit、公開/releaseの承認は含まない。
+当初の承認に常用配置、commit、公開/releaseは含まない。常用配置・commitは§16で追加承認された。
 
 ## 1 必要な動作と受入条件
 
@@ -692,3 +692,35 @@ commitした。189はその後の独立commitとする。
 実providerの追加呼出は必要としない。既存外部TS/catalog/Agent設定を保持し、日時hookを初回登録する。
 常用web_searchは前配布sourceと同一で未編集と確認したため、新しいrequest fact契約への追従sourceを
 配置対象へ含める。既存Core/TUIは再起動しない。
+
+### 配置結果
+
+- 186〜188の先行sourceは`560031e9`、189のsourceは
+  `ecb63510bbd87f6ea089d9e3ccdf2f565df5dc77`へcommitした。
+- commit済みsourceからofficial buildしたcandidateはsourceDirty=false、build ID
+  `4630b231aa10e7b6ecdf50df14d00d6e912d1a647b9aee5ec25691f819bc76d1`。 embedded runtime
+  SHA-256は§15で実provider確認済みのruntimeと一致する
+  `cdca4eee496ebcfb28ed080c5aad5362ae5b26af4887ab2543fb3c0147d62e00`。
+- このcandidateをpackage化し、隔離installのcompiled production probeを再実行した。
+  §15の六hook、checkpoint保存・再開、子Worker、補助requestの証跡、public APIとheadless runを
+  再確認した。localhostのmodel request13件と補助request2件、実provider requestは0件。
+  証拠は`.tools/increment-189/deployment/verification/hooks-package-ba6cf6182af72/`。
+- package
+  installerで`/home/agent/.local/bin/henji`と初回日時hookを配置し、`dist/henji`もatomic配置した。
+  両binaryのversion・diagnostics・SHA-256はpackage manifestと一致した。 binary
+  SHA-256は`bcc3b1062697cc5e194b399e35ac0db1ee62740ef23a0ea5818f764b270ae243`。
+- `hooks.json`のdefaultへ`runtime-start-time`を登録し、配布sourceと一致する
+  `hooks/runtime-start-time/index.ts`を配置した。既存外部tool、Agent、provider/model
+  catalog、選択設定、
+  instructionの24fileを前後比較し、変更は未編集の`tools/web_search/main.ts`だけだった。
+  他の23fileはhash一致。credential値とAuthorizationはsnapshotへ含めていない。
+- searchとweb_fetchの全配布fileは常用配置と一致しており、変更不要だった。searchはローカル検索、
+  web_fetchは通常のfetchを使うため、web_searchのrequestProvider証跡契約変更の影響を受けない。
+  常用binaryの`tool inspect`で三toolとも既存外部folderへの登録を確認した。
+- 既存Core/TUIは再起動していない。現在workspaceのCore一覧は配置前後とも空だった。
+  新binaryと日時hookは新しく起動するCoreから利用する。
+- package、manifest、配置readback、config/Coreの前後snapshot、`deployment.json`は
+  `.tools/increment-189/deployment/`へ保存した。旧binaryと旧web_search sourceも同folderへ保存した。
+
+189の常用配置・source commitを完了した。配置記録は別のdocs commitとする。
+architecture/roadmapの189案は未適用であり、公開/release・pushは行っていない。
