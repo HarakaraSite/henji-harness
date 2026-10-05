@@ -4,6 +4,11 @@
 
 ## 現在地（2026-10-05）
 
+[Increment 193](../docs/increments/increment-193.md)のTUI配色変更はlocal実装・focused確認・独立review・
+production TUI確認済み。review後の最小実provider確認も実施した。
+利用者のGhostty上での見た目確認・完了承認は未実施。詳細結果と未確認事項は193を参照する。
+193のcommit・常用配置は追加指示で承認され、実施中。配置結果は193へ記録する。
+
 [Increment 192](../docs/increments/increment-192.md)は利用者による確認・完了承認済み。
 利用者はこの後セッションを終了する。実装・検証・配置・完了の記録は192を参照する。
 
@@ -15,7 +20,11 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
-次incrementは未採用。再開時は利用者の次の指示を受ける。
+193の実装・test・review・review後のtmux最小実provider確認は承認済みで実施した。 193のsource
+commit・公式build・常用配置は追加承認済み。配置後は隔離XDGのproduction TUIと local
+providerで再確認し、実providerへの追加呼び出しは行わない。次は利用者の見た目確認。
+193のpush、公開/release、構想・architecture・roadmap変更は未承認。
+S33は193へ採用・移設した。その他の未採用候補は通常利用メモを参照する。
 192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 192の追加指示はarchitecture/roadmap正本変更、push、公開/release、
 旧実データの削除・移行の承認を含まない。実provider callを計画上の必須確認にしない。
@@ -27,6 +36,10 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 193](../docs/increments/increment-193.md):
+  S33の採用要件・計画・実装・focused確認・独立review・compiled TUI／最小実provider結果、
+  見た目確認待ちと承認境界。
 
 - [Increment 192](../docs/increments/increment-192.md):
   `openai-chat`廃止の採用要件、実行記録・公式契約、 現行利用経路、実装・gate・compiled

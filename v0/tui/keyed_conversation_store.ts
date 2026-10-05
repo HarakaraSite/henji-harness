@@ -12,7 +12,7 @@ const sameDisplayedEntry = (left: UiLogEntry, right: UiLogEntry): boolean =>
   left.kind === right.kind && left.label === right.label &&
   left.text === right.text && left.live === right.live &&
   left.turn === right.turn && left.callId === right.callId &&
-  left.executionId === right.executionId;
+  left.executionId === right.executionId && left.toolName === right.toolName;
 
 const toolArgumentsPreview = (name: string, args: unknown): string =>
   toolActivityPreview(name, args);
@@ -79,6 +79,7 @@ export const mapConversationEntity = (
     live,
     turn: 'turn' in entity ? entity.turn : undefined,
     ...(callId === undefined ? {} : { callId }),
+    ...(entity.kind === 'tool' ? { toolName: entity.name } : {}),
     executionId: entity.executionId,
   });
   if (previous !== undefined && sameDisplayedEntry(previous, candidate)) return previous;

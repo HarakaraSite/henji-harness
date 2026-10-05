@@ -19,10 +19,11 @@ const boundedHead = (text: string, limit = TOOL_PREVIEW_HEAD_BYTES): string => {
   return used < encoder.encode(text).byteLength ? `${result}…` : result;
 };
 
-const shortToolName = (name: string): string => boundedHead(name, TOOL_NAME_BYTES);
+/** The tool name exactly as shown in activity text, also used by Host-local styling. */
+export const toolActivityName = (name: string): string => boundedHead(name, TOOL_NAME_BYTES);
 
 export const pendingToolActivityText = (name: string, preview = ''): string =>
-  preview.length === 0 ? `${shortToolName(name)} …` : `${shortToolName(name)} ${preview} …`;
+  preview.length === 0 ? `${toolActivityName(name)} …` : `${toolActivityName(name)} ${preview} …`;
 
 export const settledToolActivityText = (
   name: string,
@@ -30,12 +31,12 @@ export const settledToolActivityText = (
   preview = '',
 ): string =>
   preview.length === 0
-    ? `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`
-    : `${shortToolName(name)} ${preview} ${outcome === 'success' ? '✓' : '✗'}`;
+    ? `${toolActivityName(name)} ${outcome === 'success' ? '✓' : '✗'}`
+    : `${toolActivityName(name)} ${preview} ${outcome === 'success' ? '✓' : '✗'}`;
 
 /** Recover the stable call preview when progress and result events no longer carry arguments. */
 export const previewFromToolActivityText = (text: string, name: string): string => {
-  const base = shortToolName(name);
+  const base = toolActivityName(name);
   if (!text.startsWith(base)) return '';
   const rest = text.slice(base.length).trim();
   for (const marker of ['…', '✓', '✗']) {

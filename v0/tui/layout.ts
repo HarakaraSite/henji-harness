@@ -32,7 +32,7 @@ const MAX_EDITOR_ROWS = 8;
 export const MAX_FRAME_BYTES = 128 * 1024;
 const MAX_LAYOUT_SOURCE_BYTES = 2 * 1024 * 1024;
 
-export type FooterTone = 'dim' | 'bold' | 'ready' | 'working';
+export type FooterTone = 'dim' | 'ready' | 'working';
 
 interface FooterSpan {
   readonly start: number;
@@ -572,7 +572,7 @@ const footerModelText = (
   return footerGroups(
     [
       ...provider,
-      { text: suffixCells(safeDisplay(model.modelId, false), modelAvailable), tone: 'bold' },
+      { text: suffixCells(safeDisplay(model.modelId, false), modelAvailable) },
     ],
     effort,
     columns,

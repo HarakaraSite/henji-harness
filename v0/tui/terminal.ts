@@ -39,16 +39,14 @@ export const EXIT_ALTERNATE_SCREEN = '\x1b[?1049l';
 export const ERASE_LINE = '\x1b[2K';
 export const RESET_SGR = '\x1b[0m';
 export const BLINK_SGR = '\x1b[5m';
-export const BOLD_SGR = '\x1b[1m';
 export const DIM_SGR = '\x1b[2m';
 export const CYAN_SGR = '\x1b[36m';
-export const YELLOW_SGR = '\x1b[33m';
-export const MAGENTA_SGR = '\x1b[35m';
+export const BLUE_SGR = '\x1b[34m';
 export const RED_SGR = '\x1b[31m';
-// The TUI color floor is 256 colors; 8-color fallbacks are not maintained.
-export const USER_TEXT_SGR = '\x1b[38;5;220m';
-export const USER_ROW_BG_SGR = '\x1b[48;5;238m';
-export const HEADING_SGR = '\x1b[1;38;5;111m';
+// Use the terminal palette: Solarized maps ANSI black (0) to base02.
+export const USER_TEXT_SGR = '\x1b[39m';
+export const USER_ROW_BG_SGR = '\x1b[40m';
+export const HEADING_SGR = BLUE_SGR;
 export const RESET_SCROLL_REGION = '\x1b[r';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);

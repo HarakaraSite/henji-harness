@@ -13,13 +13,12 @@ import {
 } from '../presentation/contract.ts';
 import {
   BLINK_SGR,
-  BOLD_SGR,
+  BLUE_SGR,
   CYAN_SGR,
   DEFAULT_CURSOR_STYLE,
   DIM_SGR,
   ERASE_LINE,
   HEADING_SGR,
-  MAGENTA_SGR,
   RED_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
@@ -30,7 +29,6 @@ import {
   type TerminalRendererGate,
   USER_ROW_BG_SGR,
   USER_TEXT_SGR,
-  YELLOW_SGR,
 } from './terminal.ts';
 import type { EditorSnapshot } from './input.ts';
 import type { PendingMetadataSnapshot } from './pending_input.ts';
@@ -77,32 +75,31 @@ export interface TuiRendererOptions {
 
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
   user: USER_TEXT_SGR,
-  assistant: YELLOW_SGR,
+  assistant: BLUE_SGR,
   tool: CYAN_SGR,
-  system: MAGENTA_SGR,
+  system: '',
   failure: RED_SGR,
 };
 
 const SPAN_SGR: Record<AssistantSpanTone, string> = {
   heading: HEADING_SGR,
-  list: CYAN_SGR,
+  list: '',
   table: DIM_SGR,
-  quote: MAGENTA_SGR,
-  bold: BOLD_SGR,
+  quote: '',
+  bold: '',
   emphasis: CYAN_SGR,
 };
 
 const FOOTER_SGR: Record<FooterTone, string> = {
   dim: DIM_SGR,
-  bold: BOLD_SGR,
-  ready: CYAN_SGR,
-  working: YELLOW_SGR,
+  ready: DIM_SGR,
+  working: CYAN_SGR,
 };
 
 const renderLayoutRow = (row: LayoutRow, columns: number): string => {
   // A whole-row tone covers label, reason and guidance in one color; such rows carry no spans.
   if (row.rowTone !== undefined) {
-    // User rows are a full-width panel: yellow text on a pale grey band, padded to the frame width.
+    // User rows keep default text on the terminal palette's subdued full-width band.
     if (row.rowTone === 'user') {
       const pad = ' '.repeat(Math.max(0, columns - cellWidth(row.text)));
       return `${USER_TEXT_SGR}${USER_ROW_BG_SGR}${row.text}${pad}${RESET_SGR}`;
@@ -148,7 +145,7 @@ const renderLayoutRow = (row: LayoutRow, columns: number): string => {
   ranges.sort((left, right) => left.start - right.start || left.length - right.length);
   let output = '';
   let cursor = 0;
-  for (const range of ranges) {
+  for (const range of ranges.filter((range) => range.sgr.length > 0)) {
     const start = Math.max(
       cursor,
       Math.max(0, Math.min(points.length, range.start)),

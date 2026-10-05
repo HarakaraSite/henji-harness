@@ -153,8 +153,10 @@ Pi／OpenCode／Henjiの画面表示比較
   履歴閲覧の要求が現行window方式で満たせなくなったとき。
 - message jump（Pi／OpenCodeのmessage単位移動）: 利用者判断でP2として除外済み（PageUpの方が手軽）。
   調査記録に残す。
-- テーマ／256 color／truecolor: 色に関する観測された不満がなく、Surface変更が大きい。 再検討条件:
-  表示の識別性で色が問題になったとき。
+- テーマ／256 color／truecolor: 調査当時は色に関する観測された不満がなく、Surface変更が大きいため見送った。
+  配色変更前のsourceは一部に256色指定を使っており、この記録は256色未対応を意味しない。
+  2026-10-05の配色変更は[Increment 193](../increments/increment-193.md)へ採用した。
+  テーマ切替・truecolor対応の採用は未決。
 - Piの`CURSOR_MARKER`（hardware cursor指定によるIME候補位置合わせ）:
   Henjiはframe末尾のcursor位置指定で 入力位置を示しており、目的は現状で満たしている。 再検討条件:
   IME候補位置がずれる観測が得られたとき。

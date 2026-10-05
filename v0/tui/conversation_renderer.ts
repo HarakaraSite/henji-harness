@@ -1,4 +1,5 @@
 import { type UiLogEntry } from './state.ts';
+import { toolActivityName } from '../agent/tools/tool_activity.ts';
 
 export type ConversationLabelTone = 'user' | 'assistant' | 'tool' | 'system' | 'failure';
 
@@ -106,6 +107,11 @@ export const projectConversationEntry = (
     labelScalarLength: [...entry.label].length,
     // User rows render as a full-width panel, so every wrapped row carries the user tone.
     ...(entry.label === 'user>' ? { rowTone: 'user' as const } : {}),
+    ...(entry.label === 'tool>' && entry.toolName !== undefined
+      ? {
+        styledPrefixScalarLength: [...`${entry.label} ${toolActivityName(entry.toolName)}`].length,
+      }
+      : {}),
     ...(entry.failureWord === undefined ? labelTone === undefined ? {} : { labelTone } : {
       labelTone: 'failure' as const,
       styledPrefixScalarLength: [...`${entry.label} ${entry.failureWord}`].length,

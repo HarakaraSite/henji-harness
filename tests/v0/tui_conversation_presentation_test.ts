@@ -203,7 +203,7 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
       row.text.includes('assistant~') && row.labelTone === 'assistant'
     ),
   );
-  assert(renderer.renderFrame(80, 24).includes('\x1b[33massistant~\x1b[0m'));
+  assert(renderer.renderFrame(80, 24).includes('\x1b[34massistant~\x1b[0m'));
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
@@ -240,10 +240,10 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
     layout.allLog.some((row) => row.text.startsWith('system>') && row.labelTone === undefined),
   );
   const frame = renderer.renderFrame(80, 24);
-  const userPanel = `\x1b[38;5;220m\x1b[48;5;238muser> 質問${' '.repeat(70)}\x1b[0m`;
+  const userPanel = `\x1b[39m\x1b[40muser> 質問${' '.repeat(70)}\x1b[0m`;
   assert(frame.includes(userPanel));
-  assert(frame.includes('\x1b[33massistant>\x1b[0m 回答'));
-  assert(frame.includes('\x1b[36mtool>\x1b[0m bash printf result ✓'));
+  assert(frame.includes('\x1b[34massistant>\x1b[0m 回答'));
+  assert(frame.includes('\x1b[36mtool> bash\x1b[0m printf result ✓'));
   assert(frame.includes('system> 履歴を保存しました'));
   assert(!frame.includes('\x1b[33m回答'));
   assert(!frame.includes('\x1b[36mbash'));
@@ -686,9 +686,9 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
   );
   assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
   const frame = renderer.renderFrame(80, 24);
-  assert(frame.includes('\x1b[1;38;5;111m# Primary\x1b[0m'));
-  assert(frame.includes('\x1b[1;38;5;111m## Secondary\x1b[0m'));
-  assert(frame.includes('\x1b[1;38;5;111m### Tertiary\x1b[0m'));
+  assert(frame.includes('\x1b[34m# Primary\x1b[0m'));
+  assert(frame.includes('\x1b[34m## Secondary\x1b[0m'));
+  assert(frame.includes('\x1b[34m### Tertiary\x1b[0m'));
   assert(frame.includes('\x1b[36m**bold**\x1b[0m'));
   assert(frame.includes('\x1b[36m***em***\x1b[0m'));
 });
@@ -1244,4 +1244,92 @@ Deno.test('a repeated failure diagnostic keeps the execution ID from the first e
   );
   assertEquals(state.log.entries.length, 1);
   assertEquals(state.log.entries[0].executionId, executionId);
+});
+
+Deno.test('tool label and displayed name stay cyan across wrapping and settlement in both UI paths', () => {
+  for (const keyed of [false, true]) {
+    const renderer = new TuiRenderer(new FakeTerminal());
+    const name = 'read';
+    const entity: Extract<ConversationEntity, { kind: 'tool' }> = {
+      kind: 'tool',
+      id: 'tool-color',
+      executionId: 'color-execution',
+      turn: 1,
+      version: 0,
+      position: conversationPosition(0, 0, 2),
+      requestKey: { executionId: 'color-execution', modelStep: 0 },
+      callId: 'color-call',
+      name,
+      arguments: { path: 'needle' },
+      started: true,
+    };
+    if (keyed) projectEntities(renderer, { tool: entity }, ['tool']);
+    else {renderer.eventSink({
+        kind: 'tool_call',
+        turn: 1,
+        call: { kind: 'tool_call', callId: 'color-call', name, arguments: entity.arguments },
+      });}
+    for (const settled of [false, true]) {
+      if (settled) {
+        if (keyed) {
+          projectEntities(renderer, {
+            tool: { ...entity, version: 1, result: { text: 'match', outcome: 'success' } },
+          }, ['tool']);
+        } else {renderer.eventSink({
+            kind: 'tool_result',
+            turn: 1,
+            result: {
+              kind: 'tool_result',
+              callId: 'color-call',
+              name,
+              text: 'match',
+              outcome: 'success',
+            },
+          });}
+      }
+      const frame = renderer.renderFrame(80, 24);
+      assert(frame.includes('\x1b[36mtool> read\x1b[0m needle ' + (settled ? '✓' : '…')));
+      const rows = renderer.layoutSnapshot(9, 24).allLog.filter((row) => row.entryId !== undefined);
+      assertEquals(
+        rows.map((row) => row.text).join(''),
+        'tool> read needle ' + (settled ? '✓' : '…'),
+      );
+      assertEquals(rows.map((row) => row.labelScalarLength ?? 0), [9, 1, 0]);
+      renderer.renderFrame(9, 24);
+      assert(renderer.renderFrame(80, 24).includes('\x1b[36mtool> read\x1b[0m needle'));
+    }
+    renderer.close();
+  }
+});
+
+Deno.test('Solarized palette keeps Markdown structure neutral and user panels full width', () => {
+  const renderer = new TuiRenderer(new FakeTerminal());
+  renderer.eventSink({
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: '質問'.repeat(30) } },
+  });
+  const rows = renderer.layoutSnapshot(80, 24).allLog.filter((row) => row.rowTone === 'user');
+  assert(rows.length > 1);
+  const panel = renderer.renderFrame(80, 24);
+  for (const row of rows) assert(panel.includes('\x1b[39m\x1b[40m' + row.text));
+  renderer.eventSink({
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      content: {
+        kind: 'text',
+        text:
+          '# Heading\n\n**accent**\n\n- list\n\n> quote\n\n| Column |\n| --- |\n| value |\n\n```\ncode\n```',
+      },
+    },
+  });
+  const frame = renderer.renderFrame(80, 36);
+  assert(frame.includes('\x1b[34m# Heading\x1b[0m'));
+  assert(frame.includes('\x1b[36m**accent**\x1b[0m'));
+  assert(!frame.includes('\x1b[1m') && !frame.includes('\x1b[35m'));
+  assert(!frame.includes('\x1b[36m-') && !frame.includes('\x1b[36m>'));
+  assert(frame.includes('Column') && frame.includes('code'));
+  renderer.close();
 });

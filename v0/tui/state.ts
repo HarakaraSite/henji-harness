@@ -46,6 +46,8 @@ export interface UiLogEntry {
   readonly live: boolean;
   readonly turn?: number;
   readonly callId?: string;
+  /** Semantic tool name retained only in Host-local display state for activity prefix styling. */
+  readonly toolName?: string;
   readonly executionId?: string;
 }
 
@@ -626,6 +628,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         live: true,
         turn: event.turn,
         callId: event.call.callId,
+        toolName: event.call.name,
       });
       return Object.freeze({
         ...next,
@@ -650,6 +653,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           live: true,
           turn: event.turn,
           callId: event.callId,
+          toolName: event.name,
         })
         : replaceEntry(
           state,
@@ -684,6 +688,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           live: false,
           turn: event.turn,
           callId: event.result.callId,
+          toolName: event.result.name,
         });
         return Object.freeze({
           ...next,
