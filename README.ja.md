@@ -308,14 +308,16 @@ turn開始前に失敗する。
 [`@henji/harness`](https://jsr.io/@henji/harness)は、TypeScriptのtool factory
 APIを公開する。JSRからnative binaryは配布しない。CLIを使う場合はrepository checkoutからbuildする。
 
+`jsr:@henji/harness@0.9.0/hooks`から`HookFactory`とhook lifecycleのcontractをimportできる。
+
 0.xではAPIやcontractが互換性なく変わることがあるため、exact versionを指定する。
 
 ```sh
-deno add --save-exact jsr:@henji/harness@0.8.0
+deno add --save-exact jsr:@henji/harness@0.9.0
 ```
 
 ```ts
-import type { ToolFactory } from 'jsr:@henji/harness@0.8.0';
+import type { ToolFactory } from 'jsr:@henji/harness@0.9.0';
 
 const marker: ToolFactory = ({ workspace }) => ({
   name: 'marker',
@@ -327,7 +329,7 @@ const marker: ToolFactory = ({ workspace }) => ({
 export default marker;
 ```
 
-`ToolFactory`と`ToolFactoryInput`は`jsr:@henji/harness@0.8.0`からimportする。単体binaryは既定の
+`ToolFactory`と`ToolFactoryInput`は`jsr:@henji/harness@0.9.0`からimportする。単体binaryは既定の
 Agentとcore toolを同梱する。`search`、`web_search`、`web_fetch`はpackageの編集可能なfolderを
 installerで登録する。名前付きのAgentとtool fileはconfig directoryから選択する。
 

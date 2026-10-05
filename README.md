@@ -328,14 +328,16 @@ For detailed design and implementation status, see the
 [`@henji/harness`](https://jsr.io/@henji/harness) exposes the TypeScript tool factory API. Native
 binaries are not distributed from JSR. To use the CLI, build it from a repository checkout.
 
+The `jsr:@henji/harness@0.9.0/hooks` entrypoint exposes `HookFactory` and the hook lifecycle contract.
+
 In 0.x, APIs and contracts may change incompatibly, so specify an exact version.
 
 ```sh
-deno add --save-exact jsr:@henji/harness@0.8.0
+deno add --save-exact jsr:@henji/harness@0.9.0
 ```
 
 ```ts
-import type { ToolFactory } from 'jsr:@henji/harness@0.8.0';
+import type { ToolFactory } from 'jsr:@henji/harness@0.9.0';
 
 const marker: ToolFactory = ({ workspace }) => ({
   name: 'marker',
@@ -347,7 +349,7 @@ const marker: ToolFactory = ({ workspace }) => ({
 export default marker;
 ```
 
-Import `ToolFactory` or `ToolFactoryInput` from `jsr:@henji/harness@0.8.0`. The standalone binary
+Import `ToolFactory` or `ToolFactoryInput` from `jsr:@henji/harness@0.9.0`. The standalone binary
 bundles its default Agent and core tools. `search`, `web_search`, and `web_fetch` are supplied as
 editable folders in the package and registered by its installer. Named Agent and tool files are
 selected from the config directory.

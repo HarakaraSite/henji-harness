@@ -9,10 +9,13 @@
 
 ## 次の一手と承認境界
 
-191の必須作業は完了。次の利用者指示を待つ。
+191の必須作業は完了。利用者が0.9.0へのversion更新とJSR公開を明示依頼した。
+[公開手順](../docs/operations/jsr-publish.md)に従い、release準備・gate・dry run・commit/push・clean
+worktree公開を進める。 JSRの対話認証・browser操作は同手順のOperator boundaryに従い利用者が行う。
 191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
-architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。公開/release・pushは未承認。
+architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。 今回のJSR公開と手順内のsource
+pushは承認済み。native binaryの追加公開は今回の対象外。
 必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 

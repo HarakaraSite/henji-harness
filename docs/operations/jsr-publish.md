@@ -7,8 +7,9 @@ Publish a reviewed Henji Harness source snapshot from this repository to
 destinations: pushing `main` does not update JSR automatically.
 
 This procedure publishes the API declared by [`jsr.json`](../../jsr.json). The current package
-exports the Agent Definition composition API through [`mod.ts`](../../mod.ts); the development CLI
-and TUI are not package entrypoints.
+exports the tool factory API through [`mod.ts`](../../mod.ts) and the hook API through
+[`hook_api.ts`](../../v0/agent/hook_api.ts); the development CLI and TUI are not package
+entrypoints.
 
 ## Operator boundary
 
@@ -173,3 +174,12 @@ published source is pushed commit `fda1e17fb000bb3d562b30026d7dab4c81cee42c`.
 
 Verification logs: `/tmp/henji-jsr-0.8.0-gate.log`, `/tmp/henji-jsr-0.8.0-dry-run.log`,
 `/tmp/henji-jsr-0.8.0-published-meta.json`, and `/tmp/henji-jsr-0.8.0-published-import.log`.
+
+## 0.9.0 publication — 2026-10-05 JST
+
+The user requested version 0.9.0 and JSR publication after accepting Increment 191. Release
+preparation updates jsr.json and the exact-version README examples, checks both public entrypoint
+graphs, and validates the resulting package. The accepted native binary remains the Increment 191
+deployment. The authoritative v0:gate passed once (645 tests, no failures); the preparation dry run
+passed with the 59 configured files and both public entrypoints. Publication and registry
+verification are in progress; results will be recorded here.
