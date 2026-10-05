@@ -116,7 +116,7 @@ release, the development Deno may apply its minimum-dependency-age policy, so se
 for this verification:
 
 ```sh
-"$henji_deno" eval --no-config --minimum-dependency-age=0 \
+"$henji_deno" eval --no-config --no-lock --min-dep-age=0 \
   --reload="jsr:@henji/harness" \
   'import * as harness from "jsr:@henji/harness@VERSION";
    if (Object.keys(harness).length === 0) throw new Error("package has no exports");
@@ -177,9 +177,23 @@ Verification logs: `/tmp/henji-jsr-0.8.0-gate.log`, `/tmp/henji-jsr-0.8.0-dry-ru
 
 ## 0.9.0 publication — 2026-10-05 JST
 
-The user requested version 0.9.0 and JSR publication after accepting Increment 191. Release
-preparation updates jsr.json and the exact-version README examples, checks both public entrypoint
-graphs, and validates the resulting package. The accepted native binary remains the Increment 191
-deployment. The authoritative v0:gate passed once (645 tests, no failures); the preparation dry run
-passed with the 59 configured files and both public entrypoints. Publication and registry
-verification are in progress; results will be recorded here.
+Published [`@henji/harness@0.9.0`](https://jsr.io/@henji/harness@0.9.0) at the user's request after
+accepting Increment 191. The published source is pushed commit
+`cab0404971daf17b69e0140d9b557bf34072657c`.
+
+- Updated `jsr.json` and both README exact-version examples; verified both public entrypoint graphs.
+  The authoritative `v0:gate` passed once (645 tests, no failures), and the clean detached release
+  worktree's dry run passed with the 59 configured files. Type and slow-type checks were enabled.
+- After the first authorization expired, confirmed that its publisher had exited and 0.9.0 was
+  absent from the registry before starting a replacement. The user approved browser authorization,
+  and the waiting PTY command reported `Successfully published @henji/harness@0.9.0`.
+- Registry metadata confirmed `latest: 0.9.0`, with creation timestamp
+  `2026-10-05T02:57:42.796650Z`. A consumer outside both repositories ran
+  `deno run --check --no-config --no-lock --min-dep-age=0 --reload=jsr:@henji/harness`, importing
+  the exact-version tool and hook entrypoints from JSR. Both public factory types checked; seven
+  tool runtime exports, both hook runtime exports, and the six hook phases loaded successfully.
+- Removed the clean release worktree after verification. The accepted native binary remains the
+  Increment 191 deployment (`henji 0.8.0`); this request published the JSR package.
+
+Verification logs are stored in the ignored `.tools/jsr-0.9.0/` directory: `gate.log`,
+`clean-dry-run.log`, `publish.log`, `published-meta.json`, and `published-import.log`.

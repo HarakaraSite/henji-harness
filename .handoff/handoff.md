@@ -5,13 +5,13 @@
 ## 現在地（2026-10-05）
 
 [Increment 191](../docs/increments/increment-191.md)は利用者による通常利用確認・完了承認済み。
-常用binaryは191の配置版（source commit `e53a2436`）。結果・配置・利用者確認は191を参照する。
+常用binaryは191の配置版（source commit `e53a2436`）。結果・配置・利用者確認は191を参照する。 JSR
+`@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の確認済み。
+公開結果は[公開手順](../docs/operations/jsr-publish.md)を参照する。
 
 ## 次の一手と承認境界
 
-191の必須作業は完了。利用者が0.9.0へのversion更新とJSR公開を明示依頼した。
-[公開手順](../docs/operations/jsr-publish.md)に従い、release準備・gate・dry run・commit/push・clean
-worktree公開を進める。 JSRの対話認証・browser操作は同手順のOperator boundaryに従い利用者が行う。
+191と0.9.0のJSR公開作業は完了。次は利用者の新しい指示を待つ。
 191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
 architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。 今回のJSR公開と手順内のsource
