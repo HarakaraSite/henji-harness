@@ -1,7 +1,7 @@
 # Increment 193 — Solarized Darkを活かすTUI配色
 
 状態: 初版と最初の再調整はsource commit・常用配置済み（2026-10-05）。
-追加指定の配色はlocal実装・focused確認・独立review済み。commit・build・常用配置を引継ぎ中。
+追加指定の配色はlocal実装・focused確認・独立review・source commit・build・常用配置済み。
 最新の採用範囲と結果は下段「追加指定の配色・引継ぎ結果」を参照する。
 利用者のGhosttyでの見た目確認・完了承認は残る。以下の初版と最初の再調整は当時の記録として保持する。
 
@@ -403,6 +403,21 @@ push・公開/release・構想／architecture／roadmap変更は含まない。
   指定SGRと着色範囲が一致し、本文・引数・状態記号のreset、灰色帯、thinkingのdim、
   強調の青緑を維持していることを確認した。修正を要するfindingはなかった。
   reviewerは実行・tmux・provider確認を行っていない。結果は`apply-palette/review.md`へ保存した。
+
+### 最新配色のCommit・常用配置結果
+
+- source commitは`fa258148be36ceb2696d691185532a43c322dc1e`
+  （`feat: apply requested TUI accent colors`）。変更source/testと193文書・handoffを含む。
+- このcommitから公式`henji:compile`で0.9.0をbuildし、`dist/henji`と
+  `/home/agent/.local/bin/henji`へatomic配置した。両配置先のversion・SHA-256がbuild出力に一致した。
+  build IDは`ad5c21b8c80173f520b9b0c1bd5176cd34be39f639b89f2386b5f8b9b0f08bad`、 runtime
+  digestは`f9ece232028fe1682aacce3f11f1d29dbbac7082a033b0766e4045962e01afca`、 binary
+  SHA-256は`77d299f8b035ff79d32e87522eaf2f863a34ab724f780f7a31a04330bd80d768`。
+- build logは`.tools/increment-193/apply-palette-build.log`、配置metadataと旧binaryは
+  `.tools/increment-193/apply-palette/deployment/`へ保存した。
+- 利用者指定に従い、今回の隔離TUI・配置時の表示確認は省略した。実provider callは0回。
+  新しい起動から適用される。既存の実Core/TUIは停止・再起動していない。
+- Codexへの引継ぎ作業は完了した。利用者のGhosttyでの見た目確認・完了承認を待つ。
 
 ## 採用前S33の原記録
 

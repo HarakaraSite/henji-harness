@@ -4,8 +4,9 @@
 
 ## 現在地（2026-10-05）
 
-[Increment 193](../docs/increments/increment-193.md)の追加指定の配色をCodexが引継ぎ中。
-local実装・focused確認・独立review済み。commit・build・常用配置を残す。
+[Increment 193](../docs/increments/increment-193.md)の追加指定の配色はCodexへの引継ぎを完了した。
+local実装・focused確認・独立review・source commit・公式build・常用配置済み。 常用binaryのsource
+commitは`fa258148`。新しい起動から適用される。
 詳細は193の「追加指定の配色・引継ぎ結果」を参照する。利用者の見た目確認・完了承認は残る。
 
 [Increment 192](../docs/increments/increment-192.md)は利用者による確認・完了承認済み。
@@ -19,7 +20,7 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
-193の継続作業として独立review・source commit・公式build・常用配置を完了させる。
+次は193の利用者による見た目確認・完了承認。
 利用者は今回の隔離TUI・配置時の表示確認を省略し、自分で確認すると明示した。 新しい実provider
 callは行わない。配置後は利用者のGhostty上での見た目確認・完了承認を待つ。
 193のpush、公開/release、構想・architecture・roadmap変更は未承認。
