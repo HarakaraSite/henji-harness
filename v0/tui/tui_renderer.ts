@@ -19,7 +19,6 @@ import {
   DIM_SGR,
   ERASE_LINE,
   HEADING_SGR,
-  ORANGE_SGR,
   RED_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
@@ -30,6 +29,7 @@ import {
   type TerminalRendererGate,
   USER_ROW_BG_SGR,
   USER_TEXT_SGR,
+  VIOLET_SGR,
   YELLOW_SGR,
 } from './terminal.ts';
 import type { EditorSnapshot } from './input.ts';
@@ -76,10 +76,10 @@ export interface TuiRendererOptions {
 }
 
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
-  user: ORANGE_SGR,
-  assistant: BLUE_SGR,
+  user: YELLOW_SGR,
+  assistant: YELLOW_SGR,
   thinking: DIM_SGR,
-  tool: YELLOW_SGR,
+  tool: VIOLET_SGR,
   system: '',
   failure: RED_SGR,
 };
@@ -95,8 +95,8 @@ const SPAN_SGR: Record<AssistantSpanTone, string> = {
 
 const FOOTER_SGR: Record<FooterTone, string> = {
   dim: DIM_SGR,
-  ready: DIM_SGR,
-  working: CYAN_SGR,
+  ready: BLUE_SGR,
+  working: YELLOW_SGR,
 };
 
 const renderLayoutRow = (row: LayoutRow, columns: number): string => {
@@ -108,7 +108,7 @@ const renderLayoutRow = (row: LayoutRow, columns: number): string => {
       const points = [...row.text];
       const labelLength = row.labelTone === 'user' ? row.labelScalarLength ?? 0 : 0;
       const label = labelLength > 0
-        ? `${ORANGE_SGR}${points.slice(0, labelLength).join('')}${USER_TEXT_SGR}`
+        ? `${YELLOW_SGR}${points.slice(0, labelLength).join('')}${USER_TEXT_SGR}`
         : '';
       return `${USER_TEXT_SGR}${USER_ROW_BG_SGR}${label}${
         points.slice(labelLength).join('')

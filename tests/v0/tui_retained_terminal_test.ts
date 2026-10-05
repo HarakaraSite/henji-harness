@@ -18,13 +18,14 @@ import type {
 } from '../../v0/presentation/contract.ts';
 import {
   BLINK_SGR,
-  CYAN_SGR,
+  BLUE_SGR,
   DIM_SGR,
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
   RESET_SGR,
   TerminalLifecycle,
   type TerminalPort,
+  YELLOW_SGR,
 } from '../../v0/tui/terminal.ts';
 import type { PendingMetadataSnapshot } from '../../v0/tui/pending_input.ts';
 import {
@@ -1651,7 +1652,7 @@ Deno.test('Increment 160 footer aligns identity and styles only the intended vis
   assertEquals(footer[2].text, ' opencode-go-chat / mimo-v2.6-pro'.padEnd(95) + 'auto');
   const frame = renderer.renderFrame(100, 24);
   assert(frame.includes(`Enter${DIM_SGR} submit${RESET_SGR}`));
-  assert(frame.includes(`${DIM_SGR}● ready${RESET_SGR}`));
+  assert(frame.includes(`${BLUE_SGR}● ready${RESET_SGR}`));
   assert(frame.includes(`${DIM_SGR}/tmp/日本/workspace${RESET_SGR}`));
   assert(frame.includes(`untitled${DIM_SGR} · abcdef12${RESET_SGR}`));
   assert(
@@ -1662,7 +1663,7 @@ Deno.test('Increment 160 footer aligns identity and styles only the intended vis
     activity: 'working',
     controls: ['F2 queue', 'F3 steer', 'Esc cancel'],
   });
-  assert(renderer.renderFrame(100, 24).includes(`${CYAN_SGR}⠋ working${RESET_SGR}`));
+  assert(renderer.renderFrame(100, 24).includes(`${YELLOW_SGR}⠋ working${RESET_SGR}`));
   renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
   renderer.renderChoicePicker(['model selection'], ['↑/↓ select', 'Enter choose', 'Esc close']);
   assertEquals(

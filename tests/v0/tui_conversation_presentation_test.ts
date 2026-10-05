@@ -204,7 +204,7 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
       row.text.includes('assistant~') && row.labelTone === 'assistant'
     ),
   );
-  assert(renderer.renderFrame(80, 24).includes('\x1b[34massistant~\x1b[0m'));
+  assert(renderer.renderFrame(80, 24).includes('\x1b[33massistant~\x1b[0m'));
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
@@ -241,13 +241,13 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
     layout.allLog.some((row) => row.text.startsWith('system>') && row.labelTone === undefined),
   );
   const frame = renderer.renderFrame(80, 24);
-  const userPanel = `\x1b[39m\x1b[48;5;237m\x1b[91muser>\x1b[39m 質問${' '.repeat(70)}\x1b[0m`;
+  const userPanel = `\x1b[39m\x1b[48;5;237m\x1b[33muser>\x1b[39m 質問${' '.repeat(70)}\x1b[0m`;
   assert(frame.includes(userPanel));
-  assert(frame.includes('\x1b[34massistant>\x1b[0m 回答'));
-  assert(frame.includes('\x1b[33mtool> bash\x1b[0m printf result ✓'));
+  assert(frame.includes('\x1b[33massistant>\x1b[0m 回答'));
+  assert(frame.includes('\x1b[95mtool> bash\x1b[0m printf result ✓'));
   assert(frame.includes('system> 履歴を保存しました'));
   assert(!frame.includes('\x1b[33m回答'));
-  assert(!frame.includes('\x1b[33mprintf'));
+  assert(!frame.includes('\x1b[95mprintf'));
   assert(!frame.includes('\x1b[35m履歴'));
   assert(phases.includes('streaming'));
   assert(phases.includes('settled'));
@@ -687,9 +687,9 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
   );
   assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
   const frame = renderer.renderFrame(80, 24);
-  assert(frame.includes('\x1b[95m# Primary\x1b[0m'));
-  assert(frame.includes('\x1b[95m## Secondary\x1b[0m'));
-  assert(frame.includes('\x1b[95m### Tertiary\x1b[0m'));
+  assert(frame.includes('\x1b[34m# Primary\x1b[0m'));
+  assert(frame.includes('\x1b[34m## Secondary\x1b[0m'));
+  assert(frame.includes('\x1b[34m### Tertiary\x1b[0m'));
   assert(frame.includes('\x1b[36m**bold**\x1b[0m'));
   assert(frame.includes('\x1b[36m***em***\x1b[0m'));
 });
@@ -1247,7 +1247,7 @@ Deno.test('a repeated failure diagnostic keeps the execution ID from the first e
   assertEquals(state.log.entries[0].executionId, executionId);
 });
 
-Deno.test('tool label and displayed name stay ochre across wrapping and settlement in both UI paths', () => {
+Deno.test('tool label and displayed name stay violet across wrapping and settlement in both UI paths', () => {
   for (const keyed of [false, true]) {
     const renderer = new TuiRenderer(new FakeTerminal());
     const name = 'read';
@@ -1289,7 +1289,7 @@ Deno.test('tool label and displayed name stay ochre across wrapping and settleme
           });}
       }
       const frame = renderer.renderFrame(80, 24);
-      assert(frame.includes('\x1b[33mtool> read\x1b[0m needle ' + (settled ? '✓' : '…')));
+      assert(frame.includes('\x1b[95mtool> read\x1b[0m needle ' + (settled ? '✓' : '…')));
       const rows = renderer.layoutSnapshot(9, 24).allLog.filter((row) => row.entryId !== undefined);
       assertEquals(
         rows.map((row) => row.text).join(''),
@@ -1297,7 +1297,7 @@ Deno.test('tool label and displayed name stay ochre across wrapping and settleme
       );
       assertEquals(rows.map((row) => row.labelScalarLength ?? 0), [9, 1, 0]);
       renderer.renderFrame(9, 24);
-      assert(renderer.renderFrame(80, 24).includes('\x1b[33mtool> read\x1b[0m needle'));
+      assert(renderer.renderFrame(80, 24).includes('\x1b[95mtool> read\x1b[0m needle'));
     }
     renderer.close();
   }
@@ -1317,7 +1317,7 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
     const labelLength = row.labelScalarLength ?? 0;
     const points = [...row.text];
     const prefix = labelLength > 0
-      ? '\x1b[91m' + points.slice(0, labelLength).join('') + '\x1b[39m'
+      ? '\x1b[33m' + points.slice(0, labelLength).join('') + '\x1b[39m'
       : '';
     assert(panel.includes(
       '\x1b[39m\x1b[48;5;237m' + prefix + points.slice(labelLength).join('') +
@@ -1325,8 +1325,8 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
     ));
   }
   const narrow = renderer.renderFrame(3, 200);
-  assert(narrow.includes('\x1b[91muse\x1b[39m'));
-  assert(narrow.includes('\x1b[91mr>\x1b[39m '));
+  assert(narrow.includes('\x1b[33muse\x1b[39m'));
+  assert(narrow.includes('\x1b[33mr>\x1b[39m '));
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
@@ -1340,7 +1340,7 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
     },
   });
   const frame = renderer.renderFrame(80, 36);
-  assert(frame.includes('\x1b[95m# Heading\x1b[0m'));
+  assert(frame.includes('\x1b[34m# Heading\x1b[0m'));
   assert(frame.includes('\x1b[36m**accent**\x1b[0m'));
   assert(!frame.includes('\x1b[1m') && !frame.includes('\x1b[35m'));
   assert(!frame.includes('\x1b[36m-') && !frame.includes('\x1b[36m>'));
@@ -1348,7 +1348,7 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
   renderer.close();
 });
 
-Deno.test('thinking and summary labels are dim while Assistant notes remain blue in both UI paths', () => {
+Deno.test('thinking and summary labels are dim while Assistant notes use ochre in both UI paths', () => {
   for (const keyed of [false, true]) {
     for (const thinkingKind of ['text', 'summary'] as const) {
       for (const complete of [false, true]) {
@@ -1402,6 +1402,6 @@ Deno.test('thinking and summary labels are dim while Assistant notes remain blue
       toolIds: ['read-call'],
     },
   }, ['note']);
-  assert(renderer.renderFrame(80, 24).includes('\x1b[34massistant note>\x1b[0m READABLE_NOTE'));
+  assert(renderer.renderFrame(80, 24).includes('\x1b[33massistant note>\x1b[0m READABLE_NOTE'));
   renderer.close();
 });
