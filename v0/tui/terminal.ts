@@ -42,11 +42,14 @@ export const BLINK_SGR = '\x1b[5m';
 export const DIM_SGR = '\x1b[2m';
 export const CYAN_SGR = '\x1b[36m';
 export const BLUE_SGR = '\x1b[34m';
+export const YELLOW_SGR = '\x1b[33m';
+export const ORANGE_SGR = '\x1b[91m';
+export const VIOLET_SGR = '\x1b[95m';
 export const RED_SGR = '\x1b[31m';
-// Use the terminal palette: Solarized maps ANSI black (0) to base02.
 export const USER_TEXT_SGR = '\x1b[39m';
-export const USER_ROW_BG_SGR = '\x1b[40m';
-export const HEADING_SGR = BLUE_SGR;
+// Standard 256-color gray 237 is #3a3a3a; label accents use the terminal's ANSI palette.
+export const USER_ROW_BG_SGR = '\x1b[48;5;237m';
+export const HEADING_SGR = VIOLET_SGR;
 export const RESET_SCROLL_REGION = '\x1b[r';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);

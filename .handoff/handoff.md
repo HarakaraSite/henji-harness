@@ -4,11 +4,12 @@
 
 ## 現在地（2026-10-05）
 
-[Increment 193](../docs/increments/increment-193.md)のTUI配色変更はlocal実装・focused確認・独立review・
-production TUI確認済み。review後の最小実provider確認も実施した。
-利用者のGhostty上での見た目確認・完了承認は未実施。詳細結果と未確認事項は193を参照する。 193のsource
-commit・常用配置・配置後の隔離production TUI確認も実施済み。 常用binaryは193のsource commit
-`b399f053`からbuildした0.9.0。配置結果は193を参照する。
+[Increment 193](../docs/increments/increment-193.md)の初版は実装・review・配置済み。
+利用者の見た目確認を受けた配色再調整はlocal実装・focused確認・追加差分review・production
+TUI確認済み。 再調整のcommit・常用配置は未実施。確認用binaryと結果は193の再調整節を参照する。
+利用者から初版の識別しにくさを指摘され再調整中。完了承認は未実施。詳細結果と未確認事項は193を参照する。
+193のsource commit・常用配置・配置後の隔離production TUI確認も実施済み。 常用binaryは193のsource
+commit `b399f053`からbuildした0.9.0。配置結果は193を参照する。
 
 [Increment 192](../docs/increments/increment-192.md)は利用者による確認・完了承認済み。
 利用者はこの後セッションを終了する。実装・検証・配置・完了の記録は192を参照する。
@@ -23,7 +24,10 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 193の実装・test・review・review後のtmux最小実provider確認と、source commit・公式build・常用配置は
 承認済みで実施した。配置後は隔離XDGのproduction TUIとlocal providerで再確認済み。
-実providerへの追加呼び出しは行っていない。次は利用者のGhostty上での見た目確認・完了承認。
+初版配置後の実providerへの追加呼び出しは行っていない。
+最新の配色再調整はlocal修正・検証だけが承認対象で、commit・常用配置は別指示を受ける。
+追加差分reviewと隔離production TUI確認は完了した。次は利用者の見た目の再確認。
+常用binaryで確認するには、再調整のcommit・build・配置について別指示を受ける。
 193のpush、公開/release、構想・architecture・roadmap変更は未承認。
 S33は193へ採用・移設した。その他の未採用候補は通常利用メモを参照する。
 192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。

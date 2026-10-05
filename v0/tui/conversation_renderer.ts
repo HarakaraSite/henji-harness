@@ -1,7 +1,13 @@
 import { type UiLogEntry } from './state.ts';
 import { toolActivityName } from '../agent/tools/tool_activity.ts';
 
-export type ConversationLabelTone = 'user' | 'assistant' | 'tool' | 'system' | 'failure';
+export type ConversationLabelTone =
+  | 'user'
+  | 'assistant'
+  | 'thinking'
+  | 'tool'
+  | 'system'
+  | 'failure';
 
 /**
  * English guidance appended to a stopped-execution failure row of a persisted Session. It names
@@ -91,7 +97,7 @@ export const projectConversationEntry = (
     : entry.label === 'assistant>' || entry.label === 'assistant~'
     ? 'assistant' as const
     : entry.kind === 'thinking'
-    ? 'assistant' as const
+    ? 'thinking' as const
     : entry.label === 'tool>'
     ? 'tool' as const
     : undefined;

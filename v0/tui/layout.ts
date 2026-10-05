@@ -686,7 +686,10 @@ const layoutLogEntry = (
           sourceColumn: assistantLine.sourceColumn ?? 0,
         }),
         ...(lineIndex === 0
-          ? { labelScalarLength: labelWidth, labelTone: 'assistant' as const }
+          ? {
+            labelScalarLength: labelWidth,
+            labelTone: entry.kind === 'thinking' ? 'thinking' as const : 'assistant' as const,
+          }
           : {}),
         ...(spans.length === 0 ? {} : { spans }),
       });

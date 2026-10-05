@@ -1,8 +1,9 @@
 # Increment 193 — Solarized Darkを活かすTUI配色
 
-状態: local実装・focused確認・独立review・production TUI確認済み（2026-10-05）。 source
-commit・常用配置・配置後の隔離production TUI確認済み。
-利用者のGhostty上での見た目確認・完了承認は未実施。
+状態: 初版はsource commit・常用配置・配置後確認済み（2026-10-05）。
+利用者の見た目確認を受けた配色再調整はlocal実装・focused確認・追加差分review・production
+TUI確認済み。 再調整のcommit・常用配置と、利用者による見た目の再確認は未実施。
+最新の採用範囲と結果は下段「利用者確認後の配色再調整」を参照する。以下の初版計画・結果は当時の記録として保持する。
 
 ## 利用者が必要とする動作と根拠
 
@@ -245,6 +246,108 @@ commit・常用配置は追加指示により実施した。配置結果は下�
 `tmux_check.py`、各画面記録（通常／SGR付き）とsemantic readbackを参照する。
 push・公開/release・構想／architecture／roadmap変更は実施していない。
 利用者の「確認します」は確認予定の表明であり、見た目確認・完了承認済みとは扱わない。
+
+## 利用者確認後の配色再調整（2026-10-05）
+
+### 利用者が必要とする動作と承認
+
+初版の通常利用で、利用者から「青と緑ばっかりで見分けにくい」「user>も見分けにくい」、
+ユーザー背景帯が画面全体の背景に紛れるとの指摘を受けた。
+発言者・見出し・強調・Toolを色で分け、thinking系は控えめにする案を会話で整理した。
+Toolのグレー案は退け、黄土色について「黄土色＞了解」と合意した。
+ユーザー背景帯は一度廃止案としたが復活を希望し、base02ではなくダークグレーの案に対して
+「ではそれで修正頼む」と実装を指示された。最新の採用範囲を次に定義する。
+
+| 対象                                                       | 最新の配色・範囲                                  |
+| ---------------------------------------------------------- | ------------------------------------------------- |
+| user>                                                      | 橙色、ラベルだけ。本文は端末既定前景              |
+| ユーザー背景帯                                             | ダークグレーの全幅帯。標準256色237（#3a3a3a相当） |
+| assistant>・assistant~・assistant note>                    | 青、ラベルだけ                                    |
+| thinking>・thinking~・thinking summary>・thinking summary~ | 既定文字色＋dim、ラベルだけ。本文は通常色         |
+| tool>＋表示されたツール名                                  | 黄土色、dimなし。引数・実行内容・状態記号は通常色 |
+| Markdown見出し                                             | 紫、行全体。太字なし                              |
+| Markdown強調                                               | 青緑、現在の範囲・記号を維持。太字なし            |
+| working・spinner                                           | 青緑を維持                                        |
+| ready・補助情報／失敗／その他Markdown・入力・一覧          | 初版のdim／赤／通常色と構造・範囲を維持           |
+
+実装は既存の用途別SGR割当・Host-local label tone・全幅帯描画を変更する。
+設定・declaration・保存dataだけではこの変更はできず、テーマ設定・新しい保存先は増やさない。 Core
+snapshot→keyed storeとPresentationEvent→UI stateの両経路が共有するlayout／rendererで成立させる。
+userラベルの前景変更後は前景だけを既定に戻し、帯の背景はpaddingまで保持する。 thinkingとAssistant
+noteはentry kindで区別し、表示本文・Tool引数／結果・preview・Markdown parserは変更しない。
+
+### 根拠・未確認事項と初版からの意図的な差
+
+初版で取得したSolarized公式パレットの対応を再利用する。橙はANSI 9（SGR 91）、
+紫は13（95）、黄土は3（33）、青は4（34）、青緑は6（36）。91／95は色の指定であり、太字を追加しない。
+背景帯だけは、利用者の希望によりANSI black/base02をやめ、256色237のグレーを使う。
+RGB指定・テーマ切替・端末設定の書換えは追加しない。
+
+今回取得した[Ghostty公式reference](https://ghostty.org/docs/config/reference)の検索本文では、
+`palette`は0–255を設定でき、`palette-generate`を有効にするとgrayscaleを含む16–255がbase
+paletteから生成される。 公式referenceの既定値はfalseである。端末側の設定次第で237も変わり得るため、
+#3a3a3aを実Ghosttyでの固定HEXとして保証せず、実際の見やすさは利用者の再確認へ残す。
+thinkingのdimも端末のfaint表示設定に従う。
+
+### 修正・確認の手順と現在の結果
+
+1. `terminal.ts`の色指定、`conversation_renderer.ts`／`layout.ts`のthinking tone、
+   `tui_renderer.ts`のuserラベルと帯の合成を変更した。
+2. 実装後、会話描画・retained terminal・Assistant layoutのfocused testは64件pass。
+   userラベルだけ橙、本文とpaddingは既定前景＋灰色帯、狭幅でラベルが折り返されても同じ範囲、
+   Toolの名前末尾でreset、見出し紫・強調青緑、両経路のthinking／summaryとAssistant noteを確認した。
+   初回の狭幅確認はfollow-latestでラベルが画面外になるfixture条件で失敗したため、
+   表示可能な高さへprobeを修正した。製品のviewport動作は変更していない。
+3. CLI入口とfocused testのtype check、変更source/testのlint・format、`git diff --check`は通過した。
+   full gateは初版の計画どおり実行しない。
+4. 確認用binaryは停止前のexecutionで`.tools/increment-193/recolor/`へbuild済み。
+   再開後、未完だった差分reviewを補完し、その後に隔離HOME/XDGのproduction
+   Core＋TUIをtmuxで確認した。 local providerでTool・thinking・Assistant
+   note・Markdown、灰色帯と前景reset、
+   pending／settled、入力・一覧・ヘルプ・resizeを確認した。実providerへの追加callは行っていない。
+5. 操作・結果・SGR付き画面は下段へ記録した。証拠の保存先は`.tools/increment-193/recolor/`。
+   利用者の実Ghosttyでの見た目確認を残し、offline testやtmux確認だけで完了とはしない。
+
+### 再開後の差分review・production TUI確認結果
+
+- 前executionのreviewは現行sourceの採用要件との一致を確認したが、reviewerのshell runner失敗で
+  git差分を取得できず、差分確認は未完だった。再開後、保存済み`source.diff`を直接読み、
+  現行5ファイルの`git diff`とのbyte一致を`cmp`で確認した。64件passとtype
+  checkの保存logも直接確認し、 fmt・lint・`git diff --check`は再開後も通過した。同じsourceのfocused
+  testやbuildは繰り返していない。
+- 追加reviewerは保存差分・採用範囲・現行sourceを直接読んで照合し、修正を要するcorrectness finding、
+  採用範囲外の変更、具体的regressionは確認しなかった。reviewer自身のshell
+  inspectionは今回も失敗したが、
+  ownerの現行差分照合とread可能な差分artifactで未完だった差分reviewを補完した。 reviewerはfull
+  gate・tmux・実provider確認を実行せず、workspaceも変更していない。
+- 停止前にbuildした確認用0.9.0 binaryのversionを再開後readbackした。
+  sourceは`e4d24ac4b8f6f59df8733cc88e307eed7b77dd4c`＋dirty、 build
+  IDは`b87343f9d3e778b35aa66f7467f0a3486a2a982cb220655639609588c5d156e6`、 runtime
+  digestは`8302d1ba9129eb83d35524155b73d71f207c0f2dfe44e17f1d4c2d06a0813bb7`。
+  これは確認用candidateであり、常用binaryには配置していない。
+- 差分review後、専用tmux socketと隔離HOME/XDG/workspaceのcompiled production Core＋TUIで、
+  userラベルの91→本文39、背景237が本文・paddingへ続く表示、thinkingラベルだけdim、 Assistant
+  noteラベル青、Toolラベル＋名前だけ黄土、見出し紫、強調青緑をSGR付き画面で確認した。
+  Toolのpending→settled、ready・working、入力編集／clear、provider一覧・ヘルプ、履歴表示、
+  resize／復帰、detach後の通常起動での再接続も確認した。
+- tmuxで生成したthinkingは`text`で、summaryはこのlocal serviceから生成していない。
+  summaryとlive／completeラベルの全4表示は、両投影経路のfocused testで確認している。
+  外部web_search／web_fetchは隔離configへ登録していないため、起動時の未登録通知は表示された。
+  今回のtool付きturnは登録したread・search・bashすべて成功し、execution
+  `c39ddadf-b86e-49bc-bbeb-d546a4e06a7f`はcompleted／canonicalだった。 失敗色確認にはlocal HTTP
+  400を一回使い、failed／non_canonicalのoutcomeをreadbackした。 localhostのphysical
+  requestは成功turnの2回と意図的失敗確認の1回、実providerの追加callは0回。
+- `review-followup.md`、`source.diff`、`focused-test.log`、`type-check.log`、`build.log`、
+  `tmux_check.py`、`tmux.log`、`local-tmux-result.json`、各画面の通常／SGR付き記録とsemantic
+  readbackを
+  `.tools/increment-193/recolor/`へ保存した。raw通信やcredential値・Authorizationは記録していない。
+
+実装・focused確認・追加差分review・production TUI確認は済んだが、利用者のGhostty上での識別性・
+背景帯の実色・dimの見え方の再確認と完了承認は残る。
+
+今回の指示はlocal修正と検証の承認であり、追加修正のcommit・常用配置・push・公開は未承認。
+初版の配置を許可した指示を、この追加修正の配置認可へ拡張しない。
+常用binaryは初版`b399f053`のまま。構想・architecture・roadmap、実config・既存Sessionは変更しない。
 
 ## 採用前S33の原記録
 

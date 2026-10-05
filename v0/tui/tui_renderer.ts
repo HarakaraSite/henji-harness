@@ -19,6 +19,7 @@ import {
   DIM_SGR,
   ERASE_LINE,
   HEADING_SGR,
+  ORANGE_SGR,
   RED_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
@@ -29,6 +30,7 @@ import {
   type TerminalRendererGate,
   USER_ROW_BG_SGR,
   USER_TEXT_SGR,
+  YELLOW_SGR,
 } from './terminal.ts';
 import type { EditorSnapshot } from './input.ts';
 import type { PendingMetadataSnapshot } from './pending_input.ts';
@@ -74,9 +76,10 @@ export interface TuiRendererOptions {
 }
 
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
-  user: USER_TEXT_SGR,
+  user: ORANGE_SGR,
   assistant: BLUE_SGR,
-  tool: CYAN_SGR,
+  thinking: DIM_SGR,
+  tool: YELLOW_SGR,
   system: '',
   failure: RED_SGR,
 };
@@ -99,10 +102,17 @@ const FOOTER_SGR: Record<FooterTone, string> = {
 const renderLayoutRow = (row: LayoutRow, columns: number): string => {
   // A whole-row tone covers label, reason and guidance in one color; such rows carry no spans.
   if (row.rowTone !== undefined) {
-    // User rows keep default text on the terminal palette's subdued full-width band.
+    // Keep the gray band through foreground changes; only the user label is orange.
     if (row.rowTone === 'user') {
       const pad = ' '.repeat(Math.max(0, columns - cellWidth(row.text)));
-      return `${USER_TEXT_SGR}${USER_ROW_BG_SGR}${row.text}${pad}${RESET_SGR}`;
+      const points = [...row.text];
+      const labelLength = row.labelTone === 'user' ? row.labelScalarLength ?? 0 : 0;
+      const label = labelLength > 0
+        ? `${ORANGE_SGR}${points.slice(0, labelLength).join('')}${USER_TEXT_SGR}`
+        : '';
+      return `${USER_TEXT_SGR}${USER_ROW_BG_SGR}${label}${
+        points.slice(labelLength).join('')
+      }${pad}${RESET_SGR}`;
     }
     if (row.text.length > 0) {
       return `${LABEL_SGR[row.rowTone]}${row.text}${RESET_SGR}`;
