@@ -15,7 +15,8 @@ B11の[Increment 190](../docs/increments/increment-190.md)は利用者による�
 実装・検証・常用配置・source commit済み。 source
 commitは`def02bb2`。配置結果はincrement文書を参照する。
 
-常用binaryは190の配置版。191確認用Core/TUIは隔離XDGで実行・終了し、実config/DBは変更していない。
+常用binaryは191の配置版。source commitは`e53a2436`。配置版のCore/TUIも隔離XDGで確認・終了済み。
+実config/DBは変更していない。配置結果は191を参照する。
 
 ## 次の一手と承認境界
 
@@ -30,8 +31,8 @@ architecture/roadmapの189案は未適用patchに留め、正本反映は別承�
 
 ## 正本への入口
 
-- [Increment 191](../docs/increments/increment-191.md):
-  A23の要件、各スライスの実装・確認結果、全体gateの既存未通過事項、承認境界。
+- [Increment 191](../docs/increments/increment-191.md): A23の要件、各スライスの実装・確認結果、645
+  testのgate通過、commit・常用配置結果、承認境界。
   [実Agent・スパイク記録](../docs/research/a23-agent-generated-code-probe-2026-10-05.md)、
   [正本変更案](../docs/increments/increment-191-authority-proposal.patch)。
 

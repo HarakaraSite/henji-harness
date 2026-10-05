@@ -2,8 +2,8 @@
 
 状態:
 local製品実装と追加承認scope（既存3件失敗・91停止修正、std限定import）、各スライス確認・review、
-compiled TUIと実provider総合E2Eを完了（2026-10-05）。全体gateは645 passed / 0 failedで通過。
-commit・常用配置は追加承認済みで実行中。正本変更案反映は未実施。
+compiled TUIと実provider総合E2Eを完了（2026-10-05）。全体gateは645 passed / 0 failedで通過。 source
+commit・常用配置・配置後確認も完了。正本変更案反映は未実施。
 本書は今回の要件・計画・結果の正本とする。採用前の観測は末尾へ移設し、実験の詳細はresearchを参照する。
 
 ## 利用者が必要とする動作
@@ -442,6 +442,32 @@ digestの一致を確認し、旧binaryを保存してdist/henjiと常用henji�
 Core/TUIを隔離HOME/XDG/workspaceで確認する。実providerの追加呼出は必要ない。
 既存Coreは再起動せず、新しいCoreから191を使用する。構想・architecture・roadmapへの正本patch反映、
 公開/release・push、旧実データ削除は今回の指示に含めない。
+
+## 常用配置結果（2026-10-05）
+
+- 191の実装・追加承認修正・関連文書をsource commit `e53a2436427d275ff587bce6cff1a98bc5f421c5`
+  （`feat: add cancellable run_typescript with std-only imports`）へ保存した。
+- 公式build scriptでsourceDirty=falseのbinaryを作成した。build IDは
+  `138c9fb339fb94f6d45f4ef446a8d78d3dc6940cbc124f98b2b157c2d58e1d7a`、embedded runtime SHA-256は
+  `3fd8620900a9f40ea10b9838b17179ac440ea34fdd146f0e7b257eddb446d849`で、受入確認済み版と一致した。
+- 旧190
+  binaryを`.tools/increment-191/deployment/henji.dist.previous`と`henji.local.previous`へ保存し、
+  staging fileから`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。
+  両配置先のversion・manifest・binary SHA-256が一致した。 binary
+  SHA-256は`5807077d853e2b247c3b69d663189a4d27c63570b33ab0583e1c443064a31675`。
+- 配置した常用binaryのproduction Core/TUIを隔離HOME/XDG/workspaceのtmuxで起動し、
+  std以外のimport拒否→code修正→CSV/streams std
+  import→通常fetch→workspace/tmp保存・readbackを確認した。 同期無限loopのcode
+  processが常用binary自身であること、取消後PIDが消えること、次task継続も通過した。
+  semantic履歴と独立数値の照合も成功。local fixture providerは6 request、実provider追加呼出0回。
+  確認用Coreはshutdown accepted、exit 0で終了した。
+- 実configの非credential 30fileは配置前後でhash一致し、repository workspaceの既存Core一覧も一致した
+  （配置前後とも0件）。既存Coreを再起動する操作は行っていない。新しく起動するCoreから191が有効になる。
+- 既存の645 test成功と受入版runtime一致を採用し、full gateは繰り返していない。
+  証拠は`.tools/increment-191/deployment/`の`build.log`、`deployment.json`、`local-runtime.json`、
+  `dist-runtime.json`、`state-check.json`と`tui-check/`の履歴・TUI capture・verification。
+
+配置と結果記録を完了した。正本patchは未適用のままで、公開/release・pushは行っていない。
 
 ## 採用前A23の原記録
 
