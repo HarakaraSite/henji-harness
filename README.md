@@ -211,6 +211,35 @@ root default; an explicit name selects that named catalog entry, including a nam
 Agent's instruction. Configuration files are read again when a new Worker starts, so edits apply to
 newly started work.
 
+The bundled default and generic Agents select six standard work tools: `read`,
+`write`, `edit`, `bash`, `bash_output`, and `run_typescript`. Explicit Agent
+`tools` lists must include `run_typescript` to use it; an empty list remains
+empty.
+
+`run_typescript` runs the body of an async TypeScript function with the Deno
+runtime embedded in Henji. Each call runs in a child process of the same Henji
+binary. Cancellation stops and settles that process, including synchronous
+computation, before the next task continues. `input` is optional JSON (default
+`null`); `workspace` is the absolute workspace root. Read/write access covers
+the workspace and `/tmp`, and code can access the network. Environment,
+subprocess, system and FFI permissions are disabled inside the code Worker.
+Return a JSON value; omitting `return` produces `null`. Use `await import()` to
+acquire Deno std and its dependencies at runtime, without installing an external
+Deno CLI or bundling std at build time. Imports accept only `jsr:@std/...` and
+`https://jsr.io/@std/...` sources, including their std dependencies. Other
+packages, Node built-ins, local file modules and additional Workers are
+unavailable. Ordinary `fetch()` and JavaScript `eval()` remain available.
+
+For example, the tool arguments below parse CSV input and save the result:
+
+```json
+{
+  "code": "const csv = await import('jsr:@std/csv'); const rows = csv.parse(input, { skipFirstRow: true }); await Deno.writeTextFile(workspace + '/rows.json', JSON.stringify(rows)); return rows;",
+  "input": "name,value\na,42\n"
+}
+```
+
+
 ```sh
 henji agent list
 henji agent inspect --name reviewer

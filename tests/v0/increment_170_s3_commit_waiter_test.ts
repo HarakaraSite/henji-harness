@@ -495,6 +495,25 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
       (message): message is WorkerFailureReadyMessage => isFailureReadyFor(message, rejectedTurn),
     );
     strictEqual(failureBarrier.finalDataSequence, failureRequest.sequence);
+    capsule.send({
+      kind: 'commit_acknowledgement',
+      correlation: rejectedTurn,
+      accepted: false,
+      settlement: {
+        accepted: false,
+        adopted: false,
+        durable: true,
+        stateRevision: canonicalStateRevision,
+        terminalOutcome: {
+          ok: failureRequest.message.outcome.ok,
+          outcome: failureRequest.message.outcome.outcome,
+          stopReason: failureRequest.message.outcome.stopReason,
+          ...(failureRequest.message.outcome.error === undefined ? {} : {
+            error: failureRequest.message.outcome.error,
+          }),
+        },
+      },
+    });
     strictEqual(rejectedBarrier.correlation.command, rejectedTurn.command);
     const rejectedBarrierCorrelation = correlation('after-rejected-barrier');
     capsule.send({

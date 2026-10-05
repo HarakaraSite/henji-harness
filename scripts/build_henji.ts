@@ -10,6 +10,8 @@ const ROOTS = [
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/data/data_bootstrap.ts',
   'v0/agent/worker/worker_configuration.ts',
+  'v0/agent/tools/run_typescript_hooks.ts',
+  'v0/agent/tools/run_typescript_fetch_worker.ts',
 ] as const;
 const IDENTITY_FILES = ['deno.v0.json', 'deno.lock', 'jsr.json'] as const;
 const encoder = new TextEncoder();

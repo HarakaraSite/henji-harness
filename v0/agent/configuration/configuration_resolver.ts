@@ -46,6 +46,7 @@ export const BUNDLED_TOOL_NAMES: readonly string[] = Object.freeze([
   'edit',
   'bash',
   'bash_output',
+  'run_typescript',
   'skill',
   'submit_json_result',
 ]);

@@ -17,6 +17,7 @@ import {
   createWriteTool,
 } from '../tools/work_tools.ts';
 import { createBashOutputTool } from '../tools/bash_output.ts';
+import { createRunTypescriptTool } from '../tools/run_typescript.ts';
 import { createAgentResourceIdentity } from '../definitions/resource_identity.ts';
 
 const bundledTool = (name: string, input: ToolFactoryInput): Tool => {
@@ -37,6 +38,9 @@ const bundledTool = (name: string, input: ToolFactoryInput): Tool => {
       );
     case 'bash_output':
       return createBashOutputTool(input.bashOutputStore);
+    case 'run_typescript':
+      if (input.processExecutor === undefined) throw new Error('process executor is unavailable');
+      return createRunTypescriptTool(input.workspace, input.processExecutor);
     case 'skill':
       return createSkillTool(input.skillCatalog);
     case 'submit_json_result':

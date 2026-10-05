@@ -152,7 +152,7 @@ class NoCancelReceiptCapsule extends ProbeCapsule {
   }
 }
 
-class NoPostCommitSettlementCapsule extends ProbeCapsule {
+class WorkerErrorAfterCommitAckCapsule extends ProbeCapsule {
   send(command: WorkerHostCommand): void {
     if (command.kind === 'start') {
       void this.ready(command).catch((error) =>
@@ -163,6 +163,15 @@ class NoPostCommitSettlementCapsule extends ProbeCapsule {
           message: error instanceof Error ? error.message : String(error),
         })
       );
+      return;
+    }
+    if (command.kind === 'commit_acknowledgement') {
+      this.emit({
+        kind: 'worker_error',
+        correlation: command.correlation,
+        stage: 'turn',
+        message: 'fixture Worker stopped during post-commit settlement',
+      });
       return;
     }
     if (command.kind !== 'turn') return;
@@ -207,7 +216,7 @@ class NoPostCommitSettlementCapsule extends ProbeCapsule {
             role: 'assistant',
             content: {
               kind: 'text',
-              text: 'committed before settlement timeout',
+              text: 'committed before post-commit Worker error',
             },
           },
         ],
@@ -215,7 +224,7 @@ class NoPostCommitSettlementCapsule extends ProbeCapsule {
           ok: true,
           outcome: 'final',
           stopReason: 'final',
-          finalText: 'committed before settlement timeout',
+          finalText: 'committed before post-commit Worker error',
           steps: 1,
           toolCallCount: 0,
           toolResultCount: 0,
@@ -716,21 +725,20 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
   }
 });
 
-Deno.test('Increment 91 preserves a canonical commit when post-commit settlement times out', async () => {
+Deno.test('Increment 91 preserves a canonical commit after a post-commit Worker error', async () => {
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-91-post-commit-',
   });
   let generation = 0;
-  let first: NoPostCommitSettlementCapsule | undefined;
+  let first: WorkerErrorAfterCommitAckCapsule | undefined;
   const created = await createWorkerSession({
     stateRoot,
     persistence: 'new',
     physicalIoMode: 'provider-free',
-    workerResponseTimeoutMs: 20,
     capsuleFactory: (url) => {
       generation += 1;
       if (generation === 1) {
-        first = new NoPostCommitSettlementCapsule();
+        first = new WorkerErrorAfterCommitAckCapsule();
         return first;
       }
       return new WorkerCapsule(url);
@@ -739,7 +747,7 @@ Deno.test('Increment 91 preserves a canonical commit when post-commit settlement
   try {
     const committed = await created.session.submit('commit then stop');
     assert(committed.ok);
-    assertEquals(committed.finalText, 'committed before settlement timeout');
+    assertEquals(committed.finalText, 'committed before post-commit Worker error');
     assertEquals(committed.runtimeProviderRequestCount, 7);
     assertEquals(created.session.requestCount(), 7);
     assert(first?.terminated);
@@ -753,10 +761,13 @@ Deno.test('Increment 91 preserves a canonical commit when post-commit settlement
     assertEquals(committedRecord.transcript.at(-1)?.role, 'assistant');
     assertEquals(
       committedRecord.transcript.at(-1)?.content,
-      { kind: 'text', text: 'committed before settlement timeout' },
+      { kind: 'text', text: 'committed before post-commit Worker error' },
     );
-    const next = await created.session.submit('turn after post-commit timeout');
+    const next = await created.session.submit(
+      'turn after post-commit Worker error',
+    );
     assert(next.ok);
+    assertEquals(generation, 2);
     assertEquals(next.runtimeProviderRequestCount, 7);
     assertEquals(created.session.requestCount(), 7);
     const resumed = await canonicalRecord(

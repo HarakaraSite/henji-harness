@@ -50,14 +50,19 @@ type RegistryDataOverrides = {
   ) => ReturnType<DataService['sealGeneration']>;
 };
 
-const parentSeeders = new WeakMap<ChildRunRegistry, (executionId: string) => Promise<void>>();
+const parentSeeders = new WeakMap<
+  ChildRunRegistry,
+  (executionId: string) => Promise<void>
+>();
 
 const seedParentExecution = async (
   registry: ChildRunRegistry,
   executionId: string,
 ): Promise<void> => {
   const seed = parentSeeders.get(registry);
-  if (seed === undefined) throw new Error('child test parent seeder is unavailable');
+  if (seed === undefined) {
+    throw new Error('child test parent seeder is unavailable');
+  }
   await seed(executionId);
 };
 
@@ -111,7 +116,10 @@ const registryWithOptions = async (input: {
     },
     currentCatalog: () => [input.childName ?? 'probe-child'],
     setupConfiguration: input.setupConfiguration ?? (async (configRoot) => {
-      await writeProbeAgentConfiguration(configRoot, input.childName ?? 'probe-child');
+      await writeProbeAgentConfiguration(
+        configRoot,
+        input.childName ?? 'probe-child',
+      );
     }),
     ...(input.store === undefined ? {} : { store: input.store }),
     ...(input.dataOverrides === undefined ? {} : { transformData }),
@@ -489,7 +497,10 @@ childDataTest(
             }
             if (command.kind === 'turn') turnDispatches += 1;
             if (!released) {
-              pending.push({ command, ...(transfer === undefined ? {} : { transfer }) });
+              pending.push({
+                command,
+                ...(transfer === undefined ? {} : { transfer }),
+              });
               return;
             }
             capsule.send(command, transfer);
@@ -506,9 +517,13 @@ childDataTest(
     const releaseStart = () => {
       if (released) return;
       released = true;
-      if (startCommand === undefined) throw new Error('child Worker start was not queued');
+      if (startCommand === undefined) {
+        throw new Error('child Worker start was not queued');
+      }
       startCapsule!.send(startCommand, startTransfer);
-      for (const entry of pending) startCapsule!.send(entry.command, entry.transfer);
+      for (const entry of pending) {
+        startCapsule!.send(entry.command, entry.transfer);
+      }
       pending.length = 0;
     };
     try {
@@ -533,7 +548,7 @@ childDataTest(
       );
       assertEquals(response, {
         ok: false,
-        error: 'parent execution settled before child start',
+        error: 'Worker host session closed',
       });
       assertEquals(turnDispatches, 0);
       await history.initialize();
@@ -572,7 +587,10 @@ childDataTest(
       childName: 'researcher',
       store: history,
       setupConfiguration: async (configRoot) => {
-        const file = await writeProbeAgentConfiguration(configRoot, 'researcher');
+        const file = await writeProbeAgentConfiguration(
+          configRoot,
+          'researcher',
+        );
         await Deno.writeTextFile(file, '{');
       },
     });

@@ -124,7 +124,7 @@ Deno.test('registered service keys resolve at dispatch for named-header GET and 
       method: 'GET',
       authentication: { kind: 'header', name: 'X-Subscription-Token' },
       evidence: {
-        execution,
+        providerEvidence: execution.providerEvidence!,
         phase: 'user_turn',
         modelStep: 1,
         requestMetadata: { provider: 'brave', api: 'brave-search', authProfile: 'brave-api-key' },

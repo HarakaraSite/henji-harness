@@ -4,8 +4,8 @@
 
 状態: 未採用候補の検討・調査記録。製品採用、実装計画、実装、provider A/Bの承認ではない。
 
-入口:
-[通常利用メモ A23](../experience/normal-use-inbox.md#a23--run_typescriptでファイル操作を含む小処理をhenji内で実行f06未採用)
+採用後の入口:
+[Increment 191](../increments/increment-191.md)。採用前A23の原記録も同文書へ移設した。
 
 旧資料:
 [2026-09-27の統合評価](2026-09-27-run-typescript-assessment.md)。旧資料は当時の報告として保持する。

@@ -173,7 +173,9 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
         ['cancel_requested', 1],
         ['cancel_sent', 2],
         ['cancel_received', 3],
-        ['process_cleanup_finished', 4],
+        ['acknowledgement_requested', 4],
+        ['acknowledgement_sent', 5],
+        ['process_cleanup_finished', 6],
       ],
     );
     const cancelReceived = cancelled[2]!;
@@ -185,7 +187,7 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       (cancelPayload.correlation as { readonly command: string }).command,
       'async-child',
     );
-    strictEqual(controlPayload(cancelled[3]!).result, 'complete');
+    strictEqual(controlPayload(cancelled[5]!).result, 'complete');
 
     const serializedControls = JSON.stringify([...completed, ...cancelled]);
     assert(!serializedControls.includes('finish child control run'));

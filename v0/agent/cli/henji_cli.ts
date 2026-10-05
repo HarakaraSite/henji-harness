@@ -1,6 +1,7 @@
 import { cliErrorMessage, cliErrorText, parseCliOptions } from './cli_error.ts';
 import { cliHelp } from './cli_help.ts';
 import { runProcessRunner } from '../runtime/process_runner.ts';
+import { runTypescriptProcessEntry } from '../tools/run_typescript_process_entry.ts';
 import { main as tuiMain } from './tui_cli.ts';
 import { runCliWorker } from './run_worker_client.ts';
 import { main as sessionsMain } from './session_cli.ts';
@@ -66,6 +67,9 @@ const runtimeDiagnostics = async (args: readonly string[]): Promise<number> => {
 
 /** Classify the complete CLI before a selected command touches workspace or durable state. */
 export const main = async (args: readonly string[] = Deno.args): Promise<number> => {
+  if (args.length === 3 && args[0] === '--internal-run-typescript') {
+    return await runTypescriptProcessEntry(args[1], args[2]);
+  }
   if (args.length === 1 && args[0] === '--internal-process-runner') {
     await runProcessRunner();
     return 0;

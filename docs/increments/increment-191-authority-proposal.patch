@@ -1,0 +1,40 @@
+--- a/docs/architecture/henji-host-agent-worker.md
++++ b/docs/architecture/henji-host-agent-worker.md
+@@ -222,6 +222,13 @@
+
+ ### Agent Worker が所有するもの
+
++標準run_typescriptの呼出しごとに同じHenjiの子processを既存Host ProcessExecutorが所有し、
++同期計算中の取消もprocess停止・清算へ接続する。子process内のcode Worker・module取得Workerは
++Tool実装が所有する。既存Registry・semantic履歴を使い、async本文、workspaceと/tmpのread/write、
++networkと実行時std取得を提供する。importはstdのみ許可し、通常fetchは維持する。
++codeのenv/run/sys/ffiは無効とし、追加Worker作成は許可しない。
++実装・確認結果と全体gate通過は[Increment 191](../increments/increment-191.md)を参照する。
++
+ - 共通factoryによるJSON設定、model/effort、実際のTool、native instruction/skill、runtime
+   factsのcomposition構築。
+ - 選択tool moduleのWorker-local
+@@ -305,7 +312,7 @@
+ JSONのtoolsが空ならskill/submit_json_resultを自動追加しない。native
+ skillは実catalogと選択toolがあるとき提示する。
+
+-同梱default/genericはread/write/edit/bash/bash_output、search/web_search/web_fetch、
++同梱default/genericはread/write/edit/bash/bash_output/run_typescript、search/web_search/web_fetch、
+ skill/submit_json_resultを選ぶ。searchと二つのweb toolはpackageに含む外部sourceを使い、
+ executableへ実装を埋め込まない。明示toolsを持つnamed Agentは必要な名前を宣言する。 child操作はAgent
+ JSONのagentsから別に構成し、child Workerには再帰spawn toolを提示しない。 rejectされたtool/named
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -86,6 +86,12 @@
+ | F05 | 人間が保存済みSessionのcanonical/non-canonical semantic historyとcontext attribution、短いrequest factを通常利用中に参照する                                                                   | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける                                                                   | **部分実装（人間向け参照経路は実装済み）**。接続TUIのPageUp、Session picker/view、`/context`、API Worker経由のHTTP history/context読取と別processのread-only `henji history`（session/canonical/detail）を使う。canonical/non-canonical、thinking、本文とtool、短いrequest factをsourceから投影する。生成中本文はrequest単位の最新durable state、完了時はmodel result、停止時は最後の本文を保持する。Session再開・再接続でもexecution/step/表示identityと順序を維持し、system結果通知を対象executionへ置く。`/recall`は選んだnon-canonical executionを次taskへ投影する。組み込みliteral検索は持たない                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+ ### AgentCompositionと現在のHost / Worker runtime
++
++[Increment 191](increments/increment-191.md)で、F06の標準work toolへrun_typescriptをlocal実装し、
++compiled TUIと実providerで受入対象機能を確認した。async関数本文、workspaceと/tmpのread/write、
++network、実行時std importを提供し、既存Host所有の呼出し専用Henji子processで同期計算中も取消できる。
++全体gateは645 testを含め通過した。importはstd限定、通常fetchは利用可能である。
++常用配置とVM内Agent実行はこの完了範囲に含めない。
+
+ | ID  | 必要な機能                                                                                          | architecture上の責務・境界                                                                                | 現コードの状態                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+ | --- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

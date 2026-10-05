@@ -502,7 +502,7 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
         body: new TextEncoder().encode('{}'),
         signal: controller.signal,
         evidence: {
-          execution,
+          providerEvidence: execution.providerEvidence!,
           phase: 'user_turn',
           modelStep: 1,
           requestMetadata: { origin: 'web_search' },

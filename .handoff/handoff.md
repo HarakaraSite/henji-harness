@@ -2,22 +2,38 @@
 
 再開時の入口。現在地・次の一手・正本へのpointer・承認境界だけを保持する。
 
-## 現在地（2026-10-04）
+## 現在地（2026-10-05）
+
+A23を[Increment 191](../docs/increments/increment-191.md)の標準run_typescript計画へ採用した。
+実AI/compiled実行と未同梱stdの実行時importスパイク・計画の通常/批判的レビューは終了。
+承認済み別process方式のlocal実装、各スライス確認・review、compiled TUIと実provider総合E2Eを完了。
+追加承認scopeの既存3件失敗・91停止修正とstd限定importも完了。 全体gateは645 passed / 0
+failed。最終compiled TUI・実provider総合E2Eも通過。詳細は191の結果を参照する。
+codeはasync関数本文、workspaceと/tmpのread/write、生成code自身のnetwork許可を利用者が決定した。
 
 B11の[Increment 190](../docs/increments/increment-190.md)は利用者による確認・完了承認済み。
-実装・検証・常用配置・source commit済み。
-source commitは`def02bb2`。配置結果はincrement文書を参照する。
+実装・検証・常用配置・source commit済み。 source
+commitは`def02bb2`。配置結果はincrement文書を参照する。
 
-常用binaryは190の配置版。既存Core/TUIは再起動しておらず、一覧フィルタは新Coreから有効。
+常用binaryは190の配置版。191確認用Core/TUIは隔離XDGで実行・終了し、実config/DBは変更していない。
 
 ## 次の一手と承認境界
 
-通常利用を続ける。未採用候補は通常利用メモを参照し、個別採用前に実装しない。
+191の追加承認scopeと確認は完了。std以外のimportはtool側で拒否し、通常fetch/evalは維持する。
+191のcommit・常用配置は利用者の最新指示で承認済み。source commit・clean
+build・atomic配置・配置後確認を実行する。
+191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
+その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
 architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。公開/release・pushは未承認。
 必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 191](../docs/increments/increment-191.md):
+  A23の要件、各スライスの実装・確認結果、全体gateの既存未通過事項、承認境界。
+  [実Agent・スパイク記録](../docs/research/a23-agent-generated-code-probe-2026-10-05.md)、
+  [正本変更案](../docs/increments/increment-191-authority-proposal.patch)。
 
 - [Increment 190](../docs/increments/increment-190.md): B11の採用範囲、一覧フィルタと確認結果。
 

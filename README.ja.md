@@ -194,6 +194,34 @@ Agent JSONは`name`、任意の`revision`、`instruction`、`tools`、`agents`�
 （名前付きの`default`を含む）を選ぶ。`generic` childは同梱設定を自分の名前で使い、名前付きAgentの
 instructionを継承しない。設定fileはWorker起動ごとに読み直すため、編集は新しく開始する仕事へ反映される。
 
+同梱default/genericは6つの標準work
+tool、`read`、`write`、`edit`、`bash`、`bash_output`、
+`run_typescript`を選ぶ。明示したAgentの`tools`一覧で使うには`run_typescript`を加える。空配列は空のままとする。
+
+`run_typescript`はHenjiに埋め込んだDeno runtimeで、async
+TypeScript関数の本文を実行する。 呼出しごとに同じHenji
+binaryの子processを使い、取消時は同期計算中でもprocessの停止・清算を待つ。
+`input`は任意JSON（省略時`null`）、`workspace`はworkspaceの絶対pathである。workspaceと`/tmp`の
+read/write、code自身のnetwork利用を許可する。code
+Workerのenv/run/sys/ffiは無効とする。
+JSON値を`return`して結果を返す。returnがなければ`null`となる。Deno
+stdと依存moduleは `await import()`から実行時に取得し、外部Deno
+CLIの導入やstdの事前同梱を要求しない。
+importは`jsr:@std/...`と`https://jsr.io/@std/...`のsourceと依存stdに限定する。
+他package、Node組込み、local file
+moduleは拒否し、import制限を継承しない追加Workerの作成も不可とする。
+通常の`fetch()`とJavaScriptの`eval()`は引き続き使える。
+
+例えば次のtool引数でCSV inputを解析し、結果をfileへ保存できる。
+
+```json
+{
+  "code": "const csv = await import('jsr:@std/csv'); const rows = csv.parse(input, { skipFirstRow: true }); await Deno.writeTextFile(workspace + '/rows.json', JSON.stringify(rows)); return rows;",
+  "input": "name,value\na,42\n"
+}
+```
+
+
 ```sh
 henji agent list
 henji agent inspect --name reviewer

@@ -2,7 +2,8 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-04（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11はIncrement 190へ採用・移設）。
+更新日: 2026-10-05（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement
+185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設）。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -39,7 +40,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
-| A23 | Agent実行      | `run_typescript`でファイル操作を含む小処理をHenji内で実行                    | 利用者が対象用途・実行条件の具体化や利用価値検証を指示するとき                                                         |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                   | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
@@ -350,57 +350,6 @@ Pi／OpenCode／Henjiの画面表示比較
 - 関連: [Increment 175](../increments/increment-175.md)、`v0/agent/core/steering.ts`、
   `v0/agent/core/loop.ts`、`v0/tui/remote_session.ts`。
 
-### A23 — `run_typescript`でファイル操作を含む小処理をHenji内で実行（F06、未採用）
-
-- 利用者指示（2026-09-27／29）: 統合評価を未採用候補として記録し、9月29日に検討を再開した。
-  Codex履歴のサンプリング、技術確認、gpt-6-astra / xhighによるBlocker限定・10分上限の批判的評価、
-  公開実装例の調査と記録を指示した。検討だけであり、採用・実装認可は意味しない。
-- 目的・対象: Agentが一時的に行うJSON/JSON Lines/CSVの集計・変換、文字列処理、小さな計算・検証、
-  複数Tool Resultの突き合わせを、ファイル読み込みを含めてHenji自身のcode execution Toolで扱う。
-  HenjiにDenoを同梱するポータビリティと、AIが書いた処理の副作用の一部をhost/runtimeで機械的に
-  制限できる点が中心の利点である。Python固有library・既存資産や適した専用Toolは引き続き使う。
-- 候補経路: AgentがTypeScript codeを渡し、Henji側が決めた実行条件でfile取得・加工等を行い、
-  必要なresultを返す。当初の`pure`は暫定実験案であり、A23全体をJSON-onlyへ限定しない。
-  code形式、JSON input、profile、permission、timeout、入出力上限、library、backendは未決。
-  原資料の各64 KiB等は確定仕様ではなく、型構文の除去はtype checkとは区別する。
-- 現在の観測（2026-09-29）: Codexの28ログから抽出したPython実行80件では、短い処理とfile操作の
-  組み合わせが多かった。Linux／Deno 2.9.7の直接実行で、動的TS Workerのfile readとwrite/net/env/run
-  拒否を確認した。批判的評価はBlocker
-  0。Belgieの埋め込みDeno＋`run_typescript`等の公開sourceも確認した。
-  サンプルはHenji開発作業に偏り、compiled Linux Henjiと実利用の優位性は未確認。
-  詳細・証拠・評価範囲は[9月29日の調査記録](../research/a23-run-typescript-investigation-2026-09-29.md)を参照する。
-- 参照実装（2026-10-01、Pi snapshot `b35af04f465d60c2f15d124ed074476b8986deb4`）:
-  Piの内蔵`codemode`は、モデル生成JavaScriptをQuickJS（WebAssembly）上で実行し、
-  `tools.<name>(args)`から既存ツールを呼び出す。スクリプト内で複数ツールを
-  `Promise.all`／`Promise.allSettled`で並列実行し、結果の突き合わせ・加工をまとめて行える。
-  途中のツール結果はそのままLLM contextへ入れず、スクリプトが出力・returnした内容をモデルへ返す。
-  A23の小処理に加え、コードからのツール呼び出し・並列実行・必要な結果だけの返却を比較点とする。
-  Piではファイル操作も注入されたツール経由であり、A23のDenoによる直接file操作案とは実行経路が異なる。
-  参照: [codemode README](../../_refs/pi/packages/codemode/README.md)、
-  [内蔵tool実装](../../_refs/pi/packages/coding-agent/src/extensions/codemode/tool.ts)。
-  参照追加であり、QuickJSの採用やHenjiへの実装を決めるものではない。
-- 技術観測（原資料の報告）: Deno 2.9.7／macOS arm64で、compile済み単一実行ファイル内の動的TypeScript
-  Workerが外部Deno CLI・一時`.ts` fileなしで動作し、permission縮小・JSON入出力・timeout・error分類を
-  確認した。macOS x86_64はRosetta実行を確認し、Linux／Windowsはartifact生成のみで実機動作は未確認。
-- 確認された限界: Worker内OOMはHenji本体を含むprocess全体を終了させた。workspace
-  permissionは既存symlink 経由のroot外readを防げず、hostname
-  permissionはDNS解決後IPを固定しない。同一process Workerを強いsandbox
-  と扱わず、本体の生存が必要なら別process、より強い境界が必要ならbroker／OS・container・VM backendを
-  別途検討する。完全な隔離は今回の目的ではなく、これらの強化を利用価値検討の前提にはしない。
-  制限対象は`run_typescript`を通る実行であり、bash等も使えるAgent全体の制限を保証しない。
-- 未確認・採用判断: Agentが自然に選ぶか、shell/Python比でcorrectness・tool
-  call数・修正回数が悪化しないか、 quoting・一時fileが減るか、structured
-  resultが後続推論に役立つか、保守負担に見合うかを比較する。現行Tool登録・compile経路に原理的な
-  統合障害は見つかっていないが、具体的な統合方式と実経路は未確認である。
-- 次に具体化するとき: 利用者が対象用途・実行条件の具体化や利用価値検証を指示した時点で、
-  現行sourceと今回の調査記録を使う。計画・実装・provider A/Bは未指示であり、利用価値が小さければ
-  標準Toolへ採用しない。
-- 関連: R3（tool実行profile・isolation）。本候補は小処理の利用価値、R3は実行境界を扱う。
-- 原資料:
-  [`2026-09-27-run-typescript-assessment.md`](../research/2026-09-27-run-typescript-assessment.md)。
-  同資料のspike・planner
-  input参照先はこのrepositoryにはなく、詳細証拠・保留中の検証案は未照合である。
-
 ### A24 — subagent起動の判断とprovider・model・effort・toolの選択（未採用）
 
 - 観測（2026-09-28、workspace `/home/agent`、session `6e5dbddd`の保存履歴照合）:
@@ -504,7 +453,7 @@ Pi／OpenCode／Henjiの画面表示比較
   flag、executor、任意の`deno run`や`--allow-all`、shell起動を制御させない。
 - 分類: sandboxed program toolの通常導入はF06の改善として先行できる。経験からexecutor/contractの
   revision candidateを生成・採用するflowまで成立した段階をF24とする。
-- 関連: A23は`run_typescript`の小処理Toolとしての利用価値検証候補であり、同一process Workerの限界を
+- 関連: [Increment 191](../increments/increment-191.md)へA23の標準tool計画を採用した。同一process Workerの限界を
   区別して記録している。強いsandboxの採用と同一の判断にはしない。
 - 再検討条件: trusted-local以外の実行環境、またはmodel-generated
   programの制限実行がproduct要件になること。
