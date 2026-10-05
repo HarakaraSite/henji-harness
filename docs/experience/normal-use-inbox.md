@@ -32,6 +32,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
 | S32 | Surface        | 入力履歴機能の削除                                                           | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
+| S34 | Surface        | `search`の検索条件・`run_typescript`の生成コードの抜粋表示                    | tool行から検索対象や実行内容を把握したいとき。抜粋方法を選び、個別incrementへ採用するとき                              |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -42,6 +43,8 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
+| A28 | Agent実行      | 通常利用時のメモリ使用量の調査・チューニング                                 | 利用者がメモリ内訳の調査・削減を個別incrementへ採用するとき                                                           |
+| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback                      | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                         |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                   | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                            | tool candidateを生成・保存・採用するflowを設計する                                                                     |
@@ -174,6 +177,68 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 利用者が入力履歴の削除を個別incrementへ採用するとき。
 - 現行経路: `v0/tui/input_history.ts`、`v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
 
+### S34 — `search`の検索条件・`run_typescript`の生成コードの抜粋表示（未採用、検討メモ）
+
+- 利用者メモ（2026-10-05）:
+  `tool> search`に検索パラメータの一部を表示したい。TypeScript toolもAgentが組み立てたscriptの
+  一部を表示できるか検討したい。ただし先頭だけではimportしか見えない可能性がある。
+- 現行経路・実現性（同日source照合）:
+  Agentのtool call引数はDataがsemantic履歴へ保存し、Conversationのtool entityにも保持する。
+  TUIは`keyed_conversation_store.ts`から共通の`toolActivityPreview()`へ引数を渡し、実行中と完了後の
+  tool行を生成する。イベント表示の`state.ts`と直接表示の`terminal_text.ts`も同じ関数を使う。
+  現在その関数に`search`と`run_typescript`の分岐がないため名前だけになる。
+  引数は既に届いているので、抜粋表示は既存の表示経路で実現可能。新しい保存先やmodel callは不要と見込む。
+- `search`の表示案:
+  外部toolの現行引数は`mode`、`path`、`glob`、`pattern`、`patternKind`、`caseSensitive`、`offset`、
+  `limit`。まず`mode`・検索語`pattern`・対象`path`を短く表示し、`paths` modeでは`glob`を手掛かりにする。
+  例: `tool> search content "toolActivityPreview" v0/ …`、
+  `tool> search paths glob="*.ts" v0/ ✓`。どの補助条件まで含めるかと、長い検索語・pathの表示配分は未決。
+- `run_typescript`の表示案と限界:
+  引数`code`はasync functionの本文で、std取得は`await import()`を使う。
+  Increment 191の配置確認artifactには、空行に続き
+  `const csv = await import('jsr:@std/csv@^1.0.6');`から始まる実例がある。
+  単純な先頭一行では空欄またはimportだけになり、利用者の懸念に該当する。
+  最初の案は、先頭の空行・コメント・import取得部分を飛ばし、その後の短い本文を表示すること。
+  例: `tool> run_typescript const text: string = await Deno.readTextFile(workspace + …`。
+  ただし次も変数宣言やhelper定義なら処理目的までは分からない。
+  file読込・書込・fetch・return等を選ぶ案も可能だが、任意scriptの主要処理を一意に決められるとは限らない。
+  import部分の判定は複数行・分割代入にも関わるため、単純な行判定と構文解析のどちらを使うかは未決。
+  import自体が処理目的のcallもあるので、抜粋候補がなくなる場合の表示も採用時に決める。
+  modelによる要約や追加の説明引数は、この表示案の前提にしない。
+- 実利用を見た再検討（2026-10-05、Session `2bc2699f`）:
+  利用者は2〜3行の表示も許容すると述べ、このSessionを参照対象に指定した。
+  read-only history detailで4回の`run_typescript` callを確認した。いずれもfile編集で、先頭に長い
+  置換dataを置く30行のscript、追加testをtemplate literalに置く51行のscript、一行に全処理を詰めた
+  script、各行が長い3行の文書編集scriptだった。importを飛ばして先頭数行を出すだけでは、書込処理や
+  編集対象を把握しにくい。
+  現時点の推奨案は、tool名・状態の一行と、コードの入口・操作箇所の二つの抜粋を合わせた計3行。
+  入口は空行・コメント・importを除いた最初の短い文、操作箇所はfile書込・通信等の呼出しを候補にし、
+  それがない場合は読込・return等を比較する。抜粋の順序は元codeの順に保ち、省略は`…`等で示す。
+  最初のcallなら入口の`const patches: Record<string, [string,string][]> = {`と、後半の
+  `await Deno.writeTextFile(workspace+'/'+path,text); changed.push(path);`が手掛かりになる。
+  一行に複数の文があるので物理行だけでなく文・呼出し単位の抜粋を検討する。
+  template literal内の追加testにも呼出しに見える文字列があるため、文字列中のcodeを実行本文の操作と
+  誤認しない抽出方法が必要。これはコードの抜粋であり、実際に通った分岐や主要処理の保証ではない。
+  選択規則・構文解析方式・端末幅に応じた省略は未決で、表示案の採用・実装は未承認。
+- 利用者提案を受けた表示候補（2026-10-05）:
+  `run_typescript`のtool案内で、生成する`code`の先頭に処理目的を示す一行コメントを入れるよう案内する。
+  例: `// TUI関連7ファイルの配色とtool名の表示を変更する`。
+  表示側はそのコメント本文を短く出し、`tool> run_typescript TUI関連7ファイルの配色とtool名の表示を変更する ✓`
+  とする。端末幅による折返しで2〜3行になる表示も候補とする。
+  利用者の「うんいいね」により、先頭の一行コメントを表示する方針に合意した。
+  長いdata定義・import・一行に詰めたscriptに左右されず、
+  コードから主要処理を選ぶための構文解析を追加する必要がない。
+  コメントはAgentが記す処理意図であり、実行結果やcodeとの一致を保証するものではない。
+  コメントがないcallも実行できるままとし、不在時の表示は採用時に決める。
+  個別incrementへの採用・実装はまだ行っていない。
+- 未確認・採用時の確認:
+  抜粋方法と長さは未採用。現在の共通previewは96 UTF-8 bytesまでで、コード表示に適するかは実表示で判断する。
+  credential値・Authorizationの露出防止という既存要件を守る。実装を採用した場合は実行中・完了後・
+  保存Session再表示の同じ抜粋と、隔離XDGのproduction TUIで読みやすさを確認する。
+- 関連: `v0/agent/tools/tool_activity.ts`、`v0/tui/keyed_conversation_store.ts`、`v0/tui/state.ts`、
+  `v0/tui/terminal_text.ts`、`external-tools/search/index.ts`、`v0/agent/tools/run_typescript.ts`、
+  [Increment 191](../increments/increment-191.md)。
+
 ## Agent実行
 
 ### A2 — Host操作のmodel向けtool化（F02、F06、F10、F27）
@@ -201,6 +266,17 @@ Pi／OpenCode／Henjiの画面表示比較
   component境界にする。Agent設定から選ぶ場合も、canonical transcript、checkpointの永続化と相関、
   tool call/resultの因果構造、credential、provider
   evidence、strategy結果の採否はHenji-owned境界に残す。
+- 利用者との検討（2026-10-05、アイデアのみ）:
+  Agentが過去のtool結果を探す`history_search`・`history_read`はcompaction設計と合わせて考える。
+  provider error後に、後続実行のAgentが保存済みrequest fact・失敗診断を調べる用途も含む。
+  `/recall`による失敗作業の引継ぎは人間が判断し、履歴を読む操作と分ける。
+  compaction時には、後から元のtool引数・結果へ戻れるIDをcontextに残す方針を検討する。
+  保存記録の`occurrenceId`やexecutionとcallの組を候補とし、検索ではtool名・対象path・本文の語句も使う。
+  IDだけで参照対象が分かるか、tool名・対象・短い要点を添えるかは未決。
+  利用者は、turn完了後はtool結果本文を順次model contextから外してよいのではないかと提案した。
+  元の保存履歴を保持し、必要な結果は履歴toolで再取得する構成を候補とする。対象・タイミング・
+  保持内容・再取得経路を一体で設計する。現在の通常処理が自動省略しているという意味ではない。
+  履歴tool・compaction方針とも、個別incrementへの採用・実装は未承認。
 - 再検討条件: 長期Sessionの実token usage、provider/model
   context契約、turn中/間checkpointを比較できる 利用証拠が得られること。
 - 正本:
@@ -390,6 +466,77 @@ Pi／OpenCode／Henjiの画面表示比較
   再試行する。途中回答を次のmodel入力へ混ぜない処理、再試行の対象・回数・待ち時間・表示は採用時に
   決める。raw応答の常設保存は候補に含めず、必要な調査時だけ別probeで取得する。
 - 再検討条件: recallでの手動継続が通常利用の負担になる、または利用者が検討の再開を指示するとき。
+
+### A28 — 通常利用時のメモリ使用量の調査・チューニング（未採用、メモのみ）
+
+- 利用者判断（2026-10-05）: DBは十分小さいが、メモリにはチューニングの余地がありそうなので候補として記録する。
+- 実測（同日13:25 JST、Session `2bc2699f`、idle）:
+  対象Sessionを開いているCoreとTUIの`/proc/<pid>/smaps_rollup`を読み、共有pageを按分するPSSで
+  Core 179.3 MiB、TUI 89.8 MiB、合計269.1 MiBだった。RSS合計は325.6 MiB。
+  CoreはAgent・Data等のWorkerを含むprocessで、Session単独のメモリ使用量ではない。
+  この一時点の値からleakや削減可能量は断定していない。
+- DBとの比較（同時点、SQLite read-only集計）:
+  workspace共有DBは15 Sessionを含み、本体57.4 MiB、WAL 4.3 MiB、SHM込み合計61.7 MiB。
+  `2bc2699f`は4 turn・182 message・1,258 semantic記録で、関連データ量は約5.3 MiB。
+  Session分は関連rowの文字列/BLOBと参照先contentsの重複を除いた本文bytesの合計。共有設定・本文を含み、
+  index・row/page overheadは含まないため、Session専用の物理占有量ではない。checkpointは未保存だった。
+- 候補・未確認:
+  起動時の固定費、CoreとTUIそれぞれが保持する会話・表示data、履歴量に伴う増分を実測し、
+  機能と通常操作を維持したまま削減できる箇所を選ぶ。全体の内訳・削減可能量は未確定。
+  A3のcontext管理とは関連し得るが、providerへ送るcontext量とprocessの常駐メモリ量を同一視しない。
+- 追加実測（同日、同じCore/TUI・Session）:
+  15:31の実行中はPSSでCore 284.9 MiB、TUI 325.3 MiB、合計610.2 MiB。
+  15:42のidleではCore 309.3 MiB、TUI 284.1 MiB、合計593.4 MiBだった。
+  turnの停止後も大部分が残るが、PSS/RSSだけで生存heapとallocatorの保持pageは区別できない。
+- 現行sourceと会話dataの確認:
+  CoreのConversationWriterとTUIのSessionClientStateは、現在の会話entityを全件保持する。
+  TUIは表示用Mapも持ち、画面外のtool引数・結果もsnapshotに含む。
+  一方、EntryLayoutCacheの折返し結果は現在のhistory windowだけを保持し、範囲外を削除する。
+  `2bc2699f`の会話snapshotは611 entity、JSON換算で約1.9 MiBであり、
+  このサイズだけではTUIの約284 MiBを説明しきれない。
+- 確認した修正対象: TUIの入力・stream・終了待機loop。
+  `v0/tui/remote_session.ts`はloopごとに
+  `Promise.race([inputWait.then(...), frameWait, exitWait.then(...)])`を作る。
+  stream側が先に完了しても、未解決の入力／終了Promiseに追加したreactionが残り、
+  処理済みraceの結果に含まれる古いframeを保持する経路がある。
+  累積thinking textを含む途中frameが更新ごとに残り得る。
+  exitWaitはTUI終了時まで解決せず、turnの完了・cancel・idleではこの保持を解除しない。
+- Denoでの分離再現（同日、実provider callなし）:
+  入力と終了が未解決のまま、同じrace構造で約16 KiBのframeを1,800回処理した。
+  `--v8-flags=--expose-gc`でGC後のheapUsedを測ると、開始時2.7 MiB、処理後31.7 MiB、
+  終了Promise解決後3.4 MiBとなった。単なるRSS高止まりとは別に、古いframeの保持経路を再現した。
+  実TUIの増加量のうちこの経路が占める割合と、Core側の増加原因は未確定。
+- 利用者判断（同日）: この待機loopの保持経路を修正対象として記録する。
+  入力・stream・終了をまとめるevent待機等で、未解決Promiseへのreactionが更新ごとに
+  蓄積しない形を候補とする。履歴表示・入力・cancel・終了操作を維持する。
+  今回はメモへの追記であり、個別incrementの作成・実装修正はまだ行っていない。
+
+### A29 — request単位のtoken usage・cache再利用量の保存とreadback（未採用、メモのみ）
+
+- 利用者観測・依頼（2026-10-05）:
+  Henjiの`openai-chatgpt / gpt-6.1-sol`でtoken消費が激しく感じられる。
+  Codexのcache活用と、完了turnのtool結果をcontextから外すA3案との関係を検討した。
+  usage記録の候補をメモするよう指示された。変更・実装の承認は含まない。
+- 現行確認:
+  `openai_responses_model.ts`は`response.completed`のresponseを受けるが、usageを抽出・保存していない。
+  `2bc2699f`の確認した直近実行のsemantic記録にもinput/cache/reasoning token項目がない。
+  cache未使用と観測欠落は区別できず、token消費の主因・削減効果は未測定。
+- 候補:
+  provider・model・API・execution・物理request順に相関して、providerが返したinput/output/total、
+  cached input、reasoning、cache write等の取得できるusage数値を短いfactとして保存・readbackする。
+  raw responseやcredential/Authorizationを常設記録する必要はない。
+  usageまたは詳細項目が返らない場合は未取得として区別し、0へ置き換えたり通常応答を拒否したりしない。
+- OpenAI公式仕様との照合（2026-10-05）:
+  Responsesのcached inputは`usage.input_tokens_details.cached_tokens`、
+  Chat Completionsは`usage.prompt_tokens_details.cached_tokens`。
+  input/outputとreasoningの名前もそれぞれinput/outputとprompt/completionで異なる。
+  Chat Completionsのstreamingは`stream_options.include_usage: true`で最後のusage chunkを要求できる。
+  stream中断時はそのchunkを受け取れないことがある。
+  これらはOpenAIの仕様であり、同形式の互換providerすべてが同じ詳細項目を返すとは未確認。
+  provider別の実対応と保存・公開contractは採用時に確認する。
+- 関連: A3、A28、`v0/agent/provider/openai_responses_model.ts`、
+  [OpenAI Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)、
+  [Chat Completions公式仕様](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)。
 
 ## F24・自己改訂
 

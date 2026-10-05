@@ -83,9 +83,12 @@ pointer、承認境界だけを保持し、product構想、改善候補、計画
   指定範囲で実施する。
 - Test不足は、変更された具体的product動作が未確認であるsource-to-impactを示せる場合だけfindingにする。
   testがないこと自体、未観測variant、将来の仮想的failure、網羅matrix不足をfindingにしない。
-- Findingを採用するには、(1) 明示要件・実行証拠・公式契約の根拠、(2) current sourceから利用者影響までの
-  経路、(3) test追加だけではないproduct上のcorrectness問題、の三つを必要とする。一つでも欠ければ
+- 製品不具合のfindingを採用するには、(1) 明示要件・実行証拠・公式契約の根拠、
+  (2) current sourceから利用者影響までの経路、(3) test追加だけではないproduct上のcorrectness問題、
+  の三つを必要とする。一つでも欠ければ
   coordinating ownerは採用しない。
+- Test不足のfindingの採用は、上段の具体的な未確認product動作とsource-to-impactの条件で判断し、
+  製品不具合の存在を追加条件にしない。
 - Evidence gapという独立severityやclosure queueを使わない。必要な機能確認が不足している場合は、どの
   product動作が未確認かを通常のreview本文へ記録し、仮想的case追加で閉じない。
 
@@ -99,9 +102,12 @@ pointer、承認境界だけを保持し、product構想、改善候補、計画
 
 ## Surface change verification
 
-- TUI Surfaceの変更（通常利用メモのS項目等）は、focused test、type check、format、lintに加えて、tmux上の
-  production TUIで実経路を確認してから完了とする。offline testだけでは表示・操作の実経路を保証できず、
+- TUI Surfaceの変更（通常利用メモのS項目等）は、既定の確認手順としてfocused test、type check、format、
+  lintに加えて、tmux上のproduction TUIで実経路を確認してから完了とする。
+  offline testだけでは表示・操作の実経路を保証できず、
   過去にS関連の変更で複数の表示・操作bugを出している。
+- 利用者が表示・操作確認の省略や自分による確認などの代替を明示した場合は、該当範囲でその指示を優先する。
+  省略・代替内容と、確認済み事項・利用者による確認待ちを該当increment文書へ記録する。
 - tmux確認は隔離XDGで行い、実configへ`default-selection.json`等を書かない。確認した操作と観測は
   該当increment文書へ記録する。
 - 実provider callを伴う確認は、対象・回数・保存先を提示して利用者の明示承認を得てから行う。
