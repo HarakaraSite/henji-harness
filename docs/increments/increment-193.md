@@ -1,7 +1,8 @@
 # Increment 193 — Solarized Darkを活かすTUI配色
 
-状態: local実装・focused確認・独立review・production TUI確認済み（2026-10-05）。
-利用者のGhostty上での見た目確認・完了承認は未実施。commit・常用配置は承認済み、実施中。
+状態: local実装・focused確認・独立review・production TUI確認済み（2026-10-05）。 source
+commit・常用配置・配置後の隔離production TUI確認済み。
+利用者のGhostty上での見た目確認・完了承認は未実施。
 
 ## 利用者が必要とする動作と根拠
 
@@ -213,7 +214,37 @@ executionのsemantic events・request fact readbackを参照する。
 local実装・test・独立review・tmuxのproduction経路確認と、承認された最小実provider確認は実施した。
 SGRと操作の実証拠は得たが、利用者の実GhosttyのHEX・フォント・見やすさはまだ確認していない。
 利用者の通常利用による見た目確認と完了承認を残す。
-commit・常用配置は追加指示により承認された。配置結果を下段へ記録する。公開は実施しない。
+commit・常用配置は追加指示により実施した。配置結果は下段を参照する。公開は実施していない。
+
+## Commit・常用配置結果（2026-10-05）
+
+- 利用者の「確認しますコミット、配置して」に基づき、source commit
+  `b399f053d880b11d7da2062833976e4f9221b086`（`feat: simplify TUI colors with terminal palette`）を作成した。
+  source・test・193文書・handoffと、通常利用メモのS33採用pointerだけを含めた。
+  通常利用メモの既存S34変更と`191-result.json`は対象から外した。
+- このcommitから公式build scriptで0.9.0をbuildした。sourceDirty=false、 build
+  IDは`1ee429018800582dc04cb0609ce038dd797836bfb89832a9de33f170525af714`。 runtime
+  digestは`b5c38f672a1b49eb7308dc7698aab91ac0c8c09c57ee845f7269ff460efd1c46`で、
+  focused確認・独立review・compiled TUI／最小実provider確認済み候補と一致した。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic置換で配置した。
+  両配置先のversionとSHA-256がbuild出力に一致した。SHA-256は
+  `e97e5f7bd365ca4a04adf6c06f239047c49113b3984136c3e68a49f2d5b7d1d6`。
+  旧binaryはgit管理外の`.tools/increment-193/deployment/henji.dist.previous`と
+  `henji.local.previous`に保存した。
+- 常用binaryを隔離HOME/XDG/workspaceと専用tmux socket上で起動し、通常起動と明示的TUI起動、
+  配色・pending／settled・Markdown・フッター・入力・一覧／ヘルプ・履歴・resize・失敗表示を再確認した。
+  登録した外部searchを含むread・search・bashのtool付きturnはcompleted／canonical。
+  localhostのphysical requestは成功turnの2回と失敗色確認の意図的HTTP 400の1回で、
+  実providerへの追加requestは0回だった。実config・既存Core・既存Sessionは変更していない。
+- 補助artifact作成の`run_typescript`は一回exit 127で失敗したため、同じfile変換をPythonで行った。
+  原因は未確認で、この補助tool失敗を配色bugとは断定しない。製品sourceへの追加修正は行っていない。
+  その後、配置済みbinaryの上記production TUI確認は通過した。
+
+配置証拠はgit管理外の`.tools/increment-193/deployment/`に置く。
+`build.log`、`deployment.json`、`install.py`、`tmux.log`、`local-tmux-result.json`、
+`tmux_check.py`、各画面記録（通常／SGR付き）とsemantic readbackを参照する。
+push・公開/release・構想／architecture／roadmap変更は実施していない。
+利用者の「確認します」は確認予定の表明であり、見た目確認・完了承認済みとは扱わない。
 
 ## 採用前S33の原記録
 
