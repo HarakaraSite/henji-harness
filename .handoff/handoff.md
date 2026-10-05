@@ -5,17 +5,18 @@
 ## 現在地（2026-10-05）
 
 [Increment 191](../docs/increments/increment-191.md)は利用者による通常利用確認・完了承認済み。
-常用binaryは191の配置版（source commit `e53a2436`）。結果・配置・利用者確認は191を参照する。 JSR
+常用binaryは[0.9.0配置版](../docs/operations/native-0.9.0-deployment.md)（source commit
+`65c420ef`）。 191の機能・利用者確認は191を参照する。 JSR
 `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の確認済み。
 公開結果は[公開手順](../docs/operations/jsr-publish.md)を参照する。
 
 ## 次の一手と承認境界
 
-191と0.9.0のJSR公開作業は完了。次は利用者の新しい指示を待つ。
+191と0.9.0のJSR公開・常用binary配置は完了。次は利用者の新しい指示を待つ。
 191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
 architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。 今回のJSR公開と手順内のsource
-pushは承認済み。native binaryの追加公開は今回の対象外。
+pushは承認済み。後続指示でnative binaryのbuild・常用配置も承認済み。
 必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
