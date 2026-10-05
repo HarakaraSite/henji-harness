@@ -1,9 +1,9 @@
 # Increment 191 — 標準run_typescriptと実行時std import
 
-状態:
-local製品実装と追加承認scope（既存3件失敗・91停止修正、std限定import）、各スライス確認・review、
-compiled TUIと実provider総合E2Eを完了（2026-10-05）。全体gateは645 passed / 0 failedで通過。 source
-commit・常用配置・配置後確認も完了。正本変更案反映は未実施。
+状態: 完了（2026-10-05、利用者による通常利用確認・完了承認済み）。
+製品実装と追加承認scope（既存3件失敗・91停止修正、std限定import）、各スライス確認・review、 compiled
+TUIと実provider総合E2E、645 testの全体gate、source commit・常用配置・配置後確認を完了。
+正本変更案反映は未実施。
 本書は今回の要件・計画・結果の正本とする。採用前の観測は末尾へ移設し、実験の詳細はresearchを参照する。
 
 ## 利用者が必要とする動作
@@ -14,7 +14,8 @@ dataを処理して、必要な結果を返す。JSON/JSONL/CSVの集計・変�
 
 利用者は実AIがcodeを生成して実行できることと、stdを事前同梱せずimportできることをスパイクで確認した。
 当初は計画継続のみの指示だったが、その後スライスごとのlocal実装・テスト・レビューと実provider総合E2E、
-取消要件を維持する別process実行が明示承認された。常用配置は未承認。
+取消要件を維持する別process実行が明示承認された。その後source
+commit・常用配置も追加承認され、完了した。
 
 ## 会話で確定した要件
 
@@ -468,6 +469,16 @@ Core/TUIを隔離HOME/XDG/workspaceで確認する。実providerの追加呼出�
   `dist-runtime.json`、`state-check.json`と`tui-check/`の履歴・TUI capture・verification。
 
 配置と結果記録を完了した。正本patchは未適用のままで、公開/release・pushは行っていない。
+
+## 利用者確認・完了承認（2026-10-05）
+
+利用者は常用配置版の通常TUI（openai-chat / gpt-5.6-sol / none、Session表示350eddb0）で、
+run_typescript 1回による/tmpへのCSV保存・再読込み、jsr:@std/csvでの集計、workspaceへの結果保存・
+再読込み確認を指示した。利用者が示した表示ではtool成功と、りんご170・みかん80・合計250の回答が
+確認され、「思ったより動作早い」と報告された。速度の計測値としては扱わない。
+
+続く「インクリメントは完了とする」によりIncrement 191を利用者確認済みの完了とする。
+公開/release・push、構想・architecture・roadmap正本変更の追加承認は含まない。
 
 ## 採用前A23の原記録
 

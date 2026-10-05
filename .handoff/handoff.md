@@ -4,25 +4,12 @@
 
 ## 現在地（2026-10-05）
 
-A23を[Increment 191](../docs/increments/increment-191.md)の標準run_typescript計画へ採用した。
-実AI/compiled実行と未同梱stdの実行時importスパイク・計画の通常/批判的レビューは終了。
-承認済み別process方式のlocal実装、各スライス確認・review、compiled TUIと実provider総合E2Eを完了。
-追加承認scopeの既存3件失敗・91停止修正とstd限定importも完了。 全体gateは645 passed / 0
-failed。最終compiled TUI・実provider総合E2Eも通過。詳細は191の結果を参照する。
-codeはasync関数本文、workspaceと/tmpのread/write、生成code自身のnetwork許可を利用者が決定した。
-
-B11の[Increment 190](../docs/increments/increment-190.md)は利用者による確認・完了承認済み。
-実装・検証・常用配置・source commit済み。 source
-commitは`def02bb2`。配置結果はincrement文書を参照する。
-
-常用binaryは191の配置版。source commitは`e53a2436`。配置版のCore/TUIも隔離XDGで確認・終了済み。
-実config/DBは変更していない。配置結果は191を参照する。
+[Increment 191](../docs/increments/increment-191.md)は利用者による通常利用確認・完了承認済み。
+常用binaryは191の配置版（source commit `e53a2436`）。結果・配置・利用者確認は191を参照する。
 
 ## 次の一手と承認境界
 
-191の追加承認scopeと確認は完了。std以外のimportはtool側で拒否し、通常fetch/evalは維持する。
-191のcommit・常用配置は利用者の最新指示で承認済み。source commit・clean
-build・atomic配置・配置後確認を実行する。
+191の必須作業は完了。次の利用者指示を待つ。
 191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
 architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。公開/release・pushは未承認。
