@@ -99,8 +99,8 @@ provider確認・file変更を行っていない。詳細は`.tools/increment-19
 
 ### production TUI確認（隔離tmux、実providerなし）
 
-確認用binary（build ID `6cdb83f7efcc161cf3b80b84c5ecc7c31427d3d713e4873730854b93c6eeadb7`）を
-`.tools/increment-197/henji`へbuildし、193のlocal provider probeを踏襲した
+確認用binary（build ID `6cdb83f7efcc161cf3b80b84c5ecc7c31427d3d713e4873730854b93c6eeadb7`、
+commit前のcandidate）を`.tools/increment-197/henji`へbuildし、193のlocal provider probeを踏襲した
 `.tools/increment-197/tmux_check.py`で隔離HOME/XDG/workspace・専用tmux socketのproduction
 Core＋TUIを確認した。 実provider callは0（local providerのみ、物理request 3件はすべて127.0.0.1）。
 
@@ -120,7 +120,19 @@ raw provider request／responseやcredentialは収集していない。
 
 ### Commit・公式build・常用配置結果
 
-（配置後に記録する）
+- source commitは`83ece3cc5b7f6369c384cb4a21d88e41e4aa7167`
+  （`feat: render tool and thinking labels in green dim`）。変更source/testと197文書・handoffを含む。
+- このcommitから公式`henji:compile`で0.9.0をbuildし、`dist/henji`と
+  `/home/agent/.local/bin/henji`へatomic配置した。両配置先のversion・SHA-256が一致した。
+  build IDは`738f71de01b8c71d409f7b7c88a309a9e9d73485cef08646cd48e211471d5b2d`、
+  runtime digestは`6fef8dd6f6ccc63bfb9110795a21bcf49ba559ef6af8ecb37a828cb7cd09f251`、
+  binary SHA-256は`228d93c1840afde4a8ee4eacf71c9020570905ba928302495e6a073588590e58`。
+- 配置後、この常用binaryと同一bytesで上記隔離tmux probeを再実行し、passed=trueを確認した。
+  画面記録・result JSON（`local-tmux-result.json`）はこの再実行のものである。
+- `--version`・`--help`を確認済み。build log・旧binary（前配置の`henji.local.previous`）・
+  配置metadataは`.tools/increment-197/`へ保存した。前配置の`dist/henji`は公式buildで上書きされ、
+  同一の前配置binaryは`henji.local.previous`に残る。
+- 新しい起動から適用される。起動中の他Core/TUIの停止・再起動は行っていない。 実provider callは0。
 
 ## 利用者確認
 
