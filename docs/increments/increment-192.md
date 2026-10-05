@@ -141,7 +141,7 @@ fileのmodeと未保存Sessionを再開対象にしたprobe準備に起因し、
 probeを修正して再確認した。製品への追加修正は行っていない。
 
 local実装、計画上の確認、承認されたcommit・常用配置は完了した。
-実providerによる通常利用・利用者の完了承認は未実施である。
+配置時点では、利用者の通常利用による完了確認は未実施だった。
 
 ## Commit・常用配置結果（2026-10-05）
 
@@ -166,4 +166,13 @@ local実装、計画上の確認、承認されたcommit・常用配置は完了
 配置証拠はgit管理外の`.tools/increment-192/deployment/`に置く。
 `build.log`、`deployment.json`、`install.py`、`tmux-result.json`、`tmux_check.py`、
 `tui-provider-*.txt`、`tui-selected-*.txt`、`tui-local-chat-completed.txt`を参照する。
-利用者の通常利用による完了確認は残る。push・公開/release・正本変更案の適用は実施していない。
+push・公開/release・正本変更案の適用は実施していない。
+
+## 利用者確認・完了（2026-10-05）
+
+配置後、利用者から「確認した完了とします　その後セッションを終了します」との確認・完了承認を受けた。
+Increment 192は完了とする。具体的な操作やprovider requestの内容は追加報告されていないため、
+この確認を新しい実行証拠やrequest集計には置き換えない。
+
+次incrementは未採用。セッション終了後の再開入口は`.handoff/handoff.md`に残す。
+architecture・roadmapの正本変更案は未適用のまま、別承認対象である。
