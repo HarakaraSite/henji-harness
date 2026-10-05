@@ -140,4 +140,30 @@ push、JSR公開/release、architecture・roadmap正本反映はこの指示に�
 fileのmodeと未保存Sessionを再開対象にしたprobe準備に起因し、
 probeを修正して再確認した。製品への追加修正は行っていない。
 
-local実装と計画上の確認は完了した。常用配置・実providerによる通常利用・利用者の完了承認は未実施である。
+local実装、計画上の確認、承認されたcommit・常用配置は完了した。
+実providerによる通常利用・利用者の完了承認は未実施である。
+
+## Commit・常用配置結果（2026-10-05）
+
+- source
+  commitは`4312d81e9d2baa9d85e782bf9f9c47428058ee97`（`feat: retire bundled openai-chat route`）。
+  並行更新された通常利用メモと`191-result.json`は対象から外した。
+- このcommitから公式build scriptで0.9.0 binaryをbuildした。sourceDirty=false、 build
+  IDは`4a26f33854b56a5a224250f1ebd9eff06dfb013b4635ef0812b23014bb4e9de1`、runtime digestは
+  `879d860b9c89bed229f1b212eed41456e9ba586aed500dd595bebc41b40ff88e`である。 runtime
+  digestはgate・compiled TUI確認済みのlocal candidateと一致した。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic置換で配置した。両配置先のversionと
+  SHA-256がbuild出力と一致した。SHA-256は
+  `b70050a5844e8acebf4bb0da047f49d5478045c35e55427d7cc20d6785e330a1`である。
+  旧binaryは`.tools/increment-192/deployment/henji.dist.previous`と
+  `henji.local.previous`へ保存した。
+- 常用binaryを隔離HOME/XDG/workspaceで起動し、tmux TUIの`/provider`一覧、ChatGPT・Responses・
+  外部local Chatの選択とAPI readback、`read` tool付きturnのcompleted/canonical採用を再確認した。
+  localhostのphysical requestは2回、実provider requestは0回だった。
+  旧default・保存Sessionの参照、旧同梱CLI routeの不成立、明示した同名外部providerの選択も確認した。
+  実config・既存Coreは変更していない。新binaryは新たに起動するCoreから使われる。
+
+配置証拠はgit管理外の`.tools/increment-192/deployment/`に置く。
+`build.log`、`deployment.json`、`install.py`、`tmux-result.json`、`tmux_check.py`、
+`tui-provider-*.txt`、`tui-selected-*.txt`、`tui-local-chat-completed.txt`を参照する。
+利用者の通常利用による完了確認は残る。push・公開/release・正本変更案の適用は実施していない。

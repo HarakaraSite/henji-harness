@@ -6,19 +6,20 @@
 
 [Increment 192](../docs/increments/increment-192.md)として`openai-chat`同梱routeの完全廃止を採用した。
 local実装、644 testのgate、compiled production TUIと外部Chat Completionsのlocal tool往復を確認済み。
-常用配置・利用者の通常利用による完了確認は未実施。
+source commit `4312d81e`から常用配置済み。配置binaryの隔離production TUIも確認済み。
+利用者の通常利用による完了確認は未実施。
 
 [Increment 191](../docs/increments/increment-191.md)は利用者による通常利用確認・完了承認済み。
-常用binaryは[0.9.0配置版](../docs/operations/native-0.9.0-deployment.md)（source commit
-`65c420ef`）。 191の機能・利用者確認は191を参照する。 JSR
-`@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の確認済み。
+常用binaryは192のsource commit `4312d81e`からbuildした0.9.0。
+前回の[0.9.0配置記録](../docs/operations/native-0.9.0-deployment.md)と191の機能・利用者確認は191を参照する。
+JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の確認済み。
 公開結果は[公開手順](../docs/operations/jsr-publish.md)を参照する。
 
 ## 次の一手と承認境界
 
-192のlocal実装・検証は完了。利用者の追加指示によりsource commitと常用配置を実施する。
-次は配置後の隔離production TUI確認と、利用者の通常利用確認。 後方互換は要求せず、共有Chat
-Completions adapterを残した。 192の追加指示はarchitecture/roadmap正本変更、push、公開/release、
+192のlocal実装・検証・source commit・常用配置・配置後の隔離production TUI確認は完了。
+次は利用者の通常利用確認。 後方互換は要求せず、共有Chat Completions adapterを残した。
+192の追加指示はarchitecture/roadmap正本変更、push、公開/release、
 旧実データの削除・移行の承認を含まない。実provider callを計画上の必須確認にしない。
 191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
@@ -31,7 +32,7 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 
 - [Increment 192](../docs/increments/increment-192.md):
   `openai-chat`廃止の採用要件、実行記録・公式契約、 現行利用経路、実装・gate・compiled
-  TUI確認結果、承認境界。
+  TUI確認・commit・常用配置結果、承認境界。
   [正本変更案](../docs/increments/increment-192-authority-proposal.patch)は未適用。
 
 - [Increment 191](../docs/increments/increment-191.md): A23の要件、各スライスの実装・確認結果、645
