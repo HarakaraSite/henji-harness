@@ -43,7 +43,7 @@ export const DIM_SGR = '\x1b[2m';
 export const CYAN_SGR = '\x1b[36m';
 export const BLUE_SGR = '\x1b[34m';
 export const YELLOW_SGR = '\x1b[33m';
-export const VIOLET_SGR = '\x1b[95m';
+export const GREEN_DIM_SGR = '\x1b[32;2m';
 export const RED_SGR = '\x1b[31m';
 export const USER_TEXT_SGR = '\x1b[39m';
 // Standard 256-color gray 237 is #3a3a3a; label accents use the terminal's ANSI palette.

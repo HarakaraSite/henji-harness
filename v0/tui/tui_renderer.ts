@@ -18,6 +18,7 @@ import {
   DEFAULT_CURSOR_STYLE,
   DIM_SGR,
   ERASE_LINE,
+  GREEN_DIM_SGR,
   HEADING_SGR,
   RED_SGR,
   RESET_SCROLL_REGION,
@@ -29,7 +30,6 @@ import {
   type TerminalRendererGate,
   USER_ROW_BG_SGR,
   USER_TEXT_SGR,
-  VIOLET_SGR,
   YELLOW_SGR,
 } from './terminal.ts';
 import type { EditorSnapshot } from './input.ts';
@@ -78,8 +78,8 @@ export interface TuiRendererOptions {
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
   user: YELLOW_SGR,
   assistant: YELLOW_SGR,
-  thinking: DIM_SGR,
-  tool: VIOLET_SGR,
+  thinking: GREEN_DIM_SGR,
+  tool: GREEN_DIM_SGR,
   system: '',
   failure: RED_SGR,
 };

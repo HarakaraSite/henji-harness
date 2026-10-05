@@ -4,6 +4,11 @@
 
 ## 現在地（2026-10-05）
 
+[Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
+tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした。local実装・focused確認70件pass・
+独立review（findingなし）・隔離compiled production TUI確認（実provider 0）・source commit・
+公式build・常用配置を完了した。利用者のGhosttyでの見た目確認が残る。
+
 [Increment 196](../docs/increments/increment-196.md)はA28の最新request・request件数のmetadata読取を
 採用し、local修正・focused確認・実DBコピー比較・compiled production Core／TUI確認済み。
 通常・批判的reviewでも未解消findingはない。194・195と合同でsource commit・公式build・常用配置済み。
@@ -36,17 +41,19 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
+次は197の利用者によるGhosttyでの見た目確認・完了承認。
+表示で調整が必要なら対象と希望色を追加指定してほしい。 新しい実provider callは行っていない。
+197のpush、公開/release、構想・architecture・roadmap変更は未承認。
+193の追加指定の配色は197の追加調整で現行配色が上書きされた。 193としての見た目確認・完了承認は
+記録上残るが、確認対象は197の現行配色である。S33は193へ採用・移設した。 その他の未採用候補は
+通常利用メモを参照する。
+
 194・195・196のlocal修正・非破壊的検証、source commit・常用配置は承認済みで完了した。
 push、公開、新しい実provider call、構想・architecture・roadmap変更は未承認。
 A28のCore全体等の追加調査候補は通常利用メモに残る。
 195後のmetadata読取候補は196へ採用・移設した。native内訳などの追加候補は未採用である。
 類似問題reviewで見つかったcontext読取・終了後artifact更新等の別経路は、通常利用メモA28の未採用候補を参照する。
 
-次は193の利用者による見た目確認・完了承認。
-利用者は今回の隔離TUI・配置時の表示確認を省略し、自分で確認すると明示した。 新しい実provider
-callは行わない。配置後は利用者のGhostty上での見た目確認・完了承認を待つ。
-193のpush、公開/release、構想・architecture・roadmap変更は未承認。
-S33は193へ採用・移設した。その他の未採用候補は通常利用メモを参照する。
 192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 192の追加指示はarchitecture/roadmap正本変更、push、公開/release、
 旧実データの削除・移行の承認を含まない。実provider callを計画上の必須確認にしない。
@@ -58,6 +65,10 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 197](../docs/increments/increment-197.md):
+  tool名とthinking系ラベルの緑dimの採用要件・解釈、実装・focused確認・独立review、
+  隔離production TUI確認の結果、commit・build・常用配置記録、承認境界。
 
 - [Increment 196](../docs/increments/increment-196.md):
   最新request・request件数の採用要件、必要な記録だけの読取、focused確認、実DBコピーの一致と compiled
