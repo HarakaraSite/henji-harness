@@ -7,7 +7,7 @@
 [Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
 tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした。local実装・focused確認70件pass・
 独立review（findingなし）・隔離compiled production TUI確認（実provider 0）・source commit・
-公式build・常用配置を完了した。利用者のGhosttyでの見た目確認が残る。
+公式build・常用配置を完了し、利用者によるGhosttyでの見た目確認・完了承認を取得した。完了。
 
 [Increment 196](../docs/increments/increment-196.md)はA28の最新request・request件数のmetadata読取を
 採用し、local修正・focused確認・実DBコピー比較・compiled production Core／TUI確認済み。
@@ -41,12 +41,11 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
-次は197の利用者によるGhosttyでの見た目確認・完了承認。
-表示で調整が必要なら対象と希望色を追加指定してほしい。 新しい実provider callは行っていない。
-197のpush、公開/release、構想・architecture・roadmap変更は未承認。
-193の追加指定の配色は197の追加調整で現行配色が上書きされた。 193としての見た目確認・完了承認は
-記録上残るが、確認対象は197の現行配色である。S33は193へ採用・移設した。 その他の未採用候補は
-通常利用メモを参照する。
+197は利用者による見た目確認・完了承認済みで完了した。 色調整のpendingなし。
+193の追加指定の配色は197の追加調整で現行配色が上書きされ、193以来の見た目確認も197の
+現行表示に対する利用者確認で確認済みの扱い。S33は193へ採用・移設した。
+その他の未採用候補は通常利用メモを参照する。
+push、公開/release、構想・architecture・roadmap変更、新しい実provider callは未承認のまま。
 
 194・195・196のlocal修正・非破壊的検証、source commit・常用配置は承認済みで完了した。
 push、公開、新しい実provider call、構想・architecture・roadmap変更は未承認。

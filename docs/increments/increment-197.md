@@ -1,6 +1,7 @@
 # Increment 197 — tool名とthinking系ラベルの緑dim
 
-状態: 実装・focused確認・独立review・隔離production TUI確認・source commit・公式build・常用配置済み（2026-10-05）。利用者のGhosttyでの見た目確認が残る。
+状態: 完了（2026-10-05）。実装・focused確認・独立review・隔離production TUI確認・source commit・
+公式build・常用配置に加え、利用者によるGhosttyでの見た目確認・完了承認を取得した。
 
 ## 利用者が必要とする動作と根拠
 
@@ -136,4 +137,6 @@ raw provider request／responseやcredentialは収集していない。
 
 ## 利用者確認
 
-利用者のGhosttyでの見た目確認が残る。 見た目で調整が必要なら対象と希望を指定してほしい。
+利用者がGhostty上の表示（197反映後の現行配色）を見た目確認し、「完了とします」と完了承認した
+（2026-10-05）。 これにより197の確認・承認境界は解消した。 193以来の配色調整で残っていた
+見た目確認も、現行表示に対するこの確認をもって確認済みの扱いとなる。
