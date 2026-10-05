@@ -13,7 +13,6 @@ export type ProviderId = string;
 export const BUILTIN_PROVIDER_IDS: readonly string[] = Object.freeze([
   'openrouter-chat',
   'openrouter-responses',
-  'openai-chat',
   'openai-responses',
   'openai-chatgpt',
 ]);
@@ -134,10 +133,6 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
   if (selection.provider === 'openrouter-responses') {
     return selection.api === 'openrouter-responses' &&
       selection.authProfile === 'openrouter-api-key';
-  }
-  if (selection.provider === 'openai-chat') {
-    return selection.api === 'openai-chat-completions' &&
-      selection.authProfile === 'openai-api-key';
   }
   if (selection.provider === 'openai-responses') {
     return selection.api === 'openai-responses' &&

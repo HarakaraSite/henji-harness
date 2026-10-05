@@ -139,7 +139,7 @@ Deno.test('Increment 135 enumerates effective declarations and groups shared pro
         },
         {
           authProfile: 'openai-api-key',
-          providers: ['openai-chat', 'openai-responses'],
+          providers: ['openai-responses'],
         },
         {
           authProfile: 'openai-chatgpt',

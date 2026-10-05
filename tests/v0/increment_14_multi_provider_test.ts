@@ -494,65 +494,36 @@ Deno.test('Responses API requests summaries while preserving explicit and provid
   assertEquals(highBody.reasoning, { summary: 'auto', effort: 'high' });
 });
 
-Deno.test('Increment 68 aligns provider ids and routes openai-chat', async () => {
-  for (
-    const id of [
-      'openrouter-chat',
-      'openrouter-responses',
-      'openai-chat',
-      'openai-responses',
-    ]
-  ) {
-    assert(providerIdsForSelection().includes(id));
+Deno.test('Increment 192 removes the bundled openai-chat route from selection and CLI', () => {
+  assertEquals(providerIdsForSelection(), [
+    'openrouter-chat',
+    'openrouter-responses',
+    'openai-responses',
+    'openai-chatgpt',
+  ]);
+  assert(isModelSelection(defaultModelSelectionFor('openai-responses')));
+  assert(isModelSelection(defaultModelSelectionFor('openai-chatgpt')));
+  assertEquals(
+    parseTuiInvocation(['--root-provider', 'openai-responses']).rootProvider,
+    'openai-responses',
+  );
+  let removedRouteError: unknown;
+  try {
+    parseTuiInvocation(['--root-provider', 'openai-chat']);
+  } catch (error) {
+    removedRouteError = error;
   }
-  assert(isModelSelection(defaultModelSelectionFor('openai-chat')));
+  assert(removedRouteError instanceof Error);
+  assertEquals(removedRouteError.message, '--root-provider must name a configured provider');
   assert(
     !isModelSelection({
-      provider: 'openai',
-      api: 'openai-responses',
+      provider: 'openai-chat',
+      api: 'openai-chat-completions',
       authProfile: 'openai-api-key',
       modelId: 'gpt-5.6-sol',
-      effort: 'medium',
+      effort: 'none',
     }),
   );
-  assert(
-    !isModelSelection({
-      provider: 'openrouter',
-      api: 'openrouter-chat-completions',
-      authProfile: 'openrouter-api-key',
-      modelId: 'deepseek/deepseek-v4.1-flash',
-      effort: 'high',
-    }),
-  );
-
-  const seen: { url?: string; authorization?: string } = {};
-  const fetcher: typeof fetch = (input, init) => {
-    const requestValue = input instanceof Request ? input : new Request(input, init);
-    seen.url = requestValue.url;
-    seen.authorization = requestValue.headers.get('authorization') ?? undefined;
-    return Promise.resolve(
-      new Response(openRouterCompletedStream('hello'), {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }),
-    );
-  };
-  const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: {
-      'openai-api-key': () => Promise.resolve('openai-secret'),
-    },
-    fetcher,
-    providerDeclarations: builtinProviderDeclarations(),
-  });
-  const result = await physical.createModel(
-    'parent',
-    selectModelFor('openai-chat', 'gpt-5.6-sol', 'medium'),
-  ).generate(request);
-  assertEquals(result.kind, 'final');
-  if (result.kind !== 'final') throw new Error('expected final');
-  assertEquals(result.text, 'hello');
-  assertEquals(seen.url, 'https://api.openai.com/v1/chat/completions');
-  assertEquals(seen.authorization, 'Bearer openai-secret');
 });
 
 const declarationBody = (providerId: string): Record<string, unknown> => ({
@@ -585,7 +556,6 @@ const declarationCodeOf = (run: () => unknown): string => {
 Deno.test('Increment 59 provider declarations validate, load, and merge over built-ins', async () => {
   const builtins = builtinProviderDeclarations();
   assertEquals(builtins.map((declaration) => declaration.providerId).sort(), [
-    'openai-chat',
     'openai-chatgpt',
     'openai-responses',
     'openrouter-chat',

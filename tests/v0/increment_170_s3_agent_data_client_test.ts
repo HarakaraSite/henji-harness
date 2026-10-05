@@ -166,7 +166,7 @@ self.onmessage = async (event) => {
     ...ready,
     manifest: {
       ...ready.manifest!,
-      profileId: 'openai-chat:test-profile',
+      profileId: 'local-chat:test-profile',
       rootModel: {
         provider: 'openai-responses',
         api: 'openai-responses',

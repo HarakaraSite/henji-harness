@@ -800,7 +800,6 @@ export class LiveModelCatalog {
       return declaration.modelsDevProviderId;
     }
     if (
-      declaration.providerId === 'openai-chat' ||
       declaration.providerId === 'openai-responses' ||
       declaration.providerId === 'openai-chatgpt'
     ) {
@@ -962,11 +961,7 @@ export class LiveModelCatalog {
     const orderedModels = declaration.providerId === 'openai-chatgpt'
       ? snapshot.models
       : sortedModels(snapshot.models, favorites);
-    // B11: use Responses for gpt-6.1-sol; Chat Completions rejects effort with function tools.
-    const selectableModels = orderedModels.filter((model) =>
-      declaration.providerId !== 'openai-chat' || model.modelId !== 'gpt-6.1-sol'
-    );
-    const models = selectableModels.map((model) => {
+    const models = orderedModels.map((model) => {
       const fixed = declaration.modelCatalog.entries.find((entry) =>
         entry.modelId === model.modelId
       );

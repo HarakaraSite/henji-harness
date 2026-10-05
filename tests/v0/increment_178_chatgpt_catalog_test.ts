@@ -72,6 +72,19 @@ Deno.test('Increment 178 HTTP selects pinned ChatGPT models with official effort
       'gpt-6-luna',
     ]);
     const sessionId = core.coreRead().activeSessionId!;
+    const apiKeySelection = {
+      provider: 'openai-responses',
+      modelId: 'gpt-5.6-sol',
+      effort: 'high',
+    };
+    strictEqual(
+      (await client.selectionChange(sessionId, {
+        commandId: crypto.randomUUID(),
+        selection: apiKeySelection,
+      })).kind,
+      'accepted',
+    );
+    deepStrictEqual((await client.sessionRead(sessionId)).session.selection, apiKeySelection);
     for (
       const [modelId, efforts] of [
         ['gpt-6.1-sol', ['auto', 'low', 'medium', 'high', 'xhigh', 'max']],

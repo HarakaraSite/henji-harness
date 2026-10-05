@@ -119,9 +119,8 @@ printf 'Explain the structure of this workspace\n' | /path/to/henji-harness/dist
 
 Switch provider with `/provider`, model with `/model`, and reasoning effort with `/effort`. To use
 OpenAI direct, save the key as `openai-api-key` in the same config directory, and start with
-`henji --root-provider openai-responses` for the Responses API or
-`henji --root-provider openai-chat` for Chat Completions. Register ChatGPT with `/login` sign-in and
-select `openai-chatgpt`. For OpenRouter you can choose the default `openrouter-chat` or
+`henji --root-provider openai-responses` for the Responses API. Register ChatGPT with `/login`
+sign-in and select `openai-chatgpt`. For OpenRouter you can choose the default `openrouter-chat` or
 `openrouter-responses`, which uses the same `openrouter-api-key`. Data-only declarations in
 `providers/*.json` let you add other provider IDs that speak a supported protocol.
 

@@ -84,6 +84,12 @@ childDataTest(
       ],
     );
 
+    const spawnDefinition = registry.definitions().find((tool) => tool.name === 'spawn_subagent')!;
+    const description = JSON.stringify(spawnDefinition.inputSchema);
+    assert(description.includes(
+      'Available provider routes: openrouter-chat, openrouter-responses, openai-responses, openai-chatgpt.',
+    ));
+
     const spawned = await registry.dispatch(
       {
         callId: 'spawn-call-1',
