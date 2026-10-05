@@ -26,8 +26,8 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 承認済みで実施した。配置後は隔離XDGのproduction TUIとlocal providerで再確認済み。
 初版配置後の実providerへの追加呼び出しは行っていない。
 最新の配色再調整はlocal修正・検証だけが承認対象で、commit・常用配置は別指示を受ける。
-追加差分reviewと隔離production TUI確認は完了した。次は利用者の見た目の再確認。
-常用binaryで確認するには、再調整のcommit・build・配置について別指示を受ける。
+追加差分review・隔離production TUI確認・commit・build・常用配置は完了した。
+次は利用者のGhostty上での見た目の再確認・完了承認。
 193のpush、公開/release、構想・architecture・roadmap変更は未承認。
 S33は193へ採用・移設した。その他の未採用候補は通常利用メモを参照する。
 192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。

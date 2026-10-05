@@ -342,12 +342,34 @@ thinkingのdimも端末のfaint表示設定に従う。
   readbackを
   `.tools/increment-193/recolor/`へ保存した。raw通信やcredential値・Authorizationは記録していない。
 
-実装・focused確認・追加差分review・production TUI確認は済んだが、利用者のGhostty上での識別性・
-背景帯の実色・dimの見え方の再確認と完了承認は残る。
+### Commit・常用配置結果（2026-10-05）
 
-今回の指示はlocal修正と検証の承認であり、追加修正のcommit・常用配置・push・公開は未承認。
-初版の配置を許可した指示を、この追加修正の配置認可へ拡張しない。
-常用binaryは初版`b399f053`のまま。構想・architecture・roadmap、実config・既存Sessionは変更しない。
+- 続く「コミットして配置して」により、追加修正のsource commit・公式build・常用配置を承認された。
+  source
+  commitは`9a042fa0345adee37d9e3ace29b651317cfd7a67`（`feat: refine TUI palette for clearer roles`）。
+  source・test・193文書・handoffだけを含め、無関係な通常利用メモのS34変更と`191-result.json`は対象外とした。
+- このcommitから公式build scriptで0.9.0をbuildした。sourceDirty=false、 build
+  IDは`005fec68dd8c5da48c48b954a1e2731c21f150364817b363a42c03e80d11ae81`。 runtime
+  digestは`8302d1ba9129eb83d35524155b73d71f207c0f2dfe44e17f1d4c2d06a0813bb7`で、
+  focused確認・追加差分review・compiled TUI確認済みの再配色candidateと一致した。
+  初回の配置scriptはaccepted runtimeの参照先を初版candidateに誤認して停止し、
+  再配色candidateを指すよう修正して再実行した。検証済みcandidateの照合はこの修正でも成立している。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic置換で配置した。
+  両配置先のversionとSHA-256がbuild出力に一致した。SHA-256は
+  `1a24e6294f3590bd5ecba756c3b868a647d10f6d8007aff70f3a85cf35daa105`。
+  旧binaryは`.tools/increment-193/recolor/deployment/henji.dist.previous`と
+  `henji.local.previous`に保存した。
+- 常用binaryを隔離HOME/XDG/workspaceと専用tmux
+  socket上で起動し、再配色の全配色・操作表示を再確認した。
+  登録したread・search・bashのtool付きturnはcompleted／canonical（`b0dff1b1…`）、
+  失敗色確認は意図的HTTP 400でfailed／non_canonical（`740c1ee9…`）。 localhostのphysical
+  requestは成功turnの2回と失敗色確認の1回、実providerの追加callは0回だった。
+
+配置証拠は`.tools/increment-193/recolor/deployment/`に置く。
+`build.log`、`deployment.json`、`install.py`、`tmux.log`、`local-tmux-result.json`、
+`tmux_check.py`と画面記録（通常／SGR付き）を参照する。
+push・公開/release・構想／architecture／roadmap変更は実施していない。
+利用者のGhostty上での識別性・背景帯の実色・dimの見え方の再確認と完了承認は残る。
 
 ## 採用前S33の原記録
 
