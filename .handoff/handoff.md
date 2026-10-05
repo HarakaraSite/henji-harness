@@ -6,21 +6,23 @@
 
 [Increment 196](../docs/increments/increment-196.md)はA28の最新request・request件数のmetadata読取を
 採用し、local修正・focused確認・実DBコピー比較・compiled production Core／TUI確認済み。
-通常・批判的reviewでも未解消findingはない。結果と証拠は196を参照する。常用配置は未実施。
+通常・批判的reviewでも未解消findingはない。194・195と合同でsource commit・公式build・常用配置済み。
+常用binaryのsourceは`da251e56`。配置後の隔離Core／TUI起動・終了も確認済み。結果と証拠は196を参照する。
 
 [Increment 195](../docs/increments/increment-195.md)はA28のCore保存会話復元の一括本文保持を採用し、
 local修正・focused確認・実DBコピー比較・compiled production Core／TUI確認済み。
 通常・批判的reviewでも未解消findingはない。
-復元単体のピークは減ったがCore全体の常駐PSSに残る課題はA28へ残した。
-結果と証拠は195を参照する。常用配置は未実施。
+復元単体のピークは減ったがCore全体の常駐PSSに残る課題はA28へ残した。 196との合同source
+commit・常用配置済み。結果と証拠は195・196を参照する。
 
 [Increment 194](../docs/increments/increment-194.md)はA28のTUI待機loopの保持問題を採用し、
 local修正・focused確認・compiled production TUI確認済み。結果と証拠は194を参照する。
-常用配置は未実施で、常用binaryは193のsource commit `fa258148`のまま。
+196との合同source
+commit・常用配置済み。新しい起動から適用される。既存の実Core／TUIは再起動していない。
 
 [Increment 193](../docs/increments/increment-193.md)の追加指定の配色はCodexへの引継ぎを完了した。
-local実装・focused確認・独立review・source commit・公式build・常用配置済み。 常用binaryのsource
-commitは`fa258148`。新しい起動から適用される。
+local実装・focused確認・独立review・source commit・公式build・常用配置済み。193配置時のsource
+commitは`fa258148`。現在の常用binaryは194・195・196の合同配置を含む`da251e56`。
 詳細は193の「追加指定の配色・引継ぎ結果」を参照する。利用者の見た目確認・完了承認は残る。
 
 [Increment 192](../docs/increments/increment-192.md)は利用者による確認・完了承認済み。
@@ -34,8 +36,9 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
-194・195・196のlocal修正・非破壊的検証は承認済みで完了した。 常用配置、commit/push、公開、実provider
-call、構想・architecture・roadmap変更は未承認。 A28のCore全体等の追加調査候補は通常利用メモに残る。
+194・195・196のlocal修正・非破壊的検証、source commit・常用配置は承認済みで完了した。
+push、公開、新しい実provider call、構想・architecture・roadmap変更は未承認。
+A28のCore全体等の追加調査候補は通常利用メモに残る。
 195後のmetadata読取候補は196へ採用・移設した。native内訳などの追加候補は未採用である。
 類似問題reviewで見つかったcontext読取・終了後artifact更新等の別経路は、通常利用メモA28の未採用候補を参照する。
 

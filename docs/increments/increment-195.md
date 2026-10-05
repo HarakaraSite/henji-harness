@@ -1,7 +1,7 @@
 # Increment 195 — Coreの保存会話復元で累積本文を一括保持しない
 
 状態: local実装・focused確認・実DBコピー比較・compiled production Core／TUI確認済み（2026-10-05）。
-常用配置は未実施。
+通常・批判的review、source commit・常用配置も完了した。
 
 ## 必要な動作と採用根拠
 
@@ -128,8 +128,8 @@ A28の残る調査候補として扱う。今回の修正範囲を追加のcache
 確認準備ではprobeの相対importと新testのiterator型・admission eventを含む序数期待値を修正した。
 これらに合わせたproductの仕様変更は行っていない。
 
-local修正と上記検証は完了した。Core全体の常駐メモリに残る課題はA28へ残した。
-常用配置・commit/push・公開は未実施。
+local修正と上記検証は完了した。Core全体の常駐メモリに残る課題はA28へ残した。 source
+commit・常用配置は後述の追加指示により完了した。push・公開は未実施。
 
 ## 通常・批判的review（2026-10-05）
 
@@ -152,3 +152,11 @@ fileと合成diffで、両者ともhash一致を確認した。
 
 reviewの固定diff・manifestと結果はgit管理外の`.tools/review-195-196/`に保存した。
 reviewに伴うproduct source／testの変更はない。
+
+## Commit・常用配置（2026-10-05）
+
+利用者の「コミット配置して」により、194・195・196をsource commit
+`da251e56c52eada6d521e1960a973eba2fdc8703`へまとめ、公式buildと常用配置を完了した。
+配置先のversion・SHA一致と隔離production Core／TUIの起動・終了を確認した。
+詳細は[196の合同配置記録](increment-196.md)を参照する。
+新しい起動から適用される。稼働中の実Core／TUIは停止・再起動していない。

@@ -1,7 +1,7 @@
 # Increment 196 — Session metadata取得で不要な履歴本文を展開しない
 
 状態: local実装・focused確認・実DBコピー比較・compiled production Core／TUI確認済み（2026-10-05）。
-常用配置は未実施。
+通常・批判的review、source commit・常用配置も完了した。
 
 ## 必要な動作と採用根拠
 
@@ -133,7 +133,8 @@ MiBの常駐量は残り、native memory全体の内訳などの追加候補はA
 新testの準備では初期Session recordの取得を実在する`admissionSessionRecord`へ修正した。
 product側の仕様変更は行っていない。
 
-local修正と上記検証は完了した。常用binaryは変更していない。 常用配置・commit/push・公開は未実施。
+local修正と上記検証は完了した。source commit・常用配置は後述の追加指示により完了した。
+push・公開は未実施。
 
 ## 通常・批判的review（2026-10-05）
 
@@ -150,3 +151,30 @@ ownerも今回の範囲に未解消findingなしと判断した。
 TUI、メモリ測定は既存記録を参照し、reviewerによる独立再実行はしていない。 full gate、外部provider
 call、稼働Core・実DB操作は行っていない。
 結果はgit管理外の`.tools/review-195-196/`に保存した。reviewに伴うproduct source／testの変更はない。
+
+## 194・195・196のCommit・常用配置（2026-10-05）
+
+利用者の「コミット配置して」により、194・195・196のsource commit・公式build・常用配置を承認された。
+
+- source commit: `da251e56c52eada6d521e1960a973eba2fdc8703`
+  （`fix: reduce TUI and saved-session memory allocations`）。コード、test、increment文書、
+  A28の追加候補とhandoffを含む。追加候補のproduct修正は行っていない。
+- 公式`henji:compile`で0.9.0をbuildした。sourceDirty=false、build IDは
+  `b101817e6860896a429a3b00d5c61eb699a60c98eebcec2615886848bb435345`。 runtime
+  digestは`c4e99fca8ac8651c1386a24db2267bdf6a9768cd26a1501537c3d409960e58f2`で、
+  focused確認・review・実DBコピー比較・compiled Core／TUI確認済み候補と一致した。
+  195・196のreview対象10 fileのhashも固定manifestと一致した。コード変更がないため、 focused
+  testやメモリ比較を繰り返さず、計画どおりfull gateは行っていない。
+- candidateの`--version`・`--help`を確認し、`dist/henji`と
+  `/home/agent/.local/bin/henji`へatomic配置した。両配置先のversionとbinary SHA-256は一致した。
+  SHA-256は`7ffa717ecba5dbbd91db9c6bc83fdf736aac48faf21596875e6a0b14d6be6a48`。
+  旧binaryは`.tools/increment-196/deployment/henji.dist.previous`と`henji.local.previous`へ退避した。
+- 配置先binaryで隔離HOME／XDG／workspace、外部DenoのないPATHと専用tmux socketを使い、 production
+  Core／TUIを起動した。Core APIから0.9.0・source commit・clean buildを確認し、
+  TUIのready表示とCtrl-Q終了、Coreのexit 0を確認した。task送信・実provider requestは0回。
+- 配置は完了した。稼働中の実Core／TUI、実Session、実configは操作していない。
+  新しい起動から適用される。push、公開、構想・architecture・roadmap変更は行っていない。
+
+配置証拠はgit管理外の`.tools/increment-196/deployment/`の`build.log`、`deployment.json`、
+`install.py`、`startup-check.py`、`startup-verification.json`、`startup-core.json`、
+`startup-tui.txt`に保存した。

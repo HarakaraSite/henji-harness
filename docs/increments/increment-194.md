@@ -1,6 +1,7 @@
 # Increment 194 — TUI待機ループの古いフレーム保持を解消する
 
-状態: local実装・focused確認・compiled production TUI確認済み（2026-10-05）。常用配置は未実施。
+状態: local実装・focused確認・compiled production TUI確認・source
+commit・常用配置済み（2026-10-05）。
 
 ## 必要な動作と採用根拠
 
@@ -95,6 +96,14 @@ writer、保存履歴、会話entity、表示Map、rendererの責務は今回変
 最初のprobe準備ではSSE endpoint／delta形式と終了後controller操作、tmux側の完了判定を修正した。
 いずれも確認codeの誤りであり、productのcontractや動作は変更していない。
 
-local修正と上記検証は完了した。常用配置・commit/push・公開は未実施。
-構想・architecture・roadmapと実Sessionの内容は変更していない。
+local修正と上記検証は完了した。source commit・常用配置は後述の追加指示により完了した。
+push・公開は未実施。 構想・architecture・roadmapと実Sessionの内容は変更していない。
 Core側等の追加調査は通常利用メモA28に残る。
+
+## Commit・常用配置（2026-10-05）
+
+利用者の「コミット配置して」により、194・195・196をsource commit
+`da251e56c52eada6d521e1960a973eba2fdc8703`へまとめ、公式buildと常用配置を完了した。
+配置先のversion・SHA一致と隔離production Core／TUIの起動・終了を確認した。
+詳細は[196の合同配置記録](increment-196.md)を参照する。
+新しい起動から適用される。稼働中の実Core／TUIは停止・再起動していない。
