@@ -22,6 +22,7 @@ import type {
 import { movePresentationPickerSelection } from '../presentation/contract.ts';
 import { reduceSessionStreamFrame, type SessionClientState } from '../api/reducer.ts';
 import { InputDecoder, type InputEvent, TuiEditor, TuiEditorHistory } from './input.ts';
+import { TuiEventQueue } from './event_queue.ts';
 import { TuiRenderer } from './render.ts';
 import { RemoteCatalogUi } from './remote_catalog_ui.ts';
 import { RemoteSystemNotices } from './system_notices.ts';
@@ -97,6 +98,12 @@ type FrameWaitResult =
     readonly generation: number;
   }
   | { readonly kind: 'stream_error'; readonly generation: number };
+
+type RemoteTuiEvent =
+  | FrameWaitResult
+  | { readonly kind: 'input'; readonly events: InputEvent[] | null }
+  | { readonly kind: 'input_error'; readonly error: unknown }
+  | { readonly kind: 'exit' };
 
 interface RemoteNavigationListing {
   readonly listing: PresentationNavigationListing;
@@ -692,9 +699,7 @@ export const runRemoteTui = async (
   let commandMutationPending = false;
   let navigationGeneration = 0;
   let subscriptionGeneration = 0;
-  let frameWait: Promise<FrameWaitResult> | null = null;
-  let exitResolve!: () => void;
-  const exitWait = new Promise<void>((resolve) => exitResolve = resolve);
+  const events = new TuiEventQueue<RemoteTuiEvent>();
 
   const requestExit = (): void => {
     if (exitRequested) return;
@@ -703,7 +708,7 @@ export const runRemoteTui = async (
     subscriptionAbort.abort();
     if (commandPoll !== undefined) clearTimeout(commandPoll);
     commandPoll = undefined;
-    exitResolve();
+    events.push({ kind: 'exit' });
   };
 
   const snapshot = (): SessionSnapshot => state!.snapshot;
@@ -713,6 +718,9 @@ export const runRemoteTui = async (
       (next) => ({ kind: 'frame' as const, result: next, generation }),
       () => ({ kind: 'stream_error' as const, generation }),
     );
+  };
+  const waitForFrame = (pending: Promise<FrameWaitResult>): void => {
+    void pending.then((frame) => events.push(frame));
   };
   const hasPendingLocalCommand = (): boolean =>
     pendingSubmission !== undefined || acceptedSubmission !== undefined ||
@@ -1428,7 +1436,7 @@ export const runRemoteTui = async (
     renderEditor();
     notice = undefined;
     updateStatus();
-    frameWait = nextFrameWait();
+    waitForFrame(nextFrameWait());
     previousAbort.abort();
     try {
       const closing = previousIterator.return?.(undefined);
@@ -2145,27 +2153,25 @@ export const runRemoteTui = async (
     await dependencies.afterAcquire?.();
 
     const inputReader = new RemoteInputReader(lifecycle, decoder);
-    let inputWait: Promise<InputEvent[] | null> = inputReader.next();
-    frameWait = nextFrameWait();
+    const waitForInput = (): void => {
+      void inputReader.next().then(
+        (input) => events.push({ kind: 'input', events: input }),
+        (error) => events.push({ kind: 'input_error', error }),
+      );
+    };
+    waitForInput();
+    waitForFrame(nextFrameWait());
 
     while (!exitRequested) {
-      const ready = frameWait === null
-        ? await Promise.race([
-          inputWait.then((events) => ({ kind: 'input' as const, events })),
-          exitWait.then(() => ({ kind: 'exit' as const })),
-        ])
-        : await Promise.race([
-          inputWait.then((events) => ({ kind: 'input' as const, events })),
-          frameWait,
-          exitWait.then(() => ({ kind: 'exit' as const })),
-        ]);
+      const ready = await events.next();
       if (ready.kind === 'exit') break;
+      if (ready.kind === 'input_error') throw ready.error;
       if (ready.kind === 'input') {
         if (ready.events === null) {
           requestExit();
           break;
         }
-        inputWait = inputReader.next();
+        waitForInput();
         for (const event of ready.events) {
           if (event.kind === 'ctrl_d') {
             requestExit();
@@ -2326,7 +2332,6 @@ export const runRemoteTui = async (
         (ready.kind === 'frame' && ready.result.done)
       ) {
         connected = false;
-        frameWait = null;
         noteConnectionLoss();
         updateStatus();
         continue;
@@ -2349,7 +2354,7 @@ export const runRemoteTui = async (
           cancellationRequested ? cancellationExecutionId : undefined,
         );
         updateStatus();
-        frameWait = nextFrameWait();
+        waitForFrame(nextFrameWait());
         continue;
       }
 
@@ -2361,7 +2366,7 @@ export const runRemoteTui = async (
           connected = false;
           noteConnectionLoss();
           updateStatus();
-          frameWait = reopenFromSnapshot();
+          waitForFrame(reopenFromSnapshot());
           continue;
         }
         throw error;
@@ -2378,7 +2383,7 @@ export const runRemoteTui = async (
         cancellationRequested ? cancellationExecutionId : undefined,
       );
       updateStatus();
-      frameWait = nextFrameWait();
+      waitForFrame(nextFrameWait());
     }
     if (renderFailed) await stderr(dependencies, 'terminal failure\n');
   } catch {
@@ -2389,6 +2394,7 @@ export const runRemoteTui = async (
     );
   } finally {
     requestExit();
+    events.close();
     catalogUi.close();
     removeResize();
     removeOutputFailure();

@@ -2176,9 +2176,9 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
     return this.#executionRows('WHERE e.session_correlation=?', [sessionId]);
   }
 
-  readSessionConversationFacts(
+  *readSessionConversationFacts(
     sessionId: string,
-  ): readonly StoredSessionConversationExecution[] {
+  ): IterableIterator<StoredSessionConversationExecution> {
     const db = this.#db();
     try {
       db.exec('BEGIN');
@@ -2188,19 +2188,13 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
         false,
         db,
       );
-      const facts = executions.map((execution) => ({
-        execution,
-        occurrences: this.#coreStore().listOccurrences(
-          execution.executionId,
-          db,
-        ),
-        assistantTextStates: this.#coreStore().listAssistantTextStates(
-          execution.executionId,
-          db,
-        ),
-      }));
+      for (const execution of executions) {
+        yield {
+          execution,
+          events: this.#coreStore().readConversationEvents(execution.executionId, db),
+        };
+      }
       db.exec('COMMIT');
-      return facts;
     } catch (error) {
       try {
         db.exec('ROLLBACK');
@@ -2305,8 +2299,35 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
   }
 
   readExecutionRequestCount(id: string): number {
-    return this.listExecutionEvents(id).filter((event) => event.kind === 'provider_request_start')
-      .length;
+    this.readExecutionMetadata(id);
+    const db = this.#db();
+    try {
+      return Number(
+        db.prepare(`
+        SELECT COUNT(*) AS count FROM semantic_records
+        WHERE execution_id=? AND kind='model_request'
+          AND json_extract(payload_json, '$.event.kind')='provider_request_start'
+      `).get(id)!.count,
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Request metadata without decoding unrelated thinking, messages, or tool history. */
+  listModelRequestOccurrences(id: string): readonly HistorySemanticOccurrence[] {
+    this.readExecutionMetadata(id);
+    const db = this.#db();
+    try {
+      return (db.prepare(`
+        SELECT record_id FROM semantic_records
+        WHERE execution_id=? AND kind='model_request' ORDER BY ordinal
+      `).all(id) as Row[]).map((row) =>
+        this.#coreStore().readOccurrence(String(row.record_id), db)
+      );
+    } finally {
+      db.close();
+    }
   }
 
   listExecutionEvents(id: string): readonly StoredExecutionEvent[] {

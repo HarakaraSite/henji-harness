@@ -408,16 +408,20 @@ export class ConversationWriter {
 
   #loadSession(sessionId: string): SessionConversation {
     const facts = this.store.readSessionConversationFacts(sessionId);
-    const replay = replaySessionConversation(sessionId, facts);
     const executionOrders = new Map<string, number>();
     let storeRevision = 0;
-    for (const [index, item] of facts.entries()) {
-      executionOrders.set(item.execution.executionId, index);
-      storeRevision = Math.max(
-        storeRevision,
-        item.execution.committedRevision ?? item.execution.baseRevision,
-      );
+    let nextExecutionOrder = 0;
+    function* trackedFacts() {
+      for (const item of facts) {
+        executionOrders.set(item.execution.executionId, nextExecutionOrder++);
+        storeRevision = Math.max(
+          storeRevision,
+          item.execution.committedRevision ?? item.execution.baseRevision,
+        );
+        yield item;
+      }
     }
+    const replay = replaySessionConversation(sessionId, trackedFacts());
     return {
       state: replay.state,
       normalizer: replay.normalizer,
@@ -425,7 +429,7 @@ export class ConversationWriter {
       listeners: new Set(),
       cut: 0,
       storeRevision,
-      nextExecutionOrder: facts.length,
+      nextExecutionOrder,
     };
   }
 

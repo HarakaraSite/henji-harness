@@ -1848,7 +1848,7 @@ export class DataSessionOwner {
     for (const execution of executions) {
       let latest: ContextView['latestRequest'];
       for (
-        const occurrence of this.#store.listSemanticOccurrences(
+        const occurrence of this.#store.listModelRequestOccurrences(
           execution.executionId,
         )
       ) {

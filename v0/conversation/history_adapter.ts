@@ -317,35 +317,6 @@ const occurrenceEvent = (
   return event as StoredExecutionEvent;
 };
 
-const orderedStoredEvents = (
-  facts: StoredSessionConversationExecution,
-): readonly Readonly<{ event: StoredExecutionEvent; semanticOccurrenceId?: string }>[] => {
-  const events: {
-    event: StoredExecutionEvent;
-    semanticOccurrenceId?: string;
-    sourceOrdinal: number;
-  }[] = facts.occurrences.flatMap((occurrence) => {
-    const event = occurrenceEvent(occurrence);
-    if (event === undefined) return [];
-    return [{
-      event,
-      semanticOccurrenceId: occurrence.occurrenceId,
-      sourceOrdinal: event.firstEventOrdinal ?? event.ordinal,
-    }];
-  });
-  for (const state of facts.assistantTextStates) {
-    events.push({
-      event: { ...state.event, firstEventOrdinal: state.firstEventOrdinal },
-      sourceOrdinal: state.firstEventOrdinal,
-    });
-  }
-  return events.sort((left, right) =>
-    left.sourceOrdinal - right.sourceOrdinal ||
-    left.event.ordinal - right.event.ordinal ||
-    (left.semanticOccurrenceId ?? '').localeCompare(right.semanticOccurrenceId ?? '')
-  );
-};
-
 export const observationsFromAppendResults = (
   results: readonly HistoryAppendResult[],
 ): readonly ConversationObservation[] =>
@@ -414,17 +385,18 @@ export const applyHistoryCommitDelta = (
 
 export const replaySessionConversation = (
   sessionId: string,
-  executions: readonly StoredSessionConversationExecution[],
+  executions: Iterable<StoredSessionConversationExecution>,
 ): Readonly<{ state: ConversationState; normalizer: ConversationNormalizer }> => {
   const state = createConversationState(sessionId);
   const normalizer = createConversationNormalizer();
-  for (const [index, facts] of executions.entries()) {
+  let executionOrder = 0;
+  for (const facts of executions) {
     applyObservation(state, normalizer, {
       kind: 'execution',
       execution: executionMetadata(facts.execution),
-      executionOrder: index,
+      executionOrder: executionOrder++,
     });
-    for (const { event, semanticOccurrenceId } of orderedStoredEvents(facts)) {
+    for (const { event, semanticOccurrenceId } of facts.events) {
       for (const observation of eventObservation(event, semanticOccurrenceId)) {
         applyObservation(state, normalizer, observation);
       }

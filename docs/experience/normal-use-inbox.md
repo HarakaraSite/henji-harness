@@ -23,43 +23,43 @@ Definition/transportを候補の必須前提として復活させず、候補自
 
 ## 候補一覧
 
-| ID  | 領域           | 候補                                                                         | 再検討の主な契機                                                                                                       |
-| --- | -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                          | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
-| S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
-| S22 | Surface        | 将来のWebUI本体                                                              | browserから通常利用する画面が必要になるとき                                                                            |
-| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
-| S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
-| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| S32 | Surface        | 入力履歴機能の削除                                                           | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
-| S34 | Surface        | `search`の検索条件・`run_typescript`の生成コードの抜粋表示                    | tool行から検索対象や実行内容を把握したいとき。抜粋方法を選び、個別incrementへ採用するとき                              |
-| A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やreloadを実際に必要とする                                                                              |
-| A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
-| A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
-| A6  | Agent実行      | Web searchの取得品質・backend比較                                            | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
-| A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
-| A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
-| A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
-| A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
-| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                 | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
-| A28 | Agent実行      | 通常利用時のメモリ使用量の調査・チューニング                                 | 利用者がメモリ内訳の調査・削減を個別incrementへ採用するとき                                                           |
-| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback                      | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                         |
-| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                   | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
-| R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
-| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                            | tool candidateを生成・保存・採用するflowを設計する                                                                     |
-| R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
-| R4  | F24            | instruction componentのrevision化                                            | instructionを自己改訂candidateとして採用する                                                                           |
-| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                          | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
-| E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                      | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
-| E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                        | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
-| E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）         | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
-| P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                            | context圧縮を人間が明示的に行いたくなったとき                                                                          |
-| P4  | 参照実装parity | Session export/import                                                        | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
-| P6  | 参照実装parity | model cycling shortcut                                                       | provider横断のmodel切替を頻繁に行うとき                                                                                |
-| P8  | 参照実装parity | configurable keybindings                                                     | keybindingを利用者ごとに変えたくなったとき                                                                             |
-| P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                        | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
-| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                                 | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
+| ID  | 領域           | 候補                                                                 | 再検討の主な契機                                                                                                       |
+| --- | -------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                  | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
+| S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                            | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
+| S22 | Surface        | 将来のWebUI本体                                                      | browserから通常利用する画面が必要になるとき                                                                            |
+| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                              | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
+| S29 | Surface        | `/edit`による外部エディタ起動                                        | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
+| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                     | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| S32 | Surface        | 入力履歴機能の削除                                                   | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
+| S34 | Surface        | `search`の検索条件・`run_typescript`の生成コードの抜粋表示           | tool行から検索対象や実行内容を把握したいとき。抜粋方法を選び、個別incrementへ採用するとき                              |
+| A2  | Agent実行      | Host操作のmodel向けtool化                                            | AIがSession列挙やreloadを実際に必要とする                                                                              |
+| A3  | Agent実行      | Context Strategyの外部化                                             | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
+| A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
+| A6  | Agent実行      | Web searchの取得品質・backend比較                                    | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
+| A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                          | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
+| A11 | Agent実行      | instructionの与え方                                                  | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
+| A19 | Agent実行      | requestごとの実行状況・日時・地域context                             | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
+| A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                | 実行中に追加の指示を続けて送りたいとき                                                                                 |
+| A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択              | 利用者が起動判断の検討を再開するとき                                                                                   |
+| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                         | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
+| A28 | Agent実行      | 通常利用時のメモリ使用量の調査・チューニング                         | 利用者がメモリ内訳の調査・削減を個別incrementへ採用するとき                                                            |
+| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback              | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
+| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
+| R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
+| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | tool candidateを生成・保存・採用するflowを設計する                                                                     |
+| R3  | F24            | tool実行profileとsandboxed Deno program                              | trusted-local以外の実行環境をproduct要件にする                                                                         |
+| R4  | F24            | instruction componentのrevision化                                    | instructionを自己改訂candidateとして採用する                                                                           |
+| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                  | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
+| E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                              | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
+| E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
+| E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
+| P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                    | context圧縮を人間が明示的に行いたくなったとき                                                                          |
+| P4  | 参照実装parity | Session export/import                                                | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
+| P6  | 参照実装parity | model cycling shortcut                                               | provider横断のmodel切替を頻繁に行うとき                                                                                |
+| P8  | 参照実装parity | configurable keybindings                                             | keybindingを利用者ごとに変えたくなったとき                                                                             |
+| P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
+| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                         | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
 
 ## Surface
 
@@ -492,24 +492,62 @@ Pi／OpenCode／Henjiの画面表示比較
   CoreのConversationWriterとTUIのSessionClientStateは、現在の会話entityを全件保持する。
   TUIは表示用Mapも持ち、画面外のtool引数・結果もsnapshotに含む。
   一方、EntryLayoutCacheの折返し結果は現在のhistory windowだけを保持し、範囲外を削除する。
-  `2bc2699f`の会話snapshotは611 entity、JSON換算で約1.9 MiBであり、
-  このサイズだけではTUIの約284 MiBを説明しきれない。
-- 確認した修正対象: TUIの入力・stream・終了待機loop。
-  `v0/tui/remote_session.ts`はloopごとに
-  `Promise.race([inputWait.then(...), frameWait, exitWait.then(...)])`を作る。
-  stream側が先に完了しても、未解決の入力／終了Promiseに追加したreactionが残り、
-  処理済みraceの結果に含まれる古いframeを保持する経路がある。
-  累積thinking textを含む途中frameが更新ごとに残り得る。
-  exitWaitはTUI終了時まで解決せず、turnの完了・cancel・idleではこの保持を解除しない。
-- Denoでの分離再現（同日、実provider callなし）:
-  入力と終了が未解決のまま、同じrace構造で約16 KiBのframeを1,800回処理した。
-  `--v8-flags=--expose-gc`でGC後のheapUsedを測ると、開始時2.7 MiB、処理後31.7 MiB、
-  終了Promise解決後3.4 MiBとなった。単なるRSS高止まりとは別に、古いframeの保持経路を再現した。
-  実TUIの増加量のうちこの経路が占める割合と、Core側の増加原因は未確定。
-- 利用者判断（同日）: この待機loopの保持経路を修正対象として記録する。
-  入力・stream・終了をまとめるevent待機等で、未解決Promiseへのreactionが更新ごとに
-  蓄積しない形を候補とする。履歴表示・入力・cancel・終了操作を維持する。
-  今回はメモへの追記であり、個別incrementの作成・実装修正はまだ行っていない。
+  `2bc2699f`の会話snapshotは611 entity、JSON換算で約1.9 MiBであり、 このサイズだけではTUIの約284
+  MiBを説明しきれない。
+- TUI待機loopの再現済み保持問題は[Increment 194](../increments/increment-194.md)へ採用し、
+  観測と修正要件を移設した。
+- Coreの保存会話復元で累積本文を一括保持する問題は
+  [Increment 195](../increments/increment-195.md)へ採用し、調査証拠と修正要件を移設した。
+  本候補にはCore全体等の残る調査・チューニングを残す。
+- 保存Sessionの最新request・request件数取得で不要な履歴本文を展開する問題は
+  [Increment 196](../increments/increment-196.md)へ採用し、追加調査の根拠・比較と修正要件を移設した。
+- 残る観測・候補: 196の同条件の隔離compiled確認で、100回参照後も約384 MiBのCore process
+  PSSが残った。 native memory全体の所有・未使用領域の分解や、長時間のAgent実行の内訳は未確認。
+- 類似問題reviewの追加候補（同日、未採用）:
+  利用者が195・196の通常／批判的reviewに加え、別のreviewerによる類似問題調査を依頼した。
+  下記は既存の別経路に残る不要な本文展開で、195・196による回帰や返値のcorrectness不具合ではない。
+  稼働Core・実DBを操作せず、調査用DBコピーをさらにscratchへbackupして確認した。
+  - TUIの`/context` → API／CoreのcontextRead → DataServiceのcontextRead →
+    `data_service.ts`のlatestRequest →
+    listSemanticOccurrencesで、最新requestの短い情報だけを得るために
+    全semantic本文を読む。対象executionでは171 bytesの返値に2,080 payload／32,120,512
+    bytesをdecodeし、 うちassistant_messageが1,726件／31,294,685 bytesだった。
+    runtime限定probeでmodel_request読取に絞ると15件／61,660 bytesになり、返値のSHA-256は一致した。
+    最小修正候補は196のlistModelRequestOccurrencesをこの別consumerにも適用すること。
+  - WorkerHostCoordinatorのpersistExecutionControl → Data／SessionDataOwnerのrecordExecutionControl
+    → updatePostCommitArtifactで、execution artifactの取得とmetadata照合が全semantic本文を読む。
+    `sqlite_history_store.ts`のderiveArtifactはadmissionと最新execution_metadataを選ぶために全件を2回decodeし、
+    recordArtifactMetadataは同値照合のためにさらに1回decodeする。 コピーDBでartifact読取は4,160
+    payload／64,241,024 bytes、同値照合は2,080 payload／32,120,512 bytesだった。
+    acknowledgement、turn_settled、process_cleanup等の保存後に通る経路で、turnごとのData側割当を増やす。
+    admissionとmetadataだけに絞るruntime限定probeは14,826 bytesのdecodeでartifact全体192,949 bytesの
+    SHA-256が一致した。最小修正候補は該当kind／最新metadataだけのSQL読取へ切り替えること。
+    artifactに必要なrecall・outcome・config等の本文取得は維持する。
+    両候補はP2相当の性能改善候補として記録する。decode量は測定済みだが、compiled production全体での
+    長時間メモリ削減量は未確認である。probeでproduct
+    sourceは変更しておらず、実装は個別採用後に行う。
+  - 追加候補として、recall／診断CLIのeffects集計（P2）、診断CLIのprovider fact抽出とexecution
+    context読取 （各P3）にも、選別前の全event読取・hydrate／cloneが残る。
+    `listExecutionEffects`、`readExecutionRequestFacts`、`listExecutionContext`の単体probeでは、
+    各32,120,512 bytesのdecodeを、それぞれ69,249、61,660、235,433
+    bytesに絞り、返値のSHA-256は一致した。
+    effects集計はrecallで必要なmessage／tool本文を読む処理とは別の二回目の読取である。 execution
+    contextに必要な本文は残し、無関係なthinking本文の読取を減らす候補である。
+    比較は同じコピーDB一件で、recallの全操作や終了後control一連の時間・メモリ削減量は未確認。
+    request一件のために全request contextを再構築する部分は追加調査候補に留めた。
+    export、会話復元、recallのmessage／tool観測本文など、必要な全文読取は問題扱いしない。
+    証拠はgit管理外の`.tools/review-195-196/similar-probe/`に保存する。
+- 保持内訳の確認と限界（196採用前、195のsourceを使った調査）:
+  実DBコピーを100回参照後に各isolateでGCすると、生存heapUsedはCore 5.6、Data 9.4、API 4.5 MiBで、
+  GC後もprocess PSSは約704 MiBで、glibcの未使用malloc領域を約201 MiB確認した。
+  probe内だけでmalloc_trimするとPSSは約520 MiBへ下がり、解放済みallocator領域の残存を実証した。
+  ただしnative memory全体の所有・未使用領域を完全には分解していない。
+  Worker終了後にもprocess側へ残る領域があり、ここから永続保持のleakとは断定しない。
+  このnative内訳のprobeはDeno source環境でのみ行った。compiled binaryのnative内訳解析は未実施。
+  常用環境への削減量保証として扱わない。GCとmalloc_trimは内訳を調べるprobe操作だけである。
+- native内訳の調査証拠はgit管理外の`.tools/a28-core-followup/`に置いた。
+  `findings.json`、各isolateの記録、`baseline-natural-http-result.json`、
+  `baseline-natural-closure-result.json`を参照する。追加候補は個別採用前に実装しない。
 
 ### A29 — request単位のtoken usage・cache再利用量の保存とreadback（未採用、メモのみ）
 

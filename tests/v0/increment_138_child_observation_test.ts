@@ -449,10 +449,7 @@ Deno.test('Increment 138 cancelling an unfinished child retains its last text an
       const deadline = Date.now() + 10_000;
       while (
         !JSON.stringify(
-          store.readSessionConversationFacts(
-            store.readExecutionMetadata(spawned.runId).sessionCorrelation,
-          ).find((fact) => fact.execution.executionId === spawned.runId)
-            ?.assistantTextStates,
+          store.listAssistantTextStates(spawned.runId),
         ).includes('first latest child text')
       ) {
         assert(Date.now() < deadline, 'child text was not saved while streaming');

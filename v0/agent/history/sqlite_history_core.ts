@@ -5,6 +5,7 @@ import type {
   HistoryAppendResult,
   HistoryPostSettlementSemanticEventInput,
   StoredExecutionEvent,
+  StoredSessionConversationEvent,
 } from './history_store_contract.ts';
 import { exactByteDigest } from './exact_byte_plan.ts';
 import {
@@ -737,6 +738,66 @@ export class SqliteHistoryCore {
       SELECT record_id FROM semantic_records
       WHERE execution_id=? ORDER BY ordinal
     `).all(executionId) as Row[]).map((row) => this.readOccurrence(String(row.record_id), db));
+  }
+
+  /** Sort only references; never collect the cumulative event text for replay. */
+  *readConversationEvents(
+    executionId: string,
+    db: DatabaseSync = this.#db,
+  ): IterableIterator<StoredSessionConversationEvent> {
+    const references: {
+      occurrenceId: string;
+      sourceOrdinal: number;
+      ordinal: number;
+      textKey?: HistoryAssistantTextKey;
+    }[] = (db.prepare(`
+      SELECT record_id,
+        json_extract(payload_json, '$.event.firstEventOrdinal') AS first_ordinal,
+        json_extract(payload_json, '$.event.ordinal') AS event_ordinal
+      FROM semantic_records
+      WHERE execution_id=? AND json_type(payload_json, '$.event')='object'
+    `).all(executionId) as Row[]).map((row) => ({
+      occurrenceId: String(row.record_id),
+      sourceOrdinal: Number(row.first_ordinal ?? row.event_ordinal),
+      ordinal: Number(row.event_ordinal),
+    }));
+    for (
+      const row of db.prepare(`
+        SELECT lane, model_step, request_ordinal, first_event_ordinal,
+          json_extract(event_json, '$.ordinal') AS event_ordinal
+        FROM assistant_text_states WHERE execution_id=?
+      `).all(executionId) as Row[]
+    ) {
+      references.push({
+        occurrenceId: '',
+        sourceOrdinal: Number(row.first_event_ordinal),
+        ordinal: Number(row.event_ordinal),
+        textKey: {
+          modelStep: Number(row.model_step),
+          ...(row.lane === '' ? {} : {
+            lane: String(row.lane) as HistoryAssistantTextKey['lane'],
+          }),
+          ...(Number(row.request_ordinal) === -1 ? {} : {
+            requestOrdinal: Number(row.request_ordinal),
+          }),
+        },
+      });
+    }
+    references.sort((left, right) =>
+      left.sourceOrdinal - right.sourceOrdinal ||
+      left.ordinal - right.ordinal ||
+      left.occurrenceId.localeCompare(right.occurrenceId)
+    );
+    for (const reference of references) {
+      if (reference.textKey !== undefined) {
+        const state = this.readAssistantTextState(executionId, reference.textKey, db)!;
+        yield { event: { ...state.event, firstEventOrdinal: state.firstEventOrdinal } };
+      } else {
+        const occurrence = this.readOccurrence(reference.occurrenceId, db);
+        const event = (occurrence.payload as { event: unknown }).event as StoredExecutionEvent;
+        yield { event, semanticOccurrenceId: occurrence.occurrenceId };
+      }
+    }
   }
 
   /** Read current incomplete text through the caller's transaction snapshot. */

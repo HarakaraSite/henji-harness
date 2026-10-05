@@ -7,6 +7,7 @@ import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter
 import type { Message } from '../../v0/agent/core/contracts.ts';
 import type { WorkerCorrelation } from '../../v0/agent/worker/worker_protocol.ts';
 import { workerConfigurationFixture } from './helpers/worker_configuration_fixture.ts';
+import { replaySessionConversation } from '../../v0/conversation/history_adapter.ts';
 
 Deno.test('181 production Data preserves configuration and canonical conversation across noncanonical settlement and reopen', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-181-data-' });
@@ -130,7 +131,10 @@ Deno.test('181 production Data preserves configuration and canonical conversatio
       strictEqual(store.readExecution(second.executionId).adoption, 'non_canonical');
       strictEqual(store.readExecution(second.executionId).outcome, 'cancelled');
       ok(
-        JSON.stringify(store.readSessionConversationFacts(sessionId)).includes('cancelled partial'),
+        JSON.stringify([
+          ...replaySessionConversation(sessionId, store.readSessionConversationFacts(sessionId))
+            .state.entities.values(),
+        ]).includes('cancelled partial'),
       );
       const exported = [...store.streamHumanHistoryExport(sessionId)];
       ok(JSON.stringify(exported).includes(before.configurationId));

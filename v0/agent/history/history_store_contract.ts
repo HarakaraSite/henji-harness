@@ -379,11 +379,16 @@ export interface StoredSessionHistoryExecution {
   >[];
 }
 
-/** Original rows needed to replay one Session through the shared Conversation engine. */
+/** One source event in Conversation replay order, read immediately before applying it. */
+export interface StoredSessionConversationEvent {
+  readonly event: StoredExecutionEvent;
+  readonly semanticOccurrenceId?: string;
+}
+
+/** Consume events before advancing to the next execution in the same SQLite snapshot. */
 export interface StoredSessionConversationExecution {
   readonly execution: StoredExecutionRow;
-  readonly occurrences: readonly HistorySemanticOccurrence[];
-  readonly assistantTextStates: readonly HistoryAssistantTextState[];
+  readonly events: Iterable<StoredSessionConversationEvent>;
 }
 
 /** Facts made durable by one terminal COMMIT, returned without a follow-up history read. */
@@ -514,10 +519,10 @@ export interface HistoryPersistencePort {
   listExecutions(): readonly StoredExecutionRow[];
   /** Indexed v6 path used by normal Session recall selection. */
   listExecutionsForSession?(sessionId: string): readonly StoredExecutionRow[];
-  /** Raw source facts read from one SQLite snapshot, before display projection or aggregation. */
+  /** Consume once; the SQLite snapshot closes on completion or iterator return. */
   readSessionConversationFacts?(
     sessionId: string,
-  ): readonly StoredSessionConversationExecution[];
+  ): Iterable<StoredSessionConversationExecution>;
   readExecution(id: string): StoredExecutionRow;
   listExecutionEvents(id: string): readonly StoredExecutionEvent[];
   /** Semantic source rows used by the shared read projection. */
