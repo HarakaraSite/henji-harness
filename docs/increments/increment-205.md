@@ -1,7 +1,7 @@
 # Increment 205 — S34: `search`の検索条件・`run_typescript`の生成コードの抜粋表示
 
-状態: 利用者承認済み（2026-10-06、`henji run --stream`は対象外）。実装・focused確認・独立review・
-隔離tmuxのproduction TUI確認まで完了した。commit・公式build・常用配置・push・公開は別承認。
+状態: 完了（2026-10-06）。利用者承認済み計画で実装し、focused確認・独立review・隔離tmuxのproduction TUI
+確認・source commit・公式build・常用配置・pushまで完了した。
 
 ## 利用者が必要とする動作と根拠
 
@@ -208,6 +208,29 @@ current sourceと照合した。製品correctnessのfindingは成立せず（Blo
   製品sourceの追加修正はない。
 - 証拠は`.tools/increment-205/`（`local-completed*.txt`、`local-tool-pending*.txt`、
   `local-normal-entry-reconnected*.txt`、result JSON、semantic events、`build.log`、`tmux.log`）。
+
+### Commit・公式build・常用配置・push結果（2026-10-06）
+
+利用者の「コミット　常用配置　プッシュして」により実施した。
+
+- source commitは`841c9b6ca2229737e7450d400aeb92b924ff7dce`
+  （`feat: show search and run_typescript tool row excerpts`）。変更source/test、README、
+  205文書、handoff、通常利用メモのS34移設だけを含め、別sessionのA35メモと既存の未追跡file
+  （`191-result.json`、`scripts/diagnostics/__pycache__/`）は含めていない。
+- このcommitから公式`henji:compile`で0.9.0をbuildした（sourceDirty=false）。build IDは
+  `0bd658345ae446d6ccfd650a39161412dd7c5e8809af34ea02e68a000c7edb47`、runtime digestは
+  `43d10091dbd802daf765b64482b8ba8662a8a1055bc33f10788a67495c4355bc`で、隔離tmux probeで確認した
+  candidate（build ID `b65ca98a…`）のruntime digestと一致した。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。両配置先のversion・SHA-256
+  （`704336a5a72c6800d04b32894644df2bf6ed150017722e19ed55afef9c280336`）が一致した。直前の
+  binaryは`~/.local/bin/henji.previous`と`.tools/increment-205/deployment/henji.local.previous`
+  （旧SHA-256 `3e1e6c00…`）へ、元の`henji.previous`は`.tools/increment-205/deployment/henji.local.previous.pre205`
+  へ保存した。
+- 配置後、配置済みbinaryで隔離HOME/XDG/workspaceのCore＋TUIを起動し、`● ready`表示、Ctrl-Qでの
+  TUI終了とCoreのexit 0、Core APIのbuild情報（0.9.0／source `841c9b6c`／sourceDirty=false／
+  runtime digest一致）を確認した（`deployment/smoke.json`、実provider request 0）。
+- `origin/main`へ`d2c8bf67..841c9b6c`を送信し、本記録のdocs commitも続けて送信した。
+  公開/releaseは実施していない。
 
 ## 対象外
 

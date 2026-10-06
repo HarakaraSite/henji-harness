@@ -10,7 +10,9 @@ run_typescript先頭の一行`//`コメントを追加し、focused 27件・関�
 `git diff --check`、独立review（findingなし）、隔離XDG/workspaceのcompiled production TUI確認
 （local provider、実provider 0回、pending→settledと保存Session再表示）まで完了した。
 `henji run --stream`のtool行（生JSON）は利用者確認のうえ対象外とした。通常利用メモのS34は採用済みとして
-205へ移設し、候補一覧から除いた。commit・公式build・常用配置・pushは未実施/未承認。
+205へ移設し、候補一覧から除いた。source commit `841c9b6c`、公式build（build ID `0bd65834…`、
+runtime digest `43d10091…`）、常用配置（`~/.local/bin/henji`、直前binaryは`henji.previous`）と
+配置後スモーク、push（`origin/main`）まで完了した。利用者の通常利用での見た目・使い勝手の確認が残る。
 
 [Increment 204](../docs/increments/increment-204.md)は利用者指示でcredential保存先の分離と
 run_typescriptのconfig root読み取りを実装し、local検証・独立review・公式build（build ID `7ecf58e9…`）・
@@ -22,8 +24,8 @@ run_typescriptのconfig root読み取りを実装し、local検証・独立revie
 成立している。利用者は2026-10-06に実provider経路での確認を完了した。
 204の記録はcommit `d1a26f7c`・`2a95f72f`・`6276b2c9`・`34a67faa`・`71a86844`へ保存済み。
 
-利用者は本Session（`f040537a`）を終了する。次の一手は205の利用者による通常利用確認と、
-commit・公式build・常用配置の指示。pushは未承認。
+利用者は本Session（`f040537a`）を終了する。次の一手は205の利用者による通常利用確認。
+pushは205のsource commit・docsまで完了した。
 利用者指示で`~/.config/henji-harness/instruction.md`へ3段落を追加した（operation別のtool選択、質問・
 状況報告へのtool call前の回答と長いターンの進捗報告、検査・検証結果の再利用）。反映は次のWorker
 generation（新SessionまたはCore/TUI再起動）から。
@@ -64,8 +66,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 205（S34: search・run_typescriptの抜粋表示）は実装・focused確認・独立review・
-隔離tmux確認まで完了し、利用者による通常利用確認とcommit・公式build・常用配置の指示待ち。
+**次の一手**: 205（S34: search・run_typescriptの抜粋表示）はsource commit・公式build・常用配置・pushまで
+完了し、利用者による通常利用確認待ち。
 204は実装・検証・review・配置・実環境移行・利用者の実provider確認まで完了した。
 pushは未承認。 B5の追加調査は再発または利用者の明示採用まで行わない。
 
