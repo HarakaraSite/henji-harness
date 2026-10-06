@@ -49,7 +49,8 @@ A28の判断と原観測の移設先は[199](../docs/increments/increment-199.md
 `docs/increments/increment-199-a28-observations.md`をそれぞれのdocs commitへ保存した。runtime変更・追加配置はない。
 既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`はどちらにも含めない。
 利用者指示（2026-10-06）でA19（requestごとの実行状況・日時・地域context）は不採用とし、
-通常利用メモの候補一覧と項目を削除した。docsのみの変更で、runtime変更・build・配置はない（未commit）。
+通常利用メモの候補一覧と項目を削除した。docsのみの変更で、runtime変更・build・配置はない（docs commit
+`9dfd2a8b`、push未実施）。
 increment-138・185にある「A19を別候補とする」記述は当時の記録として残す。
 B5は再発時の原因調査待ち。原観測・未特定事項・再検討条件は
 [通常利用メモのB5](../docs/experience/normal-use-inbox.md#b5--commit-proposal-invalidの具体的な検証不合格理由を特定できない)を参照する。
