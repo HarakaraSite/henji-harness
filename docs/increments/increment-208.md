@@ -1,7 +1,7 @@
 # Increment 208 — TUI: マウススクロールで会話履歴を参照する
 
-状態: local実装・検証完了（2026-10-07）。source commit・公式build・常用配置・pushは未実施で、
-それぞれ利用者指示を必要とする。full gateは実行していない。
+状態: local実装・検証・source commit・公式build・常用配置・配置後smoke完了（2026-10-07）。pushは
+未実施で利用者指示を必要とする。full gateは実行していない。
 
 ## 利用者が必要とする動作と根拠
 
@@ -63,7 +63,9 @@
 ## 確認（2026-10-07、local）
 
 - focused: `keymap_readline_test.ts`8件・`tui_retained_terminal_test.ts`・
-  `increment_141_remote_tui_test.ts`の3file 45件pass（新規testと既存testの拡張を含む）。
+  `increment_141_remote_tui_test.ts`の3file 45件pass（新規testと既存testの拡張を含む）。関連testは
+  `increment_74`・`increment_155`・`increment_146`・`increment_194`の10件と、`increment_140`・
+  `increment_142`・`increment_143`・`increment_144`・`increment_170`の15件もpass。
   `v0:check`・`v0:fmt`・`v0:lint`・`git diff --check`はpass。full gateは実行していない。
 - tmux production TUI確認（隔離HOME/XDG/workspace、local provider＝接続失敗endpoint、実provider
   call 0回、tmux 3.5a private server、`mouse on`、clientはDAに応答する外側端末をptyで模擬、
@@ -113,9 +115,35 @@ PageUp／PageDownのまま。reviewerはtest実行・`v0:check`／fmt／lintの�
 - architecture正本（`docs/architecture/henji-host-agent-worker.md`）のPageUp／PageDown記述は現行の
   ままでも成立するため変更しない。mouse wheelを明記する場合は正本変更の承認が必要である。
 
+## Commit・公式build・常用配置結果（2026-10-07）
+
+利用者指示（2026-10-07、本会話「commi　常用配置」）により、commit・公式build・常用配置を実施した。
+
+- source commit: `c39e39a6f858dd93a9cc35bd43a732f8f81b4a08`
+  （`feat: page TUI history with the mouse wheel`）。`v0/tui` 4file・tests 3file・increment-208・
+  handoffの9 fileで、既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`は含めていない。
+- このcommitから公式`henji:compile`で0.10.0をbuildした。build ID:
+  `a4f8394f15077090cf805eec80ba2adf330423dbca057c7ef6b729a99b2b6396`、embedded runtime digest:
+  `1f1908e2a95df0ecb01152119fe2f4ec143b6fe19e3f5d9f04766b58c489f970`。`--version`は
+  `source=c39e39a6f858dd93a9cc35bd43a732f8f81b4a08`（`+dirty`なし＝sourceDirty=false）。
+- `dist/henji`と常用`~/.local/bin/henji`へatomic renameで配置し、binary SHA-256
+  `c9ef9beec5cecd88a21a2f377e26b56345afcc2e166cdbb7f46d84c6be2099e5`の一致を確認した。
+- 直前の常用binary（0.10.0 pre-208、SHA-256 `5404a60920d942cacbf9d1d7548fe0bad1578c2a9136d2a27daf3bcd27fbb2c3`）
+  を`~/.local/bin/henji.previous`と`.tools/increment-208/deployment/henji.local.previous`へ保存し、
+  元の`henji.previous`（207版、SHA-256 `e6a548c89d9acaf58bf01f1b28c4cc6152fb4179011110bd5bf4a8b6625f9a98`）を
+  `.tools/increment-208/deployment/henji.local.previous.pre208`へ保存した。
+- 配置後smoke（隔離HOME/XDG/workspace、local provider、実provider request 0回）:
+  `deploy-smoke.py`でCore＋TUIを起動し、`● ready`表示、Ctrl-QによるTUI終了、Core exit 0を確認した
+  （`.tools/increment-208/deployment/smoke.json`・`smoke-tui.txt`）。さらに配置binaryで
+  `tui-mouse-probe.py`（PROBE_LABEL=deployed）を再実行し、mouse flags `11`、wheel upで
+  `history 4/28 · Esc latest`、wheel downで最新復帰、click無視とdraft保持、終了後flags `00`を確認した
+  （`.tools/increment-208/tui-mouse-probe-deployed.json`）。
+- 稼働中の実Core/TUIは配置前binaryのままで、停止・再起動していない。
+- `origin/main`へのpushと公開/releaseは実施していない。
+
 ## 承認境界
 
 - 構想・architecture・roadmapは変更しない。通常利用メモの候補追加・採用は行わない。
-- source commit・公式build・常用配置・push・公開/release・実provider callは未実施であり、
-  それぞれ利用者指示を必要とする。
+- source commit・公式build・常用配置は利用者指示により実施済み。push・公開/release・実provider callは
+  未実施であり、それぞれ利用者指示を必要とする。
 - 通常利用（Ghostty > ssh > tmux）でのwheel履歴参照の確認は利用者に委ねる。

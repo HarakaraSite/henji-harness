@@ -12,8 +12,11 @@ local実装を行った。focused 45件・type check/fmt/lint/`git diff --check`
 tmux production TUI確認（実provider 0回、tmux 3.5a `mouse on`、外側端末をptyで模擬しwheel upで
 `history 4/28 · Esc latest`・wheel downで最新復帰・click無視とdraft保持・終了後mouse flags復元）まで
 完了。変更前binaryではwheelがtmux copy-modeへ入りTUIに届かないことも実測した。独立review
-（findingなし、finding未満のnoteのみ）も完了。source commit・公式
-build・常用配置・pushは未実施/未承認で、通常利用での利用者確認待ち。
+（findingなし、finding未満のnoteのみ）も完了。利用者指示（2026-10-07「commi　常用配置」）により
+source commit `c39e39a6`・公式build（build ID `a4f8394f…`、sourceDirty=false）・常用配置
+（`~/.local/bin/henji`、SHA-256 `c9ef9bee…`、直前binaryは`henji.previous`）・配置後smoke
+（隔離XDG、実provider 0回、deployed binaryでmouse flags `11`・wheel upで`history 4/28 · Esc latest`・
+wheel downで最新復帰・終了後flags `00`）まで完了した。pushは未実施/未承認で、通常利用での利用者確認待ち。
 
 [Increment 207](../docs/increments/increment-207.md)は利用者指示（2026-10-07、Ghostty>ssh>tmux環境で
 Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOtherKeys mode 1の要求/復元を追加し、
@@ -120,8 +123,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 208はlocal実装・検証完了。利用者の通常利用確認と、commit・公式build・常用配置の
-指示待ち。207は利用者受入済みで完了。
+**次の一手**: 208は利用者指示によるcommit・公式build・常用配置・配置後smokeまで完了。pushは
+未実施/未承認で、通常利用（Ghostty > ssh > tmux）でのwheel履歴参照の利用者確認待ち。207は利用者受入済みで完了。
 0.10.0はJSR公開・検証・native binary再build・常用配置・配置後smokeまで完了。
 配置記録commitのpushは未実施/未承認。207は利用者受入済みで完了。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
