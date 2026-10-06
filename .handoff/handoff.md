@@ -2,7 +2,7 @@
 
 再開時の入口。現在地・次の一手・正本へのpointer・承認境界だけを保持する。
 
-## 現在地（2026-10-06）
+## 現在地（2026-10-07）
 
 [Increment 207](../docs/increments/increment-207.md)は利用者指示（2026-10-07、Ghostty>ssh>tmux環境で
 Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOtherKeys mode 1の要求/復元を追加し、
@@ -13,8 +13,9 @@ type check/fmt/lint/`git diff --check`・隔離XDGとlocal providerでのtmux pr
 2026-10-07に追記済み（読み取りで確認。稼働中serverへの反映はserver再起動待ち）。利用者の
 「commit・公式build・常用配置を行なって」（2026-10-07）により、source commit `8efa6982`・
 公式build（build ID `a0ae400d…`）・常用binary配置・配置後smoke（隔離XDG、実provider 0回、
-`Ext 1`とShift+Enter非submitを確認）まで完了した。残るのは利用者側のtmux server再起動と
-Core/TUI再起動、通常利用でのShift+Enter確認。pushは未実施/未承認。利用者の受入を待つ。
+`Ext 1`とShift+Enter非submitを確認）まで完了した。利用者がtmux serverとCore/TUIを再起動し
+（受入時点で`extkeys`と`Ext 1`を実測）、通常利用でShift+Enter改行を確認して2026-10-07に受入
+（「はい通常利用でokです」）。207は完了。pushは未実施/未承認。
 
 [Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
 選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。source commit `3b84501f`、
@@ -94,8 +95,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 207はsource commit・公式build・常用配置済み。利用者がtmux serverとCore/TUIを
-再起動し、通常利用でShift+Enter改行を確認する。pushは未承認。受入後の完了判断は利用者が行う。
+**次の一手**: 207は利用者受入済みで完了（2026-10-07）。受入記録のdocs変更は未commit。pushは未承認で、
+`origin/main`より4 commit ahead（A19関連docs 2件と207の2件）。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
 206のsource commit・公式build・常用配置・pushは利用者指示で完了。

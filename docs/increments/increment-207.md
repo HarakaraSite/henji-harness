@@ -1,7 +1,8 @@
 # Increment 207 — TUI入力: Shift+Enterで改行（tmux経路の拡張キー）
 
-状態: local実装・検証済み、source commit・公式build・常用配置済み（2026-10-07）。利用者受入待ち
-（tmux serverとCore/TUIの再起動で有効）。pushは未実施。
+状態: 完了（2026-10-07、利用者が通常利用で受入）。local実装・検証・source commit・公式build・
+常用配置済みで、利用者側のtmux server再起動とCore/TUI再起動を経て通常利用のShift+Enter改行を
+確認した。pushは未実施。
 
 ## 利用者が必要とする動作と根拠
 
@@ -82,7 +83,7 @@ repository文書に未記録であり、会話の利用者指示として扱う�
   `CSI 27;2;13~`として送ることは公式repositoryの議論と実装記述に基づく推論であり、このVMからは
   検証できない。tmuxを介さない直接接続の経路も同じ理由で未検証である。
 
-## 利用者側に必要な設定（提案、未実施）
+## 利用者側に必要な設定（利用者側で実施済み）
 
 - `~/.tmux.conf`へ次の1行を追加する。client TERM（`xterm-256color`）に一致させる。
 
@@ -95,7 +96,7 @@ repository文書に未記録であり、会話の利用者指示として扱う�
   置き換えてしまうことを実測した（`set -as`は追記、`set -g`は置換）。
 - 反映手順（実測に基づく）: 追記後、tmux clientをすべてdetachして`tmux kill-server`し、tmux serverを
   起動し直す。このfeatureはserver起動時に有効でないと効かない。
-  （2026-10-07: 利用者が`~/.tmux.conf`へ追記済み。稼働中serverの再起動待ち。）
+  （2026-10-07: 利用者が`~/.tmux.conf`へ追記し、tmux serverを再起動済み。下記「利用者受入」参照。）
   - 実測: 設定ファイルに書いてserver起動 → client attach（DA応答あり）時にtmuxが外側端末へ
     `CSI > 4 ; 2 m`を送り、paneがmode 1を要求すると`#{pane_key_mode}`が`Ext 1`になる。
   - 実測: 稼働中serverへ`source-file`で追加 → 既存clientのfeaturesは変わらない。detach/attach後は
@@ -142,4 +143,21 @@ repository文書に未記録であり、会話の利用者指示として扱う�
   `deployment/shift-enter-probe-tui.json`（git管理外）。
 - 稼働中の常用Core/TUI（pane pid 948）は配置前後で同一で、停止・再起動していない。
 - `origin/main`へのpushと公開/releaseは実施していない。
-- 残る作業は利用者側の反映（tmux server再起動とCore/TUI再起動）と通常利用でのShift+Enter確認である。
+- 残る作業だった利用者側の反映（tmux server再起動とCore/TUI再起動）と通常利用でのShift+Enter確認は、
+  下記「利用者受入」のとおり完了した。
+
+## 利用者受入（2026-10-07）
+
+利用者が通常利用（Ghostty > ssh > tmux）でShift+Enter改行を確認し、受入を表明した（2026-10-07、
+「はい通常利用でokです」）。これにより207の要件は実利用経路で成立した。
+
+受入時点の実環境観測（読み取りのみ、2026-10-07 06:10、本VM）:
+
+- 稼働中tmux 3.5a serverの`terminal-features`に`xterm*:extkeys`があり、client `/dev/pts/0`
+  （`xterm-256color`）の`#{client_termfeatures}`に`extkeys`が含まれる。利用者側の`.tmux.conf`追記と
+  server再起動が反映済み。
+- 稼働中Henji pane（cmd=`henji`）の`#{pane_key_mode}`は`Ext 1`で、207の拡張キー要求が有効な新TUIが
+  動作している。
+- 常用`~/.local/bin/henji`のSHA-256は`e6a548c8…`（本incrementの配置値）と一致する。
+
+残る作業はない。pushは未実施/未承認。
