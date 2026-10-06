@@ -1124,6 +1124,10 @@ Pi／OpenCode／Henjiの画面表示比較
 - 次の確認: ①`henji tui --new`の新規セッションで`git_inspect`を呼べるか、②呼べない場合はmodel requestの`tools`を
   組み立てる経路（`loadWorkerTools`・Worker composition）とHost/TUIが保持する会話stateの関係を確認する。
 - 再検討条件: 利用者が新規セッションで確認するとき、または同現象が再観測されるとき。
+- 追加確認（2026-10-06）: Core API（`/api/v1/*`）には実行中Workerのtool一覧を読む経路がない。
+  隔離XDGで起動したcompiled binaryのTUIではconfiguration rejectionのnoticeが出ず、Workerは`git_inspect`を
+  読み込む（`search`の`entries`は続行セッションでも動作）。利用者判断でセッションを作り直して新規セッションで
+  確認する。
 
 ## F24・自己改訂
 

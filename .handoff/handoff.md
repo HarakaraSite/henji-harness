@@ -5,14 +5,22 @@
 ## 現在地（2026-10-06）
 
 [Increment 200](../docs/increments/increment-200.md)と[201](../docs/increments/increment-201.md)は利用者指示
-「コミット、配置して」により、source commit `6f6f9a6a`・公式build（build ID
-`5bfcdbaa…`）・常用配置まで完了した。200は専用tool優先・出力の扱い・reviewerからbashを外す案内、
+「コミット、配置して」「プッシュして」により完了した。source commit `6f6f9a6a`（200・201合同）、
+公式build（build ID `5bfcdbaa…`）、常用配置（`~/.local/bin/henji`、旧binaryは`henji.previous`）、
+push（`f14a576f`まで）済み。200は専用tool優先・出力の扱い・reviewerからbashを外す案内、
 201は外部tool `git_inspect`（read-onlyなstatus/diff/log/show、親・generic・reviewerで選択）と`search`の
 `entries` mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・search更新（`local-3`）・
-reviewer（revision 3）を反映済み。配置後の`agent inspect`はdefault／reviewerともrejections
-`[]`。旧binaryは`~/.local/bin/henji.previous`。pushは完了（`8f6e113b..3872f0ec`、以前のローカルcommit 21件を含む）。
-実provider callは未実施で、既存Core/TUIは再起動していない（新しい起動から適用）。配置binaryは親commitの199も含む。
-設計・検証の詳細は各文書を参照する。
+reviewer（revision 3）を反映済み。`agent inspect`はdefault／reviewerともrejections `[]`。
+配置binaryは親commitの199も含む。
+
+**Core/TUI再起動済み**（Core `c6afea6d`、`henji tui --continue`、新binary）。ただし続行セッション
+`91cb1f45`では`git_inspect`がmodel-facing tool定義に現れず実行できなかった（`search`の`entries`は動作）。
+利用者判断で**セッションを作り直す**。
+
+**次の一手**: 新規セッションで`git_inspect`を実行して確認する。通ればA34の原因は「続行セッションでは
+新規tool名がmodel定義に反映されない」で確定。通らない場合はmodel requestの`tools`組み立て経路
+（`loadWorkerTools`→Worker composition）とHost/TUIが保持する会話stateの関係を調査する。
+観測は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34にある。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>
 bashを使いがち」という利用者指示を受け、第1段としてread/write/edit/search/run_typescriptをbashより
