@@ -16,7 +16,14 @@ tmux production TUI確認（実provider 0回、tmux 3.5a `mouse on`、外側端�
 source commit `c39e39a6`・公式build（build ID `a4f8394f…`、sourceDirty=false）・常用配置
 （`~/.local/bin/henji`、SHA-256 `c9ef9bee…`、直前binaryは`henji.previous`）・配置後smoke
 （隔離XDG、実provider 0回、deployed binaryでmouse flags `11`・wheel upで`history 4/28 · Esc latest`・
-wheel downで最新復帰・終了後flags `00`）まで完了した。pushは未実施/未承認で、通常利用での利用者確認待ち。
+wheel downで最新復帰・終了後flags `00`）まで完了した。利用者が2026-10-07 07:20にCore/TUIを再起動し、
+実Core/TUIは常用`/home/agent/.local/bin/henji`（SHA-256 `c9ef9bee…`、build `a4f8394f…`、
+source `c39e39a6`）で稼働中。実pane（`0:0.0`、tty `/dev/pts/1`）の`#{mouse_standard_flag}`=1・
+`#{mouse_sgr_flag}`=1（`11`）と`pane_in_mode=0`を実測し、208のmouse要求が実運用で有効になった。
+利用者からwheel履歴参照の動作報告とともに「素のドラッグでコピーできなくなった」報告を受け、
+原因（paneのmouse mode優先によるtmuxの転送）・回避経路・改善案を208へ記録した。利用者は
+2026-10-07に208をShift+ドラッグ運用で受入（wheel履歴参照は動作確認済み、mouse capture中の
+素のドラッグコピー不可は仕様として受入。改善案2・3は不採用）。pushは未実施/未承認。
 
 [Increment 207](../docs/increments/increment-207.md)は利用者指示（2026-10-07、Ghostty>ssh>tmux環境で
 Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOtherKeys mode 1の要求/復元を追加し、
@@ -123,8 +130,10 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 208は利用者指示によるcommit・公式build・常用配置・配置後smokeまで完了。pushは
-未実施/未承認で、通常利用（Ghostty > ssh > tmux）でのwheel履歴参照の利用者確認待ち。207は利用者受入済みで完了。
+**次の一手**: 208は利用者指示によるcommit・公式build・常用配置・配置後smokeと、2026-10-07の
+Core/TUI再起動での実運用適用・利用者受入（Shift+ドラッグ運用、wheel履歴参照の動作確認済み）まで
+完了した。pushは未実施/未承認。未commitのdocs/handoff変更（208の受入・観測記録と本handoff）は
+次回の利用者指示でcommitする。207は利用者受入済みで完了。
 0.10.0はJSR公開・検証・native binary再build・常用配置・配置後smokeまで完了。
 配置記録commitのpushは未実施/未承認。207は利用者受入済みで完了。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。

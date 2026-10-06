@@ -1,7 +1,7 @@
 # Increment 208 — TUI: マウススクロールで会話履歴を参照する
 
-状態: local実装・検証・source commit・公式build・常用配置・配置後smoke完了（2026-10-07）。pushは
-未実施で利用者指示を必要とする。full gateは実行していない。
+状態: local実装・検証・source commit・公式build・常用配置・配置後smoke・利用者受入（2026-10-07、
+Shift+ドラッグ運用）まで完了。pushは未実施で利用者指示を必要とする。full gateは実行していない。
 
 ## 利用者が必要とする動作と根拠
 
@@ -141,9 +141,62 @@ PageUp／PageDownのまま。reviewerはtest実行・`v0:check`／fmt／lintの�
 - 稼働中の実Core/TUIは配置前binaryのままで、停止・再起動していない。
 - `origin/main`へのpushと公開/releaseは実施していない。
 
+## 配置後の利用者観測（2026-10-07）: 素のドラッグでコピーできない
+
+利用者報告（2026-10-07、再起動後）: wheel履歴参照は動作したが、マウスドラッグでのコピーが
+できなくなった。
+
+原因（tmux 3.5a実測）: TUIが`?1000h`／`?1006h`を要求したため、tmuxはpaneのmouse modeを優先し、
+mouseイベントをアプリへ転送する（root binding `MouseDrag1Pane`／`WheelUpPane`の`mouse_any_flag`分岐）。
+
+- `.tools/increment-208/tmux-select-probe.py`（private server、外側端末をptyで模擬）:
+  paneが`11`の間はplain dragがアプリへ転送され（app受信を実測）、tmuxのcopy-mode（prefix+[）中でも
+dragはアプリへ届く。paneが`00`（変更前相当）ならdragはtmuxへ入り、releaseでtmuxバッファへ
+コピーされる（s2）。
+- `.tools/increment-208/tmux-copy2-probe.py`: paneが`00`ならdrag選択が成立しreleaseでbuffer
+`alpha`が得られる（s5）。paneが`11`でも、キーボードのcopy-modeは機能する（s6: `C-Space`→`Down`→
+`M-w`で選択コピー、emacs mode-keys既定。Enterはemacsでは未binding）。
+- tmux自身のコピーは`set-clipboard external`でもOSC 52で外側端末へ送られる
+  （`tmux-copy3-probe.py` A: buffer `alpha`とOSC 52送出）。変更前はドラッグ→tmuxバッファ＋
+  Ghosttyクリップボードが成立していた。
+- アプリからのOSC 52は`external`／`off`では無視され、`on`でのみバッファ化＋外側端末へ転送される
+  （`tmux-osc2-probe.py`、tmux man・source `input_osc_52`の`state != 2`）。
+- Ghostty側の契約（ghostty(1) man、Arch man mirror）: `mouse-shift-capture`既定false＝Shiftは
+  アプリへ送られず選択拡張に使われる、`copy-on-select`既定true（Linux/macOS）、
+  `clipboard-write`は既定で許可、`mouse-reporting`は`toggle_mouse_reporting` keybindで実行時解除
+  可能。Ghostty実機（macOS）での確認はこのVMからは未実施。
+
+現時点の回避経路: GhosttyのShift+ドラッグ（Ghostty自身の選択、copy-on-selectでクリップボードへ）か、
+tmuxのキーボードコピー（`prefix + [`→移動→`C-Space`→移動→`M-w`→`prefix + ]`）。
+
+改善案（今回不採用・将来の候補）:
+
+1. 変更なし（Shift+ドラッグ運用。`/help`への追記は行わない）。
+2. TUIに一時的なmouse解放コマンドを追加する（解放中は素のドラッグでtmux選択、wheel履歴参照は無効）。
+3. TUI内でドラッグ選択＋OSC 52コピーを実装する（素のドラッグでコピー、wheel維持）。tmux側を
+   `set -g set-clipboard on`へ変更すればmacOSクリップボードまで届く（実測済み）。
+
+この節の追記ではproduct source・runtimeを変更していない。
+
+## 利用者受入（2026-10-07）
+
+利用者が実環境（Ghostty > ssh > tmux、再起動後の常用binary）でmouse wheelによる履歴参照を確認し、
+本incrementを「Shift+ドラッグ運用」で受入した。
+
+- wheel履歴参照（PageUp／PageDown相当）は動作する。
+- TUIがmouseをcaptureしている間、端末標準のドラッグ選択は使えない。テキスト選択・コピーは
+  GhosttyのShift+ドラッグ（Ghostty自身の選択、`copy-on-select`既定trueでクリップボードへ）または
+  tmuxのキーボードcopy-mode（`prefix + [`→移動→`C-Space`→移動→`M-w`→`prefix + ]`）を使う。
+- 「配置後の利用者観測」の改善案2（mouse一時解放）・3（アプリ内選択＋OSC 52）は今回採用しない。
+  将来必要になった場合の候補として同節に残す。
+- `/help`等へのmouse/コピー手順の追記は行わない（利用者指示なし）。
+
+この受入ではproduct source・runtimeを変更していない。
+
 ## 承認境界
 
 - 構想・architecture・roadmapは変更しない。通常利用メモの候補追加・採用は行わない。
 - source commit・公式build・常用配置は利用者指示により実施済み。push・公開/release・実provider callは
   未実施であり、それぞれ利用者指示を必要とする。
-- 通常利用（Ghostty > ssh > tmux）でのwheel履歴参照の確認は利用者に委ねる。
+- 利用者は2026-10-07に実環境（Ghostty > ssh > tmux）でwheel履歴参照を確認し、mouse capture中の
+  素のドラッグコピー不可を仕様（選択はShift+ドラッグまたはキーボードcopy-mode）として受入した。
