@@ -21,6 +21,7 @@
   - §8の「変更の性質ごとの適用の目安」を既定としてよいか。
   - 本書の配置・名称（`docs/plans/development-workflow.md`）と、採用時のAGENTS.mdからの参照でよいか。
   - 段階8（commit・常用配置）と段階9（完了承認・記録・正本反映）の分割でよいか。
+  - §10の検討記録（hookによる段階ゲート）の扱い（別incrementで計画するか）。
 
 ## 1. 原則
 
@@ -342,7 +343,121 @@ review・gateの範囲は利用者の指示と計画で決める。この表は�
 - 引継ぎ時は、現在のsource差分（`git status`・`git diff`）、未commitの成果、実行済み確認と
   未実行確認を引き継ぐ。同じ確認を繰り返さない。
 
-## 10. 付録
+## 10. 検討記録: hookによる段階ゲート（未採用）
+
+この節は検討の記録であり、採用された手順ではない。実装する場合は別incrementで計画する。
+
+### 10.1 目的と分担の前提
+
+- 各段階を終える前に「次の段階へ移ってよいか」を判定し、その結果を記録・可視化したい。
+- **判定処理（AI呼出・質問設計・閾値）は拡張機能側（外部hookモジュール）に実装する。** core側は
+  トリガーと通知の配送を担う、という分担を前提とする。
+- core側に必要なのは「hookトリガーでセッション中のエージェントと利用者へ通知を届け、記録する」
+  機能であり、判定結果（許可/拒否）をcoreが解釈する必要はない。
+
+### 10.2 現行hook機構の確認結果（sourceとtestで確認）
+
+- phaseは`runtime_start`/`runtime_stop`/`before_turn`/`after_turn`/`before_tool`/`after_tool`の6つ
+  （`v0/agent/hook_api.ts`）。登録順にawait実行。
+- 入力にはruntime identity、task、canonical transcript（`ToolCallContent`＝callId/name/arguments、
+  `ToolResultContent`＝callId/name/text/outcome）、system instruction、tools、checkpointが含まれる。
+- 出力は context追加（`before_turn`/`runtime_start`）、checkpoint更新（`after_turn`）、
+  tool引数/結果の置換（`before_tool`/`after_tool`）のみ。**deny・承認待ち・中断の出力は無い。**
+- 失敗時: `before_turn`のthrowはturn失敗、`runtime_start`はそのhookを無効化、`before_tool`/
+  `after_tool`/`runtime_stop`は記録のみで実行は継続。
+- hookは`requestProvider`（credential解決・値非公開・hook名付きevidence記録）、
+  `credentialAvailability`、`workspace.root`、`processExecutor`を受け取る（`worker_configuration.ts`）。
+  hookからのprovider requestの記録は`increment_189_post_hook_facts_test.ts`で確認済み。
+- 選択は`hooks.json`（schemaVersion 1、hooks、default）＋agent別`hooks`配列。root/child別に選べる。
+- 既存の通知経路: steeringは**1 turn 1件**・最大64 KiB・安全境界でconsume・`role:'user'`＋
+  `steering:true`でtranscriptに残る（`v0/agent/core/steering.ts`）。TUI noticeは
+  `system:{session}:{identity}`キーで同一entryを更新し、同一内容はskip、削除も可能
+  （`v0/tui/system_notices.ts`）。`after_turn`のcontextはturn確定後のtranscriptを含む
+  （`this.committedTranscript = proposal.transcript`がafterSettlementより前）。
+
+### 10.3 core側に必要な機能／拡張側に残すもの
+
+core側（通知プリミティブ）:
+
+- 通知の宛先: `user`（notice表示）／`agent`（次の境界でモデル入力に入る）／両方。
+- 通知の属性: `topic`（段階・検査名）、`state`（例: `running`/`pass`/`fail`/`stale`/`resolved`）、
+  `text`、由来（hook名・path・trigger phase・時刻）。
+- 抑止: 同一topic・同一stateは配送しない。解消は明示。topic単位の更新（noticeのidentity/upsert/
+  deleteを既存機構と同型にする）。
+- 合流: 1境界に複数topicが変化した場合のエージェント向けの結合規則と上限。
+- 記録: 状態遷移をsemantic factとして保存し、history CLI/APIからreadbackできること（TUI noticeは
+  UI-localのため履歴は別に残す）。
+- 失敗分離: 拡張側の処理失敗・timeoutは通知欠落として記録し、turnを壊さない。
+- 応答相関: この検討では持たない（表示のみ）。将来必要になった場合の拡張点として残す。
+
+拡張側（外部hookモジュール）:
+
+- AI判定（Jev等）の呼出、質問設計、閾値・confidence処理、段階定義の解釈、verdictの保存、
+  通知文面の生成、gate発火の観測と状態遷移。
+
+### 10.4 配送方式
+
+- **評価はturn内（`after_tool`）で行い、配送はturn境界（turn間）に行う。** 評価は正確な材料
+  （実行コマンドと結果）が手元にある時点で行い、配送は会話の途中に割り込まない境界で行う。
+- エージェント向けは次のturnの`before_turn`時に1件（既存のcontext追加で代替可能）。利用者向けは
+  `after_turn`（post-settlement）に通知を渡す（現行はcheckpoint出力のみなので拡張が必要）。
+- 頻度は**topic状態の変化時のみ**を既定とする（同じ状態の再配送はしない）。リマインダーは
+  必要になったら追加する（既定なし）。
+- 応答は求めない。利用者向けは「見るだけ」でありy/n承認ではない。エージェント向けは通知＋
+  （必要なら）依頼文とし、実施の確認は次のhookがtool実行を観測して行う（応答相関なし）。
+- `after_turn`は失敗・取消のturnでも走る（outcome/settlement付き）ため、fail状態のままturnが
+  終わった場合も配送・記録できる。
+
+### 10.5 gateテスト発火の捕捉
+
+捕捉できる材料:
+
+- `after_tool`の`toolName:'bash'`、`arguments.command`、`result.text`。bash結果は
+  `{stdout, stderr, exitCode, signal, timedOut, stdoutTruncated, ...}`のJSON文字列。
+- turn確定後のcanonical transcriptからも同じcall/resultを読める（callIdで対応）。
+
+制約と対策:
+
+| 制約               | 内容                                                                        | 対策                                                                     |
+| ------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 非ゼロexitの扱い   | bashは非ゼロexitでもtool outcomeは`success`（registryはthrow時のみerror）   | `result.text`をparseして`exitCode`で判定する                             |
+| コマンド表記の揺れ | `--config`、`cd &&`、`bash -lc`、pipe等                                     | 緩い規則＋コマンド全文をAI判定材料に渡す。規約で実行形を固定する案もある |
+| 偽陽性             | `echo`/`grep`等の文字列一致                                                 | exitCode・出力形とAI判定。専用tool呼出を境界マーカーにする案もある       |
+| 多重実行           | 同一turnで複数回                                                            | 「最後を採用」「fail優先」「全件材料」のいずれかを計画で固定する         |
+| 出力切り詰め       | `stdoutTruncated`＋`outputId`                                               | exitCode＋要約＋切り詰め本文で判定。全文は必要時に参照                   |
+| 子エージェント     | 子のbash callは親のtranscriptに出ない（子の結果はcollect時のみ親contextへ） | 子にも同hookを選択、親が実行する規約、または子の報告を材料にする         |
+| 再実行でない呼出   | `bash_output`は読取                                                         | 判定対象から除外                                                         |
+| 別経路             | `run_typescript`はenv/run/sys/ffi無効でコマンド実行不可                     | gate実行はbash経由に集約される                                           |
+
+### 10.6 AI判定（Jev等）の扱い
+
+- 公開情報ではJevはbounded questions（Noul/Choice/Score）に確率付きのtyped
+  verdictを返す判定modelで、 agent runやrule
+  complianceの判定用途が案内されている。段階の出口判定（pass/fail＋confidence）に
+  形が合う。**提供側の主張であり、latency・料金・API契約は未確認。**
+- 呼出は拡張側で`requestProvider`を使い、credentialは既存のauthProfile登録
+  （`credentials/*.json`＋credential file）で解決する。credential値・Authorizationは記録しない。
+- 実provider callはプロジェクト規則で事前承認（対象・回数・保存先）が必要。判定材料に差分や
+  証拠を外部serviceへ送る範囲も計画時に決める。
+- AI判定は段階の出口条件の材料であり、利用者承認（採用・commit・配置・正本反映・実data削除）の
+  代替にはしない。
+
+### 10.7 未決事項
+
+- 多重実行時の採用規則、子エージェント実行の扱い、切り詰め出力の扱い、gate実行形の規約化。
+- `stale`判定のトリガ（材料digestの比較をどの境界で行うか）、境界合流の規則、リマインダーの要否。
+- 通知契約の形（既存phase出力への`notices`追加か、新phaseか）と`HOOK_API_CONTRACT`の扱い。
+- 応答相関（将来、利用者の判断が必要になった場合のみ）。
+
+### 10.8 次の手順と承認境界
+
+- 実装する場合は別incrementとして、通知primitive（配送・記録・表示）、gate観測（bash解析と
+  状態遷移・冪等）、利用者向けnotice（Surface確認）、規約と記録のスライスで計画する。
+- hook契約の拡張はarchitectureの責務記述に関わるため、正本変更は対象・理由・意味上の変更を
+  提示して別承認を得る。
+- 本書（案）には検討の記録のみを残し、採用・実装の判断は行わない。
+
+## 11. 付録
 
 ### increment文書の骨子
 
