@@ -150,7 +150,7 @@ timeoutで待機する。restart reconciliationはSession／execution lockを取
 Coreのepoch、endpoint、startup／instance lockとboot結果は
 `${stateRoot}/cores/<workspaceDigest>/<coreEpoch>/`へ置く。epochはprocessの識別であり、Core終了後に
 同じidentityで自動再起動するdurable Instanceではない。configとcredentialは共有XDG
-scopeを使い、Core数を保存先の分割や設定の自動同期へ置き換えない。
+scope（credential値はstate配下の専用root）を使い、Core数を保存先の分割や設定の自動同期へ置き換えない。
 
 `henji core list/status`でCoreを発見・照会し、`core stop --core ID`で一Coreだけを停止する。
 各Coreは自分のWorker／child／tool groupを所有する。親cancelは対象親子、Core shutdownはそのCoreだけを
@@ -243,7 +243,7 @@ manifestを含む。installerは
 config配下へfolderを配置し、既存のtool選択CLIで登録する。既存folderの編集は保持し、明示的な
 `--replace-tools`指定時にpackageのfileを上書きする。
 
-writableなscopeはconfigにcredential・preference・Agent/tool/provider選択、stateにSession・履歴・診断を置く。
+writableなscopeはconfigにpreference・Agent/tool/provider選択、stateにSession・履歴・診断とcredential値（`${stateRoot}/credentials/`）を置く。
 workspace fileとnative discoveryはworkspace/userの所定scopeが所有する。binary隣接pathをwritable
 stateの正本にしない。 旧managed revision storeの実dataを新方式の一部として読まず、自動削除もしない。
 

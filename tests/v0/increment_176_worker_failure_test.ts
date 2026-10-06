@@ -24,6 +24,7 @@ Deno.test('Increment 176 real Worker turn exception retains its facts through Ho
       physicalIoMode: 'provider-free',
       agentChoice: {},
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       capsuleFactory: (url) => {
         const capsule = new WorkerCapsule(url);
         let failTurnContext = false;

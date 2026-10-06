@@ -18,9 +18,14 @@ import {
 } from '../tools/work_tools.ts';
 import { createBashOutputTool } from '../tools/bash_output.ts';
 import { createRunTypescriptTool } from '../tools/run_typescript.ts';
+import { loadRunTypescriptSandbox } from '../tools/run_typescript_sandbox.ts';
 import { createAgentResourceIdentity } from '../definitions/resource_identity.ts';
 
-const bundledTool = (name: string, input: ToolFactoryInput): Tool => {
+const bundledTool = async (
+  name: string,
+  input: ToolFactoryInput,
+  configRoot: string | undefined,
+): Promise<Tool> => {
   switch (name) {
     case 'read':
       return createReadTool(input.workspace);
@@ -38,9 +43,15 @@ const bundledTool = (name: string, input: ToolFactoryInput): Tool => {
       );
     case 'bash_output':
       return createBashOutputTool(input.bashOutputStore);
-    case 'run_typescript':
+    case 'run_typescript': {
       if (input.processExecutor === undefined) throw new Error('process executor is unavailable');
-      return createRunTypescriptTool(input.workspace, input.processExecutor);
+      const sandbox = await loadRunTypescriptSandbox(configRoot);
+      return createRunTypescriptTool(input.workspace, input.processExecutor, {
+        ...(configRoot === undefined ? {} : { configRoot }),
+        allowedPaths: sandbox.allowedPaths,
+        deniedPaths: sandbox.deniedPaths,
+      });
+    }
     case 'skill':
       return createSkillTool(input.skillCatalog);
     case 'submit_json_result':
@@ -101,6 +112,7 @@ export interface LoadedWorkerTool {
 export const loadWorkerTools = async (
   selections: readonly ToolSelection[],
   input: ToolFactoryInput,
+  bundled: { readonly configRoot?: string } = {},
 ): Promise<{
   readonly accepted: readonly LoadedWorkerTool[];
   readonly rejections: readonly ConfigurationRejection[];
@@ -124,7 +136,7 @@ export const loadWorkerTools = async (
         }
         tool = await module.default(input);
       } else {
-        tool = bundledTool(selection.name, input);
+        tool = await bundledTool(selection.name, input, bundled.configRoot);
       }
       accepted.push(Object.freeze({ selection, tool: validateTool(tool, selection.name) }));
     } catch (error) {

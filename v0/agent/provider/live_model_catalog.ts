@@ -44,6 +44,8 @@ export class LiveModelCatalogError extends Error {
 
 interface LiveModelCatalogOptions {
   readonly configRoot: string;
+  /** Credential root shared with the request-time reader; kept separate from the config root. */
+  readonly credentialRoot: string;
   readonly declarations: readonly ProviderDeclarationV1[];
   readonly metadataUrl?: string;
   readonly fetcher?: typeof fetch;
@@ -269,6 +271,7 @@ const sortedModels = (
 
 export class LiveModelCatalog {
   readonly #configRoot: string;
+  readonly #credentialRoot: string;
   readonly #declarations: readonly ProviderDeclarationV1[];
   readonly #metadataUrl?: string;
   readonly #fetcher: typeof fetch;
@@ -279,11 +282,12 @@ export class LiveModelCatalog {
 
   constructor(options: LiveModelCatalogOptions) {
     this.#configRoot = options.configRoot;
+    this.#credentialRoot = options.credentialRoot;
     this.#declarations = options.declarations;
     this.#metadataUrl = options.metadataUrl;
     this.#fetcher = options.fetcher ?? fetch;
     this.#chatgptAuth = options.chatgptAuth ?? createChatGPTAuthService({
-      configRoot: options.configRoot,
+      credentialRoot: options.credentialRoot,
       ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
     });
   }
@@ -557,7 +561,7 @@ export class LiveModelCatalog {
     try {
       credential = parseCredentialBytes(
         await Deno.readFile(
-          credentialFileFor(declaration.authProfile, this.#configRoot),
+          credentialFileFor(declaration.authProfile, this.#credentialRoot),
         ),
       );
     } catch {

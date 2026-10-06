@@ -66,6 +66,8 @@ export interface PhysicalIoBindings {
 /** Inputs resolved by the Worker for one JSON Agent configuration. */
 export interface WorkerCompositionInput {
   readonly workspace: Workspace;
+  /** User config root; bundled tools that read host-owned config receive it here. */
+  readonly configRoot?: string;
   readonly agentInstructions?: string;
   readonly skillCatalog: SkillCatalog;
   readonly physicalIo: PhysicalIoBindings;

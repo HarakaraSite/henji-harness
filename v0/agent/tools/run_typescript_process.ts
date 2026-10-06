@@ -7,11 +7,18 @@ import {
   throwIfCancelled,
   TurnCancelledError,
 } from '../core/cancellation.ts';
+import type { TypescriptSandboxPaths } from './run_typescript_executor.ts';
 
 export interface TypescriptProcessInput {
   readonly code: string;
   readonly workspace: Workspace;
   readonly input: unknown;
+  /** Host-resolved sandbox additions; the executor always keeps workspace and /tmp. */
+  readonly readPaths?: readonly string[];
+  readonly writePaths?: readonly string[];
+  readonly denyPaths?: readonly string[];
+  /** Value exposed to code as `henjiConfigRoot`. */
+  readonly configRoot?: string;
 }
 export type TypescriptProcessReply =
   | { readonly ok: true; readonly result: string }
@@ -25,6 +32,7 @@ export const executeTypescriptProcess = async (
   code: string,
   workspace: Workspace,
   input: unknown,
+  sandbox: TypescriptSandboxPaths,
   processes: ProcessExecutor,
   context?: ToolContext,
 ): Promise<string> => {
@@ -38,7 +46,15 @@ export const executeTypescriptProcess = async (
   const resultPath = `${directory}/result.json`;
   await Deno.writeTextFile(
     inputPath,
-    JSON.stringify({ code, workspace, input }),
+    JSON.stringify({
+      code,
+      workspace,
+      input,
+      readPaths: sandbox.read,
+      writePaths: sandbox.write,
+      denyPaths: sandbox.deny,
+      ...(sandbox.configRoot === undefined ? {} : { configRoot: sandbox.configRoot }),
+    }),
   );
   throwIfCancelled(signal);
   const applicationArgs = ['--internal-run-typescript', inputPath, resultPath];

@@ -463,6 +463,7 @@ const createGeneration = async (
   agentChoice: AgentConfigurationChoice,
   workspaceRoot: string,
   configRoot: string,
+  credentialRoot: string,
   physicalIoMode: 'provider-free' | 'production',
   rootMaxSteps?: number,
   providerTimeoutMs?: number,
@@ -485,7 +486,7 @@ const createGeneration = async (
   const requestCounter = createWorkerRequestCounter();
   const physicalIo = physicalIoMode === 'production'
     ? createProductionPhysicalIo(requestCounter, {
-      configRoot,
+      credentialRoot,
       providerTimeoutMs,
       providerDeclarations,
       reportAuxiliaryStage,
@@ -521,6 +522,7 @@ const createGeneration = async (
   const selection = await resolveWorkerConfiguration(configRoot, agentChoice);
   const configured = await createConfiguredWorkerComposition(selection, {
     workspace,
+    configRoot,
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,
@@ -817,6 +819,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           command.agentChoice,
           command.workspaceRoot,
           command.configRoot,
+          command.credentialRoot,
           command.physicalIoMode ?? 'provider-free',
           command.rootMaxSteps,
           command.providerTimeoutMs,

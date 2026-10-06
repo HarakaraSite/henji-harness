@@ -430,6 +430,7 @@ Deno.test('Increment 92 classifies each observed source-to-durability boundary',
 Deno.test('Increment 92 records production auxiliary I/O stage order without payloads', async () => {
   const stages: WorkerStageName[] = [];
   const io = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('test-credential'),
     },
@@ -484,6 +485,7 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
       undefined,
     );
     const io = createProductionPhysicalIo(undefined, {
+      credentialRoot: '/tmp/henji-test-credentials',
       credentialSources: {
         'openrouter-api-key': () => mode === 'missing' ? undefined : 'test-credential',
       },

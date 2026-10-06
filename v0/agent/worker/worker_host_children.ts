@@ -129,9 +129,7 @@ export class ChildRunRegistry {
       return await this.deps.chatgptAuth.selectedRegistrationId();
     }
     const auth = createChatGPTAuthService({
-      ...(this.deps.options.configRoot === undefined
-        ? {}
-        : { configRoot: this.deps.options.configRoot }),
+      credentialRoot: this.deps.options.credentialRoot,
     });
     try {
       return await auth.selectedRegistrationId();
@@ -533,6 +531,7 @@ export class ChildRunRegistry {
       descriptor: run.descriptor!,
       workspaceRoot: this.deps.options.workspaceRoot,
       configRoot: this.deps.options.configRoot,
+      credentialRoot: this.deps.options.credentialRoot,
       agentChoice: entry.choice,
       runtimeIdentity: {
         role: 'child',

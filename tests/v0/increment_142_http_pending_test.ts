@@ -103,10 +103,12 @@ Deno.test('Increment 142 HTTP owns steering and follow-up through detach, settle
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
   await Deno.writeTextFile(`${workspaceRoot}/sample.txt`, 'Slice 4 tool result marker');
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'localhost-test-key', {
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'localhost-test-key', {
     mode: 0o600,
   });
 

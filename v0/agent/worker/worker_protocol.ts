@@ -86,8 +86,10 @@ export type WorkerHostCommand =
     /** Emit the actual composed snapshot before startup hooks finish. */
     readonly notifyStartupPrepared?: boolean;
     readonly agentChoice: AgentConfigurationChoice;
-    /** User config root shared by the Host and Worker credential resolvers. */
+    /** User config root shared by the Host and Worker configuration loaders. */
     readonly configRoot: string;
+    /** Credential root shared by the Host and Worker credential resolvers. */
+    readonly credentialRoot: string;
     /** Defaults to true for root Workers; child Workers disable recursive child tools. */
     readonly enableAsyncAgents?: boolean;
     /** Spawn-time tool filter (bare tool names) narrowing this generation's declared tools. */

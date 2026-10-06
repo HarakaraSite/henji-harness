@@ -14,6 +14,7 @@ const supervisor = new WorkerSupervisor({
     descriptor: harness.descriptor,
     workspaceRoot: harness.workspaceRoot,
     configRoot: `${harness.root}/config`,
+    credentialRoot: `${harness.root}/credentials`,
     agentChoice: { name: 'missing-agent' },
     physicalIoMode: 'provider-free',
   },

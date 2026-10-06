@@ -43,11 +43,12 @@ export const createChildDataTestRegistry = async (
     readonly options:
       & Omit<
         ChildRunDeps['options'],
-        'data' | 'descriptor' | 'workspaceRoot' | 'agentChoice' | 'configRoot'
+        'data' | 'descriptor' | 'workspaceRoot' | 'agentChoice' | 'configRoot' | 'credentialRoot'
       >
       & {
         readonly agentChoice?: ChildRunDeps['options']['agentChoice'];
         readonly configRoot?: string;
+        readonly credentialRoot?: string;
         readonly initialModelSelection?:
           import('../../../v0/agent/provider/model_selection.ts').ModelSelection;
       };
@@ -72,9 +73,11 @@ export const createChildDataTestRegistry = async (
   const workspaceRoot = input.workspaceRoot ?? input.store?.workspaceRoot ??
     root!;
   const configRoot = input.options.configRoot ?? `${workspaceRoot}/config`;
+  const stateRoot = input.store?.stateRoot ?? `${root}/state`;
+  const credentialRoot = input.options.credentialRoot ?? `${stateRoot}/credentials`;
   const { initialModelSelection, ...workerOptions } = input.options;
   const data = await createDataClient({
-    stateRoot: input.store?.stateRoot ?? `${root}/state`,
+    stateRoot,
     workspaceRoot,
   });
   try {
@@ -102,6 +105,7 @@ export const createChildDataTestRegistry = async (
         descriptor: parentDescriptor,
         workspaceRoot,
         configRoot,
+        credentialRoot,
         agentChoice: {},
         physicalIoMode: 'provider-free',
         ...(input.options.rootMaxSteps === undefined
@@ -142,6 +146,7 @@ export const createChildDataTestRegistry = async (
         workspaceRoot,
         agentChoice: input.options.agentChoice ?? {},
         configRoot,
+        credentialRoot,
       },
       currentCatalog: input.currentCatalog,
       ...(input.currentModelSelection === undefined
@@ -175,6 +180,7 @@ export const seedDataServiceParentExecution = async (input: {
   readonly descriptor: DataSessionDescriptor;
   readonly workspaceRoot: string;
   readonly configRoot: string;
+  readonly credentialRoot: string;
   readonly agentChoice: AgentConfigurationChoice;
   readonly executionId: string;
 }): Promise<WorkerHostSession> => {
@@ -184,6 +190,7 @@ export const seedDataServiceParentExecution = async (input: {
     descriptor: input.descriptor,
     workspaceRoot: input.workspaceRoot,
     configRoot: input.configRoot,
+    credentialRoot: input.credentialRoot,
     agentChoice: input.agentChoice,
     physicalIoMode: 'provider-free',
     capsuleFactory: (url) => {

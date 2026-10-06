@@ -6,7 +6,6 @@
  */
 
 import type { ChatGPTLoginAttempt, ChatGPTState } from '../../api/chatgpt_contract.ts';
-import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 const AUTH = 'https://auth.openai.com';
 const RESOURCE = 'https://api.openai.com/v1';
@@ -71,8 +70,8 @@ export class ChatGPTAuthError extends Error {
 }
 
 interface ChatGPTAuthServiceOptions {
-  /** Henji runtime config root. ChatGPT files are stored below `${configRoot}/chatgpt`. */
-  readonly configRoot?: string;
+  /** Henji runtime credential root. ChatGPT files are stored below `${credentialRoot}/chatgpt`. */
+  readonly credentialRoot: string;
   /** Injectable only for tests and isolated probes. Production uses the global fetch. */
   readonly fetcher?: typeof fetch;
   /** Receives short request facts. Never receives OAuth URLs, codes, tokens, or authorization. */
@@ -104,7 +103,7 @@ interface ResolveChatGPTCredentialOptions extends ChatGPTAuthServiceOptions {
 }
 
 interface ChatGPTCredentialPresenceOptions {
-  readonly configRoot?: string;
+  readonly credentialRoot: string;
   readonly registrationId?: string;
   readonly selectedRegistrationId?: string;
 }
@@ -207,24 +206,22 @@ const decodeBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
   return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
 };
 
-const configRootOf = (configRoot?: string): string =>
-  configRoot ?? resolveRuntimePaths().configRoot;
-
-const chatGPTDirectory = (configRoot: string): string => `${configRoot}/chatgpt`;
-const hostPath = (configRoot: string): string => `${chatGPTDirectory(configRoot)}/host.json`;
-const selectionPath = (configRoot: string): string =>
-  `${chatGPTDirectory(configRoot)}/selection.json`;
-const registrationsDirectory = (configRoot: string): string =>
-  `${chatGPTDirectory(configRoot)}/registrations`;
-const accountsDirectory = (configRoot: string): string =>
-  `${chatGPTDirectory(configRoot)}/accounts`;
+const chatGPTDirectory = (credentialRoot: string): string => `${credentialRoot}/chatgpt`;
+const hostPath = (credentialRoot: string): string =>
+  `${chatGPTDirectory(credentialRoot)}/host.json`;
+const selectionPath = (credentialRoot: string): string =>
+  `${chatGPTDirectory(credentialRoot)}/selection.json`;
+const registrationsDirectory = (credentialRoot: string): string =>
+  `${chatGPTDirectory(credentialRoot)}/registrations`;
+const accountsDirectory = (credentialRoot: string): string =>
+  `${chatGPTDirectory(credentialRoot)}/accounts`;
 const storageId = (registrationId: string): string => encodeURIComponent(registrationId);
-const registrationPath = (configRoot: string, registrationId: string): string =>
-  `${registrationsDirectory(configRoot)}/${storageId(registrationId)}.json`;
-const accountPath = (configRoot: string, registrationId: string): string =>
-  `${accountsDirectory(configRoot)}/${storageId(registrationId)}.json`;
-const accountLockPath = (configRoot: string, registrationId: string): string =>
-  `${accountsDirectory(configRoot)}/${storageId(registrationId)}.lock`;
+const registrationPath = (credentialRoot: string, registrationId: string): string =>
+  `${registrationsDirectory(credentialRoot)}/${storageId(registrationId)}.json`;
+const accountPath = (credentialRoot: string, registrationId: string): string =>
+  `${accountsDirectory(credentialRoot)}/${storageId(registrationId)}.json`;
+const accountLockPath = (credentialRoot: string, registrationId: string): string =>
+  `${accountsDirectory(credentialRoot)}/${storageId(registrationId)}.lock`;
 
 const report = async (
   reporter: ChatGPTAuthReporter | undefined,
@@ -348,29 +345,29 @@ const parseAccount = (
 };
 
 const loadAccount = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
 ): Promise<AccountRecord | undefined> => {
   const value = await readJson<unknown>(
-    accountPath(configRoot, registrationId),
+    accountPath(credentialRoot, registrationId),
   );
   return value === undefined ? undefined : parseAccount(value, registrationId);
 };
 
 const loadRegistration = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
 ): Promise<RegistrationRecord | undefined> => {
   const value = await readJson<unknown>(
-    registrationPath(configRoot, registrationId),
+    registrationPath(credentialRoot, registrationId),
   );
   return value === undefined ? undefined : parseRegistration(value, registrationId);
 };
 
 const selectedFromDisk = async (
-  configRoot: string,
+  credentialRoot: string,
 ): Promise<string | undefined> => {
-  const value = await readJson<unknown>(selectionPath(configRoot));
+  const value = await readJson<unknown>(selectionPath(credentialRoot));
   if (value === undefined) return undefined;
   if (
     !isObject(value) || value.schemaVersion !== 1 ||
@@ -381,12 +378,12 @@ const selectedFromDisk = async (
 };
 
 const resolveRegistrationId = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId?: string,
   selectedRegistrationId?: string,
 ): Promise<string> => {
   const resolved = registrationId ?? selectedRegistrationId ??
-    await selectedFromDisk(configRoot);
+    await selectedFromDisk(credentialRoot);
   if (resolved === undefined || resolved.length === 0) {
     throw new ChatGPTAuthError('chatgpt_selection_missing');
   }
@@ -704,12 +701,12 @@ const tokenSet = (
 };
 
 const saveRegistration = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
   clientId?: string,
 ): Promise<void> => {
   await writeJsonAtomically(
-    registrationPath(configRoot, registrationId),
+    registrationPath(credentialRoot, registrationId),
     {
       schemaVersion: 1,
       registrationId,
@@ -721,13 +718,13 @@ const saveRegistration = async (
 
 /** Reuse a client id left by a callback whose token exchange or identity check did not finish. */
 const findUnboundRegistration = async (
-  configRoot: string,
+  credentialRoot: string,
 ): Promise<RegistrationRecord | undefined> => {
   let names: string[];
   try {
     names = [];
     for await (
-      const entry of Deno.readDir(registrationsDirectory(configRoot))
+      const entry of Deno.readDir(registrationsDirectory(credentialRoot))
     ) {
       if (entry.isFile && entry.name.endsWith('.json')) names.push(entry.name);
     }
@@ -738,7 +735,7 @@ const findUnboundRegistration = async (
   const pending: RegistrationRecord[] = [];
   for (const name of names) {
     const value = await readJson<unknown>(
-      `${registrationsDirectory(configRoot)}/${name}`,
+      `${registrationsDirectory(credentialRoot)}/${name}`,
     );
     if (!isObject(value) || typeof value.registrationId !== 'string') {
       throw new ChatGPTAuthError('chatgpt_saved_state_invalid');
@@ -746,19 +743,19 @@ const findUnboundRegistration = async (
     const registration = parseRegistration(value, value.registrationId);
     if (
       registration.clientId !== undefined &&
-      await loadAccount(configRoot, registration.registrationId) === undefined
+      await loadAccount(credentialRoot, registration.registrationId) === undefined
     ) pending.push(registration);
   }
   pending.sort((left, right) => right.updatedAt - left.updatedAt);
   return pending[0];
 };
 
-const readHostId = async (configRoot: string): Promise<string> => {
-  const path = hostPath(configRoot);
-  const lockPath = `${chatGPTDirectory(configRoot)}/host.lock`;
+const readHostId = async (credentialRoot: string): Promise<string> => {
+  const path = hostPath(credentialRoot);
+  const lockPath = `${chatGPTDirectory(credentialRoot)}/host.lock`;
   let lock: Deno.FsFile;
   try {
-    await Deno.mkdir(chatGPTDirectory(configRoot), {
+    await Deno.mkdir(chatGPTDirectory(credentialRoot), {
       recursive: true,
       mode: 0o700,
     });
@@ -803,17 +800,17 @@ const readHostId = async (configRoot: string): Promise<string> => {
 };
 
 const withAccountLock = async <T>(
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
   action: () => Promise<T>,
 ): Promise<T> => {
   let lock: Deno.FsFile;
   try {
-    await Deno.mkdir(accountsDirectory(configRoot), {
+    await Deno.mkdir(accountsDirectory(credentialRoot), {
       recursive: true,
       mode: 0o700,
     });
-    lock = await Deno.open(accountLockPath(configRoot, registrationId), {
+    lock = await Deno.open(accountLockPath(credentialRoot, registrationId), {
       read: true,
       write: true,
       create: true,
@@ -836,11 +833,11 @@ const withAccountLock = async <T>(
 };
 
 const persistSelection = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
 ): Promise<void> => {
   await writeJsonAtomically(
-    selectionPath(configRoot),
+    selectionPath(credentialRoot),
     {
       schemaVersion: 1,
       registrationId,
@@ -849,9 +846,9 @@ const persistSelection = async (
 };
 
 const listAccountRecords = async (
-  configRoot: string,
+  credentialRoot: string,
 ): Promise<readonly AccountRecord[]> => {
-  const directory = accountsDirectory(configRoot);
+  const directory = accountsDirectory(credentialRoot);
   let names: string[];
   try {
     names = [];
@@ -875,10 +872,10 @@ const listAccountRecords = async (
   return records;
 };
 
-const stateOf = async (configRoot: string): Promise<ChatGPTState> => {
+const stateOf = async (credentialRoot: string): Promise<ChatGPTState> => {
   const [selectedRegistrationId, records] = await Promise.all([
-    selectedFromDisk(configRoot),
-    listAccountRecords(configRoot),
+    selectedFromDisk(credentialRoot),
+    listAccountRecords(credentialRoot),
   ]);
   return Object.freeze({
     ...(selectedRegistrationId === undefined ? {} : { selectedRegistrationId }),
@@ -920,11 +917,11 @@ const exchangeCode = async (
   );
 
 const resolveStoredAccount = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
   requester: ReturnType<typeof createRequester>,
 ): Promise<ResolvedChatGPTCredential> => {
-  let account = await loadAccount(configRoot, registrationId);
+  let account = await loadAccount(credentialRoot, registrationId);
   if (account === undefined) {
     throw new ChatGPTAuthError('chatgpt_account_missing');
   }
@@ -937,8 +934,8 @@ const resolveStoredAccount = async (
   if (account.expiresAt > Date.now()) {
     return { accessToken: account.accessToken, registrationId };
   }
-  return await withAccountLock(configRoot, registrationId, async () => {
-    account = await loadAccount(configRoot, registrationId);
+  return await withAccountLock(credentialRoot, registrationId, async () => {
+    account = await loadAccount(credentialRoot, registrationId);
     if (account === undefined) {
       throw new ChatGPTAuthError('chatgpt_account_missing');
     }
@@ -973,7 +970,7 @@ const resolveStoredAccount = async (
     } catch (error) {
       if (error instanceof ChatGPTAuthError && error.code === 'invalid_grant') {
         await writeJsonAtomically(
-          accountPath(configRoot, registrationId),
+          accountPath(credentialRoot, registrationId),
           {
             ...account,
             needsReauthentication: true,
@@ -1001,7 +998,7 @@ const resolveStoredAccount = async (
       ...(typeof token.id_token === 'string' ? { idToken: token.id_token } : {}),
       needsReauthentication: !tokens.scopes.includes(DIRECT_SCOPE),
     };
-    await writeJsonAtomically(accountPath(configRoot, registrationId), next);
+    await writeJsonAtomically(accountPath(credentialRoot, registrationId), next);
     if (next.needsReauthentication === true) {
       throw new ChatGPTAuthError('chatgpt_plan_usage_not_granted');
     }
@@ -1011,16 +1008,16 @@ const resolveStoredAccount = async (
 
 /** Resolve one explicitly bound account, or the persisted selected account. */
 export const resolveChatGPTCredential = async (
-  options: ResolveChatGPTCredentialOptions = {},
+  options: ResolveChatGPTCredentialOptions,
 ): Promise<ResolvedChatGPTCredential> => {
-  const configRoot = configRootOf(options.configRoot);
+  const credentialRoot = options.credentialRoot;
   const registrationId = await resolveRegistrationId(
-    configRoot,
+    credentialRoot,
     options.registrationId,
     options.selectedRegistrationId,
   );
   return await resolveStoredAccount(
-    configRoot,
+    credentialRoot,
     registrationId,
     createRequester(options.fetcher ?? fetch, options.reportFact),
   );
@@ -1028,16 +1025,16 @@ export const resolveChatGPTCredential = async (
 
 /** Read whether the account selected for a request has a usable saved grant. */
 export const chatGPTCredentialPresence = async (
-  options: ChatGPTCredentialPresenceOptions = {},
+  options: ChatGPTCredentialPresenceOptions,
 ): Promise<'present' | 'missing' | 'unknown'> => {
   try {
-    const configRoot = configRootOf(options.configRoot);
+    const credentialRoot = options.credentialRoot;
     const registrationId = await resolveRegistrationId(
-      configRoot,
+      credentialRoot,
       options.registrationId,
       options.selectedRegistrationId,
     );
-    const account = await loadAccount(configRoot, registrationId);
+    const account = await loadAccount(credentialRoot, registrationId);
     return account !== undefined && account.needsReauthentication !== true &&
         account.scopes.includes(DIRECT_SCOPE)
       ? 'present'
@@ -1053,9 +1050,9 @@ export const chatGPTCredentialPresence = async (
 
 /** Create the Core-owned ChatGPT OAuth and account service. */
 export const createChatGPTAuthService = (
-  options: ChatGPTAuthServiceOptions = {},
+  options: ChatGPTAuthServiceOptions,
 ): ChatGPTAuthService => {
-  const configRoot = configRootOf(options.configRoot);
+  const credentialRoot = options.credentialRoot;
   const requester = createRequester(
     options.fetcher ?? fetch,
     options.reportFact,
@@ -1068,21 +1065,21 @@ export const createChatGPTAuthService = (
   };
 
   return Object.freeze({
-    status: async (): Promise<ChatGPTState> => await stateOf(configRoot),
+    status: async (): Promise<ChatGPTState> => await stateOf(credentialRoot),
 
     begin: async (registrationId?: string): Promise<ChatGPTLoginAttempt> => {
       ensureOpen();
       const reusableRegistration = registrationId === undefined
-        ? await findUnboundRegistration(configRoot)
+        ? await findUnboundRegistration(credentialRoot)
         : undefined;
       const resolvedRegistrationId = registrationId ??
         reusableRegistration?.registrationId ?? crypto.randomUUID();
       const existingAccount = registrationId === undefined
         ? undefined
-        : await loadAccount(configRoot, resolvedRegistrationId);
+        : await loadAccount(credentialRoot, resolvedRegistrationId);
       const savedRegistration = registrationId === undefined
         ? reusableRegistration
-        : await loadRegistration(configRoot, resolvedRegistrationId);
+        : await loadRegistration(credentialRoot, resolvedRegistrationId);
       if (
         registrationId !== undefined && existingAccount === undefined &&
         savedRegistration === undefined
@@ -1090,7 +1087,7 @@ export const createChatGPTAuthService = (
         throw new ChatGPTAuthError('chatgpt_account_missing');
       }
       const clientId = existingAccount?.clientId ?? savedRegistration?.clientId;
-      const hostId = await readHostId(configRoot);
+      const hostId = await readHostId(credentialRoot);
       const redirectUri = 'http://127.0.0.1:1455/auth/callback';
       const pending = await createAuthorization(hostId, clientId, redirectUri);
       const attemptId = crypto.randomUUID();
@@ -1120,7 +1117,7 @@ export const createChatGPTAuthService = (
       try {
         // Keep a newly issued client id even when the subsequent token exchange cannot complete.
         await saveRegistration(
-          configRoot,
+          credentialRoot,
           pending.registrationId,
           callback.clientId,
         );
@@ -1163,11 +1160,11 @@ export const createChatGPTAuthService = (
           requester,
         );
         await withAccountLock(
-          configRoot,
+          credentialRoot,
           pending.registrationId,
           async () => {
             const previous = await loadAccount(
-              configRoot,
+              credentialRoot,
               pending.registrationId,
             );
             if (
@@ -1187,13 +1184,13 @@ export const createChatGPTAuthService = (
               needsReauthentication: !tokens.scopes.includes(DIRECT_SCOPE),
             };
             await writeJsonAtomically(
-              accountPath(configRoot, pending.registrationId),
+              accountPath(credentialRoot, pending.registrationId),
               account,
             );
           },
         );
-        if (await selectedFromDisk(configRoot) === undefined) {
-          await persistSelection(configRoot, pending.registrationId);
+        if (await selectedFromDisk(credentialRoot) === undefined) {
+          await persistSelection(credentialRoot, pending.registrationId);
         }
         await report(options.reportFact, {
           kind: 'login',
@@ -1201,7 +1198,7 @@ export const createChatGPTAuthService = (
           identityVerified: true,
           planUsageEnabled: tokens.scopes.includes(DIRECT_SCOPE),
         });
-        return await stateOf(configRoot);
+        return await stateOf(credentialRoot);
       } finally {
         completingAttempts.delete(attemptId);
       }
@@ -1218,23 +1215,23 @@ export const createChatGPTAuthService = (
 
     select: async (registrationId: string): Promise<ChatGPTState> => {
       ensureOpen();
-      const account = await loadAccount(configRoot, registrationId);
+      const account = await loadAccount(credentialRoot, registrationId);
       if (account === undefined) {
         throw new ChatGPTAuthError('chatgpt_account_missing');
       }
-      await persistSelection(configRoot, registrationId);
-      return await stateOf(configRoot);
+      await persistSelection(credentialRoot, registrationId);
+      return await stateOf(credentialRoot);
     },
 
     selectedRegistrationId: async (): Promise<string | undefined> =>
-      await selectedFromDisk(configRoot),
+      await selectedFromDisk(credentialRoot),
 
     resolve: async (
       registrationId?: string,
     ): Promise<ResolvedChatGPTCredential> => {
       ensureOpen();
       return await resolveChatGPTCredential({
-        configRoot,
+        credentialRoot,
         ...(registrationId === undefined ? {} : { registrationId }),
         fetcher: options.fetcher,
         reportFact: options.reportFact,
@@ -1245,7 +1242,7 @@ export const createChatGPTAuthService = (
       registrationId?: string,
     ): Promise<'present' | 'missing' | 'unknown'> =>
       await chatGPTCredentialPresence({
-        configRoot,
+        credentialRoot,
         ...(registrationId === undefined ? {} : { registrationId }),
       }),
 

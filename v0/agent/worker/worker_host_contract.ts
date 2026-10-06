@@ -17,8 +17,10 @@ export interface WorkerHostSessionOptions {
   readonly data: DataService;
   readonly descriptor: DataSessionDescriptor;
   readonly workspaceRoot: string;
-  /** User config root used for provider credentials and current Agent/tool JSON files. */
+  /** User config root used for current Agent/tool JSON files. */
   readonly configRoot: string;
+  /** Credential root used for provider credentials and ChatGPT account files. */
+  readonly credentialRoot: string;
   /** JSON Agent choice resolved afresh inside every Worker generation. */
   readonly agentChoice: AgentConfigurationChoice;
   /** Root is implicit for ordinary sessions; child registries set this explicitly. */

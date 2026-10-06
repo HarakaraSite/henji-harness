@@ -9,8 +9,9 @@ import { createMockChatGPTIssuer } from './helpers/increment_163_chatgpt_issuer.
 Deno.test('Increment 178 HTTP selects pinned ChatGPT models with official efforts from an existing account catalog', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-178-' });
   const configRoot = `${root}/config`;
+  const credentialRoot = `${root}/state/credentials`;
   const issuer = await createMockChatGPTIssuer();
-  const auth = createChatGPTAuthService({ configRoot, fetcher: issuer.fetcher });
+  const auth = createChatGPTAuthService({ credentialRoot, fetcher: issuer.fetcher });
   const attempt = await auth.begin();
   const authorization = new URL(attempt.authorizationUrl);
   await issuer.setNextLogin({
@@ -55,6 +56,7 @@ Deno.test('Increment 178 HTTP selects pinned ChatGPT models with official effort
     configRoot,
     dataRoot: `${root}/data`,
     stateRoot: `${root}/state`,
+    credentialRoot,
     physicalIoMode: 'production',
     initialSession: { kind: 'new' },
     providerDeclarations: builtinProviderDeclarations(),

@@ -53,10 +53,12 @@ Deno.test('Increment 145 HTTP shutdown drains SSE and settles active Bash before
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   await Deno.mkdir(workspaceRoot, { recursive: true });
   await Deno.mkdir(configRoot, { recursive: true });
   await Deno.writeTextFile(
-    `${configRoot}/openrouter-api-key`,
+    `${credentialRoot}/openrouter-api-key`,
     'increment-145-local-provider-key',
     { mode: 0o600 },
   );

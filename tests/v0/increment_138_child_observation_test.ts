@@ -64,6 +64,7 @@ const withLocalProvider = async (
     root: string;
     workspaceRoot: string;
     configRoot: string;
+    credentialRoot: string;
     stateRoot: string;
     declarations: ReturnType<typeof builtinProviderDeclarations>;
     url: string;
@@ -81,10 +82,14 @@ const withLocalProvider = async (
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
   await activateRepositoryExternalToolBindings(configRoot);
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'local-i138-key', { mode: 0o600 });
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'local-i138-key', {
+    mode: 0o600,
+  });
   await Deno.writeTextFile(`${workspaceRoot}/marker.txt`, 'independent parent check');
   const server = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen() {} }, handler);
   const url = `http://127.0.0.1:${server.addr.port}`;
@@ -92,7 +97,7 @@ const withLocalProvider = async (
     entry.providerId === 'openrouter-responses' ? { ...entry, endpoint: `${url}/v1` } : entry
   );
   try {
-    await run({ root, workspaceRoot, configRoot, stateRoot, declarations, url });
+    await run({ root, workspaceRoot, configRoot, credentialRoot, stateRoot, declarations, url });
   } finally {
     await server.shutdown();
     for (const [key, value] of previous) {
@@ -327,6 +332,7 @@ const childRegistry = async (context: {
   workspaceRoot: string;
   stateRoot: string;
   configRoot: string;
+  credentialRoot: string;
   declarations: ReturnType<typeof builtinProviderDeclarations>;
   store: SqliteHistoryStore;
 }) => {
@@ -335,6 +341,7 @@ const childRegistry = async (context: {
     store: context.store,
     options: {
       configRoot: context.configRoot,
+      credentialRoot: context.credentialRoot,
       physicalIoMode: 'production',
       providerDeclarations: context.declarations,
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
@@ -511,6 +518,7 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
     });
     const configRoot = context.configRoot;
+    const credentialRoot = context.credentialRoot;
     const ports: MessagePort[] = [];
     const settleChildExecution = data.settleChildExecution.bind(data);
     data.settleChildExecution = (sessionId, input) => {
@@ -523,6 +531,7 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
         descriptor,
         workspaceRoot: context.workspaceRoot,
         configRoot,
+        credentialRoot,
         agentChoice: {},
         physicalIoMode: 'production',
         providerDeclarations: context.declarations,
@@ -561,6 +570,7 @@ Deno.test('Increment 170 child cancel seals a proposal marker whose Data payload
       descriptor,
       workspaceRoot: context.workspaceRoot,
       configRoot,
+      credentialRoot,
       agentChoice: {},
       physicalIoMode: 'provider-free',
       capsuleFactory: (url) => {

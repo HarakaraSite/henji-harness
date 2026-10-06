@@ -19,8 +19,10 @@ Deno.test('Increment 180 accepted HTTP receipt identifies the published executio
   const previous = Object.keys(environment).map((key) => [key, Deno.env.get(key)] as const);
   for (const [key, value] of Object.entries(environment)) Deno.env.set(key, value);
   const configRoot = `${root}/config/henji-harness`;
+  const credentialRoot = `${root}/state/credentials`;
   await Deno.mkdir(configRoot, { recursive: true });
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'increment-180-dummy-key', {
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'increment-180-dummy-key', {
     mode: 0o600,
   });
   const core = await createCoreService({

@@ -98,6 +98,7 @@ const start = async (
     correlation: correlation(command),
     agentChoice: {},
     configRoot: '/tmp',
+    credentialRoot: '/tmp',
   });
   return await readyPromise;
 };

@@ -14,6 +14,7 @@ export interface HeadlessWorkerRunOptions {
   readonly stateRoot?: string;
   readonly dataRoot?: string;
   readonly configRoot?: string;
+  readonly credentialRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
@@ -32,6 +33,7 @@ export const runHeadlessWorker = async (
     stateRoot: options.stateRoot,
     dataRoot: options.dataRoot,
     configRoot: options.configRoot,
+    credentialRoot: options.credentialRoot,
     persistence: 'none',
     agentChoice,
     physicalIoMode: options.physicalIoMode ?? 'production',

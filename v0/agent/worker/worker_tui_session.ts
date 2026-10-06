@@ -5,7 +5,7 @@ import type { AgentEventSink } from '../core/events.ts';
 import type { ContextView, EffectiveRuntimeConfig, SessionActivation } from '../../api/contract.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
-import { credentialAvailabilityFor } from '../provider/credential_file.ts';
+import { credentialFileFor, credentialFilePresenceAt } from '../provider/credential_file.ts';
 import { chatGPTCredentialPresence } from '../provider/chatgpt_auth.ts';
 import {
   builtinProviderDeclarations,
@@ -51,6 +51,8 @@ export interface WorkerSessionOptions {
   readonly agentChoice?: AgentConfigurationChoice;
   readonly dataRoot?: string;
   readonly configRoot?: string;
+  /** Credential root; defaults to the state root's `credentials` directory. */
+  readonly credentialRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
@@ -175,14 +177,17 @@ class LazyWorkerSession implements HostActiveSession {
       startupAbortSignal: AbortSignal,
       onStartupPrepared: (message: WorkerStartupPreparedMessage) => void,
     ) => Promise<WorkerHostSession>,
-    private readonly config: Pick<
-      WorkerSessionOptions,
-      | 'rootMaxSteps'
-      | 'providerTimeoutMs'
-      | 'activation'
-      | 'configRoot'
-      | 'cancelSettlementGraceMs'
-    >,
+    private readonly config:
+      & Pick<
+        WorkerSessionOptions,
+        | 'rootMaxSteps'
+        | 'providerTimeoutMs'
+        | 'activation'
+        | 'configRoot'
+        | 'credentialRoot'
+        | 'cancelSettlementGraceMs'
+      >
+      & { readonly credentialRoot: string },
   ) {}
 
   get agentChoice(): AgentConfigurationChoice {
@@ -396,10 +401,12 @@ class LazyWorkerSession implements HostActiveSession {
     const registrationId = 'registrationId' in selection ? selection.registrationId : undefined;
     const status = profile === 'openai-chatgpt'
       ? registrationId === null ? 'missing' : await chatGPTCredentialPresence({
-        ...(this.config.configRoot === undefined ? {} : { configRoot: this.config.configRoot }),
+        credentialRoot: this.config.credentialRoot,
         ...(registrationId === undefined ? {} : { registrationId }),
       })
-      : (await credentialAvailabilityFor(profile)).status;
+      : (await credentialFilePresenceAt(
+        credentialFileFor(profile, this.config.credentialRoot),
+      ));
     const availability = Object.freeze({ authProfile: profile, status });
     if (this.closed) return undefined;
     this.localCredentialAvailability = availability;
@@ -492,8 +499,10 @@ export const createWorkerSession = async (
     (configRoot === undefined ? undefined : await readDefaultSelection(configRoot));
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const ownsData = options.data === undefined;
+  const stateRoot = options.stateRoot ?? launcherStateRoot();
+  const credentialRoot = options.credentialRoot ?? `${stateRoot}/credentials`;
   const data = options.data ?? await createDataClient({
-    stateRoot: options.stateRoot ?? launcherStateRoot(),
+    stateRoot,
     workspaceRoot: workspace.root,
   });
   const saved = options.persistence === 'session' && options.sessionId !== undefined
@@ -527,6 +536,7 @@ export const createWorkerSession = async (
         workspaceRoot: workspace.root,
         agentChoice,
         configRoot,
+        credentialRoot,
         physicalIoMode: options.physicalIoMode,
         rootMaxSteps: options.rootMaxSteps,
         providerTimeoutMs: options.providerTimeoutMs,
@@ -573,7 +583,7 @@ export const createWorkerSession = async (
       agentChoice,
       (startupAbortSignal, onStartupPrepared) =>
         openHost(descriptor, startupAbortSignal, onStartupPrepared),
-      options,
+      { ...options, credentialRoot },
     );
     const position = () => currentHost.currentPosition();
     const query: ApplicationQueryPort = {

@@ -87,10 +87,14 @@ Deno.test('Increment 137 Responses notes settle before later thinking and surviv
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${env.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${env.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   await Deno.mkdir(workspaceRoot, { recursive: true });
   await Deno.mkdir(configRoot, { recursive: true });
   await Deno.writeTextFile(`${workspaceRoot}/marker.txt`, 'marker');
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'local-test-key', { mode: 0o600 });
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'local-test-key', {
+    mode: 0o600,
+  });
   const inputs: Record<string, unknown>[][] = [];
   const server = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen() {} }, async (request) => {
     assert(new URL(request.url).pathname === '/v1/responses');

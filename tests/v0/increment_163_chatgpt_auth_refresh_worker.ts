@@ -5,10 +5,10 @@ const fail = (message: string): never => {
 };
 
 const runRefreshWorker = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string,
 ): Promise<string> => {
-  const countPath = `${configRoot}/refresh-request-count.txt`;
+  const countPath = `${credentialRoot}/refresh-request-count.txt`;
   const fetcher: typeof fetch = async (_input, init) => {
     const form = new URLSearchParams(String(init?.body ?? ''));
     if (form.get('grant_type') !== 'refresh_token') {
@@ -44,7 +44,7 @@ const runRefreshWorker = async (
       },
     );
   };
-  const service = createChatGPTAuthService({ configRoot, fetcher });
+  const service = createChatGPTAuthService({ credentialRoot, fetcher });
   try {
     const credential = await service.resolve(registrationId);
     return credential.accessToken;
@@ -54,7 +54,7 @@ const runRefreshWorker = async (
 };
 
 if (import.meta.main) {
-  const configRoot = Deno.args[0] ?? fail('config root required');
+  const credentialRoot = Deno.args[0] ?? fail('config root required');
   const registrationId = Deno.args[1] ?? fail('registration id required');
-  console.log(await runRefreshWorker(configRoot, registrationId));
+  console.log(await runRefreshWorker(credentialRoot, registrationId));
 }

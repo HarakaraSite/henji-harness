@@ -16,9 +16,11 @@ Deno.test('Increment 159 HTTP exposes the stored short failure reason in snapsho
   for (const [key, value] of Object.entries(environment)) Deno.env.set(key, value);
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
+  const credentialRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1/credentials`;
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'localhost-test-key', {
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'localhost-test-key', {
     mode: 0o600,
   });
   const provider = Deno.serve(

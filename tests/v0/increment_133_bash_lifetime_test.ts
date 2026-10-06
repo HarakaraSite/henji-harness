@@ -36,6 +36,7 @@ const open = async (
       descriptor,
       workspaceRoot: root,
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       physicalIoMode: 'provider-free',
       cancelSettlementGraceMs: 2_000,

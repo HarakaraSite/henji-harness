@@ -19,7 +19,10 @@ const scratchRoot = await Deno.makeTempDir({
 const scratch = `${scratchRoot}/scratch.txt`;
 const processes = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
 const registry = new Registry([
-  createRunTypescriptTool({ root: workspaceRoot }, processes),
+  createRunTypescriptTool({ root: workspaceRoot }, processes, {
+    allowedPaths: [],
+    deniedPaths: [],
+  }),
 ]);
 let callOrdinal = 0;
 

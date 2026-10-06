@@ -54,6 +54,7 @@ const runtimeDiagnostics = async (args: readonly string[]): Promise<number> => {
         configRoot: paths.configRoot,
         dataRoot: paths.dataRoot,
         stateRoot: paths.stateRoot,
+        credentialRoot: paths.credentialRoot,
       })
     }\n`);
     return 0;

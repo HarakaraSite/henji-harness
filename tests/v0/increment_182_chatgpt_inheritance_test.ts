@@ -46,17 +46,19 @@ Deno.test('Increment 182 real ChatGPT parent and model-omitted children share th
   const configRoot = `${root}/config`;
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
-  await Deno.mkdir(`${configRoot}/chatgpt/accounts`, { recursive: true });
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
+  await Deno.mkdir(`${credentialRoot}/chatgpt/accounts`, { recursive: true });
   await Deno.mkdir(workspaceRoot);
   await Deno.writeTextFile(`${workspaceRoot}/marker.txt`, 'child read actual workspace');
   const selectAccount = async (registrationId: string) =>
     await Deno.writeTextFile(
-      `${configRoot}/chatgpt/selection.json`,
+      `${credentialRoot}/chatgpt/selection.json`,
       JSON.stringify({ schemaVersion: 1, registrationId }),
     );
   for (const registrationId of ['account-a', 'account-b']) {
     await Deno.writeTextFile(
-      `${configRoot}/chatgpt/accounts/${registrationId}.json`,
+      `${credentialRoot}/chatgpt/accounts/${registrationId}.json`,
       JSON.stringify({
         schemaVersion: 1,
         registrationId,
@@ -70,7 +72,7 @@ Deno.test('Increment 182 real ChatGPT parent and model-omitted children share th
       }),
     );
   }
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'local-openrouter-key', {
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'local-openrouter-key', {
     mode: 0o600,
   });
   await selectAccount('account-a');
@@ -228,7 +230,7 @@ Deno.test('Increment 182 real ChatGPT parent and model-omitted children share th
       await session.selectModel(selectModelFor('openai-chatgpt', 'gpt-6.1-sol', 'medium')),
       'selected',
     );
-    await Deno.writeTextFile(`${configRoot}/chatgpt/selection.json`, '{}');
+    await Deno.writeTextFile(`${credentialRoot}/chatgpt/selection.json`, '{}');
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const admission = await Promise.race([

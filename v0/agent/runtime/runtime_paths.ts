@@ -4,6 +4,8 @@ export interface RuntimePaths {
   readonly configRoot: string;
   readonly dataRoot: string;
   readonly stateRoot: string;
+  /** Credential values live outside the readable config root so program tools can read config. */
+  readonly credentialRoot: string;
 }
 
 export interface RuntimePathOptions {
@@ -44,16 +46,18 @@ export const resolveRuntimePaths = (options: RuntimePathOptions = {}): RuntimePa
   const stateBase = env.XDG_STATE_HOME?.trim()
     ? absoluteRoot(env.XDG_STATE_HOME, 'XDG_STATE_HOME')
     : child(fallbackHome(), '.local/state');
+  const stateRoot = child(stateBase, 'henji-harness/v1');
   return Object.freeze({
     executable: absoluteRoot(options.executable ?? Deno.execPath(), 'executable path'),
     workspace: absoluteRoot(options.workspace ?? Deno.cwd(), 'workspace path'),
     configRoot: child(configBase, 'henji-harness'),
     dataRoot: child(dataBase, 'henji-harness'),
-    stateRoot: child(stateBase, 'henji-harness/v1'),
+    stateRoot,
+    credentialRoot: child(stateRoot, 'credentials'),
   });
 };
 
 export const credentialPath = (
   profile: string,
   options: RuntimePathOptions = {},
-): string => `${resolveRuntimePaths(options).configRoot}/${profile}`;
+): string => `${resolveRuntimePaths(options).credentialRoot}/${profile}`;

@@ -63,6 +63,7 @@ Deno.test('Increment 170 child cancellation during Data context preparation star
       descriptor,
       workspaceRoot,
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       physicalIoMode: 'provider-free',
       capsuleFactory: (url): WorkerHostCapsule => {
@@ -119,6 +120,7 @@ Deno.test('Increment 170 child cancellation during Data context preparation star
       descriptor,
       workspaceRoot,
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       executionId: parentExecutionId,
     });

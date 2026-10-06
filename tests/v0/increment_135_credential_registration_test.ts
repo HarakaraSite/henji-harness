@@ -27,6 +27,7 @@ import {
   setActiveProviderDeclarations,
 } from '../../v0/agent/provider/provider_runtime.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
+import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 
@@ -54,7 +55,7 @@ const failsWith = async (run: () => Promise<unknown>): Promise<string> => {
 };
 
 const withIsolatedXdg = async (
-  run: (configRoot: string) => Promise<void>,
+  run: (configRoot: string, credentialRoot: string) => Promise<void>,
 ): Promise<void> => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-135-credential-' });
   const names = [
@@ -67,7 +68,7 @@ const withIsolatedXdg = async (
   Deno.env.set('XDG_DATA_HOME', `${root}/data`);
   Deno.env.set('XDG_STATE_HOME', `${root}/state`);
   try {
-    await run(`${root}/config/henji-harness`);
+    await run(`${root}/config/henji-harness`, resolveRuntimePaths().credentialRoot);
   } finally {
     names.forEach((name, index) => {
       const value = previous[index];
@@ -171,14 +172,14 @@ Deno.test('Increment 135 enumerates effective declarations and groups shared pro
 });
 
 Deno.test('Increment 135 saves and updates one credential the current reader accepts', async () => {
-  await withIsolatedXdg(async (configRoot) => {
-    const registration = createCredentialRegistration();
+  await withIsolatedXdg(async (_configRoot, credentialRoot) => {
+    const registration = createCredentialRegistration({ credentialRoot });
     const profile = 'increment135-shared-key';
     const first = 'increment-135-dummy-a';
     const second = 'increment-135-dummy-b';
     await registration.save(profile, first);
     assertEquals(await readCredentialFileFor(profile), first);
-    assertEquals(credentialFileFor(profile), `${configRoot}/${profile}`);
+    assertEquals(credentialFileFor(profile), `${credentialRoot}/${profile}`);
 
     const metadata = await Deno.lstat(credentialFileFor(profile));
     assert(metadata.isFile);
@@ -186,43 +187,43 @@ Deno.test('Increment 135 saves and updates one credential the current reader acc
     assertEquals(metadata.uid, Deno.uid());
     assertEquals(await credentialFilePresenceFor(profile), 'present');
 
-    const resolver = createCredentialResolver();
+    const resolver = createCredentialResolver({ credentialRoot });
     assertEquals(await resolver.resolve(profile), first);
     await registration.save(profile, second);
     assertEquals(await resolver.resolve(profile), second);
     assertEquals(await readCredentialFileFor(profile), second);
 
     const entries: string[] = [];
-    for await (const entry of Deno.readDir(configRoot)) entries.push(entry.name);
+    for await (const entry of Deno.readDir(credentialRoot)) entries.push(entry.name);
     assertEquals(entries, [profile]);
   });
 });
 
 Deno.test('Increment 135 keeps the previous credential readable when an update cannot be written', async () => {
   if (Deno.uid() === 0) return;
-  await withIsolatedXdg(async (configRoot) => {
-    const registration = createCredentialRegistration();
+  await withIsolatedXdg(async (_configRoot, credentialRoot) => {
+    const registration = createCredentialRegistration({ credentialRoot });
     const profile = 'increment135-shared-key';
     await registration.save(profile, 'increment-135-dummy-old');
-    await Deno.chmod(configRoot, 0o500);
+    await Deno.chmod(credentialRoot, 0o500);
     try {
       assertEquals(
         await failsWith(() => registration.save(profile, 'increment-135-dummy-new')),
         'credential_registration_write_failed',
       );
     } finally {
-      await Deno.chmod(configRoot, 0o700);
+      await Deno.chmod(credentialRoot, 0o700);
     }
     assertEquals(await readCredentialFileFor(profile), 'increment-135-dummy-old');
     const entries: string[] = [];
-    for await (const entry of Deno.readDir(configRoot)) entries.push(entry.name);
+    for await (const entry of Deno.readDir(credentialRoot)) entries.push(entry.name);
     assertEquals(entries, [profile]);
   });
 });
 
 Deno.test('Increment 135 refuses values the current reader would reject', async () => {
-  await withIsolatedXdg(async () => {
-    const registration = createCredentialRegistration();
+  await withIsolatedXdg(async (_configRoot, credentialRoot) => {
+    const registration = createCredentialRegistration({ credentialRoot });
     const profile = 'increment135-shared-key';
     for (
       const value of [
@@ -261,6 +262,7 @@ Deno.test('Increment 135 refreshes presence for the current selection without ne
   Deno.env.set('XDG_CONFIG_HOME', `${root}/config`);
   Deno.env.set('XDG_DATA_HOME', `${root}/data`);
   Deno.env.set('XDG_STATE_HOME', `${root}/xdg-state`);
+  const credentialRoot = `${stateRoot}/credentials`;
   let capsuleStarts = 0;
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
@@ -285,7 +287,7 @@ Deno.test('Increment 135 refreshes presence for the current selection without ne
       status: 'unknown',
     });
 
-    const registration = createCredentialRegistration();
+    const registration = createCredentialRegistration({ credentialRoot });
     const startsBeforeRefresh = capsuleStarts;
     const requestsBeforeRefresh = session.requestCount();
     assertEquals(await session.refreshCredentialAvailability(), {
@@ -304,7 +306,7 @@ Deno.test('Increment 135 refreshes presence for the current selection without ne
     assertEquals(session.modelSelectionSnapshot(), selectionBefore);
     assertEquals(session.sessionId, sessionIdBefore);
 
-    const resolver = createCredentialResolver();
+    const resolver = createCredentialResolver({ credentialRoot });
     assertEquals(await resolver.resolve('openrouter-api-key'), 'increment-135-dummy-a');
     await registration.save('openrouter-api-key', 'increment-135-dummy-b');
     assertEquals(await resolver.resolve('openrouter-api-key'), 'increment-135-dummy-b');

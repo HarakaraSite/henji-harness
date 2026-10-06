@@ -221,6 +221,7 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
       'openai-api-key': () => Promise.resolve('openai-secret'),
@@ -296,6 +297,7 @@ Deno.test('Increment 119 OpenRouter Responses retains output items without serve
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
     },
@@ -390,6 +392,7 @@ Deno.test('Increment 119 OpenRouter Responses replays reasoning and function cal
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
     },
@@ -462,6 +465,7 @@ Deno.test('Responses API requests summaries while preserving explicit and provid
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
     },
@@ -768,6 +772,7 @@ Deno.test('Increment 64 declaration adds a chat completions provider with a decl
       });
     };
     const physical = createProductionPhysicalIo(undefined, {
+      credentialRoot: '/tmp/henji-test-credentials',
       credentialSources: {
         'openai-api-key': () => Promise.resolve('chat-secret'),
       },
@@ -861,6 +866,7 @@ Deno.test('Increment 62 replay is scoped to the producing provider and model', a
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openai-api-key': () => Promise.resolve('probe-secret'),
     },
@@ -958,6 +964,7 @@ Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done'
       }),
     );
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openai-api-key': () => Promise.resolve('probe-secret'),
     },
@@ -1028,6 +1035,7 @@ Deno.test('Increment 61 declaration adds an external OpenAI provider beside the 
       );
     };
     const physical = createProductionPhysicalIo(undefined, {
+      credentialRoot: '/tmp/henji-test-credentials',
       credentialSources: {
         'openai-api-key': () => Promise.resolve('alt-secret'),
       },
@@ -1073,6 +1081,7 @@ Deno.test('Increment 59 provider declaration overrides the OpenRouter Responses 
     endpoint: 'https://gateway.example/v1',
   });
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
     },
@@ -1103,6 +1112,7 @@ Deno.test('Increment 14 keeps resolved OpenAI auth authoritative over ambient SD
       );
     };
     const model = createProductionPhysicalIo(undefined, {
+      credentialRoot: '/tmp/henji-test-credentials',
       credentialSources: {
         'openrouter-api-key': () => Promise.resolve('router-secret'),
         'openai-api-key': () => Promise.resolve('openai-secret'),
@@ -1132,6 +1142,7 @@ Deno.test('Increment 14 resolves OpenRouter auth independently of an OpenAI rout
     );
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
       'openai-api-key': () => Promise.resolve('openai-secret'),
@@ -1157,6 +1168,7 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
     );
   };
   const model = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
       'openai-api-key': () => Promise.resolve('openai-secret'),
@@ -1229,6 +1241,7 @@ Deno.test('Increment 14 keeps Exa web search usable beside an OpenAI root', asyn
     );
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'exa-api-key': () => Promise.resolve('exa-secret'),
       'openai-api-key': () => Promise.resolve('openai-secret'),

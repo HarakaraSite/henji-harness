@@ -86,6 +86,8 @@ export const createConfiguredWorkerComposition = async (
       bashOutputStore: outputStore,
       requestProvider: input.physicalIo.requestProvider,
       credentialAvailability: input.physicalIo.credentialAvailability,
+    }, {
+      ...(input.configRoot === undefined ? {} : { configRoot: input.configRoot }),
     });
     const loadedHooks = await loadWorkerHooks(selection.hooks, {
       workspace: input.workspace,

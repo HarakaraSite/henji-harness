@@ -48,20 +48,20 @@ export const createWorkerRequestCounter = (): WorkerRequestCounter => {
 
 /** Production Worker-local physical I/O; credentials resolve only at provider-request time. */
 export const createProductionPhysicalIo = (
-  requestCounter?: WorkerRequestCounter,
+  requestCounter: WorkerRequestCounter | undefined,
   options: {
     readonly credentialSources?: Readonly<Record<string, CredentialSource>>;
     readonly credentialPresence?: (
       profile: AuthProfileId,
       registrationId?: string | null,
     ) => Promise<CredentialAvailabilityStatus>;
-    readonly configRoot?: string;
+    readonly credentialRoot: string;
     readonly sessionId?: string;
     readonly fetcher?: typeof fetch;
     readonly providerTimeoutMs?: number;
     readonly providerDeclarations?: readonly ProviderDeclarationV1[];
     readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void;
-  } = {},
+  },
 ): PhysicalIoBindings => {
   const declaredProviders = new Map(
     (options.providerDeclarations ?? []).map((declaration) => [
@@ -76,7 +76,7 @@ export const createProductionPhysicalIo = (
   const sources = options.credentialSources ?? {};
   const resolver = createCredentialResolver({
     sources,
-    ...(options.configRoot === undefined ? {} : { configRoot: options.configRoot }),
+    credentialRoot: options.credentialRoot,
   });
   return {
     createModel: (_role, selection?: ModelSelection) => {

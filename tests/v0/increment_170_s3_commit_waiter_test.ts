@@ -255,6 +255,7 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
       dataPort: dataChannel.port1,
       agentChoice: {},
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       workspaceRoot: root,
       physicalIoMode: 'provider-free',
       // These stale Core-owned basis values must not seed the real Worker generation.

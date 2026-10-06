@@ -101,12 +101,13 @@ Deno.test('Increment 189 packages and installs editable hooks while retaining us
 
     const packageManifest = await readJson(`${packaged.folder}/manifest.json`);
     const tools = packageManifest.tools as Array<{ name: string }>;
+    const expectedTools = ['search', 'git_inspect', 'web_search', 'web_fetch'];
     assertEquals(
       tools.map(({ name }) => name),
-      ['search', 'web_search', 'web_fetch'],
+      expectedTools,
       'the hook package preserves the existing external tool package',
     );
-    for (const name of ['search', 'web_search', 'web_fetch']) {
+    for (const name of expectedTools) {
       assert(await Deno.stat(`${packaged.folder}/tools/${name}/tool.json`));
     }
     const hooks = packageManifest.hooks as Array<{
@@ -192,8 +193,8 @@ Deno.test('Increment 189 packages and installs editable hooks while retaining us
     const activations = await Deno.readTextFile(activationLog);
     assertEquals(
       activations.trim().split('\n').length,
-      9,
-      'each install registers the three packaged tools',
+      12,
+      'each install registers the four packaged tools',
     );
   } finally {
     await Deno.remove(root, { recursive: true });

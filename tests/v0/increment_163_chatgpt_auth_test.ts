@@ -34,8 +34,8 @@ const failsWith = async (
   throw new Error(`expected ${expectedCode}`);
 };
 
-const withConfigRoot = async (
-  run: (configRoot: string) => Promise<void>,
+const withCredentialRoot = async (
+  run: (credentialRoot: string) => Promise<void>,
 ): Promise<void> => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-163-auth-' });
   try {
@@ -81,11 +81,11 @@ const completeLogin = async (
 };
 
 Deno.test('Increment 163 completes dynamic OAuth, verifies identity, persists private state, and resumes', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     const facts: Record<string, unknown>[] = [];
     const service = createChatGPTAuthService({
-      configRoot,
+      credentialRoot,
       fetcher: issuer.fetcher,
       reportFact: (fact) => {
         facts.push({ ...fact });
@@ -102,7 +102,7 @@ Deno.test('Increment 163 completes dynamic OAuth, verifies identity, persists pr
       );
       assertEquals(await service.presence(), 'present');
 
-      const accountPath = `${configRoot}/chatgpt/accounts/${
+      const accountPath = `${credentialRoot}/chatgpt/accounts/${
         encodeURIComponent(state.accounts[0].registrationId)
       }.json`;
       const account = JSON.parse(await Deno.readTextFile(accountPath));
@@ -159,7 +159,7 @@ Deno.test('Increment 163 completes dynamic OAuth, verifies identity, persists pr
 
       await service.close();
       const restarted = createChatGPTAuthService({
-        configRoot,
+        credentialRoot,
         fetcher: issuer.fetcher,
       });
       try {
@@ -181,10 +181,10 @@ Deno.test('Increment 163 completes dynamic OAuth, verifies identity, persists pr
 });
 
 Deno.test('Increment 163 reuses an issued client for relogin and keeps account identity bound', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     const service = createChatGPTAuthService({
-      configRoot,
+      credentialRoot,
       fetcher: issuer.fetcher,
     });
     try {
@@ -304,10 +304,10 @@ Deno.test('Increment 163 reuses an issued client for relogin and keeps account i
 });
 
 Deno.test('Increment 163 retains an issued client id after an incomplete code exchange', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     const service = createChatGPTAuthService({
-      configRoot,
+      credentialRoot,
       fetcher: issuer.fetcher,
     });
     try {
@@ -355,7 +355,7 @@ Deno.test('Increment 163 retains an issued client id after an incomplete code ex
 });
 
 Deno.test('Increment 163 rejects cancellation during completion and saves the accepted login', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     let notifyExchangeStarted!: () => void;
     const exchangeStarted = new Promise<void>((resolve) => {
@@ -377,7 +377,7 @@ Deno.test('Increment 163 rejects cancellation during completion and saves the ac
       }
       return await issuer.fetcher(input, init);
     };
-    const service = createChatGPTAuthService({ configRoot, fetcher });
+    const service = createChatGPTAuthService({ credentialRoot, fetcher });
     try {
       const cancelledBeforeSend = await service.begin();
       await service.cancel(cancelledBeforeSend.attemptId);
@@ -417,7 +417,7 @@ Deno.test('Increment 163 rejects cancellation during completion and saves the ac
 });
 
 Deno.test('Increment 163 serializes relogin account replacement with an in-flight refresh', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     let notifyRefreshStarted!: () => void;
     const refreshStarted = new Promise<void>((resolve) => {
@@ -456,12 +456,12 @@ Deno.test('Increment 163 serializes relogin account replacement with an in-fligh
       }
       return response;
     };
-    const service = createChatGPTAuthService({ configRoot, fetcher });
+    const service = createChatGPTAuthService({ credentialRoot, fetcher });
     let registrationId: string;
     try {
       const initial = await completeLogin(service, issuer);
       registrationId = initial.accounts[0].registrationId;
-      const accountPath = `${configRoot}/chatgpt/accounts/${
+      const accountPath = `${credentialRoot}/chatgpt/accounts/${
         encodeURIComponent(registrationId)
       }.json`;
       const expiredAccount = JSON.parse(await Deno.readTextFile(accountPath));
@@ -510,10 +510,10 @@ Deno.test('Increment 163 serializes relogin account replacement with an in-fligh
 });
 
 Deno.test('Increment 163 requires the nonce and direct inference scope before exposing an account token', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     const service = createChatGPTAuthService({
-      configRoot,
+      credentialRoot,
       fetcher: issuer.fetcher,
     });
     try {
@@ -538,7 +538,7 @@ Deno.test('Increment 163 requires the nonce and direct inference scope before ex
 
     const issuerWithoutGrant = await createMockChatGPTIssuer();
     const noGrantService = createChatGPTAuthService({
-      configRoot: `${configRoot}-no-grant`,
+      credentialRoot: `${credentialRoot}-no-grant`,
       fetcher: issuerWithoutGrant.fetcher,
     });
     try {
@@ -570,17 +570,17 @@ Deno.test('Increment 163 requires the nonce and direct inference scope before ex
 });
 
 Deno.test('Increment 163 serializes refresh across processes and rereads the replacement token', async () => {
-  await withConfigRoot(async (configRoot) => {
+  await withCredentialRoot(async (credentialRoot) => {
     const issuer = await createMockChatGPTIssuer();
     const service = createChatGPTAuthService({
-      configRoot,
+      credentialRoot,
       fetcher: issuer.fetcher,
     });
     let registrationId: string;
     try {
       const state = await completeLogin(service, issuer);
       registrationId = state.accounts[0].registrationId;
-      const path = `${configRoot}/chatgpt/accounts/${encodeURIComponent(registrationId)}.json`;
+      const path = `${credentialRoot}/chatgpt/accounts/${encodeURIComponent(registrationId)}.json`;
       const account = JSON.parse(await Deno.readTextFile(path));
       account.expiresAt = Date.now() - 1;
       await Deno.writeTextFile(path, `${JSON.stringify(account)}\n`);
@@ -595,10 +595,10 @@ Deno.test('Increment 163 serializes refresh across processes and rereads the rep
         args: [
           'run',
           '--no-config',
-          `--allow-read=${configRoot},${Deno.cwd()}`,
-          `--allow-write=${configRoot}`,
+          `--allow-read=${credentialRoot},${Deno.cwd()}`,
+          `--allow-write=${credentialRoot}`,
           workerPath,
-          configRoot,
+          credentialRoot,
           registrationId,
         ],
         stdout: 'piped',
@@ -615,15 +615,15 @@ Deno.test('Increment 163 serializes refresh across processes and rereads the rep
       new TextDecoder().decode(second.stdout).trim(),
       'increment-163-replacement-access',
     );
-    const refreshFacts = (await Deno.readTextFile(`${configRoot}/refresh-request-count.txt`))
+    const refreshFacts = (await Deno.readTextFile(`${credentialRoot}/refresh-request-count.txt`))
       .split('\n').filter((line) => line === 'refresh');
     assertEquals(refreshFacts.length, 1);
-    const path = `${configRoot}/chatgpt/accounts/${encodeURIComponent(registrationId)}.json`;
+    const path = `${credentialRoot}/chatgpt/accounts/${encodeURIComponent(registrationId)}.json`;
     const updated = JSON.parse(await Deno.readTextFile(path));
     assertEquals(updated.accessToken, 'increment-163-replacement-access');
     assertEquals(updated.refreshToken, 'increment-163-replacement-refresh');
     assertEquals(
-      await chatGPTCredentialPresence({ configRoot, registrationId }),
+      await chatGPTCredentialPresence({ credentialRoot, registrationId }),
       'present',
     );
   });

@@ -41,10 +41,10 @@ const braveDeclaration = (authProfile = 'brave-api-key') =>
 
 Deno.test('Increment 173 registers Exa and external service keys through the existing resolver path', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-173-registration-' });
-  const configRoot = `${root}/config`;
+  const credentialRoot = `${root}/credentials`;
   try {
     const registration = createCredentialRegistration({
-      configRoot,
+      credentialRoot,
       providerDeclarations: [],
       credentialDeclarations: [...builtinCredentialDeclarations(), braveDeclaration()],
     });
@@ -71,7 +71,7 @@ Deno.test('Increment 173 registers Exa and external service keys through the exi
       ],
     );
 
-    const resolver = createCredentialResolver({ configRoot });
+    const resolver = createCredentialResolver({ credentialRoot });
     const exaFirst = 'increment-173-exa-dummy-first';
     const exaUpdated = 'increment-173-exa-dummy-updated';
     const braveKey = 'increment-173-brave-dummy';
@@ -81,8 +81,14 @@ Deno.test('Increment 173 registers Exa and external service keys through the exi
     assertEquals(await resolver.resolve('brave-api-key'), braveKey);
     await registration.save('exa-api-key', exaUpdated);
     assertEquals(await resolver.resolve('exa-api-key'), exaUpdated);
-    assertEquals(await Deno.readTextFile(credentialFileFor('exa-api-key', configRoot)), exaUpdated);
-    assertEquals(await Deno.readTextFile(credentialFileFor('brave-api-key', configRoot)), braveKey);
+    assertEquals(
+      await Deno.readTextFile(credentialFileFor('exa-api-key', credentialRoot)),
+      exaUpdated,
+    );
+    assertEquals(
+      await Deno.readTextFile(credentialFileFor('brave-api-key', credentialRoot)),
+      braveKey,
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -135,6 +141,7 @@ Deno.test('Increment 173 loads service declarations into the Core API registrati
   const configRoot = `${root}/config`;
   const dataRoot = `${root}/data`;
   const stateRoot = `${root}/state`;
+  const credentialRoot = `${stateRoot}/credentials`;
   await Deno.mkdir(workspaceRoot, { recursive: true });
   await Deno.mkdir(`${configRoot}/credentials`, { recursive: true });
   await Deno.writeTextFile(
@@ -216,7 +223,7 @@ Deno.test('Increment 173 loads service declarations into the Core API registrati
       status: 'present',
     });
     assertEquals(
-      await createCredentialResolver({ configRoot }).resolve('brave-api-key'),
+      await createCredentialResolver({ credentialRoot }).resolve('brave-api-key'),
       key,
     );
     const apiMetadata = JSON.stringify({ catalog, providerCatalog, registered, presence });

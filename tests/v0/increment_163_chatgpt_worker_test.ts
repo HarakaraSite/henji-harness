@@ -19,8 +19,9 @@ childDataTest(
   async () => {
     const root = await Deno.makeTempDir({ prefix: 'henji-163-real-child-' });
     const configRoot = `${root}/config`;
+    const credentialRoot = `${root}/state/credentials`;
     const issuer = await createMockChatGPTIssuer();
-    const auth = createChatGPTAuthService({ configRoot, fetcher: issuer.fetcher });
+    const auth = createChatGPTAuthService({ credentialRoot, fetcher: issuer.fetcher });
     const previous = (await import('../../v0/agent/provider/provider_runtime.ts'))
       .activeProviderDeclarations();
     let server: Deno.HttpServer | undefined;
@@ -131,6 +132,7 @@ await import(${JSON.stringify(bootstrap)});
         workspaceRoot: root,
         options: {
           configRoot,
+          credentialRoot,
           physicalIoMode: 'production',
           providerDeclarations: declarations,
           rootMaxSteps: 4,

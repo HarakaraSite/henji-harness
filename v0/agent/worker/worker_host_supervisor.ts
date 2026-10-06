@@ -428,6 +428,7 @@ export class WorkerSupervisor {
               : { notifyStartupPrepared: true }),
             agentChoice: this.options.agentChoice,
             configRoot: this.options.configRoot,
+            credentialRoot: this.options.credentialRoot,
             ...(this.options.enableAsyncAgents === undefined
               ? {}
               : { enableAsyncAgents: this.options.enableAsyncAgents }),

@@ -11,13 +11,12 @@ import {
   resolveChatGPTCredential,
 } from './chatgpt_auth.ts';
 import type { AuthProfileId } from './model_selection.ts';
-import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
-const chatGPTRequestFactsPath = (configRoot: string): string =>
-  `${configRoot}/chatgpt/requests.jsonl`;
+const chatGPTRequestFactsPath = (credentialRoot: string): string =>
+  `${credentialRoot}/chatgpt/requests.jsonl`;
 
 const appendChatGPTRequestFact = async (
-  configRoot: string,
+  credentialRoot: string,
   registrationId: string | undefined,
   context: CredentialSourceContext | undefined,
   fact: ChatGPTAuthFact,
@@ -41,7 +40,7 @@ const appendChatGPTRequestFact = async (
     ...(typeof fact.field === 'string' ? { field: fact.field } : {}),
     ...(typeof fact.valueShape === 'string' ? { valueShape: fact.valueShape } : {}),
   };
-  const path = chatGPTRequestFactsPath(configRoot);
+  const path = chatGPTRequestFactsPath(credentialRoot);
   const directory = path.slice(0, path.lastIndexOf('/'));
   await Deno.mkdir(directory, { recursive: true, mode: 0o700 });
   const file = await Deno.open(path, {
@@ -86,8 +85,8 @@ interface CredentialResolver {
 interface CredentialResolverOptions {
   /** Explicit Worker-local sources by auth profile; unlisted profiles use the fixed file default. */
   readonly sources?: Readonly<Record<string, CredentialSource>>;
-  /** User config root shared with Core and every Worker. */
-  readonly configRoot?: string;
+  /** Credential root shared with Core and every Worker; credential values never leave this root. */
+  readonly credentialRoot: string;
   /** Shared auth service seam for isolated runtimes and tests. */
   readonly chatgptAuth?: ChatGPTAuthService;
   /** Isolated OAuth refresh transport; production uses the global fetch. */
@@ -96,13 +95,13 @@ interface CredentialResolverOptions {
 
 /** Worker-local resolver. Callers name a non-secret profile; values never leave the adapter. */
 export const createCredentialResolver = (
-  options: CredentialResolverOptions = {},
+  options: CredentialResolverOptions,
 ): CredentialResolver => {
   const sources = options.sources ?? {};
   let chatgptAuth = options.chatgptAuth;
   const chatgpt = (): ChatGPTAuthService =>
     chatgptAuth ??= createChatGPTAuthService({
-      ...(options.configRoot === undefined ? {} : { configRoot: options.configRoot }),
+      credentialRoot: options.credentialRoot,
     });
   return Object.freeze({
     async resolve(
@@ -126,17 +125,15 @@ export const createCredentialResolver = (
         }
         const selectedRegistrationId = registrationId ??
           await chatgpt().selectedRegistrationId();
-        const configRoot = options.configRoot ??
-          resolveRuntimePaths().configRoot;
         return (await resolveChatGPTCredential({
-          configRoot,
+          credentialRoot: options.credentialRoot,
           ...(options.chatgptFetcher === undefined ? {} : { fetcher: options.chatgptFetcher }),
           ...(selectedRegistrationId === undefined
             ? {}
             : { registrationId: selectedRegistrationId }),
           reportFact: (fact) =>
             appendChatGPTRequestFact(
-              configRoot,
+              options.credentialRoot,
               selectedRegistrationId,
               context,
               fact,
@@ -145,7 +142,7 @@ export const createCredentialResolver = (
       }
       try {
         return await readCredentialFileAt(
-          credentialFileFor(profile, options.configRoot),
+          credentialFileFor(profile, options.credentialRoot),
         );
       } catch {
         return undefined;
@@ -161,7 +158,7 @@ export const createCredentialResolver = (
         return await chatgpt().presence(registrationId);
       }
       return await credentialFilePresenceAt(
-        credentialFileFor(profile, options.configRoot),
+        credentialFileFor(profile, options.credentialRoot),
       );
     },
   });

@@ -231,13 +231,14 @@ export const credentialRegistrationTargets = (
 };
 
 interface CredentialRegistrationOptions {
-  readonly configRoot?: string;
+  /** Credential root shared with the request-time reader; values are written only below it. */
+  readonly credentialRoot: string;
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   readonly credentialDeclarations?: readonly CredentialDeclarationV1[];
 }
 
 export const createCredentialRegistration = (
-  options: CredentialRegistrationOptions = {},
+  options: CredentialRegistrationOptions,
 ): CredentialRegistration =>
   Object.freeze({
     targets: () =>
@@ -251,7 +252,7 @@ export const createCredentialRegistration = (
       }
       const bytes = credentialBytesOf(value);
       await replaceCredentialFile(
-        credentialFileFor(authProfile, options.configRoot),
+        credentialFileFor(authProfile, options.credentialRoot),
         bytes,
       );
     },

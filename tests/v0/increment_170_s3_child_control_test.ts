@@ -56,6 +56,7 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       descriptor,
       workspaceRoot,
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       physicalIoMode: 'provider-free',
     },
@@ -86,6 +87,7 @@ Deno.test('Increment 170 child cancel and ACK control facts are saved with Data 
       descriptor,
       workspaceRoot,
       configRoot: `${root}/config`,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       executionId: parentExecutionId,
     });

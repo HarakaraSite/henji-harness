@@ -173,6 +173,7 @@ Deno.test('Increment 189 named/generic children publish results after their own 
       descriptor,
       workspaceRoot: root,
       configRoot,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       physicalIoMode: 'provider-free',
     },
@@ -206,6 +207,7 @@ Deno.test('Increment 189 named/generic children publish results after their own 
       descriptor,
       workspaceRoot: root,
       configRoot,
+      credentialRoot: `${root}/credentials`,
       agentChoice: {},
       executionId: parentExecutionId,
     });

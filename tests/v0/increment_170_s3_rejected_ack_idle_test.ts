@@ -51,6 +51,7 @@ Deno.test('Increment 170 rejected ACK keeps Core busy until correlated Worker id
       descriptor,
       workspaceRoot: root,
       configRoot,
+      credentialRoot: `${root}/credentials`,
       agentChoice: processProbeChoice,
       physicalIoMode: 'provider-free',
       capsuleFactory: (url): WorkerHostCapsule => {

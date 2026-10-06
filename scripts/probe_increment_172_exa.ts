@@ -8,6 +8,7 @@ import { ProviderEvidenceRecorder } from '../v0/agent/provider/provider_evidence
 import { Registry } from '../v0/agent/tools/tools.ts';
 import type { ToolFactoryInput } from '../v0/agent/tool_api.ts';
 import webSearchFactory from '../external-tools/web_search/main.ts';
+import { resolveRuntimePaths } from '../v0/agent/runtime/runtime_paths.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
@@ -37,7 +38,9 @@ const requests: readonly WebSearchRequest[] = [
 if (import.meta.main) {
   const outputRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-increment-172-exa-' });
   const counter = createWorkerRequestCounter();
-  const physicalIo = createProductionPhysicalIo(counter);
+  const physicalIo = createProductionPhysicalIo(counter, {
+    credentialRoot: resolveRuntimePaths().credentialRoot,
+  });
   const registry = new Registry([webSearchFactory({
     requestProvider: physicalIo.requestProvider!,
   } as unknown as ToolFactoryInput)]);

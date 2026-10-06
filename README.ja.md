@@ -45,19 +45,21 @@ read-onlyで調べる。既存の外部sourceは対応する
 
 利用できるcommandとoptionは`henji --help`と`henji COMMAND --help`で確認できる。
 
-既定providerのOpenRouter API keyを、所有者だけが読めるfileへ保存する。
+既定providerのOpenRouter API keyを、所有者だけが読めるfileへ保存する。credential値はconfig root
+ではなくstate配下のcredential rootへ置く。
 
 ```sh
-henji_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness"
-install -d -m 700 "$henji_config_dir"
-install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
+henji_credential_dir="${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/credentials"
+install -d -m 700 "$henji_credential_dir"
+install -m 600 /path/to/your/openrouter-api-key "$henji_credential_dir/openrouter-api-key"
 ```
 
 TUIの`/login`からもproviderとserviceのcredentialを同じcredential fileへ登録できる。ChatGPTの
-sign-inもこの一覧にあり、認証情報は同じconfig directory配下へ保存される。`web_search`用のExaも
-この一覧に含まれる。
+sign-inもこの一覧にあり、認証情報（`chatgpt/`配下のtokenを含む）は同じcredential rootへ保存される。
+`web_search`用のExaもこの一覧に含まれる。
 
-外部toolは`$henji_config_dir/credentials/*.json`へservice登録のmetadataを追加できる。たとえばBrave
+外部toolは`$henji_config_dir/credentials/*.json`へservice登録のmetadataを追加できる（宣言は
+非secretで、値はcredential root側に保存される）。たとえばBrave
 toolは次のように宣言する。
 
 ```json
@@ -111,7 +113,7 @@ printf 'このworkspaceの構成を説明して\n' | /path/to/henji-harness/dist
 ```
 
 providerは`/provider`、modelは`/model`、reasoning effortは`/effort`で切り替える。OpenAI directを
-使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
+使う場合は同じcredential rootの`openai-api-key`へkeyを保存し、Responses APIなら
 `henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で
 起動する。ChatGPTは`/login`のsign-inで登録し、`openai-chatgpt`を選ぶ。OpenRouterは既定の
 `openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
@@ -176,7 +178,8 @@ henji core stop --core <core-id>
 runtime配置は、credential値を表示しない`henji diagnostics runtime`で確認できる。既定ではconfigを
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataを
 `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Session stateを
-`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`へ保存する。
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`、credential値を
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/credentials`へ保存する。
 
 ## Agent設定とtool
 

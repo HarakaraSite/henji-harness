@@ -51,19 +51,22 @@ options.
 
 Use `henji --help` and `henji COMMAND --help` to see the available commands and options.
 
-Save the OpenRouter API key for the default provider in a file readable only by its owner.
+Save the OpenRouter API key for the default provider in a file readable only by its owner. Credential
+values live in the credential root under the state directory, not in the config root.
 
 ```sh
-henji_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness"
-install -d -m 700 "$henji_config_dir"
-install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
+henji_credential_dir="${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/credentials"
+install -d -m 700 "$henji_credential_dir"
+install -m 600 /path/to/your/openrouter-api-key "$henji_credential_dir/openrouter-api-key"
 ```
 
 You can also register provider and service credentials from the TUI with `/login`; they are saved to
-the same credential files. ChatGPT sign-in is part of this list, and its credentials are saved under
-the same config directory. Exa is included in this list for `web_search`.
+the same credential files. ChatGPT sign-in is part of this list, and its credentials (including the
+tokens under `chatgpt/`) are saved in the same credential root. Exa is included in this list for
+`web_search`.
 
-External tools can add service registration metadata in `$henji_config_dir/credentials/*.json`. For
+External tools can add service registration metadata in `$henji_config_dir/credentials/*.json`. The
+declarations are non-secret; values are stored in the credential root. For
 example, a Brave tool can declare:
 
 ```json
@@ -120,7 +123,7 @@ printf 'Explain the structure of this workspace\n' | /path/to/henji-harness/dist
 ```
 
 Switch provider with `/provider`, model with `/model`, and reasoning effort with `/effort`. To use
-OpenAI direct, save the key as `openai-api-key` in the same config directory, and start with
+OpenAI direct, save the key as `openai-api-key` in the same credential root, and start with
 `henji --root-provider openai-responses` for the Responses API. Register ChatGPT with `/login`
 sign-in and select `openai-chatgpt`. For OpenRouter you can choose the default `openrouter-chat` or
 `openrouter-responses`, which uses the same `openrouter-api-key`. Data-only declarations in
@@ -189,8 +192,9 @@ resumes saved work in a fresh Core. `core stop` without a target lists Cores and
 
 You can check the runtime layout with `henji diagnostics runtime`, which does not display credential
 values. By default it stores config in `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`, managed
-data in `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`, and Session state in
-`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`.
+data in `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`, Session state in
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`, and credential values in
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/credentials`.
 
 ## Agent configuration and tools
 

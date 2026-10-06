@@ -10,6 +10,7 @@ import {
   isStoredModelSelection,
 } from '../../v0/agent/provider/model_selection.ts';
 import { credentialFileFor } from '../../v0/agent/provider/credential_file.ts';
+import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import {
   ProviderEvidenceRecorder,
@@ -281,6 +282,7 @@ Deno.test('Increment 101 chat sends declared headers and keeps the standard Bear
     effort: 'auto',
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('opencode-secret') },
     sessionId: 'session-101',
     fetcher,
@@ -327,6 +329,7 @@ Deno.test('Increment 101 chat declared credential header replaces the default Be
     effort: 'auto',
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('opencode-secret') },
     fetcher,
     providerDeclarations: [declaration],
@@ -346,6 +349,7 @@ Deno.test('Increment 101 missing session id fails with invalid_input', async () 
     effort: 'auto',
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('opencode-secret') },
     fetcher: () => Promise.resolve(new Response(chatStream('hello'), { status: 200 })),
     providerDeclarations: [declaration],
@@ -385,6 +389,7 @@ Deno.test('Increment 101 Responses sends declared session header with a single B
     effort: 'auto',
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('opencode-secret') },
     sessionId: 'session-101',
     fetcher,
@@ -399,11 +404,13 @@ Deno.test('Increment 101 Responses sends declared session header with a single B
 
 Deno.test('Increment 101 credential availability generalizes to declared profiles', async () => {
   const injected = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('x') },
   });
   assertEquals(await injected.credentialAvailability!('opencode-go-api-key'), 'unknown');
 
   const seam = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialPresence: (profile) =>
       Promise.resolve(profile === 'opencode-go-api-key' ? 'present' : 'missing'),
   });
@@ -412,7 +419,10 @@ Deno.test('Increment 101 credential availability generalizes to declared profile
 });
 
 Deno.test('Increment 101 credential file path derives from the profile identity', () => {
-  assert(credentialFileFor('opencode-go-api-key').endsWith('/henji-harness/opencode-go-api-key'));
+  assertEquals(
+    credentialFileFor('opencode-go-api-key'),
+    `${resolveRuntimePaths().credentialRoot}/opencode-go-api-key`,
+  );
   let rejected = false;
   try {
     credentialFileFor('providers');
@@ -469,6 +479,7 @@ const chatModel = (
     effort: 'auto',
   };
   const physical = createProductionPhysicalIo(undefined, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('opencode-secret') },
     fetcher: (_input, init) => {
       if (onBody !== undefined) onBody(JSON.parse(String(init?.body)));

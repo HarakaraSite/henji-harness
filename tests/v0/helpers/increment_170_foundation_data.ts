@@ -82,7 +82,7 @@ export const openIncrement170FoundationHost = async (
   options:
     & Omit<
       Partial<WorkerHostSessionOptions>,
-      'data' | 'descriptor' | 'workspaceRoot'
+      'data' | 'descriptor' | 'workspaceRoot' | 'credentialRoot'
     >
     & { readonly descriptor?: DataSessionDescriptor } = {},
 ): Promise<WorkerHostSession> => {
@@ -93,6 +93,7 @@ export const openIncrement170FoundationHost = async (
     workspaceRoot: harness.workspaceRoot,
     agentChoice: harness.descriptor.agentChoice,
     configRoot: `${harness.root}/config`,
+    credentialRoot: `${harness.root}/credentials`,
     physicalIoMode: 'provider-free',
     ...hostOptions,
   });

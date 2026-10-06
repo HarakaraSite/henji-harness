@@ -221,6 +221,7 @@ Deno.test('web_search completes main-Exa-main with full results and shared evide
     );
   };
   const physicalIo = createProductionPhysicalIo(counter, {
+    credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => 'test-credential',
       'exa-api-key': () => 'test-exa-credential',

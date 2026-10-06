@@ -31,7 +31,7 @@ import type {
   WorkerTurnSettledMessage,
 } from './worker_protocol.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
-import { credentialAvailabilityFor } from '../provider/credential_file.ts';
+import { credentialFileFor, credentialFilePresenceAt } from '../provider/credential_file.ts';
 import { type ChatGPTAuthService, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import {
   type CredentialAvailability,
@@ -196,7 +196,7 @@ export class ExecutionCoordinator {
 
   private chatgptAuthService(): ChatGPTAuthService {
     return this.chatgptAuth ??= createChatGPTAuthService({
-      ...(this.options.configRoot === undefined ? {} : { configRoot: this.options.configRoot }),
+      credentialRoot: this.options.credentialRoot,
     });
   }
 
@@ -330,7 +330,9 @@ export class ExecutionCoordinator {
       ? registrationId === null
         ? 'missing'
         : await this.chatgptAuthService().presence(registrationId)
-      : (await credentialAvailabilityFor(profile)).status;
+      : (await credentialFilePresenceAt(
+        credentialFileFor(profile, this.options.credentialRoot),
+      ));
     const availability = Object.freeze({ authProfile: profile, status });
     if (
       this.closed || this.descriptorValue.modelSelection.authProfile !== profile

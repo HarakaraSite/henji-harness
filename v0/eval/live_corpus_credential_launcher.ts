@@ -9,7 +9,8 @@ import {
  * inputs: the seams below exist only for permission-free tests.
  */
 
-const CREDENTIAL_PATH = '/home/masat.guest/.config/henji-harness/openrouter-api-key' as const;
+const CREDENTIAL_PATH =
+  '/home/masat.guest/.local/state/henji-harness/v1/credentials/openrouter-api-key' as const;
 const DENO_COMMAND = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno' as const;
 const CHILD_CWD = '/home/masat.guest/src/henji-harness' as const;
 const CHILD_ENTRYPOINT = 'v0/eval/live_corpus_cli.ts' as const;

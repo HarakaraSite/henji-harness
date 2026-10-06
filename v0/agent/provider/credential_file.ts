@@ -15,14 +15,14 @@ import {
 
 /**
  * Resolve the fixed credential file for a validated auth profile. The profile ID is a non-secret
- * identity; the path is derived from the XDG config root and never caller-selected.
+ * identity; the path is derived from the XDG state credential root and never caller-selected.
  */
 export const credentialFileFor = (
   profile: AuthProfileId,
-  configRoot?: string,
+  credentialRoot?: string,
 ): string => {
   if (!isAuthProfileId(profile)) fail('credential_metadata_invalid');
-  return configRoot === undefined ? credentialPath(profile) : `${configRoot}/${profile}`;
+  return credentialRoot === undefined ? credentialPath(profile) : `${credentialRoot}/${profile}`;
 };
 
 export const MAX_CREDENTIAL_BYTES = 4096 as const;

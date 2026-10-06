@@ -1,6 +1,24 @@
 import type { Workspace } from './work_tool_contract.ts';
 import type { ToolContext } from './tools.ts';
 import { TurnCancelledError } from '../core/cancellation.ts';
+import { assertRunTypescriptCodeAllowed } from './run_typescript_sandbox.ts';
+
+/** Host-owned additions to the code Worker's permission lists, plus the deny audit entries. */
+export interface TypescriptSandboxPaths {
+  readonly read: readonly string[];
+  readonly write: readonly string[];
+  readonly deny: readonly string[];
+  /** Exposed to code as the `henjiConfigRoot` variable; omitted when no config root exists. */
+  readonly configRoot?: string;
+}
+
+const uniquePaths = (...groups: readonly (readonly string[])[]): string[] => {
+  const paths: string[] = [];
+  for (const group of groups) {
+    for (const path of group) if (!paths.includes(path)) paths.push(path);
+  }
+  return paths;
+};
 
 interface WorkerReply {
   readonly ok: boolean;
@@ -38,7 +56,7 @@ const limitResult = (json) => {
   return json;
 };
 self.onmessage = async (event) => {
-  const { workspace, input, cache, fetchPort } = event.data;
+  const { workspace, input, cache, fetchPort, henjiConfigRoot } = event.data;
   const closeHooks = installModuleHooks(cache, fetchPort);
   // Loader hooks are thread-local. Keep all user imports on this thread rather than
   // admitting a new Worker without the std import policy.
@@ -47,9 +65,9 @@ self.onmessage = async (event) => {
     // Keep user imports out of source Deno's eager Blob graph, which otherwise mutates its
     // enclosing project's vendor/lock before the call's acquisition hooks are installed.
     const execute = (0, eval)(stripTypeScriptTypes(${
-  JSON.stringify(`(async (workspace, input) => {\n${code}\n})`)
+  JSON.stringify(`(async (workspace, input, henjiConfigRoot) => {\n${code}\n})`)
 }, { mode: 'transform' }));
-    const result = await execute(workspace, input);
+    const result = await execute(workspace, input, henjiConfigRoot);
     const json = JSON.stringify(result ?? null);
     if (json === undefined) throw new TypeError('result is not JSON serializable');
     self.postMessage({ ok: true, result: limitResult(json) });
@@ -68,8 +86,12 @@ export const executeTypescriptBody = async (
   code: string,
   workspace: Workspace,
   input: unknown,
+  sandbox: TypescriptSandboxPaths,
   context?: ToolContext,
 ): Promise<string> => {
+  assertRunTypescriptCodeAllowed(code, sandbox.deny);
+  const readPaths = uniquePaths([workspace.root, '/tmp'], sandbox.read);
+  const writePaths = uniquePaths([workspace.root, '/tmp'], sandbox.write);
   const cache = await Deno.makeTempDir({
     dir: '/tmp',
     prefix: 'henji-typescript-',
@@ -162,8 +184,8 @@ export const executeTypescriptBody = async (
         type: 'module',
         deno: {
           permissions: {
-            read: [workspace.root, '/tmp'],
-            write: [workspace.root, '/tmp'],
+            read: readPaths,
+            write: writePaths,
             net: true,
             env: false,
             run: false,
@@ -205,6 +227,7 @@ export const executeTypescriptBody = async (
         input,
         cache,
         fetchPort: channel.port2,
+        ...(sandbox.configRoot === undefined ? {} : { henjiConfigRoot: sandbox.configRoot }),
       }, [
         channel.port2,
       ]);

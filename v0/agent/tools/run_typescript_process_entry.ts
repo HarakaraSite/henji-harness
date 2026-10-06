@@ -11,7 +11,12 @@ export const runTypescriptProcessEntry = async (
     const input: TypescriptProcessInput = JSON.parse(await Deno.readTextFile(inputPath));
     reply = {
       ok: true,
-      result: await executeTypescriptBody(input.code, input.workspace, input.input),
+      result: await executeTypescriptBody(input.code, input.workspace, input.input, {
+        read: input.readPaths ?? [],
+        write: input.writePaths ?? [],
+        deny: input.denyPaths ?? [],
+        ...(input.configRoot === undefined ? {} : { configRoot: input.configRoot }),
+      }),
     };
   } catch (error) {
     reply = { ok: false, error: error instanceof Error ? error.message : String(error) };

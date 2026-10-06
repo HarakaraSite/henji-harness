@@ -144,6 +144,8 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
   await Deno.writeTextFile(
@@ -151,7 +153,7 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     'Slice 3 tool result marker',
   );
   await Deno.writeTextFile(
-    `${configRoot}/openrouter-api-key`,
+    `${credentialRoot}/openrouter-api-key`,
     'localhost-test-key',
     {
       mode: 0o600,

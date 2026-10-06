@@ -81,6 +81,7 @@ const openWorker = async (
       descriptor,
       workspaceRoot,
       configRoot,
+      credentialRoot: `${stateRoot}/credentials`,
       agentChoice: {},
       physicalIoMode: 'provider-free',
       ...(onProcessStart === undefined ? {} : {

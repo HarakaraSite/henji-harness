@@ -55,6 +55,7 @@ for (const cancelBeforeMarker of [false, true]) {
         descriptor,
         workspaceRoot: root,
         configRoot,
+        credentialRoot: `${root}/credentials`,
         agentChoice: processProbeChoice,
         physicalIoMode: 'provider-free',
         cancelSettlementGraceMs: 100,

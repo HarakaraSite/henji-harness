@@ -47,6 +47,7 @@ const options = {
   descriptor,
   workspaceRoot: root,
   configRoot,
+  credentialRoot: `${root}/state/credentials`,
   agentChoice: choice,
   physicalIoMode: 'provider-free' as const,
 };

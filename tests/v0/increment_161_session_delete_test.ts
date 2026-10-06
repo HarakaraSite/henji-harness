@@ -12,6 +12,8 @@ Deno.test('Session delete HTTP removes saved Session and its execution history u
   const workspaceRoot = `${root}/workspace`;
   const configRoot = `${root}/config/henji-harness`;
   const stateRoot = `${root}/state`;
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   const environment = {
     HOME: root,
     XDG_CONFIG_HOME: `${root}/config`,
@@ -22,7 +24,7 @@ Deno.test('Session delete HTTP removes saved Session and its execution history u
   for (const [key, value] of Object.entries(environment)) Deno.env.set(key, value);
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'localhost-test-key', {
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'localhost-test-key', {
     mode: 0o600,
   });
   let requests = 0;

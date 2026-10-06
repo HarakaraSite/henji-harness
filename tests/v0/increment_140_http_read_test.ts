@@ -49,9 +49,13 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const dataRoot = `${environment.XDG_DATA_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   await Deno.mkdir(workspaceRoot);
   await Deno.mkdir(configRoot, { recursive: true });
-  await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'local-test-key', { mode: 0o600 });
+  await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'local-test-key', {
+    mode: 0o600,
+  });
   let providerRequests = 0;
   const provider = Deno.serve(
     { hostname: '127.0.0.1', port: 0, onListen() {} },

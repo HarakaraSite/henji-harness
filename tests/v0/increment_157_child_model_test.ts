@@ -23,9 +23,13 @@ childDataTest(
     for (const [key, value] of Object.entries(environment)) Deno.env.set(key, value);
     const workspaceRoot = `${root}/workspace`;
     const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
+    const credentialRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1/credentials`;
     await Deno.mkdir(workspaceRoot);
     await Deno.mkdir(configRoot, { recursive: true });
-    await Deno.writeTextFile(`${configRoot}/openrouter-api-key`, 'local-e6-key', { mode: 0o600 });
+    await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
+    await Deno.writeTextFile(`${credentialRoot}/openrouter-api-key`, 'local-e6-key', {
+      mode: 0o600,
+    });
     const bodies: Record<string, unknown>[] = [];
     const provider = Deno.serve(
       { hostname: '127.0.0.1', port: 0, onListen() {} },
@@ -66,6 +70,7 @@ childDataTest(
     const { registry, seedParentExecution } = await createChildDataTestRegistry({
       options: {
         configRoot,
+        credentialRoot,
         physicalIoMode: 'production',
         providerDeclarations: declarations,
       },

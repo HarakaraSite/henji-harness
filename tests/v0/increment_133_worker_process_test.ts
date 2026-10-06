@@ -38,6 +38,7 @@ const dataSession = async (
     descriptor,
     workspaceRoot: root,
     configRoot,
+    credentialRoot: `${root}/credentials`,
     agentChoice: choice,
     physicalIoMode: 'provider-free',
     ...(cancelSettlementGraceMs === undefined ? {} : { cancelSettlementGraceMs }),
@@ -55,6 +56,7 @@ const dataSession = async (
     descriptor,
     session,
     configRoot,
+    credentialRoot: `${root}/credentials`,
     async seedParentExecution(executionId: string): Promise<void> {
       if (ready === undefined) {
         throw new Error('parent Worker did not report ready');
@@ -151,6 +153,7 @@ Deno.test('Child collect joins its Supervisor process cleanup before returning c
       descriptor: state.descriptor,
       workspaceRoot: root,
       configRoot: state.configRoot,
+      credentialRoot: state.credentialRoot,
       agentChoice: choice,
       physicalIoMode: 'provider-free',
     },

@@ -42,18 +42,20 @@ const withLoopback = async (
 
 const withConfig = async (
   profile: string,
-  run: (configRoot: string) => Promise<void>,
+  run: (configRoot: string, credentialRoot: string) => Promise<void>,
 ): Promise<void> => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-157-' });
   const configRoot = `${root}/config/henji-harness`;
+  const credentialRoot = `${root}/credentials`;
   await Deno.mkdir(configRoot, { recursive: true });
+  await Deno.mkdir(credentialRoot, { recursive: true, mode: 0o700 });
   await Deno.writeFile(
-    credentialFileFor(profile, configRoot),
+    credentialFileFor(profile, credentialRoot),
     new TextEncoder().encode('increment-157-dummy-credential'),
     { mode: 0o600 },
   );
   try {
-    await run(configRoot);
+    await run(configRoot, credentialRoot);
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -127,7 +129,7 @@ Deno.test('Increment 157 fetches the OpenRouter list and public metadata, seeds 
       ],
     });
   }, async (origin) => {
-    await withConfig('increment157-openrouter-key', async (configRoot) => {
+    await withConfig('increment157-openrouter-key', async (configRoot, credentialRoot) => {
       const requestFacts: Array<{ path: string; authorization?: string }> = [];
       const fetcher: typeof fetch = async (input, init) => {
         const url = new URL(String(input));
@@ -162,6 +164,7 @@ Deno.test('Increment 157 fetches the OpenRouter list and public metadata, seeds 
       );
       const catalog = new LiveModelCatalog({
         configRoot,
+        credentialRoot,
         declarations: [provider],
         fetcher,
       });
@@ -244,6 +247,7 @@ Deno.test('Increment 157 fetches the OpenRouter list and public metadata, seeds 
       };
       const restarted = new LiveModelCatalog({
         configRoot,
+        credentialRoot,
         declarations: [provider],
         fetcher: restartFetcher,
       });
@@ -290,7 +294,7 @@ Deno.test('Increment 157 maps an external provider to models.dev and honors its 
       data: [{ id: 'fixed', created: 1 }, { id: 'dynamic', created: 2 }],
     });
   }, async (origin) => {
-    await withConfig('increment157-external-key', async (configRoot) => {
+    await withConfig('increment157-external-key', async (configRoot, credentialRoot) => {
       const provider = declaration(
         'increment157-external',
         `${origin}/v1`,
@@ -307,6 +311,7 @@ Deno.test('Increment 157 maps an external provider to models.dev and honors its 
       );
       const catalog = new LiveModelCatalog({
         configRoot,
+        credentialRoot,
         declarations: [provider],
         metadataUrl: `${origin}/metadata`,
       });
@@ -374,7 +379,12 @@ Deno.test('E6 declared catalog lists registered models and efforts without provi
     throw new Error('declared catalog must not fetch');
   };
   try {
-    const catalog = new LiveModelCatalog({ configRoot, declarations: [provider], fetcher });
+    const catalog = new LiveModelCatalog({
+      configRoot,
+      credentialRoot: `${configRoot}/credentials`,
+      declarations: [provider],
+      fetcher,
+    });
     const cold = await catalog.efforts(provider.providerId, 'registered');
     assertEquals(cold.source, 'override');
     assertEquals(cold.efforts, ['auto', 'low', 'xhigh']);
@@ -386,7 +396,12 @@ Deno.test('E6 declared catalog lists registered models and efforts without provi
     assertEquals(removed.models.map((entry) => entry.modelId), ['second', 'registered']);
     assertEquals(model(removed, 'registered').favorite, false);
     await catalog.remember(provider.providerId, 'registered', 'low');
-    const restarted = new LiveModelCatalog({ configRoot, declarations: [provider], fetcher });
+    const restarted = new LiveModelCatalog({
+      configRoot,
+      credentialRoot: `${configRoot}/credentials`,
+      declarations: [provider],
+      fetcher,
+    });
     assertEquals(await restarted.defaultEffort(provider.providerId, 'registered'), 'low');
     assertEquals(model(await restarted.models(provider.providerId), 'registered').favorite, false);
 
@@ -402,7 +417,12 @@ Deno.test('E6 declared catalog lists registered models and efforts without provi
         }],
       },
     }));
-    const next = new LiveModelCatalog({ configRoot, declarations: [updated], fetcher });
+    const next = new LiveModelCatalog({
+      configRoot,
+      credentialRoot: `${configRoot}/credentials`,
+      declarations: [updated],
+      fetcher,
+    });
     const refreshed = await next.models(provider.providerId);
     assertEquals(refreshed.models.map((entry) => entry.modelId), ['second', 'registered', 'added']);
     assertEquals(model(refreshed, 'added').favorite, false);
@@ -432,7 +452,11 @@ Deno.test('E6 catalog read begun before another Core saves receives a complete J
     },
     defaults: { modelId: 'shared-model', effort: 'low' },
   };
-  const writer = new LiveModelCatalog({ configRoot, declarations: [declaration] });
+  const writer = new LiveModelCatalog({
+    configRoot,
+    credentialRoot: `${configRoot}/credentials`,
+    declarations: [declaration],
+  });
   await writer.defaultEffort(declaration.providerId, 'shared-model');
   const path = `${configRoot}/model-catalogs/shared-provider.json`;
   const original = await Deno.readTextFile(path);

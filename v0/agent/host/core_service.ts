@@ -331,13 +331,15 @@ export const createCoreService = async (
       ...builtinCredentialDeclarations(),
       ...await loadCredentialDeclarations({ configRoot }),
     ]);
+  const workspace = await resolveWorkspace(options.workspaceRoot);
+  const stateRoot = options.stateRoot ?? launcherStateRoot();
+  const credentialRoot = options.credentialRoot ?? `${stateRoot}/credentials`;
   const hostOptions = {
     ...workerOptions,
     ...(configRoot === undefined ? {} : { configRoot }),
+    credentialRoot,
     providerDeclarations,
   };
-  const workspace = await resolveWorkspace(options.workspaceRoot);
-  const stateRoot = options.stateRoot ?? launcherStateRoot();
   const statePaths = await sessionPaths(stateRoot, workspace.root);
   const coreEpoch = requestedCoreEpoch ?? crypto.randomUUID().toLowerCase();
   let slot: CoreSlot | undefined;
@@ -360,6 +362,7 @@ export const createCoreService = async (
   );
   const modelCatalog = new LiveModelCatalog({
     configRoot: configRoot ?? `${stateRoot}/config`,
+    credentialRoot,
     declarations: providerDeclarations,
     ...(modelsMetadataUrl === undefined ? {} : { metadataUrl: modelsMetadataUrl }),
     ...(catalogFetcher === undefined ? {} : { fetcher: catalogFetcher }),
@@ -373,12 +376,12 @@ export const createCoreService = async (
     await data.persistCatalogFacts(fresh);
   };
   const credentialRegistration = createCredentialRegistration({
-    ...(configRoot === undefined ? {} : { configRoot }),
+    credentialRoot,
     providerDeclarations,
     credentialDeclarations,
   });
   const chatgpt = createChatGPTAuthService({
-    configRoot: configRoot ?? `${stateRoot}/config`,
+    credentialRoot,
     ...(chatgptFetcher === undefined ? {} : { fetcher: chatgptFetcher }),
     reportFact: async (fact) => {
       await Deno.mkdir(statePaths.root, { recursive: true, mode: 0o700 });
@@ -1038,7 +1041,9 @@ export const createCoreService = async (
           ...profile,
           status: profile.authProfile === 'openai-chatgpt'
             ? await chatgpt.presence()
-            : await credentialFilePresenceAt(credentialFileFor(profile.authProfile, configRoot)),
+            : await credentialFilePresenceAt(
+              credentialFileFor(profile.authProfile, credentialRoot),
+            ),
         })),
       );
       const active = slot;
@@ -1122,7 +1127,7 @@ export const createCoreService = async (
         try {
           await credentialRegistration.save(input.authProfile, input.value);
           const status = await credentialFilePresenceAt(
-            credentialFileFor(input.authProfile, configRoot),
+            credentialFileFor(input.authProfile, credentialRoot),
           );
           const active = slot;
           if (active !== undefined) {

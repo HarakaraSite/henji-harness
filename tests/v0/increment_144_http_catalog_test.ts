@@ -49,6 +49,7 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
   const workspaceRoot = `${root}/core-workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
+  const credentialRoot = `${stateRoot}/credentials`;
   await Deno.mkdir(workspaceRoot, { recursive: true });
   await Deno.mkdir(configRoot, { recursive: true });
 
@@ -316,7 +317,7 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials',
       strictEqual(busyRegistration.reason, 'busy');
     }
     strictEqual(
-      await Deno.readTextFile(`${configRoot}/openrouter-api-key`),
+      await Deno.readTextFile(`${credentialRoot}/openrouter-api-key`),
       firstKey,
     );
     strictEqual(

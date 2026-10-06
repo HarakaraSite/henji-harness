@@ -58,7 +58,7 @@ childDataTest('Increment 163 resolver uses the frozen ChatGPT registration', asy
     },
   } as ChatGPTAuthService;
   const resolver = createCredentialResolver({
-    configRoot: '/tmp/increment-163-config',
+    credentialRoot: '/tmp/increment-163-config',
     chatgptAuth: auth,
   });
 
@@ -79,10 +79,10 @@ childDataTest('Increment 163 resolver records contextual OAuth refresh request f
   const temporaryRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-163-refresh-facts-',
   });
-  const configRoot = `${temporaryRoot}/config/henji-harness`;
+  const credentialRoot = `${temporaryRoot}/config/henji-harness`;
   const issuer = await createMockChatGPTIssuer();
   const auth = createChatGPTAuthService({
-    configRoot,
+    credentialRoot,
     fetcher: issuer.fetcher,
   });
   try {
@@ -106,13 +106,15 @@ childDataTest('Increment 163 resolver records contextual OAuth refresh request f
     });
     const state = await auth.complete(attempt.attemptId, callback.toString());
     const registrationId = state.accounts[0].registrationId;
-    const accountPath = `${configRoot}/chatgpt/accounts/${encodeURIComponent(registrationId)}.json`;
+    const accountPath = `${credentialRoot}/chatgpt/accounts/${
+      encodeURIComponent(registrationId)
+    }.json`;
     const account = JSON.parse(await Deno.readTextFile(accountPath));
     account.expiresAt = Date.now() - 1;
     await Deno.writeTextFile(accountPath, `${JSON.stringify(account)}\n`);
 
     const resolver = createCredentialResolver({
-      configRoot,
+      credentialRoot,
       chatgptFetcher: issuer.fetcher,
     });
     strictEqual(
@@ -123,7 +125,7 @@ childDataTest('Increment 163 resolver records contextual OAuth refresh request f
       }),
       'increment-163-mock-access-2',
     );
-    const factsPath = `${configRoot}/chatgpt/requests.jsonl`;
+    const factsPath = `${credentialRoot}/chatgpt/requests.jsonl`;
     const facts = (await Deno.readTextFile(factsPath)).trim().split('\n').map((
       line,
     ) => JSON.parse(line));
@@ -347,6 +349,7 @@ childDataTest(
     const declarations = builtinProviderDeclarations();
     const catalog = new LiveModelCatalog({
       configRoot: root,
+      credentialRoot: root,
       declarations,
       chatgptAuth: auth,
       fetcher,
@@ -485,6 +488,7 @@ childDataTest('Increment 163 ChatGPT children freeze account selection at spawn'
   const { registry, seedParentExecution } = await createChildDataTestRegistry({
     options: {
       configRoot: root,
+      credentialRoot: root,
       physicalIoMode: 'provider-free',
       providerDeclarations: declarations,
       capsuleFactory: () => {
@@ -529,6 +533,7 @@ childDataTest('Increment 163 ChatGPT children freeze account selection at spawn'
     ok(start?.kind === 'start');
     ok(turn?.kind === 'turn');
     strictEqual(start.configRoot, root);
+    strictEqual(start.credentialRoot, root);
     const frozenModel = capsule.readyMessages[0]?.manifest?.rootModel;
     ok(frozenModel);
     strictEqual(frozenModel?.provider, 'openai-chatgpt');

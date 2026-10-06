@@ -76,6 +76,7 @@ Deno.test('invalid declaration JSON errors do not quote the source contents', as
 
 Deno.test('registered service keys resolve at dispatch for named-header GET and default Bearer', async () => {
   const configRoot = await Deno.makeTempDir();
+  const credentialRoot = await Deno.makeTempDir();
   const observed: Array<
     {
       method: string;
@@ -99,10 +100,10 @@ Deno.test('registered service keys resolve at dispatch for named-header GET and 
     },
   );
   try {
-    const registration = createCredentialRegistration({ configRoot });
+    const registration = createCredentialRegistration({ credentialRoot });
     await registration.save('brave-api-key', 'dummy-brave-old');
     const counter = createWorkerRequestCounter();
-    const physicalIo = createProductionPhysicalIo(counter, { configRoot });
+    const physicalIo = createProductionPhysicalIo(counter, { credentialRoot });
     // Updating through the same registration path must be seen without rebuilding the Worker I/O.
     await registration.save('brave-api-key', 'dummy-brave-updated');
     await registration.save('exa-api-key', 'dummy-exa');
@@ -166,5 +167,6 @@ Deno.test('registered service keys resolve at dispatch for named-header GET and 
   } finally {
     await server.shutdown();
     await Deno.remove(configRoot, { recursive: true });
+    await Deno.remove(credentialRoot, { recursive: true });
   }
 });

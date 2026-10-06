@@ -37,6 +37,7 @@ Deno.test('Increment 32 resolves binary, workspace, and XDG authorities independ
       configRoot: '/xdg/config/henji-harness',
       dataRoot: '/xdg/data/henji-harness',
       stateRoot: '/xdg/state/henji-harness/v1',
+      credentialRoot: '/xdg/state/henji-harness/v1/credentials',
     },
   );
   assertEquals(
@@ -51,6 +52,7 @@ Deno.test('Increment 32 resolves binary, workspace, and XDG authorities independ
       configRoot: '/users/example/.config/henji-harness',
       dataRoot: '/users/example/.local/share/henji-harness',
       stateRoot: '/users/example/.local/state/henji-harness/v1',
+      credentialRoot: '/users/example/.local/state/henji-harness/v1/credentials',
     },
   );
   assertEquals(
@@ -69,6 +71,7 @@ Deno.test('Increment 32 resolves binary, workspace, and XDG authorities independ
       configRoot: '/config/henji-harness',
       dataRoot: '/data/henji-harness',
       stateRoot: '/state/henji-harness/v1',
+      credentialRoot: '/state/henji-harness/v1/credentials',
     },
   );
 });
