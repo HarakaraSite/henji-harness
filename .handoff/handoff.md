@@ -15,7 +15,14 @@ type check/fmt/lint/`git diff --check`・隔離XDGとlocal providerでのtmux pr
 公式build（build ID `a0ae400d…`）・常用binary配置・配置後smoke（隔離XDG、実provider 0回、
 `Ext 1`とShift+Enter非submitを確認）まで完了した。利用者がtmux serverとCore/TUIを再起動し
 （受入時点で`extkeys`と`Ext 1`を実測）、通常利用でShift+Enter改行を確認して2026-10-07に受入
-（「はい通常利用でokです」）。207は完了。pushは未実施/未承認。
+（「はい通常利用でokです」）。207は完了。受入記録はcommit `1c862f1c`として`origin/main`へpush済み。
+
+利用者の「commit push あとこれまで結構変更したのでバージョンを0.10.0にしてjsr公開したい」
+（2026-10-07）により、0.10.0のrelease準備を行った。`jsr.json`とREADME 2fileのexact versionを
+0.10.0へ更新し、release candidateのauthoritative `v0:gate`は691 pass/0 failで通過した。初回gateは
+`HOME`未設定で12件失敗し、`HOME`指定後も206のguideline変更に対するfoundation・127 testの旧期待値2件が
+失敗したため、test側を現行の採用済み文言へ更新した。worktreeでのdry runは`@henji/harness@0.10.0`・
+59 fileで成功。JSR公開（利用者のbrowser承認が必要）と公開後の検証・記録は進行中。
 
 [Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
 選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。source commit `3b84501f`、
@@ -95,8 +102,9 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 207は利用者受入済みで完了（2026-10-07）。受入記録のdocs変更は未commit。pushは未承認で、
-`origin/main`より4 commit ahead（A19関連docs 2件と207の2件）。
+**次の一手**: 0.10.0のrelease準備（version・README・gate・dry run）は完了。commit・push後にJSR公開の
+利用者browser承認を待ち、公開後はregistry metadataとexact versionの実importを検証して記録する。
+207は利用者受入済みで完了。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
 206のsource commit・公式build・常用配置・pushは利用者指示で完了。

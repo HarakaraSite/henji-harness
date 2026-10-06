@@ -197,3 +197,21 @@ accepting Increment 191. The published source is pushed commit
 
 Verification logs are stored in the ignored `.tools/jsr-0.9.0/` directory: `gate.log`,
 `clean-dry-run.log`, `publish.log`, `published-meta.json`, and `published-import.log`.
+
+## 0.10.0 publication — 2026-10-07 JST
+
+The user requested version 0.10.0 and JSR publication after accepting Increment 207. Release
+preparation updates `jsr.json` and the exact-version examples in `README.md` and `README.ja.md`.
+The accepted native binary remains the Increment 207 deployment (`henji 0.9.0`).
+
+The authoritative `v0:gate` passed once on the release candidate (691 tests, no failures; the gate
+was run with `HOME` set, which the runtime path resolution requires). The first gate attempt without
+`HOME` failed 12 tests with `invalid HOME`. After setting `HOME`, two tests still failed because
+`tests/v0/agent_worker_foundation_test.ts` and `tests/v0/increment_127_external_agents_test.ts`
+asserted the pre-Increment-206 wording of the `search` and `git_inspect` guidelines, which Increment
+206 replaced in the external tool definitions. Preparation updated those expectations to the
+current adopted text; the focused re-run of both files passed 31 tests.
+
+The preparation dry run passed with the 59 configured files for `@henji/harness@0.10.0`, including
+both public entrypoints and slow-type checking. Publication and registry verification are in
+progress; results will be recorded here.
