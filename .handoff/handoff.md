@@ -4,12 +4,13 @@
 
 ## 現在地（2026-10-06）
 
-[Increment 198](../docs/increments/increment-198.md)はalternate
-screenを継続し、更新依存・可視範囲加工・
-Page/resizeの改善を実装した。focused確認・独立review・隔離production TUI確認、追加指示によるsource
-commit・ 公式build・常用配置・配置後の隔離起動/終了確認を完了した。常用binaryのsourceは`a3312284`。
-次は利用者の通常利用確認・完了承認。採用要件・実装・配置結果は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
-新しい実provider call、構想・architecture・roadmapの正本反映は未承認。
+[Increment 198](../docs/increments/increment-198.md)は実装・検証・source
+commit・公式build・常用配置・配置後確認を完了した。
+同じ保存入力での新版実測を確認した利用者が「今回の対応は完了とする」と完了承認した。198のpendingなし。
+常用binaryのsourceは
+`a3312284`。採用要件・結果・実測・利用者の判断は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
+次は新しい依頼に沿って対象範囲を具体化する。新しい実provider
+call、構想・architecture・roadmapの正本反映は未承認。
 
 [Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
 tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした。local実装・focused確認70件pass・
@@ -48,8 +49,8 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
-198のlocal実装・非破壊的検証は完了。利用者の通常利用確認・完了承認は未実施。 198のsource
-commit・常用配置は追加指示で承認済み。公式build・配置・隔離起動確認を進める。
+198は利用者による完了承認済み。継続的な処理最適化についての利用者の判断は198末尾を参照する。
+198の未実施作業・確認待ちはない。未採用候補は通常利用メモを参照する。
 
 197は利用者による見た目確認・完了承認済みで完了した。 色調整のpendingなし。
 193の追加指定の配色は197の追加調整で現行配色が上書きされ、193以来の見た目確認も197の

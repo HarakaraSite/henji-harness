@@ -1,10 +1,8 @@
 # Increment 198 — alternate screenの更新依存と可視範囲加工
 
-状態: 実装・検証・source commit・公式build・常用配置完了（2026-10-06）。 利用者はalternate
-screenの継続採用とA28の改善を指示し、追加指示「コミット・常用配置して」で配置まで承認した。
-独立review・隔離production
-TUI確認と配置後の隔離起動・終了確認を完了した。利用者の通常利用確認・完了承認は未実施。 実provider
-call、構想・architecture・roadmapの反映は今回の指示に含めない。
+状態: 完了（2026-10-06）。実装・検証・source commit・公式build・常用配置・配置後確認を完了した。
+利用者は同じ保存入力での新版メモリ実測を確認し、「今回の対応は完了とする」と完了承認した。
+構想・architecture・roadmapの反映、新しい実provider call、push・公開は今回の対応に含めない。
 
 ## 必要な動作と根拠
 
@@ -164,3 +162,37 @@ commit・公式build・常用配置は追加指示で承認済み。push・公�
 
 配置結果の記録はsource commit後の文書のみのcommitとし、配置binaryのsourceRevisionは上記source
 commitを示す。
+
+## 配置後の同一入力メモリ確認
+
+利用者の指示で、以前の保存会話 `e4e0c7ce`からの2,552更新を、10ms間隔・110列×36行で新版へ再生した。
+旧版production binary `da251e56`も同じ条件で1回再測定した。新版は常用配置と同一bytesの `a3312284`。
+両binaryを別fileへコピーし、稼働中の常用Core/TUIとの実行file page共有を避けた。
+新規隔離HOME/XDG・専用tmux・loopback replayを使い、instrumentation・強制GC・task投入・実provider
+callは0。 入力SHA-256は以前の記録と一致し、両画面で保存済みの最終回答とreadyを確認した。
+
+| TUI PSS        | 旧版の以前の記録 | 旧版の今回再測定 |      新版 |
+| -------------- | ---------------: | ---------------: | --------: |
+| 再生中peak     |        170.0 MiB |        170.7 MiB | 112.0 MiB |
+| 再生終了10秒後 |        169.7 MiB |        170.7 MiB | 112.1 MiB |
+| 再生終了30秒後 |        103.4 MiB |        103.3 MiB |  83.0 MiB |
+
+今回の同条件比較ではpeak約34%、終了30秒後約20%減った。anonymous PSSはpeak 122.1→64.6 MiB、
+30秒後54.8→35.5 MiBで、減少の大半がこの領域に現れた。新版RSSはpeak114.1 MiB、30秒後85.2 MiB。
+各版1回の再測定結果であり、任意の利用・更新列・長時間経過での使用量を保証するものではない。
+
+証拠: `.tools/increment-198/memory-replay/result.json`・`run.log`・両画面記録。
+以前の比較入力・production記録は `.tools/a28-tui-causal/result.json`。 入力frame SHA-256は
+`30928e3e38ef274a8cdcdb62d6a4cf221772d85b7df8cf4fac0fbd437ca556b8`。
+
+## 利用者の完了承認と今後の判断
+
+利用者は同条件の実測から効果を確認し、「今回の対応は完了とする」と指示した（2026-10-06）。
+また、「メモリに注目するのではなく、処理としての最適化を継続的に行うことが必要」と判断した。
+198の確認・承認待ちは解消した。
+
+今回の判断を今後の計画・実装・reviewの入力とする。利用者の操作から必要な結果までの経路と責務を起点に、
+処理の必要性、更新の依存、再計算範囲、中間データ、スクロール・resizeの仕事を検討する。
+既存構造の維持を最適性の根拠にせず、処理量・表示/操作の応答・メモリ量を結果の指標として確認する。
+メモリの固定目標を目的にせず、必要なproduct動作を成立させる最適な処理を選ぶ。
+この記録だけで別incrementの実装範囲や構想・architecture・roadmapの正本を変更しない。
