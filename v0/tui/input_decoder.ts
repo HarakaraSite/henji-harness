@@ -23,6 +23,27 @@ const printableEvent = (text: string): InputEvent => ({
   text,
   codePoint: text.codePointAt(0)!,
 });
+/** xterm SGR mouse report (DECSET 1006): CSI < Cb ; Cx ; Cy (M press | m release). */
+const sgrMouseEvent = (sequence: readonly number[]): InputEvent | undefined => {
+  if (sequence.length < 5 || sequence[1] !== 0x5b || sequence[2] !== 0x3c) return undefined;
+  const final = sequence[sequence.length - 1];
+  if (final !== 0x4d && final !== 0x6d) return undefined;
+  let button = 0;
+  let digits = 0;
+  for (let index = 3; index < sequence.length - 1; index++) {
+    const byte = sequence[index];
+    if (byte === 0x3b) break;
+    if (byte < 0x30 || byte > 0x39) return undefined;
+    button = button * 10 + (byte - 0x30);
+    digits += 1;
+  }
+  if (digits === 0) return undefined;
+  // Wheel events are reported as button press with 64 (up) and 65 (down); release (m) and
+  // other buttons stay unsupported input and must not reach the editor as text.
+  if (final === 0x4d && button === 64) return { kind: 'wheel_up' };
+  if (final === 0x4d && button === 65) return { kind: 'wheel_down' };
+  return { kind: 'unknown' };
+};
 
 /** Strict stateful decoder for terminal bytes and bracketed paste framing. */
 export class InputDecoder {
@@ -35,6 +56,7 @@ export class InputDecoder {
   private pasteTerminator: number[] = [];
   private pasteRejected = false;
   private pendingCr = false;
+  private legacyMouse: number[] | null = null;
   private escapeStartedAt = 0;
   private expiredCsi: number[] | null = null;
   // SS3 (ESC O …) function keys are decoded as a short sequence so their payload can never become
@@ -83,7 +105,7 @@ export class InputDecoder {
     if (
       this.utf8.length > 0 || this.escape !== null || this.expiredCsi !== null ||
       (this.expiredXterm !== null && this.expiredXterm.length === 2) || this.ss3Pending ||
-      this.expiredSs3 || this.paste ||
+      this.expiredSs3 || this.paste || this.legacyMouse !== null ||
       this.pasteTerminator.length > 0
     ) throw new InputDecodeError();
   }
@@ -91,6 +113,22 @@ export class InputDecoder {
   private consume(byte: number, events: InputEvent[], now: number): void {
     if (this.paste) {
       this.consumePaste(byte, events);
+      return;
+    }
+    if (this.legacyMouse !== null) {
+      this.legacyMouse.push(byte);
+      if (this.legacyMouse.length === 3) {
+        // X10/normal tracking: CSI M Cb Cx Cy with the button code offset by 32.
+        const code = this.legacyMouse[0] - 32;
+        this.legacyMouse = null;
+        events.push(
+          code === 64
+            ? { kind: 'wheel_up' }
+            : code === 65
+            ? { kind: 'wheel_down' }
+            : { kind: 'unknown' },
+        );
+      }
       return;
     }
     if (this.ss3Pending || this.expiredSs3) {
@@ -346,6 +384,16 @@ export class InputDecoder {
       matches(sequence, [0x1b, 0x5b, 0x32, 0x37, 0x3b, 0x35, 0x3b, 0x31, 0x33, 0x7e])
     ) {
       events.push({ kind: 'newline' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x4d])) {
+      // Legacy mouse tracking: the three bytes after CSI M are the button and coordinates.
+      this.legacyMouse = [];
+      return;
+    }
+    const mouse = sgrMouseEvent(sequence);
+    if (mouse !== undefined) {
+      events.push(mouse);
       return;
     }
     events.push({ kind: 'unknown' });

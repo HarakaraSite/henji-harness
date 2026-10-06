@@ -32,6 +32,8 @@ export type InputEvent =
   | { readonly kind: 'end' }
   | { readonly kind: 'page_up' }
   | { readonly kind: 'page_down' }
+  | { readonly kind: 'wheel_up' }
+  | { readonly kind: 'wheel_down' }
   | { readonly kind: 'f1' }
   | { readonly kind: 'f2' }
   | { readonly kind: 'f3' }

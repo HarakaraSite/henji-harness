@@ -241,6 +241,43 @@ Deno.test('terminal lifecycle requests extended keys and restores the previous m
   );
 });
 
+Deno.test('terminal lifecycle requests mouse tracking and restores the previous mode', async () => {
+  const terminal = new RecordingTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+
+  await lifecycle.acquire();
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[?1000h\x1b[?1006h').length,
+    1,
+  );
+  assert(
+    indexOfWrite(terminal.writes, '\x1b[>4;1m') < indexOfWrite(terminal.writes, '\x1b[?1000h'),
+    'mouse tracking should be requested after extended keys',
+  );
+
+  await lifecycle.restore();
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[?1006l\x1b[?1000l').length,
+    1,
+  );
+  assert(
+    indexOfWrite(terminal.writes, '\x1b[?1006l') <
+      indexOfWrite(terminal.writes, EXIT_ALTERNATE_SCREEN),
+    'mouse tracking should be restored before leaving the alternate screen',
+  );
+
+  await lifecycle.restore();
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[?1000h\x1b[?1006h').length,
+    1,
+  );
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[?1006l\x1b[?1000l').length,
+    1,
+  );
+});
+
 Deno.test('retained working footer spins its primary status and shows cancel help', () => {
   const terminal = new RecordingTerminal();
   let now = 0;

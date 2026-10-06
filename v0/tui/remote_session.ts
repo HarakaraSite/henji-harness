@@ -2284,9 +2284,9 @@ export const runRemoteTui = async (
             updateStatus();
             continue;
           }
-          if (event.kind === 'page_up') {
+          if (event.kind === 'page_up' || event.kind === 'wheel_up') {
             renderer.scrollPage('up');
-          } else if (event.kind === 'page_down') {
+          } else if (event.kind === 'page_down' || event.kind === 'wheel_down') {
             renderer.scrollPage('down');
           } else if (event.kind === 'escape') {
             if (renderer.stateSnapshot().scroll.kind !== 'followLatest') {

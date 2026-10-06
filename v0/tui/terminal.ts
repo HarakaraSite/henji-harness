@@ -35,6 +35,10 @@ const BRACKETED_PASTE_OFF = '\x1b[?2004l';
 // explicit modifier, so Shift+Enter reaches the editor as its own event instead of plain CR.
 const EXTENDED_KEYS_ON = '\x1b[>4;1m';
 const EXTENDED_KEYS_OFF = '\x1b[>4;0m';
+// Mouse tracking: normal tracking (1000) reports wheel and button events, and SGR (1006) keeps
+// the button code and coordinates unambiguous. Only the wheel events are used, for history paging.
+const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1006h';
+const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1000l';
 const EDITOR_CURSOR_STYLE = '\x1b[6 q';
 export const DEFAULT_CURSOR_STYLE = '\x1b[0 q';
 export const SHOW_CURSOR = '\x1b[?25h';
@@ -328,6 +332,7 @@ export class TerminalLifecycle {
   private raw = false;
   private paste = false;
   private extendedKeys = false;
+  private mouse = false;
   private alternateScreen = false;
   private restoring: Promise<void> | null = null;
   private restoreFailed = false;
@@ -403,8 +408,10 @@ export class TerminalLifecycle {
       this.acquired = true;
       this.paste = true;
       this.extendedKeys = true;
+      this.mouse = true;
       this.terminal.write(staticBytes(BRACKETED_PASTE_ON));
       this.terminal.write(staticBytes(EXTENDED_KEYS_ON));
+      this.terminal.write(staticBytes(MOUSE_TRACKING_ON));
       this.terminal.write(staticBytes(EDITOR_CURSOR_STYLE));
     } catch (error) {
       await this.restore();
@@ -446,9 +453,21 @@ export class TerminalLifecycle {
     }
     // Composition/startup can fail before terminal acquisition. Remove any signal hooks but do
     // not emit terminal controls or touch stdin when no terminal state was acquired.
-    if (!this.raw && !this.acquired && !this.paste && !this.extendedKeys && !this.alternateScreen) {
+    if (
+      !this.raw && !this.acquired && !this.paste && !this.extendedKeys && !this.mouse &&
+      !this.alternateScreen
+    ) {
       this.removeSignals();
       return;
+    }
+    if (this.mouse) {
+      try {
+        this.terminal.write(staticBytes(MOUSE_TRACKING_OFF));
+      } catch {
+        this.restoreFailed = true;
+        // Continue all remaining restore operations.
+      }
+      this.mouse = false;
     }
     if (this.paste) {
       try {

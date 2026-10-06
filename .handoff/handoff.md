@@ -4,6 +4,17 @@
 
 ## 現在地（2026-10-07）
 
+[Increment 208](../docs/increments/increment-208.md)は利用者指示（2026-10-07、PageUp／PageDownで
+行っている履歴参照をマウススクロールでもできるようにしたい）で、TUIの`TerminalLifecycle`にmouse
+tracking（`?1000h`／`?1006h`）の要求・復元を追加し、入力decoderでSGR mouse wheel（`CSI <64;…M`／
+`<65;…M`）とlegacy `CSI M`を復号し、main loopでwheelをPageUp／PageDownと同じ`scrollPage`へ割り当てる
+local実装を行った。focused 45件・type check/fmt/lint/`git diff --check`・隔離XDGとlocal providerでの
+tmux production TUI確認（実provider 0回、tmux 3.5a `mouse on`、外側端末をptyで模擬しwheel upで
+`history 4/28 · Esc latest`・wheel downで最新復帰・click無視とdraft保持・終了後mouse flags復元）まで
+完了。変更前binaryではwheelがtmux copy-modeへ入りTUIに届かないことも実測した。独立review
+（findingなし、finding未満のnoteのみ）も完了。source commit・公式
+build・常用配置・pushは未実施/未承認で、通常利用での利用者確認待ち。
+
 [Increment 207](../docs/increments/increment-207.md)は利用者指示（2026-10-07、Ghostty>ssh>tmux環境で
 Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOtherKeys mode 1の要求/復元を追加し、
 入力decoderでxterm形式のShift/Ctrl+Enterも改行として復号するlocal実装を行った。focused確認・
@@ -109,7 +120,9 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 0.10.0はJSR公開・検証・native binary再build・常用配置・配置後smokeまで完了。
+**次の一手**: 208はlocal実装・検証完了。利用者の通常利用確認と、commit・公式build・常用配置の
+指示待ち。207は利用者受入済みで完了。
+0.10.0はJSR公開・検証・native binary再build・常用配置・配置後smokeまで完了。
 配置記録commitのpushは未実施/未承認。207は利用者受入済みで完了。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
@@ -221,6 +234,10 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 208](../docs/increments/increment-208.md):
+  マウススクロール履歴参照の利用者指示、現行入力経路、SGR／legacy mouse契約とtmux転送の実測、
+  実装・focused確認・隔離production TUI結果、意図的な非変更、承認境界。
 
 - [Increment 207](../docs/increments/increment-207.md):
   Shift+Enter改行の利用者指示、現行入力経路、拡張キー要求/復元とdecoderの変更、focused確認、

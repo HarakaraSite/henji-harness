@@ -710,6 +710,14 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             terminal.pushInput('\x1b[6~');
             await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
             strictEqual(cancellations, 0);
+
+            // Mouse wheel paging uses the same history position as PageUp/PageDown.
+            terminal.pushInput('\x1b[<64;10;5M');
+            await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
+            strictEqual(cancellations, 0);
+            terminal.pushInput('\x1b[<65;10;5M');
+            await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
+            strictEqual(cancellations, 0);
             terminal.pushInput('\x1b');
             await waitFor(() => cancellations === 1);
             terminal.pushInput('\x04');
