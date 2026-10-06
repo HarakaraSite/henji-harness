@@ -10,11 +10,11 @@ Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOther
 type check/fmt/lint/`git diff --check`・隔離XDGとlocal providerでのtmux production TUI確認（実provider
 0回、外側端末をptyで模擬し`Ext 1`→2行ドラフト→Enter送信→終了後`VT10x`復元）まで完了。
 利用者環境側は`~/.tmux.conf`への`set -as terminal-features 'xterm*:extkeys'`追加が必要で、利用者が
-2026-10-07に追記済み（読み取りで確認。稼働中serverへの反映はserver再起動待ち）。利用者は本セッション
-終了とCore再起動を予告しているが、source commit・公式build・常用配置は未実施のため、現時点の常用
-binaryには本修正が入っておらず、再起動だけではShift+Enterは有効にならない（配置指示待ち）。
-source commit・公式build・常用配置・pushおよび利用者config変更のうち設定以外は未実施。
-利用者の受入と、続行判断を待つ。
+2026-10-07に追記済み（読み取りで確認。稼働中serverへの反映はserver再起動待ち）。利用者の
+「commit・公式build・常用配置を行なって」（2026-10-07）により、source commit `8efa6982`・
+公式build（build ID `a0ae400d…`）・常用binary配置・配置後smoke（隔離XDG、実provider 0回、
+`Ext 1`とShift+Enter非submitを確認）まで完了した。残るのは利用者側のtmux server再起動と
+Core/TUI再起動、通常利用でのShift+Enter確認。pushは未実施/未承認。利用者の受入を待つ。
 
 [Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
 選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。source commit `3b84501f`、
@@ -94,8 +94,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 207はlocal実装・検証済みで、利用者受入と利用者環境のtmux設定追加を待つ。
-受入後のsource commit・公式build・常用配置・pushは利用者指示で行う。
+**次の一手**: 207はsource commit・公式build・常用配置済み。利用者がtmux serverとCore/TUIを
+再起動し、通常利用でShift+Enter改行を確認する。pushは未承認。受入後の完了判断は利用者が行う。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
 206のsource commit・公式build・常用配置・pushは利用者指示で完了。

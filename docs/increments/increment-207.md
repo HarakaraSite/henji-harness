@@ -1,7 +1,7 @@
 # Increment 207 — TUI入力: Shift+Enterで改行（tmux経路の拡張キー）
 
-状態: local実装・検証済み、利用者受入待ち。source commit・公式build・常用配置・push・利用者環境の
-tmux設定変更は未実施。
+状態: local実装・検証済み、source commit・公式build・常用配置済み（2026-10-07）。利用者受入待ち
+（tmux serverとCore/TUIの再起動で有効）。pushは未実施。
 
 ## 利用者が必要とする動作と根拠
 
@@ -115,5 +115,31 @@ repository文書に未記録であり、会話の利用者指示として扱う�
 ## 承認境界
 
 - 構想・architecture・roadmapは変更しない。通常利用メモの候補追加・採用は行わない。
-- 実provider call、commit、公式build、常用配置、push、利用者環境（`~/.tmux.conf`・Ghostty設定）の
-  変更は未実施であり、それぞれ利用者指示を必要とする。
+- 実provider call、push、公開/releaseは未実施であり、それぞれ利用者指示を必要とする。
+
+## Commit・公式build・常用配置結果（2026-10-07）
+
+利用者の「commit・公式build・常用配置を行なって」により実施した。
+
+- source commit: `8efa69825a506112bfde275898ffbcf63c39e7bd`
+  （`feat: insert a newline on Shift+Enter through tmux extended keys`）。`v0/tui/terminal.ts`・
+  `v0/tui/input_decoder.ts`・tests 2file・increment-207・handoffのみを含み、既存の未追跡
+  `191-result.json`と`scripts/diagnostics/__pycache__/`は含めていない。
+- このcommitから公式`henji:compile`で0.9.0をbuildした（sourceDirty=false）。build ID:
+  `a0ae400d88e730c529acad6002ab24ededfc6c0b27d325f4a147f800ddc0c57b`、embedded runtime digest:
+  `e02db88b6a70523978cd18888801fd569029768aed764fd335619ef05c0ed2c3`。
+- `dist/henji`と常用`~/.local/bin/henji`へ配置し、versionとSHA-256の一致を確認した。binary SHA-256:
+  `e6a548c89d9acaf58bf01f1b28c4cc6152fb4179011110bd5bf4a8b6625f9a98`。常用先は同directoryの
+  一時fileからatomic renameした。
+- 直前の常用binaryを`~/.local/bin/henji.previous`と
+  `.tools/increment-207/deployment/henji.local.previous`へ保存し、元の`henji.previous`も
+  `henji.local.previous.pre207`へ保存した。旧常用binary SHA-256は
+  `5e831c51bd0c369f1190fe457187dcc7e099cf0e9d2c5bf4d9e1d93b0aafe51d`（206の配置版）。
+- 配置後smoke（隔離HOME/XDG/workspace、local provider、実provider request 0回）: Core＋TUIを起動し、
+  `● ready`表示、Ctrl-QによるTUI終了、Coreのexit 0を確認した。さらに配置binaryでShift+Enter経路を
+  再確認し、`#{pane_key_mode}`=`Ext 1`、Shift+Enterで非submit、Enterでsubmit、終了後`VT10x`復元を
+  確認した。証拠は`.tools/increment-207/deployment/smoke.json`と
+  `deployment/shift-enter-probe-tui.json`（git管理外）。
+- 稼働中の常用Core/TUI（pane pid 948）は配置前後で同一で、停止・再起動していない。
+- `origin/main`へのpushと公開/releaseは実施していない。
+- 残る作業は利用者側の反映（tmux server再起動とCore/TUI再起動）と通常利用でのShift+Enter確認である。
