@@ -1114,6 +1114,9 @@ Pi／OpenCode／Henjiの画面表示比較
   - 実行側: `search`の`entries` mode（local-3）は**このセッションで動作**した（type/bytes/modifiedAtを返した）
   - しかし新規tool名`git_inspect`は**このセッションのtool呼び出しとして発行できなかった**（複数回試行したがbashへ
     落ちた）。
+- 追試（2026-10-06、利用者指示により実行を試行）: 同じセッション・同じWorkerで`git_inspect`の呼び出しを発行できなかった
+  （複数回試行、いずれも発行不能。同じWorkerの`search`は`entries` modeが動作した）。config側はrejections `[]`なので、
+  原因はこのセッションのmodel-facing tool定義に`git_inspect`が無いことにある。
 - 仮説（未確認）: 会話のmodel-facing tool定義がセッション開始時のbinaryで固定され、`--continue`では新しいtool名が
   追加されない。実行はliveなWorker Registryへ届くため、同名toolの新機能（search entries）は使える。
 - 利用者影響: 再起動しても、新規追加toolを既存セッションの続きでは使えない可能性がある。新規セッションなら
