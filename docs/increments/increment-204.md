@@ -4,8 +4,8 @@
 `d1a26f7c`、review対応`2a95f72f`、公式build `7ecf58e9…`を常用配置済み。実configへの
 `run-typescript.json`配置と旧credential fileの削除も実施済み。削除直後に旧Coreが旧保存先を参照して
 Session `f040537a`の1 executionが失敗したが、利用者がTUIを再起動し（2026-10-06 20:37、配置済みbinary）、
-credentialが新rootのみに存在する状態で同Sessionのmodel requestが成立している。実provider callを伴う
-利用者自身の確認項目は残る。
+credentialが新rootのみに存在する状態で同Sessionのmodel requestが成立している。利用者は2026-10-06に
+実provider経路での確認を完了した。
 
 ## 利用者が必要とする動作と根拠
 
@@ -185,14 +185,14 @@ reviewerによるsource・test reviewを実施（2026-10-06）。product correct
 - 利用者は2026-10-06 20:37に`henji tui --continue`を起動した。Core（pid 218238）は配置済みbinary
   （`/proc/<pid>/exe`が現行file、build ID `7ecf58e9…`）で稼働し、旧Core（161603）は終了済み。
   credentialが新rootのみに存在する状態で同Session `f040537a`のmodel requestが成立している。
-  利用者自身の実provider call確認項目は残る。
+  利用者は2026-10-06に実provider経路での確認を完了した。
 - review対応後のfull test結果は保存Sessionの報告で680 pass／0 failと記録されている。
   今回のあと始末ではruntime sourceを変更せず、full suiteの再実行は行っていない。
 
 ### 未確認・残る範囲
 
-- 実provider callを伴う利用者自身の確認は残る（配置済みbinaryの新Coreで同Sessionのmodel requestは
-  成立済み）。
+- 実provider経路の確認は利用者が完了した（2026-10-06。配置済みbinaryの新Coreで同Sessionのmodel
+  requestも成立済み）。
 - config rootへの書込みを伴う実利用（model生成codeによるinstruction/tool設定の書換え）は未確認。
 - 204の記録・handoff・通常利用メモの更新は本項のcommitへ保存した。205（S34）は未着手。
 - `run_typescript`のsandbox境界は同toolの実行のみを対象とし、`bash`等を含むAgent全体の制限ではない

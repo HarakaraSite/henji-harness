@@ -11,7 +11,7 @@ run_typescriptのconfig root読み取りを実装し、local検証・独立revie
 要件・検証・review・移行記録・残る範囲は204を参照する。pushは未実施。
 旧Coreが削除済みの旧pathを参照してSession `f040537a`の1 executionが失敗したが、利用者がTUIを再起動し
 （2026-10-06 20:37、配置済みbinary）、credentialが新rootのみに存在する状態で同Sessionのmodel requestが
-成立している。実provider callを伴う利用者自身の確認項目は残る。205（S34）は利用者指示で未着手。
+成立している。利用者は2026-10-06に実provider経路での確認を完了した。205（S34）は利用者指示で未着手。
 
 利用者は本Sessionを終了する。A6・A28は利用者指示で完了とし、通常利用メモから除いた。
 A6の判断・観測は[172](../docs/increments/increment-172.md)・[200](../docs/increments/increment-200.md)、
@@ -49,11 +49,9 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 旧Core終了後、利用者が配置済みbinaryでSession
-`f040537a`を再開して実providerを確認する。
-再開手順と確認待ちは204を参照する。こちらからの新Core起動・実provider callは行わない。
-203のcommit・常用配置結果は報告済み。 B5の追加調査は再発または利用者の明示採用まで行わない。
-push、実provider call、実Core/TUIの再起動は未承認。
+**次の一手**: 205（S34: search・run_typescriptの抜粋表示）は利用者指示待ち。
+204は実装・検証・review・配置・実環境移行・利用者の実provider確認まで完了した。
+pushは未承認。 B5の追加調査は再発または利用者の明示採用まで行わない。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>
 bashを使いがち」という利用者指示を受け、第1段としてread/write/edit/search/run_typescriptをbashより
