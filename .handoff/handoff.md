@@ -12,7 +12,8 @@ run_typescript先頭の一行`//`コメントを追加し、focused 27件・関�
 `henji run --stream`のtool行（生JSON）は利用者確認のうえ対象外とした。通常利用メモのS34は採用済みとして
 205へ移設し、候補一覧から除いた。source commit `841c9b6c`、公式build（build ID `0bd65834…`、
 runtime digest `43d10091…`）、常用配置（`~/.local/bin/henji`、直前binaryは`henji.previous`）と
-配置後スモーク、push（`origin/main`）まで完了した。利用者の通常利用での見た目・使い勝手の確認が残る。
+配置後スモーク、push（`origin/main`）まで完了した。利用者の「インクリメント205を完了とします」
+（2026-10-06）により完了とし、通常利用確認待ちを閉じた（完了承認はincrement-205文書と本handoffへ記録済み）。
 起動中だったCore/TUIは置換前binaryのため、205は次に起動するCore/TUIから適用される。
 
 通常利用メモには別sessionが記録したA35メモ（子agentの時間上限）が未コミットで残る。
@@ -29,7 +30,8 @@ run_typescriptのconfig root読み取りを実装し、local検証・独立revie
 204の記録はcommit `d1a26f7c`・`2a95f72f`・`6276b2c9`・`34a67faa`・`71a86844`へ保存済み。
 
 利用者は2026-10-06に本Session（205の計画review・実装・検証・配置を担当）を終了した。
-次の一手は205の利用者による通常利用確認（再起動後に適用）。205のsource commit・docsはpush済み。
+205はその後の利用者の「インクリメント205を完了とします」により完了し、通常利用確認待ちは閉じた。
+205のsource commit・docsはpush済み。
 利用者指示で`~/.config/henji-harness/instruction.md`へ3段落を追加した（operation別のtool選択、質問・
 状況報告へのtool call前の回答と長いターンの進捗報告、検査・検証結果の再利用）。反映は次のWorker
 generation（新SessionまたはCore/TUI再起動）から。
@@ -70,8 +72,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 205（S34: search・run_typescriptの抜粋表示）はsource commit・公式build・常用配置・pushまで
-完了し、利用者による通常利用確認待ち。
+**次の一手**: 205（S34: search・run_typescriptの抜粋表示）は利用者の「インクリメント205を完了とします」
+により完了した。205に残る作業はない。次の対象は利用者指示を待つ。
 204は実装・検証・review・配置・実環境移行・利用者の実provider確認まで完了した。
 pushは未承認。 B5の追加調査は再発または利用者の明示採用まで行わない。
 
@@ -180,7 +182,7 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 
 - [Increment 205](../docs/increments/increment-205.md):
   S34の採用要件・表示契約、現行経路のsource確認、実装・focused確認・独立review・
-  隔離production TUI確認、通常利用メモからの移設原記録、承認境界。
+  隔離production TUI確認、通常利用メモからの移設原記録、承認境界、利用者による完了承認。
 
 - [Increment 199](../docs/increments/increment-199.md): Data
   Workerの処理最適化の要件・調査根拠・承認済みスライス計画・実装/検証/review結果・承認境界。

@@ -1,7 +1,8 @@
 # Increment 205 — S34: `search`の検索条件・`run_typescript`の生成コードの抜粋表示
 
-状態: 完了（2026-10-06）。利用者承認済み計画で実装し、focused確認・独立review・隔離tmuxのproduction TUI
-確認・source commit・公式build・常用配置・pushまで完了した。
+状態: 完了（2026-10-06、利用者による完了承認済み）。利用者承認済み計画で実装し、focused確認・独立
+review・隔離tmuxのproduction TUI確認・source commit・公式build・常用配置・pushまで完了した。
+利用者の「インクリメント205を完了とします」（2026-10-06）により完了とした。
 
 ## 利用者が必要とする動作と根拠
 
@@ -261,6 +262,13 @@ current sourceと照合した。製品correctnessのfindingは成立せず（Blo
   注意書きを引き継いだ。
 - 参考: 実config root側の`search` revisionと`run_typescript`の外部override有無、実表示とbyte数は
   reviewerの実行範囲外（workspace外・実行不可）であり、実装時の確認事項とする。
+
+## 利用者による完了承認（2026-10-06）
+
+利用者の「インクリメント205を完了とします」により本incrementを完了とした。この承認は、実装・
+focused確認・独立review・隔離tmuxのproduction TUI確認・source commit `841c9b6c`・公式build・
+常用配置・pushまでの結果を完了として受理するものである。これによりhandoffに残っていた「利用者の
+通常利用での見た目・使い勝手の確認待ち」を閉じた。個別の観察内容の記録はない。
 
 ## 承認境界
 
