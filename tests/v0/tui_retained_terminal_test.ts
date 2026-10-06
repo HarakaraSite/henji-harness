@@ -205,6 +205,42 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
   );
 });
 
+Deno.test('terminal lifecycle requests extended keys and restores the previous mode', async () => {
+  const terminal = new RecordingTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+
+  await lifecycle.acquire();
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[>4;1m').length,
+    1,
+  );
+  assert(
+    indexOfWrite(terminal.writes, '\x1b[?2004h') < indexOfWrite(terminal.writes, '\x1b[>4;1m'),
+    'extended keys should be requested after paste mode is enabled',
+  );
+
+  await lifecycle.restore();
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[>4;0m').length,
+    1,
+  );
+  assert(
+    indexOfWrite(terminal.writes, '\x1b[?2004l') < indexOfWrite(terminal.writes, '\x1b[>4;0m'),
+    'paste mode should be restored before the extended keys mode',
+  );
+
+  await lifecycle.restore();
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[>4;1m').length,
+    1,
+  );
+  assertEquals(
+    terminal.writes.filter((write) => write === '\x1b[>4;0m').length,
+    1,
+  );
+});
+
 Deno.test('retained working footer spins its primary status and shows cancel help', () => {
   const terminal = new RecordingTerminal();
   let now = 0;

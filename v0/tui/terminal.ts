@@ -31,6 +31,10 @@ const encoder = new TextEncoder();
 
 const BRACKETED_PASTE_ON = '\x1b[?2004h';
 const BRACKETED_PASTE_OFF = '\x1b[?2004l';
+// xterm modifyOtherKeys mode 1: report only keys without a well-known representation with an
+// explicit modifier, so Shift+Enter reaches the editor as its own event instead of plain CR.
+const EXTENDED_KEYS_ON = '\x1b[>4;1m';
+const EXTENDED_KEYS_OFF = '\x1b[>4;0m';
 const EDITOR_CURSOR_STYLE = '\x1b[6 q';
 export const DEFAULT_CURSOR_STYLE = '\x1b[0 q';
 export const SHOW_CURSOR = '\x1b[?25h';
@@ -323,6 +327,7 @@ export class TerminalLifecycle {
   private acquired = false;
   private raw = false;
   private paste = false;
+  private extendedKeys = false;
   private alternateScreen = false;
   private restoring: Promise<void> | null = null;
   private restoreFailed = false;
@@ -397,7 +402,9 @@ export class TerminalLifecycle {
       this.terminal.setRaw(true, { cbreak: false });
       this.acquired = true;
       this.paste = true;
+      this.extendedKeys = true;
       this.terminal.write(staticBytes(BRACKETED_PASTE_ON));
+      this.terminal.write(staticBytes(EXTENDED_KEYS_ON));
       this.terminal.write(staticBytes(EDITOR_CURSOR_STYLE));
     } catch (error) {
       await this.restore();
@@ -439,7 +446,7 @@ export class TerminalLifecycle {
     }
     // Composition/startup can fail before terminal acquisition. Remove any signal hooks but do
     // not emit terminal controls or touch stdin when no terminal state was acquired.
-    if (!this.raw && !this.acquired && !this.paste && !this.alternateScreen) {
+    if (!this.raw && !this.acquired && !this.paste && !this.extendedKeys && !this.alternateScreen) {
       this.removeSignals();
       return;
     }
@@ -451,6 +458,15 @@ export class TerminalLifecycle {
         // Continue all remaining restore operations.
       }
       this.paste = false;
+    }
+    if (this.extendedKeys) {
+      try {
+        this.terminal.write(staticBytes(EXTENDED_KEYS_OFF));
+      } catch {
+        this.restoreFailed = true;
+        // Continue all remaining restore operations.
+      }
+      this.extendedKeys = false;
     }
     try {
       await this.terminal.drainAndCloseInput(1_000, 50);

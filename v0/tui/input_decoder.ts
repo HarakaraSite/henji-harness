@@ -340,6 +340,14 @@ export class InputDecoder {
       events.push({ kind: 'newline' });
       return;
     }
+    // xterm modifyOtherKeys reports the same modified Return keys with the modifier first.
+    if (
+      matches(sequence, [0x1b, 0x5b, 0x32, 0x37, 0x3b, 0x32, 0x3b, 0x31, 0x33, 0x7e]) ||
+      matches(sequence, [0x1b, 0x5b, 0x32, 0x37, 0x3b, 0x35, 0x3b, 0x31, 0x33, 0x7e])
+    ) {
+      events.push({ kind: 'newline' });
+      return;
+    }
     events.push({ kind: 'unknown' });
   }
   private expireEscape(events: InputEvent[]): void {

@@ -4,6 +4,18 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 207](../docs/increments/increment-207.md)は利用者指示（2026-10-07、Ghostty>ssh>tmux環境で
+Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOtherKeys mode 1の要求/復元を追加し、
+入力decoderでxterm形式のShift/Ctrl+Enterも改行として復号するlocal実装を行った。focused確認・
+type check/fmt/lint/`git diff --check`・隔離XDGとlocal providerでのtmux production TUI確認（実provider
+0回、外側端末をptyで模擬し`Ext 1`→2行ドラフト→Enter送信→終了後`VT10x`復元）まで完了。
+利用者環境側は`~/.tmux.conf`への`set -as terminal-features 'xterm*:extkeys'`追加が必要で、利用者が
+2026-10-07に追記済み（読み取りで確認。稼働中serverへの反映はserver再起動待ち）。利用者は本セッション
+終了とCore再起動を予告しているが、source commit・公式build・常用配置は未実施のため、現時点の常用
+binaryには本修正が入っておらず、再起動だけではShift+Enterは有効にならない（配置指示待ち）。
+source commit・公式build・常用配置・pushおよび利用者config変更のうち設定以外は未実施。
+利用者の受入と、続行判断を待つ。
+
 [Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
 選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。source commit `3b84501f`、
 公式build（build ID `0723df62…`）・常用binary配置・隔離Core/TUIの配置後確認・pushまで完了。
@@ -82,7 +94,9 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
+**次の一手**: 207はlocal実装・検証済みで、利用者受入と利用者環境のtmux設定追加を待つ。
+受入後のsource commit・公式build・常用配置・pushは利用者指示で行う。
+206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
 206のsource commit・公式build・常用配置・pushは利用者指示で完了。
 公開/release・実provider callは今回の対象外。
@@ -192,6 +206,10 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 207](../docs/increments/increment-207.md):
+  Shift+Enter改行の利用者指示、現行入力経路、拡張キー要求/復元とdecoderの変更、focused確認、
+  tmux層と隔離production TUIの実測、利用者側tmux設定の提案、承認境界。
 
 - [Increment 205](../docs/increments/increment-205.md):
   S34の採用要件・表示契約、現行経路のsource確認、実装・focused確認・独立review・
