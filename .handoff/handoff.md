@@ -4,6 +4,10 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
+選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。新Worker generationから有効。
+実modelのtool選択は通常利用での観測待ち。採用契約・結果・承認境界は206を参照する。
+
 [Increment 205](../docs/increments/increment-205.md)はS34（`search`の検索条件・`run_typescript`の
 生成コードの抜粋表示）を利用者承認済み計画で実装した。tool行のpreviewへsearchのmode/pattern/glob/pathと
 run_typescript先頭の一行`//`コメントを追加し、focused 27件・関連94件pass、type check/fmt/lint/
@@ -72,8 +76,11 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 205（S34: search・run_typescriptの抜粋表示）は利用者の「インクリメント205を完了とします」
-により完了した。205に残る作業はない。次の対象は利用者指示を待つ。
+**次の一手**: 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
+新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
+206のcommit・公式build・常用配置・pushは利用者指示で承認済み、実施中。
+公開/release・実provider callは今回の対象外。
+205は利用者による完了承認済みで、残る作業はない。
 204は実装・検証・review・配置・実環境移行・利用者の実provider確認まで完了した。
 pushは未承認。 B5の追加調査は再発または利用者の明示採用まで行わない。
 

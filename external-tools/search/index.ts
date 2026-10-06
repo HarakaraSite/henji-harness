@@ -17,7 +17,7 @@ import {
   SEARCH_STDERR_BYTES,
 } from './settings.ts';
 
-type SearchMode = 'paths' | 'files' | 'content' | 'count' | 'entries';
+type SearchMode = 'paths' | 'files' | 'content' | 'count' | 'entries' | 'stats';
 type PatternKind = 'literal' | 'regex';
 type Backend = 'rg' | 'grep';
 type EntryType = 'file' | 'directory' | 'symlink' | 'other';
@@ -30,6 +30,11 @@ type SearchRecord = string | {
   readonly type: EntryType;
   readonly bytes?: number;
   readonly modifiedAt?: string;
+} | {
+  readonly path: string;
+  readonly lines: number;
+  readonly words: number;
+  readonly bytes: number;
 };
 
 interface SearchArguments {
@@ -62,7 +67,12 @@ const decoder = new TextDecoder();
 const searchSchema = {
   type: 'object',
   properties: {
-    mode: { type: 'string', enum: ['paths', 'files', 'content', 'count', 'entries'] },
+    mode: {
+      type: 'string',
+      enum: ['paths', 'files', 'content', 'count', 'entries', 'stats'],
+      description:
+        'entries: ls-style directory metadata; paths: recursive file list; files: matching files; content: matching lines; count: pattern occurrences; stats: wc-style file line, word, and byte counts.',
+    },
     path: {
       type: 'string',
       description:
@@ -128,9 +138,9 @@ const parseArguments = (value: JsonValue): SearchArguments => {
   }
   if (
     args.mode !== 'paths' && args.mode !== 'files' && args.mode !== 'content' &&
-    args.mode !== 'count' && args.mode !== 'entries'
+    args.mode !== 'count' && args.mode !== 'entries' && args.mode !== 'stats'
   ) {
-    throw new ToolInputError('mode must be paths, files, content, count, or entries');
+    throw new ToolInputError('mode must be paths, files, content, count, entries, or stats');
   }
   if (args.path !== undefined && (typeof args.path !== 'string' || args.path.length === 0)) {
     throw new ToolInputError('path must be a non-empty workspace path');
@@ -141,7 +151,10 @@ const parseArguments = (value: JsonValue): SearchArguments => {
   if (args.pattern !== undefined && typeof args.pattern !== 'string') {
     throw new ToolInputError('pattern must be a string');
   }
-  if (args.mode !== 'paths' && args.mode !== 'entries' && typeof args.pattern !== 'string') {
+  if (
+    (args.mode === 'files' || args.mode === 'content' || args.mode === 'count') &&
+    typeof args.pattern !== 'string'
+  ) {
     throw new ToolInputError('pattern is required for files, content, and count modes');
   }
   if (
@@ -356,6 +369,50 @@ const filterFiles = (
     const candidate = glob!.includes('/') ? relativePath : relativePath.split('/').at(-1)!;
     return matcher.test(candidate);
   });
+};
+
+/** Stream wc-style counts without loading whole files or depending on a shell command. */
+const fileStats = async (
+  root: string,
+  files: readonly string[],
+  signal?: AbortSignal,
+): Promise<SearchRecord[]> => {
+  const records: SearchRecord[] = [];
+  const buffer = new Uint8Array(64 * 1024);
+  for (const path of files) {
+    if (signal?.aborted) throw new TurnCancelledError();
+    const file = await Deno.open(path, { read: true });
+    const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
+    let lines = 0;
+    let words = 0;
+    let bytes = 0;
+    let inWord = false;
+    const countWords = (text: string): void => {
+      for (const segment of text.matchAll(/(\p{White_Space}+)|([^\p{White_Space}]+)/gu)) {
+        if (segment[1] !== undefined) inWord = false;
+        else {
+          if (!inWord) words += 1;
+          inWord = true;
+        }
+      }
+    };
+    try {
+      while (true) {
+        if (signal?.aborted) throw new TurnCancelledError();
+        const read = await file.read(buffer);
+        if (read === null) break;
+        bytes += read;
+        const chunk = buffer.subarray(0, read);
+        for (const byte of chunk) if (byte === 10) lines += 1;
+        countWords(textDecoder.decode(chunk, { stream: true }));
+      }
+      countWords(textDecoder.decode());
+    } finally {
+      file.close();
+    }
+    records.push({ path: workspaceRelative(root, path), lines, words, bytes });
+  }
+  return records;
 };
 
 /** Contents modes search text, not database files or NUL-containing binary blobs. */
@@ -884,11 +941,18 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
   }
   return {
     name: 'search',
-    description:
-      'Search the workspace using paths (file listing), entries (directory listing with type, size, and modification time), files (text files whose contents match), content (path, line number, and matching text), or count (occurrences as matchCount). Content searches exclude database files and NUL-containing binary blobs. Use bash, SQL, or run_typescript for database/blob investigation. Hidden, ignored, and dependency text files are included. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path. entries reports symlinks without following symlinked directories. Optional glob is a Henji path filter, not an rg argument: without a slash it matches a basename at any depth; with a slash it matches the workspace-relative path. * matches within a component, ** crosses components, and ? matches one character. A leading ! is not an exclusion. files/content/count use rg when available and otherwise grep; regex syntax follows the backend. Count counts non-overlapping matches (rg includes zero-width matches, grep only non-empty matches) and ignores offset/limit. Other modes page with offset, limit, hasMore, and nextOffset; default limit is 100. Search output capture stops at 8 MiB; result JSON is limited to 1 MiB, with oversized matching text cut to a prefix. truncated:true marks partial results; totalIsExact:false means total is only the collected line count. A truncated count is a partial matchCount. hasMore/nextOffset only page the collected records; narrow path/glob/pattern to obtain results omitted by capture limits.',
+    description: [
+      'List, find, search, and count workspace files without bash. Use entries for ls-style directory listings with type, bytes, and modification time; paths for recursive file lists (find or rg --files); files for matching file paths (rg -l); content for matching lines (grep or rg); count for pattern occurrences; stats for wc-style line, word, and byte counts per file. paths and files return the file count in total. Examples: {"mode":"entries","path":"src"}, {"mode":"stats","path":"README.md"}, {"mode":"content","path":"src","pattern":"TODO"}.',
+      'stats accepts a file or recursively lists a directory, applies glob, and returns records with path, lines, words, and bytes. Lines count LF newlines (a trailing partial line is not counted). Words are nonempty UTF-8 sequences separated by Unicode White_Space, independent of locale; invalid UTF-8 is decoded with replacement characters. stats reads all selected files, including databases and binary files, without the content-search exclusions.',
+      'Content searches exclude database files and NUL-containing binary blobs. Use run_typescript or database tooling for database/blob contents; stats can still count these files. Hidden, ignored, and dependency text files are included. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path. entries reports symlinks without following symlinked directories.',
+      'Optional glob is a Henji path filter, not an rg argument: without a slash it matches a basename at any depth; with a slash it matches the workspace-relative path. * matches within a component, ** crosses components, and ? matches one character. A leading ! is not an exclusion.',
+      'files/content/count use rg when available and otherwise grep; regex syntax follows the backend. Count counts non-overlapping matches (rg includes zero-width matches, grep only non-empty matches) and ignores offset/limit. Other modes page with offset, limit, hasMore, and nextOffset; default limit is 100.',
+      'Search output capture stops at 8 MiB; result JSON is limited to 1 MiB, with oversized matching text cut to a prefix. truncated:true marks partial results; totalIsExact:false means total is only the collected line count. A truncated count is a partial matchCount. hasMore/nextOffset only page the collected records; narrow path/glob/pattern to obtain results omitted by capture limits.',
+    ].join('\n\n'),
     inputSchema: searchSchema,
     promptGuidelines: [
-      'Prefer search over bash find, grep, or rg for listing, locating, and counting workspace paths and content; use the entries mode when file type, size, or modification time matters.',
+      'Use search instead of bash ls, find, grep, rg, or wc for supported workspace listing, discovery, text search, and file counts. Use entries for direct directory children and metadata; paths for recursive file lists; files for matching file paths; content for matching lines; count for pattern occurrences; stats for file line, word, and byte counts.',
+      'Read total from paths for the number of files, or from files for the number of matching files; do not pipe a listing into wc. count returns matchCount (occurrences), not file lines or words. stats returns per-file lines, words, and bytes.',
       'Choose the smallest relevant path/glob for the question. glob is a Henji include filter; leading ! exclusions are not supported. Refine the scope when truncated is true; do not treat a partial count or totalIsExact:false as the full total.',
     ],
     async execute(argumentsValue, context) {
@@ -908,6 +972,9 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
         await enumerateFiles(root, args.path, context?.signal),
         args.glob,
       );
+      if (args.mode === 'stats') {
+        return pagePayload(args, await fileStats(root, candidates, context?.signal), undefined);
+      }
       const files = args.mode === 'paths'
         ? candidates
         : await textFiles(candidates, context?.signal);

@@ -1,6 +1,6 @@
 {
   "name": "git_inspect",
-  "revision": "1",
+  "revision": "2",
   "apiContract": "henji-tool/v1",
   "entry": "index.ts"
 }

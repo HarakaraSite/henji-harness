@@ -3,8 +3,9 @@
 The package contains the `henji` executable, four editable tool folders, and an editable runtime
 hook:
 
-- `search`: local file-name and content search, occurrence counts, and directory entry listings with
-  type, size, and modification time, using rg or grep where needed.
+- `search`: workspace directory listings (`ls`), recursive file lists (`find`, `rg --files`), text
+  search (`grep`, `rg`), occurrence counts, and per-file line/word/byte counts (`wc`), using rg or
+  grep for text search where needed.
 - `git_inspect`: read-only git inspection of the workspace repository (`status`, `diff`, `log`,
   `show`) with fixed flags and paged output; it never writes to the repository, index, or worktree.
 - `web_search`: Exa search, using the Henji credential-resolving request API.
@@ -17,6 +18,36 @@ the executable's `@henji/tool` API and hooks import its `@henji/hooks` API. Deno
 installed separately on the target machine. Local content search needs rg or grep on PATH; it
 prefers rg. `git_inspect` needs git on its configured PATH and reports a distinct error when git or
 the repository is unavailable.
+
+Choose `search` mode by operation:
+
+| Operation                                                       | Mode / result         |
+| --------------------------------------------------------------- | --------------------- |
+| Direct directory children, type, size, modification time (`ls`) | `entries`             |
+| Recursive file paths (`find`, `rg --files`) and file count      | `paths`, `total`      |
+| Files containing a pattern (`rg -l`) and matching file count    | `files`, `total`      |
+| Matching lines (`grep`, `rg`)                                   | `content`             |
+| Pattern occurrences                                             | `count`, `matchCount` |
+| Per-file line, word, and byte counts (`wc`)                     | `stats`               |
+
+Use `search` with `mode: "stats"` and a file path, or a directory path plus optional `glob`. It
+returns paged `records` containing `path`, `lines`, `words`, and `bytes`; `total` is the number of
+selected files. No pattern is required. For example:
+
+```json
+{ "mode": "stats", "path": "README.md" }
+```
+
+```json
+{ "mode": "stats", "path": "src", "glob": "*.ts", "limit": 20 }
+```
+
+Files are streamed without a shell process. Lines count LF newline bytes, so a trailing partial line
+is not counted, matching `wc -l`. Words are nonempty UTF-8 sequences separated by Unicode
+`White_Space`, independent of locale; malformed UTF-8 uses replacement characters. This defines word
+counts explicitly rather than reproducing every locale-specific GNU `wc` rule. Bytes count all bytes
+read. Unlike content search, stats also includes database and binary files. The existing file
+traversal, glob, and paging rules apply.
 
 Use `search` with `mode: "count"` for the total number of occurrences as `matchCount`. It uses the
 same path, glob, pattern, literal/regex and case options, and covers the full selected scope.
@@ -34,6 +65,10 @@ workspace-relative paths, `rev` accepts `HEAD`, `HEAD~N`, or a commit hash, and 
 `context` shape the diff. Output is paged with `offset`/`limit`: for `log` they select commits,
 otherwise output lines. Unknown fields and unsupported operations are rejected, so the tool cannot
 run arbitrary git commands or change repository state.
+
+Use `{"op":"diff"}` for `git diff`, `{"op":"diff","staged":true}` for `git diff --cached`, or
+`{"op":"diff","stat":true}` for `git diff --stat`. Scope an operation with `paths` and page long
+output with `offset`/`limit` instead of shell filters.
 
 After extracting the archive, run:
 

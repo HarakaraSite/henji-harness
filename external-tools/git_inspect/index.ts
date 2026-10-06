@@ -438,10 +438,10 @@ const createGitInspectTool = (input: Parameters<ToolFactory>[0]): Tool => {
   return {
     name: 'git_inspect',
     description:
-      'Inspect the workspace git repository read-only: status (porcelain), diff (worktree, index with staged, or a revision), log (oneline), and show. Paths are workspace-relative and limit the operation; revisions accept HEAD, HEAD~N, or a commit hash. Output is paged with offset and limit: for log they select commits, otherwise output lines. The tool never writes to the repository, index, or working tree, and it fails with a distinct error when git or the repository is unavailable.',
+      'Use this tool instead of bash for workspace git status, git diff, git log, and git show. Examples: {"op":"status"}, {"op":"diff"} for unstaged changes, {"op":"diff","staged":true} for git diff --cached, {"op":"diff","stat":true} for git diff --stat, {"op":"diff","paths":["src"]} to limit paths, {"op":"log"}, and {"op":"show","rev":"HEAD"}. status returns porcelain worktree state, diff compares the worktree, staged index, or a revision, log returns oneline history, and show displays one revision. Paths are workspace-relative and limit the operation; revisions accept HEAD, HEAD~N, or a commit hash. Output is paged with offset and limit: for log they select commits, otherwise output lines. The tool never writes to the repository, index, or working tree, and it fails with a distinct error when git or the repository is unavailable.',
     inputSchema: inspectSchema,
     promptGuidelines: Object.freeze([
-      'Prefer git_inspect for read-only git inspection (status, diff, log, show) instead of running git through bash; it pages output and never changes the repository.',
+      'Use git_inspect for supported workspace Git status, diff, log, and show operations; do not run these operations through bash. Use op:"diff" for git diff, add staged:true for git diff --cached, or stat:true for git diff --stat. Use paths to scope a diff and offset/limit to page it without shell filters.',
     ]),
     async execute(argumentsValue, context?: ToolContext) {
       const args = parseArguments(argumentsValue);
