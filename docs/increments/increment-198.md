@@ -1,9 +1,9 @@
 # Increment 198 — alternate screenの更新依存と可視範囲加工
 
-状態: local実装・検証完了、commit・常用配置中（2026-10-06）。利用者はalternate
-screenの継続採用とA28で確認した改善の実装を指示した。 独立reviewと最終候補の隔離production
-TUI確認を完了した。追加指示「コミット・常用配置して」によりsource
-commit・公式build・常用配置を行う。 利用者の通常利用確認・完了承認は未実施。実provider
+状態: 実装・検証・source commit・公式build・常用配置完了（2026-10-06）。 利用者はalternate
+screenの継続採用とA28の改善を指示し、追加指示「コミット・常用配置して」で配置まで承認した。
+独立review・隔離production
+TUI確認と配置後の隔離起動・終了確認を完了した。利用者の通常利用確認・完了承認は未実施。 実provider
 call、構想・architecture・roadmapの反映は今回の指示に含めない。
 
 ## 必要な動作と根拠
@@ -143,3 +143,24 @@ architectureの責務・component境界に変更はない（Core/Dataは幅非�
 本文位置起点の描画経路を記述へ反映する場合は、本incrementの結果を入力に意味上の変更を提示して別承認を得る。
 構想・architecture・roadmapへは未反映。198のsource
 commit・公式build・常用配置は追加指示で承認済み。push・公開・実provider callは行わない。
+
+## Commit・公式build・常用配置結果
+
+- source commit:
+  `a33122842c9c889518c8d9b7753a4eea5139dea2`（`refactor: render TUI conversations from visible source ranges`）。
+  source/test、198の要件・結果、前段A28の調査文書・診断sourceを含む。
+- このcommitから公式`henji:compile`で0.9.0をbuildした。sourceDirtyは`false`。 runtime
+  digestは検証済み候補と一致した。
+- build ID: `19e91a5c9614cf14fcaebbfd0dfb3ffaf906b7eb997cb5f39d3ef49d96ee9e21`。
+- runtime SHA-256: `b4f06b7e69b8f7699a8c296ad92ac6fc77224bfc5cb21f4fb90e95073e9375bd`。
+- binary SHA-256: `7b8b77539c6a98cbcea94b6d550340441bbb8ccd7ec5ce7d3ce689283557eaa9`。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic配置し、両方のversion・SHA-256一致を確認した。
+  配置前のbinaryは`.tools/increment-198/deployment/henji.dist.previous`と`henji.local.previous`へ保存した。
+- 配置binaryの`--version`・`--help`を確認した。新規隔離HOME/XDG/workspace・専用tmux、外部DenoのないPATHで
+  compiled Coreを起動し、APIのsourceRevision・sourceDirty=false・build ID、production TUIの表示、
+  Ctrl-QによるTUI終了とCore exit 0を確認した。task投入・実provider callは0。
+- 新しい起動から適用される。既存の稼働Core/TUIの停止・再起動、実config/data変更は行っていない。
+  証拠は`.tools/increment-198/deployment/`の`build.log`・`deployment.json`・`startup-verification.json`・画面記録。
+
+配置結果の記録はsource commit後の文書のみのcommitとし、配置binaryのsourceRevisionは上記source
+commitを示す。

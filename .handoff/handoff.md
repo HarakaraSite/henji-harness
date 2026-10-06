@@ -6,10 +6,9 @@
 
 [Increment 198](../docs/increments/increment-198.md)はalternate
 screenを継続し、更新依存・可視範囲加工・
-Page/resizeの改善をlocal実装・検証した。独立reviewと最終候補の隔離production TUI確認を完了した。
-利用者の追加指示でsource
-commit・公式build・常用配置を進める。次は配置後の隔離起動・終了確認と結果記録。
-採用要件・実装結果・検証は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
+Page/resizeの改善を実装した。focused確認・独立review・隔離production TUI確認、追加指示によるsource
+commit・ 公式build・常用配置・配置後の隔離起動/終了確認を完了した。常用binaryのsourceは`a3312284`。
+次は利用者の通常利用確認・完了承認。採用要件・実装・配置結果は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
 新しい実provider call、構想・architecture・roadmapの正本反映は未承認。
 
 [Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
@@ -78,7 +77,7 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 
 - [Increment 198](../docs/increments/increment-198.md): alternate
   screenの採用要件、本文位置からの可視範囲加工、更新依存・Page/resizeの実装、
-  focused確認・独立review・隔離production TUI結果、承認境界。
+  focused確認・独立review・隔離production TUI結果、commit・常用配置と配置後確認、承認境界。
 
 - [Increment 197](../docs/increments/increment-197.md):
   tool名とthinking系ラベルの緑dimの採用要件・解釈、実装・focused確認・独立review、 隔離production
