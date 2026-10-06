@@ -72,7 +72,7 @@ export const createReadTool = (workspace: Workspace): Tool => ({
     'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
   inputSchema: readSchema,
   promptGuidelines: Object.freeze([
-    'For file inspection, prefer read over running cat or sed through bash; use offset and limit to read further.',
+    'For file inspection, prefer read over running cat, sed, head, or tail through bash; use offset and limit to read the window you need.',
   ]),
   async execute(argumentsValue, context?: ToolExecutionContext) {
     if (!isObject(argumentsValue)) throw invalidToolArguments('read');
@@ -107,6 +107,9 @@ export const createWriteTool = (
   name: 'write',
   description:
     'Create or replace one UTF-8 text file inside the workspace. Missing parent directories are created.',
+  promptGuidelines: Object.freeze([
+    'Prefer write over shell redirection or heredocs in bash when creating or replacing a workspace file.',
+  ]),
   inputSchema: writeSchema,
   async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'content'], 'write');
@@ -168,6 +171,9 @@ export const createEditTool = (
   name: 'edit',
   description:
     'Apply up to 32 non-overlapping exact replacements to one existing UTF-8 text file (maximum 1 MiB before and after editing). Each oldText must match exactly once in the original file; each oldText/newText is limited to 64 KiB.',
+  promptGuidelines: Object.freeze([
+    'Prefer edit over sed, awk, or perl in bash for targeted changes to an existing workspace file.',
+  ]),
   inputSchema: editSchema,
   async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'edits'], 'edit');

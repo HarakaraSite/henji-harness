@@ -34,7 +34,7 @@ staged_binary=$(mktemp "$binary_dir/.henji-install-XXXXXXXX")
 cp -- "$package_root/henji" "$staged_binary"
 chmod 755 -- "$staged_binary"
 mv -f -- "$staged_binary" "$installed_binary"
-for name in search web_search web_fetch; do
+for name in search git_inspect web_search web_fetch; do
   target=$config_root/tools/$name
   if [[ ! -d $target ]] || $replace_tools; then
     mkdir -p -- "$target"

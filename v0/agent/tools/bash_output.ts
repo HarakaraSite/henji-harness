@@ -637,6 +637,7 @@ export const createBashOutputTool = (store: BashOutputStore): Tool => ({
     'Read a saved stdout or stderr window from a prior truncated bash result. Reuse its exact outputId, stream, and nextOffset until complete is true.',
   promptGuidelines: Object.freeze([
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.',
+    'To inspect the end of a truncated output, call bash_output with an offset near savedStreams.totalBytes (adjust to a UTF-8 boundary) instead of paging forward from zero or rerunning the command.',
   ]),
   inputSchema: {
     type: 'object',

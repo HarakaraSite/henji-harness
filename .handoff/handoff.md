@@ -4,6 +4,31 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 201](../docs/increments/increment-201.md)は利用者指示「git_inspectでいいと思うけど、親も使うことを
+前提にしてね」「Aで searchの拡張も行いたい」を受け、read-onlyのinspection
+toolを追加した。外部tool `git_inspect`（status/diff/log/show、固定argv・自由引数なし、`--no-ext-diff
+--no-textconv`、`GIT_OPTIONAL_LOCKS=0`、行window）と、`search`の`entries` mode（type/bytes/modifiedAt、
+depth、既存modeは不変）をlocal実装・focused確認（201の2件＋関連で74件）・check/fmt/lint/diff
+check・provider-free readback（default agentのguideline 19行）まで完了。
+package/installのtool一覧へ追加し、常用config
+rootへ`tools/git_inspect`・`tools.json`binding・search更新・reviewer（revision
+3）を反映済み（`henji agent inspect --name reviewer`でrejectionsなし）。親（同梱default agent）での利用は
+binary再build後。commit/push・公式build・常用配置（binary）・実provider callは未実施。詳細は201を参照する。
+
+[Increment 200](../docs/increments/increment-200.md)は「agentがtool>
+bashを使いがち」という利用者指示を受け、第1段としてread/write/edit/search/run_typescriptをbashより
+優先する`promptGuidelines`を、第2段として出力の扱い（要約pipeを避けてfile化→`run_typescript`、
+末尾は`bash_output`のoffset、readはwindow利用、`web_search`は`contents`を限定、pipe時は
+`set -o pipefail`）の案内を、第3段としてreviewerのtool構成変更（`bash`・`bash_output`を外し
+`read`・`search`・`skill`、instructionをshell非依存へ、revision
+2）を追加した。local実装・focused確認（current_code 16件、foundation 25件、increment_127
+6件、関連12件）・type check/format/lint/diff
+check・provider-free headless Workerでのinstruction readback（guideline 18行、reviewerはread/searchでbashなし）
+まで完了。reviewer JSONは常用config rootへ反映済み（backupは`.tools/increment-200/reviewer.json.prev`、
+`henji agent inspect --name reviewer`でrejectionsなしを確認）。commit/push・公式build・
+常用配置（binary）・外部tool folder（search・web_search）の更新・実provider
+callは未実施で、いずれも利用者指示を必要とする。詳細は200を参照する。
+
 [Increment 199](../docs/increments/increment-199.md)はData
 Workerの処理最適化の承認済みSlice1〜6を完了。 同一入力の返値一致・独立review対応・隔離compiled
 Core/TUI/CLI・authoritative gate（672 pass/0 fail）済みで、
@@ -52,6 +77,12 @@ commitは`fa258148`。現在の常用binaryは194・195・196の合同配置を�
 前回の[0.9.0配置記録](../docs/operations/native-0.9.0-deployment.md)と191の機能・利用者確認は191を参照する。
 JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の確認済み。
 公開結果は[公開手順](../docs/operations/jsr-publish.md)を参照する。
+
+[開発ワークフロー案](../docs/plans/development-workflow.md)（未採用・利用者review待ち）を source
+commit `42eb0da9`・`d301bf08`へ保存した。段階1〜9の手順と承認境界に加え、§10にhookによる
+段階ゲートの検討記録（判定処理は拡張側、coreは通知配送、配送はturn間、topic状態変化時のみ、gate発火は
+bash結果のexitCodeで捕捉、Jev等のAI判定は実provider承認が前提）を記録した。採用判断とincrement計画は
+未実施。採用時はAGENTS.mdからの参照追加を提案する。設計検討のみでproduct sourceは未変更。
 
 ## 次の一手と承認境界
 

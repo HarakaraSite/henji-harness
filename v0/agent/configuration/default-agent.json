@@ -10,6 +10,7 @@
     "bash_output",
     "run_typescript",
     "search",
+    "git_inspect",
     "web_search",
     "web_fetch",
     "skill",

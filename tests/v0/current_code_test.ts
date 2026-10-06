@@ -407,23 +407,43 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     asyncAgentNames: [],
   }, { roleInstruction: 'Review the requested change without editing files.' });
   const guideline =
-    'For file inspection, prefer read over running cat or sed through bash; use offset and limit to read further.';
-  const bashGuideline =
-    'Each bash call starts in the current workspace directory shown in Runtime facts and runs in a fresh shell. For commands targeting that directory, use relative paths and do not cd to the same directory. Change directory within the call only when the command must run from a different directory. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.';
-  const bashOutputGuideline =
-    'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
+    'For file inspection, prefer read over running cat, sed, head, or tail through bash; use offset and limit to read the window you need.';
+  const bashGuidelines = [
+    'Each bash call starts in the current workspace directory shown in Runtime facts and runs in a fresh shell. For commands targeting that directory, use relative paths and do not cd to the same directory. Change directory within the call only when the command must run from a different directory. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.',
+    'Prefer the dedicated tools over bash when they apply: read for file inspection, write and edit for workspace file changes, search for path and content lookup, and run_typescript for aggregation, transformations, and other scripted work on data. Use bash for shell commands such as builds, tests, git, and process control.',
+    'Avoid casual pipes that filter or summarize output (for example piping test output through grep, head, or tail). Redirect the output to a file and aggregate it with run_typescript, or read the detail window with read or bash_output; a pipeline also hides failures from the exit status.',
+    'When the pipeline itself is the command you intend to run, start it with `set -o pipefail` so a failing stage still fails the call.',
+  ];
+  const writeGuideline =
+    'Prefer write over shell redirection or heredocs in bash when creating or replacing a workspace file.';
+  const editGuideline =
+    'Prefer edit over sed, awk, or perl in bash for targeted changes to an existing workspace file.';
+  const bashOutputGuidelines = [
+    'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.',
+    'To inspect the end of a truncated output, call bash_output with an offset near savedStreams.totalBytes (adjust to a UTF-8 boundary) instead of paging forward from zero or rerunning the command.',
+  ];
   const webSearchGuidelines = [
     'Choose the task source before exploring. If the user explicitly identifies the current repository, a local file, or a canonical URL or API, use that source first and do not add web search unless it leaves a current or external question unresolved. If current or external information is requested and the target identity or canonical source is not already established, use web_search as the first source-discovery tool; do not inspect the workspace, sibling repositories, handoff files, or try guessed endpoints with bash or curl merely because a software workspace exists. When external sources alone can answer the task, stay on that route. After discovery, obtain fast-changing lists or precise current values from the direct canonical source with web_fetch and disclose retrieval time or conflicts with search results. Put independent read-only retrievals in distinct tool calls in the same model step when their targets are already known; perform result-dependent retrievals sequentially. Give a specific query describing the information needed. Treat results[].text and results[].highlights as source material; summary and output are synthesized material. Cite direct source URLs near supported claims, do not copy provider-local citation numbers, and do not add facts unsupported by the returned material. Say when sources do not answer the question and label inference.',
     'Choose type and contents for the task. Use contents.text for full page text, highlights for relevant excerpts, and outputSchema for synthesized text or structured output. AdditionalQueries apply to deep search modes. Category accepts custom hints; company and people do not support published-date filters or excludeDomains. Dates use ISO 8601 and userLocation is a two-letter country code. Tool results are complete JSON; transport streaming is disabled. Dynamic highlights and verbosity automatically enable the documented Exa beta header.',
+    'Choose contents deliberately: highlights (optionally with maxCharacters) answer most lookups, while full page text can add tens of thousands of context tokens for one result. Bound text with maxCharacters, or use web_fetch save_to when only parts of a long page matter.',
   ];
   const webFetchGuidelines = createWebFetchTool().promptGuidelines ?? [];
   assert(parent.systemInstruction?.includes(guideline));
-  assert(parent.systemInstruction?.includes(bashGuideline));
-  assert(parent.systemInstruction?.includes(bashOutputGuideline));
+  for (const bashGuideline of bashGuidelines) {
+    assert(parent.systemInstruction?.includes(bashGuideline));
+    assert(!reviewer.systemInstruction?.includes(bashGuideline));
+  }
+  assert(parent.systemInstruction?.includes(bashOutputGuidelines[0]));
+  for (const bashOutputGuideline of bashOutputGuidelines) {
+    assert(parent.systemInstruction?.includes(bashOutputGuideline));
+    assert(!reviewer.systemInstruction?.includes(bashOutputGuideline));
+  }
+  assert(parent.systemInstruction?.includes(writeGuideline));
+  assert(parent.systemInstruction?.includes(editGuideline));
   assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
   assert(reviewer.systemInstruction?.includes(guideline));
-  assert(!reviewer.systemInstruction?.includes(bashGuideline));
-  assert(!reviewer.systemInstruction?.includes(bashOutputGuideline));
+  assert(!reviewer.systemInstruction?.includes(writeGuideline));
+  assert(!reviewer.systemInstruction?.includes(editGuideline));
   for (const webSearchGuideline of webSearchGuidelines) {
     assert(parent.systemInstruction?.includes(webSearchGuideline));
     assert(!reviewer.systemInstruction?.includes(webSearchGuideline));
@@ -448,11 +468,14 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   }
   assertEquals(reviewer.systemInstruction, reviewer.resolved.systemInstruction);
   assertEquals(parent.registry.promptGuidelines(), [
-    { tool: 'bash', text: bashGuideline },
-    { tool: 'bash_output', text: bashOutputGuideline },
+    ...bashGuidelines.map((text) => ({ tool: 'bash', text })),
+    { tool: 'bash_output', text: bashOutputGuidelines[0] },
+    { tool: 'bash_output', text: bashOutputGuidelines[1] },
+    { tool: 'edit', text: editGuideline },
     { tool: 'read', text: guideline },
     ...webFetchGuidelines.map((text) => ({ tool: 'web_fetch', text })),
     ...webSearchGuidelines.map((text) => ({ tool: 'web_search', text })),
+    { tool: 'write', text: writeGuideline },
   ]);
   assertEquals(new Registry([]).promptGuidelines(), []);
   const bashDefinition = parent.registry.definitions().find((tool) => tool.name === 'bash');
@@ -484,8 +507,14 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assert(readDefinition !== undefined);
   assert(!('promptGuidelines' in readDefinition));
   assertEquals(parent.systemInstruction?.split(guideline).length, 2);
-  assertEquals(parent.systemInstruction?.split(bashGuideline).length, 2);
-  assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
+  for (const bashGuideline of bashGuidelines) {
+    assertEquals(parent.systemInstruction?.split(bashGuideline).length, 2);
+  }
+  for (const bashOutputGuideline of bashOutputGuidelines) {
+    assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
+  }
+  assertEquals(parent.systemInstruction?.split(writeGuideline).length, 2);
+  assertEquals(parent.systemInstruction?.split(editGuideline).length, 2);
   for (const webSearchGuideline of webSearchGuidelines) {
     assertEquals(parent.systemInstruction?.split(webSearchGuideline).length, 2);
   }

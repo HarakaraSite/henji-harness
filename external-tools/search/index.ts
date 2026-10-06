@@ -14,13 +14,19 @@ import {
   SEARCH_PATH,
 } from './settings.ts';
 
-type SearchMode = 'paths' | 'files' | 'content' | 'count';
+type SearchMode = 'paths' | 'files' | 'content' | 'count' | 'entries';
 type PatternKind = 'literal' | 'regex';
 type Backend = 'rg' | 'grep';
+type EntryType = 'file' | 'directory' | 'symlink' | 'other';
 type SearchRecord = string | {
   readonly path: string;
   readonly line: number;
   readonly text: string;
+} | {
+  readonly path: string;
+  readonly type: EntryType;
+  readonly bytes?: number;
+  readonly modifiedAt?: string;
 };
 
 interface SearchArguments {
@@ -32,6 +38,7 @@ interface SearchArguments {
   readonly caseSensitive: boolean;
   readonly offset: number;
   readonly limit: number;
+  readonly depth?: number;
 }
 
 interface ProcessResult<Output> {
@@ -46,7 +53,7 @@ const decoder = new TextDecoder();
 const searchSchema = {
   type: 'object',
   properties: {
-    mode: { type: 'string', enum: ['paths', 'files', 'content', 'count'] },
+    mode: { type: 'string', enum: ['paths', 'files', 'content', 'count', 'entries'] },
     path: {
       type: 'string',
       description:
@@ -74,6 +81,13 @@ const searchSchema = {
       description:
         'Records per page; defaults to 100 and has no fixed maximum. Does not apply to count mode.',
     },
+    depth: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 16,
+      description:
+        'entries only: directory levels to list below path; defaults to 1 (direct children).',
+    },
   },
   required: ['mode'],
   additionalProperties: false,
@@ -97,15 +111,16 @@ const parseArguments = (value: JsonValue): SearchArguments => {
     'caseSensitive',
     'offset',
     'limit',
+    'depth',
   ]);
   if (Object.keys(args).some((key) => !allowed.has(key))) {
     throw new ToolInputError('search received an unknown argument');
   }
   if (
     args.mode !== 'paths' && args.mode !== 'files' && args.mode !== 'content' &&
-    args.mode !== 'count'
+    args.mode !== 'count' && args.mode !== 'entries'
   ) {
-    throw new ToolInputError('mode must be paths, files, content, or count');
+    throw new ToolInputError('mode must be paths, files, content, count, or entries');
   }
   if (args.path !== undefined && (typeof args.path !== 'string' || args.path.length === 0)) {
     throw new ToolInputError('path must be a non-empty workspace path');
@@ -116,7 +131,7 @@ const parseArguments = (value: JsonValue): SearchArguments => {
   if (args.pattern !== undefined && typeof args.pattern !== 'string') {
     throw new ToolInputError('pattern must be a string');
   }
-  if (args.mode !== 'paths' && typeof args.pattern !== 'string') {
+  if (args.mode !== 'paths' && args.mode !== 'entries' && typeof args.pattern !== 'string') {
     throw new ToolInputError('pattern is required for files, content, and count modes');
   }
   if (
@@ -135,6 +150,15 @@ const parseArguments = (value: JsonValue): SearchArguments => {
     args.limit !== undefined &&
     (typeof args.limit !== 'number' || !Number.isSafeInteger(args.limit) || args.limit < 1)
   ) throw new ToolInputError('limit must be a positive safe integer');
+  if (args.depth !== undefined) {
+    if (args.mode !== 'entries') {
+      throw new ToolInputError('depth is only supported for the entries mode');
+    }
+    if (
+      typeof args.depth !== 'number' || !Number.isSafeInteger(args.depth) || args.depth < 1 ||
+      args.depth > 16
+    ) throw new ToolInputError('depth must be an integer from 1 to 16');
+  }
 
   return {
     mode: args.mode,
@@ -145,6 +169,7 @@ const parseArguments = (value: JsonValue): SearchArguments => {
     caseSensitive: args.caseSensitive !== false,
     offset: typeof args.offset === 'number' ? args.offset : 0,
     limit: typeof args.limit === 'number' ? args.limit : 100,
+    ...(typeof args.depth === 'number' ? { depth: args.depth } : {}),
   };
 };
 
@@ -229,6 +254,85 @@ const enumerateFiles = async (
   await visit(absolute);
   files.sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
   return files;
+};
+
+interface EntryRecord {
+  readonly path: string;
+  readonly type: EntryType;
+  readonly bytes?: number;
+  readonly modifiedAt?: string;
+}
+
+const entryType = (info: Deno.FileInfo): EntryType =>
+  info.isSymlink ? 'symlink' : info.isFile ? 'file' : info.isDirectory ? 'directory' : 'other';
+
+const entryRecord = (
+  workspaceRoot: string,
+  absolute: string,
+  info: Deno.FileInfo,
+): EntryRecord => ({
+  path: workspaceRelative(workspaceRoot, absolute),
+  type: entryType(info),
+  ...(info.isFile ? { bytes: info.size } : {}),
+  ...(info.mtime === null ? {} : { modifiedAt: info.mtime.toISOString() }),
+});
+
+/** List workspace entries with type, size, and modification time; symlinked directories are not followed. */
+const enumerateEntries = async (
+  workspaceRoot: string,
+  scopePath: string,
+  depth: number,
+  signal?: AbortSignal,
+): Promise<EntryRecord[]> => {
+  const absolute = resolve(workspaceRoot, scopePath);
+  if (!within(workspaceRoot, absolute)) {
+    throw new ToolInputError('path must stay within the workspace');
+  }
+  const scopeInfo = await Deno.lstat(absolute);
+  if (!scopeInfo.isDirectory) {
+    throw new ToolInputError('path must name a directory for the entries mode');
+  }
+  const records: EntryRecord[] = [];
+  const ancestors = new Set<string>();
+  const visit = async (directory: string, remaining: number): Promise<void> => {
+    if (signal?.aborted) throw new TurnCancelledError();
+    const realDirectory = await Deno.realPath(directory);
+    if (ancestors.has(realDirectory)) return;
+    ancestors.add(realDirectory);
+    try {
+      for await (const entry of Deno.readDir(directory)) {
+        if (signal?.aborted) throw new TurnCancelledError();
+        const child = resolve(directory, entry.name);
+        let info: Deno.FileInfo;
+        try {
+          info = await Deno.lstat(child);
+        } catch (error) {
+          if (error instanceof Deno.errors.NotFound) continue;
+          throw error;
+        }
+        records.push(entryRecord(workspaceRoot, child, info));
+        if (info.isDirectory && !info.isSymlink && remaining > 1) {
+          await visit(child, remaining - 1);
+        }
+      }
+    } finally {
+      ancestors.delete(realDirectory);
+    }
+  };
+  await visit(absolute, depth);
+  records.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  return records;
+};
+
+const filterEntries = (
+  entries: readonly EntryRecord[],
+  glob: string | undefined,
+): EntryRecord[] => {
+  const matcher = glob === undefined ? undefined : globRegExp(glob);
+  return matcher === undefined ? [...entries] : entries.filter((entry) => {
+    const candidate = glob!.includes('/') ? entry.path : entry.path.split('/').at(-1)!;
+    return matcher.test(candidate);
+  });
 };
 
 const filterFiles = (
@@ -598,6 +702,25 @@ const search = async (
   return { records: matches, backend: selected.backend };
 };
 
+const pagePayload = (
+  args: SearchArguments,
+  records: readonly SearchRecord[],
+  backend: Backend | undefined,
+): string => {
+  const page = records.slice(args.offset, args.offset + args.limit);
+  const next = args.offset + page.length;
+  return JSON.stringify({
+    mode: args.mode,
+    ...(backend === undefined ? {} : { backend }),
+    offset: args.offset,
+    limit: args.limit,
+    total: records.length,
+    hasMore: next < records.length,
+    nextOffset: next < records.length ? next : null,
+    records: page,
+  });
+};
+
 const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
   if (input.processExecutor === undefined) {
     throw new Error('search requires the managed process executor');
@@ -605,11 +728,23 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
   return {
     name: 'search',
     description:
-      'Search the workspace using paths (file listing), files (paths whose contents match), content (path, line number, and matching line), or count (total occurrences as matchCount). Use count to answer how many times a string occurs; content total counts matching lines, so several matches on one line count as one record. Searches include hidden, ignored, and dependency files because Deno enumerates the same explicit file paths for rg and grep. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path. Optional glob without a slash matches a basename at any depth; a glob with a slash matches the workspace-relative path. * matches within one path component, ** can cross components, and ? matches one character. files/content/count use rg when available and otherwise grep; literal patterns work with both, while regex syntax follows that backend. Count uses non-overlapping native matches; rg includes zero-width regex matches, while grep counts only non-empty matches. Count covers the entire selected scope and ignores offset/limit. Other modes return complete records in pages with offset, limit, hasMore, and nextOffset; the default page is 100 records and limit has no fixed maximum.',
+      'Search the workspace using paths (file listing), entries (directory listing with type, size, and modification time), files (paths whose contents match), content (path, line number, and matching line), or count (total occurrences as matchCount). Use count to answer how many times a string occurs; content total counts matching lines, so several matches on one line count as one record. Searches include hidden, ignored, and dependency files because Deno enumerates the same explicit file paths for rg and grep. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path; the entries mode reports a symlink as a symlink and does not follow symlinked directories. Optional glob without a slash matches a basename at any depth; a glob with a slash matches the workspace-relative path. * matches within one path component, ** can cross components, and ? matches one character. files/content/count use rg when available and otherwise grep; literal patterns work with both, while regex syntax follows that backend. Count uses non-overlapping native matches; rg includes zero-width regex matches, while grep counts only non-empty matches. Count covers the entire selected scope and ignores offset/limit. Other modes return complete records in pages with offset, limit, hasMore, and nextOffset; the default page is 100 records and limit has no fixed maximum.',
     inputSchema: searchSchema,
+    promptGuidelines: [
+      'Prefer search over bash find, grep, or rg for listing, locating, and counting workspace paths and content; use the entries mode when file type, size, or modification time matters.',
+    ],
     async execute(argumentsValue, context) {
       const args = parseArguments(argumentsValue);
       const root = await Deno.realPath(input.workspace.root);
+      if (args.mode === 'entries') {
+        const entries = await enumerateEntries(
+          root,
+          args.path,
+          args.depth ?? 1,
+          context?.signal,
+        );
+        return pagePayload(args, filterEntries(entries, args.glob), undefined);
+      }
       const files = filterFiles(
         root,
         await enumerateFiles(root, args.path, context?.signal),
@@ -621,19 +756,7 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
         );
       }
       const result = await search(args, root, files, input.processExecutor!, context?.signal);
-      const page = result.records.slice(args.offset, args.offset + args.limit);
-      const next = args.offset + page.length;
-      const payload = {
-        mode: args.mode,
-        ...(result.backend === undefined ? {} : { backend: result.backend }),
-        offset: args.offset,
-        limit: args.limit,
-        total: result.records.length,
-        hasMore: next < result.records.length,
-        nextOffset: next < result.records.length ? next : null,
-        records: page,
-      };
-      return JSON.stringify(payload);
+      return pagePayload(args, result.records, result.backend);
     },
   };
 };

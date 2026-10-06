@@ -603,8 +603,43 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
     assertEquals(sections.length, 2);
     const guidelines = sections[1].split('\n\n')[0].split('\n');
     assertEquals(new Set(guidelines).size, guidelines.length);
-    for (const tool of ['bash_output', 'read', 'web_search']) {
+    for (
+      const tool of [
+        'bash',
+        'bash_output',
+        'edit',
+        'read',
+        'run_typescript',
+        'search',
+        'web_search',
+        'write',
+      ]
+    ) {
       assert(guidelines.some((line) => line.startsWith(`- ${tool}:`)));
+    }
+    for (
+      const preferredOverBash of [
+        '- bash: Prefer the dedicated tools over bash when they apply: read for file inspection, write and edit for workspace file changes, search for path and content lookup, and run_typescript for aggregation, transformations, and other scripted work on data.',
+        '- write: Prefer write over shell redirection or heredocs in bash when creating or replacing a workspace file.',
+        '- edit: Prefer edit over sed, awk, or perl in bash for targeted changes to an existing workspace file.',
+        '- search: Prefer search over bash find, grep, or rg for listing, locating, and counting workspace paths and content',
+        '- git_inspect: Prefer git_inspect for read-only git inspection (status, diff, log, show) instead of running git through bash',
+        '- run_typescript: For JSON/JSONL/CSV aggregation, transformations and small calculations, execute code with run_typescript rather than bash',
+      ]
+    ) {
+      assert(guidelines.some((line) => line.startsWith(preferredOverBash)));
+    }
+    for (
+      const outputHandling of [
+        '- read: For file inspection, prefer read over running cat, sed, head, or tail through bash; use offset and limit to read the window you need.',
+        '- bash: Avoid casual pipes that filter or summarize output (for example piping test output through grep, head, or tail). Redirect the output to a file and aggregate it with run_typescript, or read the detail window with read or bash_output; a pipeline also hides failures from the exit status.',
+        '- bash: When the pipeline itself is the command you intend to run, start it with `set -o pipefail` so a failing stage still fails the call.',
+        '- bash_output: To inspect the end of a truncated output, call bash_output with an offset near savedStreams.totalBytes (adjust to a UTF-8 boundary) instead of paging forward from zero or rerunning the command.',
+        '- run_typescript: When the data to aggregate comes from another command, have that command write its output to a file (workspace scratch or /tmp) and read the file in code instead of copying excerpts through the model.',
+        '- web_search: Choose contents deliberately: highlights (optionally with maxCharacters) answer most lookups, while full page text can add tens of thousands of context tokens for one result.',
+      ]
+    ) {
+      assert(guidelines.some((line) => line.startsWith(outputHandling)));
     }
   } finally {
     await Deno.remove(root, { recursive: true });

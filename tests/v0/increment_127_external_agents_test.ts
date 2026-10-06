@@ -7,6 +7,7 @@ import { selectOpenRouterModel } from '../../v0/agent/provider/openrouter_model_
 import { createProviderFreePhysicalIo } from '../../v0/agent/worker/worker_probe_physical_io.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { createWorkerComposition, type ToolComponent } from '../../v0/agent/worker_agent_api.ts';
+import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { bundledToolComponents } from './bundled_tool_components.ts';
 import { activateRepositoryExternalToolBindings } from './helpers/external_web_tools.ts';
 
@@ -77,7 +78,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
     assertEquals(agent.name, 'reviewer');
     assert(agent.instruction.includes('You are a reviewer.'));
     assert(agent.instruction.includes('Do not edit the workspace.'));
-    assertEquals(agent.tools, ['bash', 'bash_output', 'read', 'skill']);
+    assertEquals(agent.tools, ['git_inspect', 'read', 'search', 'skill']);
     assertEquals(agent.agents, []);
 
     const physicalIo = createProviderFreePhysicalIo();
@@ -98,6 +99,24 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
         identity: createAgentResourceIdentity('tool:skill'),
         materialize: () => createSkillTool(skillCatalog),
       },
+      {
+        identity: createAgentResourceIdentity('tool:search'),
+        materialize: () => ({
+          name: 'search',
+          description: 'Search workspace paths and contents.',
+          inputSchema: { type: 'object' },
+          execute: () => '{}',
+        }),
+      },
+      {
+        identity: createAgentResourceIdentity('tool:git_inspect'),
+        materialize: () => ({
+          name: 'git_inspect',
+          description: 'Inspect the repository read-only.',
+          inputSchema: { type: 'object' },
+          execute: () => '{}',
+        }),
+      },
     ].filter(({ identity }) => configuredTools.has(String(identity).slice('tool:'.length)));
     const composition = finalizeWorkerInstructionComposition(createWorkerComposition({
       workspace: { root: Deno.cwd() },
@@ -107,17 +126,44 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
       asyncAgentNames: agent.agents,
     }, { roleInstruction: agent.instruction }));
     assert(composition.systemInstruction?.includes(agent.instruction));
-    for (const name of ['bash', 'bash_output', 'read', 'skill']) {
+    for (const name of ['git_inspect', 'read', 'search', 'skill']) {
       assert(composition.registry.definitions().some((tool) => tool.name === name));
       assert(composition.manifest.resources.includes(`tool:${name}`));
     }
-    for (const name of ['edit', 'write', 'web_search']) {
+    for (const name of ['bash', 'bash_output', 'edit', 'write', 'web_search', 'run_typescript']) {
       assert(!composition.registry.definitions().some((tool) => tool.name === name));
     }
     assert(composition.manifest.resources.includes('instruction:henji-base'));
     assert(composition.manifest.resources.includes('skill:review-checklist'));
     assert(!composition.manifest.resources.includes('agent:reviewer'));
     assert(!composition.manifest.resources.includes('agent:planner'));
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 127 reviewer Worker composes read and search guidance without bash', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i127-reviewer-instruction-' });
+  try {
+    await writeReviewerConfiguration(`${root}/config`);
+    const result = await runHeadlessWorker(
+      'return active tool guidelines',
+      { name: 'reviewer' },
+      {
+        workspaceRoot: root,
+        stateRoot: `${root}/state`,
+        configRoot: `${root}/config`,
+        dataRoot: `${root}/data`,
+        physicalIoMode: 'provider-free',
+      },
+    );
+    assert(result.outcome.ok, JSON.stringify(result.outcome));
+    const instruction = result.outcome.finalText ?? '';
+    assert(instruction.includes('no general shell is available'));
+    assert(instruction.includes('- read: For file inspection,'));
+    assert(instruction.includes('- search: Prefer search over bash find, grep, or rg'));
+    assert(!instruction.includes('- bash:'));
+    assert(!instruction.includes('- bash_output:'));
   } finally {
     await Deno.remove(root, { recursive: true });
   }

@@ -35,9 +35,11 @@ deno task --config deno.v0.json henji:package
 # 上のcommandが出力したpackage directoryでinstall.shを実行する。
 ```
 
-packageは編集可能な`search`、`web_search`、`web_fetch`のtool folderと `runtime-start-time`
+packageは編集可能な`search`、`git_inspect`、`web_search`、`web_fetch`のtool folderと
+`runtime-start-time`
 hookを含む。package内の`install.sh`でbinaryの配置、tool登録、既定hookの有効化を
-行う。本文検索はrgを優先し、不在時にgrepを使う。既存の外部sourceは対応する
+行う。本文検索はrgを優先し、不在時にgrepを使う。`git_inspect`はworkspaceのrepositoryを
+read-onlyで調べる。既存の外部sourceは対応する
 `--replace-tools`または`--replace-hooks`を指定しない限り維持する。配置先等は
 [package手順](external-tools/README.md)を参照する。
 
@@ -330,7 +332,7 @@ export default marker;
 ```
 
 `ToolFactory`と`ToolFactoryInput`は`jsr:@henji/harness@0.9.0`からimportする。単体binaryは既定の
-Agentとcore toolを同梱する。`search`、`web_search`、`web_fetch`はpackageの編集可能なfolderを
+Agentとcore toolを同梱する。`search`、`git_inspect`、`web_search`、`web_fetch`はpackageの編集可能なfolderを
 installerで登録する。名前付きのAgentとtool fileはconfig directoryから選択する。
 
 ## Links

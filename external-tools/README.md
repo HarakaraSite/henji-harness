@@ -1,9 +1,12 @@
 # Henji package and external tools
 
-The package contains the `henji` executable, three editable tool folders, and an editable runtime
+The package contains the `henji` executable, four editable tool folders, and an editable runtime
 hook:
 
-- `search`: local file-name and content search, plus occurrence counts, using rg or grep.
+- `search`: local file-name and content search, occurrence counts, and directory entry listings with
+  type, size, and modification time, using rg or grep where needed.
+- `git_inspect`: read-only git inspection of the workspace repository (`status`, `diff`, `log`,
+  `show`) with fixed flags and paged output; it never writes to the repository, index, or worktree.
 - `web_search`: Exa search, using the Henji credential-resolving request API.
 - `web_fetch`: HTTP text retrieval and original-byte downloads.
 - `runtime-start-time`: adds the Worker start time, timezone, and UTC offset to shared Agent
@@ -12,13 +15,25 @@ hook:
 These implementations are external TypeScript source, not embedded in the executable. Tools import
 the executable's `@henji/tool` API and hooks import its `@henji/hooks` API. Deno does not need to be
 installed separately on the target machine. Local content search needs rg or grep on PATH; it
-prefers rg.
+prefers rg. `git_inspect` needs git on its configured PATH and reports a distinct error when git or
+the repository is unavailable.
 
 Use `search` with `mode: "count"` for the total number of occurrences as `matchCount`. It uses the
 same path, glob, pattern, literal/regex and case options, and covers the full selected scope.
 `content` returns matching lines: its `total` is a line count, not an occurrence count. Offset and
 limit apply to record modes; they do not affect count. Regex syntax follows the selected backend; rg
 counts zero-width regex matches, while grep counts non-empty matches.
+
+Use `search` with `mode: "entries"` for a directory listing that includes directories as well as
+files: each record has `path`, `type` (`file`, `directory`, `symlink`, or `other`), `bytes` for
+files, and `modifiedAt`. `depth` (default 1) selects how many directory levels below `path` are
+listed, and `glob` filters the listed paths; symlinked directories are reported but not followed.
+
+Use `git_inspect` with `op: "status" | "diff" | "log" | "show"`. `paths` limits the operation to
+workspace-relative paths, `rev` accepts `HEAD`, `HEAD~N`, or a commit hash, and `staged`/`stat`/
+`context` shape the diff. Output is paged with `offset`/`limit`: for `log` they select commits,
+otherwise output lines. Unknown fields and unsupported operations are rejected, so the tool cannot
+run arbitrary git commands or change repository state.
 
 After extracting the archive, run:
 
@@ -29,7 +44,7 @@ After extracting the archive, run:
 By default this installs the executable under `$HOME/.local/bin`, tool folders under
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/tools`, and the hook under
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/hooks/runtime-start-time`. The installer registers
-the three tools in `tools.json` and creates `hooks.json` with `runtime-start-time` as the shared
+the four tools in `tools.json` and creates `hooks.json` with `runtime-start-time` as the shared
 default. The default and generic Agent configurations declare the tools. For a named Agent with an
 explicit `tools` array, add the tool names you want to use.
 

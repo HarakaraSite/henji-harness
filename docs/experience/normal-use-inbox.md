@@ -4,6 +4,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 更新日: 2026-10-05（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement
 185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設）。
+2026-10-06にA30・A31を追加し、A32・A33はIncrement 200・201へ採用・移設（A32: review用Agentの
+tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。
+A30へは保存Session `0cd5c22e`・`2bc2699f`の分析結果も追記した。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -45,7 +48,10 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                         | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | A28 | Agent実行      | 通常利用時のメモリ使用量の調査・チューニング                         | 利用者がメモリ内訳の調査・削減を個別incrementへ採用するとき                                                            |
 | A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback              | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
+| A30 | Agent実行      | tool間の結果連鎖（tool resultを別toolの入力にできない）。利用者は安易なパイプ連結を希望しない | パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき                                  |
+| A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                      | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき               |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
+| B12 | Agent実行      | process runner早期終了でbashが全件失敗し、原因も復旧も残らない       | 同エラーが通常利用で再観測されたとき、またはrunner診断・復旧を個別incrementへ採用するとき                              |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                              | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -346,6 +352,16 @@ Pi／OpenCode／Henjiの画面表示比較
   search自体を別Agent実行にするかは、conversation、prompt、model、tool利用を独立所有する必要が
   出たときだけ比較する。
 - 残候補は実taskでの取得品質・費用・取得範囲の比較と、必要になった場合の別backend採用である。
+- 保存履歴での実測（2026-10-05 Session `2bc2699f`、2026-10-06にread-only分析）: `web_search` 5件の
+  result bytesは1,349・2,152・18,218・19,758・**148,977**。最大のものは
+  `contents: {text: true}` + `numResults: 2`でghostty.orgのoption reference本文144,402 bytesを
+  1回のresultへ展開していた（指定どおりの取得でtoolの不具合ではない）。同じexecution内の以降の2回は
+  `contents: {highlights: {maxCharacters: 5000, query: …}}`へ切り替えて1,349・2,152 bytesに収まっており、
+  schemaは`contents.text.maxCharacters`も持つ。採用するなら既定や案内の形（highlights既定、上限指定の
+  推奨、大きなdocs本文は`save_to`＋`run_typescript`で必要部分だけ抜く）を決める。
+- 同5件のExa費用（responseの`costDollars`）: いずれも`total 0.007`（USD、neural
+  search）で、`text:true`の149 KBの1件も小さい4件と同額だった。この5件では`contents`指定による
+  Exa課金差は見えない。149 KBの代償はExa費用ではなくmodel context（約3.5–4万token）側にある。
 
 ### A9 — Sessionと関連履歴の保存・削除（旧P7を統合、未採用）
 
@@ -991,6 +1007,104 @@ Pi／OpenCode／Henjiの画面表示比較
   [OpenAI Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)、
   [Chat Completions公式仕様](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)。
 
+### A30 — tool間の結果連鎖（tool resultを別toolの入力にできない）（未採用、メモのみ）
+
+- 観測（2026-10-06、[Increment 200](../increments/increment-200.md)の実装・検証作業中の通常利用）:
+  専用toolへ寄せられない合成処理がbash pipelineに残る。実例は、test結果の要約（`deno test … |
+  grep -E … | tail`）、`search`結果の`cut`・`head`整形、`git diff | grep`、`cat … | head`。
+- 現行境界: `run_typescript`の`input`はmodelが用意するJSONで、直前のtool
+  result（bashのstdout、`search`結果）を機械的に受け取る経路がない。大きい出力はmodel
+  contextへcopyすることになり、`run_typescript`の「fileを直接読む」案内は実行結果には使えない。
+  `bash_output`は出力を`outputId`で保持するが、consumerは`bash_output`
+  tool自身のwindow表示で、他のtoolから参照できない。
+- 候補: 直前または指定したtool resultを`run_typescript`実行へ参照渡しする。例として、保持出力やtool
+  resultを実行側（workspace配下または`/tmp`）へmaterializeしてcodeから読めるpathと識別子を渡す、
+  `input`へ参照idを渡す。保持件数・大きい出力・取消・保存境界は採用時に決め、常設のraw保存は増やさない。
+- 利用者意向（2026-10-06、実装は未指示）: 「安易にパイプでの連結はしてほしくない」。
+  トークン効率が下がる可能性は許容する。合成のためのbash pipelineより、明示的なstepと専用toolの
+  利用を優先する。
+- 実測（2026-10-06、現行環境）: 1回のbash内で完結するpipelineはtool間の連鎖ではないが、別の理由でも
+  望ましくない。bashは`/bin/bash --noprofile --norc -c`で実行され`pipefail`が無いため、
+  失敗がexit statusから消える（`false | tail -1`と`deno eval … Deno.exit(7) | tail -1`がともexit 0）。
+  今回のtest要約（`deno test … | grep … | tail`）も同じ形で、失敗runでもbash toolのexitCodeは0だった。
+- 既存の代替経路（新機構なしで成立、実測）: コマンド出力をfileへredirectし（workspace内のscratchまたは
+  `/tmp`）、`run_typescript`がそのfileを読んで集計する。bashの`/tmp`書込と`run_typescript`の`/tmp`
+  読取は今回の環境で確認した。中間出力をmodel contextへ出さないため、pipelineでtailへ絞る場合より
+  context消費が増えるとは限らず、増えるのはstep数である。
+- 候補の見直し: 上記の代替経路があるため、参照渡しの新機構は「保持済みの出力を後段で使う」場合の
+  小さい形（例: `bash_output`の保持streamを`web_fetch`の`save_to`と同様にfileへ書き出し、
+  `run_typescript`/`read`の入力にする）から検討する。tool result全般の参照storeは役割・寿命・上限・
+  清掃を新たに定義するため優先度を下げる。
+- 案内候補（実装は未指示）: 上記意向を`promptGuidelines`へ入れる案。例: bashへ「要約のための安易な
+  pipe（grep/head/tail）を避け、集計が必要なら出力をfileへ書いて`run_typescript`に渡す」、
+  `run_typescript`へ「他commandの出力を集計するときはfile経由で読む」。[Increment 200](../increments/increment-200.md)の
+  文面へ追加するかは未定。
+- 当該作業でのpipe使用の分類（2026-10-06）: 観測したpipeはすべて「modelが読むための要約・整形」目的で、
+  command自体がstream処理を目的とする必須pipeは0件だった。代替は、一覧/検索→`search`、file閲覧→`read`、
+  test出力→redirect+`run_typescript`または`bash_output`の末尾offset、JSON整形→`run_typescript`。
+  2件はpipe後も4 KiBを超えてtruncateされた（7,318と4,654 bytes）ため、pipeは可視性問題を解決しない。
+- 案内の形: 「pipeを避ける」だけでは、代替（file経由/末尾offset/専用tool）を使えない場合に失敗の見逃しや
+  step増を招く。「要約はpipeではなくredirect+file+`run_typescript`、打ち切られた末尾は`bash_output`の
+  offset」のように置換先を指定し、pipeが本当にcommandの目的である場合と、どうしても使う場合の
+  `set -o pipefail`（実測で有効）を例外として残す。
+- baseline観測（2026-10-06、保存Session `0cd5c22e`・13 turn・tool call 139件の
+  read-only分析、Increment 200の案内配置前）: bash 113件（81%）に対しread 15・edit 9・write 1・
+  web_search 1で、`run_typescript`・`search`・`bash_output`は0件。bashの内訳はcd 111（98%）、
+  pipe 81（72%、うちhead 68）、`sed -n 'A,Bp'` 33、grep系 68、ls/find 22、echo区切り 72、
+  `> /dev/null` 17、実書込redirect 1。結果は11件がtruncate/spoolされ、`bash_output`
+  でのreadbackは0件。同一fileの再訪が多い（`worker_runtime.ts` 26回等）。
+  つまりbashが閲覧・検索・head整形の代用になっており、pipeはdata連鎖ではなく表示の切詰めが主。
+  証拠は`.tools/tool-trend-0cd5c22e/`（詳細JSONLと集計summary.json）にある。
+- 再検討条件: パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき。
+- 利用者提案（2026-10-06）: `read xxx.md | run_typescript`、`search xxx | read`のようなtool間の
+  受け渡し。実装は未指示。
+- 実装ルートの整理（2026-10-06、source確認）: 新文法/新pipeline toolは表示・step・失敗・型のsurfaceを
+  増やすため最後の候補とする。明示的な参照渡し（tool resultのidと後続toolの参照）なら既存contractの
+  延長で済む。大きいdataはrequest上限（会話1 MiB等）があるためargumentsでなくfile渡しが妥当。
+  - core変更なしのprobe: 外部hookで成立する。`after_tool`で結果とidを保持し、`before_tool`で参照を
+    file path等の小さい引数へ置換、`runtime_start`のcontext additionで案内を追加する。hook contextの
+    transcriptはcommitted済みの過去turnのみ（当turnの結果は見えない）ためhook自身が保持する。
+    引数書換時はloopがeffective arguments全文をresultへ付記するため、注入はpath等に限る。
+  - core最小形: 結果artifact（file materialize・id・上限・清掃）と`run_typescript`等への参照引数。
+    既存precedentは`web_fetch`の`save_to`と`bash`のredirect。
+- どのルートでも決めること: 参照可能な範囲（当turn/実行/Worker世代）、上限・eviction・清掃、
+  credentialをworkspaceやDataへ書かないこと、参照元のsidecar/attribution、不在・期限切れの明示error、
+  TUIの参照表示。
+- 可視サイズの実測（2026-10-06）: bashのmodel可視出力はstreamあたり4,096 bytes（`MAX_CAPTURE_BYTES`）で
+  打ち切られ、残りはspoolへ保持される（32 MiB/command、128 MiB/registry）。`bash_output`は`totalBytes`と
+  任意offset（UTF-8境界）を受け、49,152 bytes windowで末尾も読める。readは64 KiB/call、searchは既定100件/page。
+  今回の実測は`deno test`（2 file・41
+  test）4,998 bytes、`git status --porcelain` 2,502 bytes、`grep -rn` 1,565 bytes、
+  `cat .handoff/handoff.md` 12,239 bytes（可視4 KiB＋readback）。
+- 効果の見込み（再評価）: 打ち切られた結果を後段へ渡す需要より、「打ち切られず全部読めるfileを作り、集計だけを
+  contextへ返す」需要が実態に合う。`web_fetch`は`save_to`（workspaceまたは`/tmp`、既存fileは拒否）で
+  本文をfile化し、結果は`Saved: <path> … Bytes:`の小さいtextだけになる。同じ形を`bash`のredirectでも
+  使えるため、新機構の優先度は下げ、既存primitiveの案内と`bash_output`の末尾offset利用を先にする。
+  `read→run_typescript`はrun_typescriptが既にfileを読めるため利得小。本命だった`bash`/`search`→
+  `run_typescript`も、上記のfile経路と末尾readbackで多くは足りる。
+- pipe回避の既存実例（2026-10-05 Session `2bc2699f`、2026-10-06にread-only分析）:
+  `… > log 2>&1; result=$?; tail -n 8 log; exit "$result"`の形が39件あり、対象実行では非0 exit 10件が
+  正しく伝播していた（pipeでtailへ絞る場合と違い失敗が見える）。file化＋尾の表示＋exit再送は、
+  新しい機構なしで成立する代替の実例である。
+- 関連: [Increment 200](../increments/increment-200.md)、`v0/agent/tools/run_typescript.ts`、
+  `v0/agent/tools/bash_output.ts`、R2、R3。
+
+### A31 — workspace外（config/state/tmp）の読取・書込境界（未採用、メモのみ）
+
+- 観測（2026-10-06）: 専用toolはworkspace内に限定される（`checkedPath`、`run_typescript`実行Workerの
+  permissionはworkspaceと`/tmp`）。workspace外の確認はbashが必要で、実際に今回はAgent自身の実効
+  instructionを確認するためconfig rootの`instruction.md`をbashの`cat`で読んだ（`read`は
+  「path must stay within workspace」で拒否）。
+- 現行境界: config rootにはcredential file（API key等）が同居し、読取範囲の拡大は既存のcredential
+  露出防止要件とセットで決める必要がある。A5の「mechanismで自動収集せずinstructionで持つ」方針とも
+  区別する。
+- 候補: workspace外のHost-owned root（config/state）を明示pathで読めるようにする案と、現状どおり
+  bash併用を案内で明示する案を比較する。広げる場合は対象root、credential
+  fileの扱い、表示・履歴への波及を採用時に決める。
+- 再検討条件: 通常利用でworkspace外の確認・一時file作成が繰り返し必要になり、bash併用の使い分けが
+  負担・誤用の原因になるとき。
+- 関連: A5、A30、`v0/agent/tools/work_tool_workspace.ts`、`v0/agent/tools/run_typescript_executor.ts`、E1。
+
 ## F24・自己改訂
 
 ### R1 — 自己改訂対象の重心とagent loop境界
@@ -1276,3 +1390,29 @@ Pi／OpenCode／Henjiの画面表示比較
   [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
   `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
   `v0/agent/history/sqlite_history_store.ts`。
+
+### B12 — `process runner ended before command status`でbashが全件失敗し、原因も復旧も残らない
+
+- 原観測（2026-10-05、Session `2bc2699f`の保存履歴分析、2026-10-06にread-onlyで集計）:
+  2026-10-05T04:58:31Z–06:16:31Zの間に6 executionで`process runner ended before command
+  status`のtool resultが生じた。失敗したcommandはgit status/diff・find・rg・grep・ls・echoで、
+  対象executionでは**bash callが全件失敗**した（例: execution `99fae222`は130件すべて失敗）。
+- 利用者影響: review子Agentが差分・gitを取得できないまま終了し、親はreviewを計6 execution
+  spawnし直した。`99fae222`は同一`ls .tools/increment-193/apply-palette/`を125回再試行し、
+  128 model step limitで停止した（診断`model_step_limit`、requestCount 128）。review未完の判定と
+  再実行のstep・時間を浪費した。
+- 現行source: `v0/agent/runtime/process_executor.ts`はrunner childのcontrol fd（stdio[3]）が
+  `status`messageを返す前に`end`した場合にこのエラーを返す。runner自身の終了理由（exit code・
+  signal・crash出力）はtool結果に含まれず、`diagnostic`recordにも残らない（同時期の診断はprovider系と
+  model_step_limitのみ）。runner死亡後の再生成・復旧経路も確認していない。
+- 未確認: runner childが早期終了した原因（生成失敗・crash・外部要因等）。1.5時間と新しいWorker世代を
+  またいで継続したため環境要因の疑いがあるが、再現probeは未実施。
+- 対応候補（未採用）: runner早期終了時にexit code・signal・短いcrash出力等を短いfactとして残す。
+  runner死亡後の復旧（再生成）の是非は、原因確認後に採用判断する。修正・実装は未指示。
+- 利用者判断（2026-10-06）: 別途調査とする。本項は通常利用メモに残し、原因究明・再現・対応の実施は
+  別途の調査・指示で行う（この分析では追加probe・修正をしていない）。
+- 再検討条件: 同エラーが通常利用で再観測されたとき、またはrunner診断・復旧を個別incrementへ採用するとき。
+- 証拠: `.tools/tool-trend-2bc2699f/`（detail.jsonと集計）、分析scriptは`.tools/tool-trend/analyze.ts`。
+- 関連: [Increment 133](../increments/increment-133.md)（managed process runner）、
+  [Increment 176](../increments/increment-176.md)（失敗分類・短い診断）、
+  `v0/agent/runtime/process_executor.ts`、`v0/agent/runtime/process_runner.ts`。
