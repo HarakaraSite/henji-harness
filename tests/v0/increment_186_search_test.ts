@@ -408,6 +408,82 @@ Deno.test('increment 186 external search handles rg and grep through WorkerHostS
       strictEqual(zeroWidth.matchCount, backend === 'rg' ? 2 : 0);
     }
 
+    // Increment 202: text search excludes the DB/blob data that caused the observed crash.
+    await Deno.mkdir(`${workspaceRoot}/text-scope`);
+    await Deno.writeTextFile(`${workspaceRoot}/text-scope/document.txt`, 'normal-use-inbox\n');
+    await Deno.writeTextFile(`${workspaceRoot}/text-scope/archive.db`, 'normal-use-inbox\n');
+    await Deno.writeTextFile(`${workspaceRoot}/text-scope/archive.blob`, 'normal-use-inbox\n');
+    await Deno.writeTextFile(
+      `${workspaceRoot}/text-scope/sqlite.data`,
+      'SQLite format 3\0normal-use-inbox\n',
+    );
+    await Deno.writeTextFile(`${workspaceRoot}/text-scope/binary.data`, '\0normal-use-inbox\n');
+    const longLine = 'normal-use-inbox ' + '界'.repeat(600_000) + '\n';
+    await Deno.writeTextFile(`${workspaceRoot}/large-line.txt`, longLine);
+    const manyLines = ('normal-use-inbox ' + 'x'.repeat(240) + '\n').repeat(40_000);
+    await Deno.writeTextFile(`${workspaceRoot}/many-lines.txt`, manyLines);
+    const utf16Text = 'normal-use-inbox\n';
+    const utf16Bytes = new Uint8Array(2 + utf16Text.length * 2);
+    utf16Bytes.set([0xff, 0xfe]);
+    for (let index = 0; index < utf16Text.length; index++) {
+      utf16Bytes[2 + index * 2] = utf16Text.charCodeAt(index);
+    }
+    await Deno.writeFile(`${workspaceRoot}/utf16.txt`, utf16Bytes);
+    const encodedBlob = new Uint8Array(utf16Bytes.length + 2);
+    encodedBlob.set(utf16Bytes);
+    await Deno.writeFile(`${workspaceRoot}/text-scope/encoded-blob.data`, encodedBlob);
+    const utf16 = await callSearch(rgWorker.session, {
+      mode: 'content',
+      path: 'utf16.txt',
+      pattern: 'normal-use-inbox',
+    });
+    deepStrictEqual(utf16.records, [
+      { path: 'utf16.txt', line: 1, text: 'normal-use-inbox' },
+    ], 'keep rg automatic BOM text decoding');
+    for (const [backend, worker] of [['rg', rgWorker], ['grep', grepWorker]] as const) {
+      const scope = { path: 'text-scope', pattern: 'normal-use-inbox', patternKind: 'literal' };
+      const content = await callSearch(worker.session, { mode: 'content', ...scope });
+      deepStrictEqual(content.records, [
+        { path: 'text-scope/document.txt', line: 1, text: 'normal-use-inbox' },
+      ]);
+      const matchedFiles = await callSearch(worker.session, { mode: 'files', ...scope });
+      deepStrictEqual(matchedFiles.records, ['text-scope/document.txt']);
+      const counted = await callSearch(worker.session, { mode: 'count', ...scope });
+      deepStrictEqual(counted, { mode: 'count', backend, matchCount: 1 });
+      const listing = await callSearch(worker.session, { mode: 'paths', path: 'text-scope' });
+      strictEqual(
+        (listing.records as string[]).length,
+        6,
+        'metadata listing still includes binaries',
+      );
+
+      const clipped = await callSearch(worker.session, {
+        mode: 'content',
+        path: 'large-line.txt',
+        pattern: 'normal-use-inbox',
+      });
+      strictEqual(clipped.truncated, true);
+      strictEqual(clipped.totalIsExact, true);
+      strictEqual(clipped.total, 1);
+      ok(new TextEncoder().encode(JSON.stringify(clipped)).byteLength <= 1024 * 1024);
+      const text = (clipped.records as { text: string }[])[0]!.text;
+      ok(text.startsWith('normal-use-inbox '));
+      ok(text.endsWith('\n[truncated]'));
+      ok(!text.includes('\ufffd'), 'UTF-8 prefix remains intact');
+
+      const stopped = await callSearch(worker.session, {
+        mode: 'content',
+        path: 'many-lines.txt',
+        pattern: 'normal-use-inbox',
+      });
+      strictEqual(stopped.truncated, true);
+      strictEqual(stopped.totalIsExact, false);
+      ok((stopped.total as number) > 100 && (stopped.total as number) < 40_000);
+      strictEqual((stopped.records as unknown[]).length, 100);
+      const afterLimit = await callSearch(worker.session, { mode: 'content', ...scope });
+      deepStrictEqual(afterLimit.records, content.records, 'Worker remains usable after stopping');
+    }
+
     let processStartedResolve!: () => void;
     const processStarted = new Promise<void>((resolveStart) => {
       processStartedResolve = resolveStart;

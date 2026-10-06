@@ -4,23 +4,28 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 202](../docs/increments/increment-202.md)は利用者指示でsearchのDB/blob除外・出力上限と
+run_typescriptのCore返却1 MiB上限をlocal実装した。focused確認・独立review完了、残る指摘なし。
+利用者の「コミットして」により本source
+commitへ保存。要件・原因・実装・確認・承認境界は202を参照する。 常用配置・pushは未実施。
+
 [Increment 200](../docs/increments/increment-200.md)と[201](../docs/increments/increment-201.md)は利用者指示
 「コミット、配置して」「プッシュして」により完了した。source commit `6f6f9a6a`（200・201合同）、
 公式build（build ID `5bfcdbaa…`）、常用配置（`~/.local/bin/henji`、旧binaryは`henji.previous`）、
 push（最新`70b22376`まで）済み。200は専用tool優先・出力の扱い・reviewerからbashを外す案内、
-201は外部tool `git_inspect`（read-onlyなstatus/diff/log/show、親・generic・reviewerで選択）と`search`の
-`entries` mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・search更新（`local-3`）・
+201は外部tool
+`git_inspect`（read-onlyなstatus/diff/log/show、親・generic・reviewerで選択）と`search`の `entries`
+mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・search更新（`local-3`）・
 reviewer（revision 3）を反映済み。`agent inspect`はdefault／reviewerともrejections `[]`。
 配置binaryは親commitの199も含む。
 
-**Core/TUI再起動済み**（Core `c6afea6d`、`henji tui --continue`、新binary）。ただし続行セッション
-`91cb1f45`では`git_inspect`がmodel-facing tool定義に現れず実行できなかった（`search`の`entries`は動作）。
-利用者判断で**セッションを作り直す**。
+Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了し、TUIは切断表示となった。
+再起動・常用配置は行っていない。原因と修正後の再実行結果は202を参照する。
+続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
+利用者指示でその追加調査は行わず、今回の作業は切断原因と202の修正に限る。
 
-**次の一手**: 新規セッションで`git_inspect`を実行して確認する。通ればA34の原因は「続行セッションでは
-新規tool名がmodel定義に反映されない」で確定。通らない場合はmodel requestの`tools`組み立て経路
-（`loadWorkerTools`→Worker composition）とHost/TUIが保持する会話stateの関係を調査する。
-観測は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34にある。
+**次の一手**: 202のsource commitを利用者へ報告し、常用環境への反映判断を受ける。
+202の常用配置・push、Core/TUI再起動は新しい利用者指示を必要とする。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>
 bashを使いがち」という利用者指示を受け、第1段としてread/write/edit/search/run_typescriptをbashより
@@ -29,9 +34,9 @@ bashを使いがち」という利用者指示を受け、第1段としてread/w
 `set -o pipefail`）の案内を、第3段としてreviewerのtool構成変更（`bash`・`bash_output`を外し
 `read`・`search`・`skill`、instructionをshell非依存へ、revision
 2）を追加した。local実装・focused確認（current_code 16件、foundation 25件、increment_127
-6件、関連12件）・type check/format/lint/diff
-check・provider-free headless Workerでのinstruction readback（guideline 18行、reviewerはread/searchでbashなし）
-まで完了。reviewer JSONは常用config rootへ反映済み（backupは`.tools/increment-200/reviewer.json.prev`、
+6件、関連12件）・type check/format/lint/diff check・provider-free headless Workerでのinstruction
+readback（guideline 18行、reviewerはread/searchでbashなし） まで完了。reviewer JSONは常用config
+rootへ反映済み（backupは`.tools/increment-200/reviewer.json.prev`、
 `henji agent inspect --name reviewer`でrejectionsなしを確認）。commit/push・公式build・
 常用配置（binary）・外部tool folder（search・web_search）の更新・実provider
 callは未実施で、いずれも利用者指示を必要とする。詳細は200を参照する。

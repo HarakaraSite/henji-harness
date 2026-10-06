@@ -63,6 +63,43 @@ const waitForFile = async (path: string): Promise<void> => {
 };
 
 try {
+  strictEqual(
+    await result({ code: 'return { ok: true, text: "normal" };' }),
+    '{"ok":true,"text":"normal"}',
+  );
+
+  const resultMaximumBytes = 1024 * 1024;
+  const truncationMarker = '\n[truncated: result exceeded 1 MiB]';
+  const oversized = await result({
+    code: `return "a".repeat(${
+      resultMaximumBytes - truncationMarker.length - 2
+    }) + "界" + "z".repeat(${truncationMarker.length});`,
+  });
+  const oversizedBytes = new TextEncoder().encode(oversized);
+  strictEqual(oversizedBytes.length, resultMaximumBytes - 1);
+  strictEqual(oversized.endsWith(truncationMarker), true);
+  const oversizedPrefix = oversized.slice(0, -truncationMarker.length);
+  strictEqual(oversizedPrefix.length, resultMaximumBytes - truncationMarker.length - 1);
+  strictEqual(oversizedPrefix.endsWith('a'), true);
+  strictEqual(
+    new TextDecoder('utf-8', { fatal: true }).decode(oversizedBytes),
+    oversized,
+  );
+  strictEqual(
+    await result({ code: 'return "after oversized result";' }),
+    '"after oversized result"',
+  );
+
+  const savedLarge = JSON.parse(
+    await result({
+      code: 'const path = workspace + "/large-result.txt"; ' +
+        'await Deno.writeTextFile(path, "x".repeat(2 * 1024 * 1024)); ' +
+        'return { path, bytes: (await Deno.stat(path)).size };',
+    }),
+  );
+  strictEqual(savedLarge.bytes, 2 * 1024 * 1024);
+  strictEqual((await Deno.stat(savedLarge.path)).size, 2 * 1024 * 1024);
+
   const text = await result({
     code: [
       'type Row = { amount: number };',

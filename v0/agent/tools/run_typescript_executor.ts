@@ -13,6 +13,30 @@ import { stripTypeScriptTypes } from 'node:module';
 import { installModuleHooks } from ${
   JSON.stringify(new URL('./run_typescript_hooks.ts', import.meta.url).href)
 };
+const maximumResultBytes = 1024 * 1024;
+const resultTruncationMarker = '\\n[truncated: result exceeded 1 MiB]';
+const resultTruncationMarkerBytes = resultTruncationMarker.length;
+const limitResult = (json) => {
+  const prefixLimit = maximumResultBytes - resultTruncationMarkerBytes;
+  let byteLength = 0;
+  let prefixEnd = 0;
+  for (let index = 0; index < json.length;) {
+    const codePoint = json.codePointAt(index) ?? 0;
+    index += codePoint > 0xffff ? 2 : 1;
+    byteLength += codePoint <= 0x7f
+      ? 1
+      : codePoint <= 0x7ff
+      ? 2
+      : codePoint <= 0xffff
+      ? 3
+      : 4;
+    if (byteLength <= prefixLimit) prefixEnd = index;
+    if (byteLength > maximumResultBytes) {
+      return json.slice(0, prefixEnd) + resultTruncationMarker;
+    }
+  }
+  return json;
+};
 self.onmessage = async (event) => {
   const { workspace, input, cache, fetchPort } = event.data;
   const closeHooks = installModuleHooks(cache, fetchPort);
@@ -28,7 +52,7 @@ self.onmessage = async (event) => {
     const result = await execute(workspace, input);
     const json = JSON.stringify(result ?? null);
     if (json === undefined) throw new TypeError('result is not JSON serializable');
-    self.postMessage({ ok: true, result: json });
+    self.postMessage({ ok: true, result: limitResult(json) });
   } catch (error) {
     self.postMessage({
       ok: false,

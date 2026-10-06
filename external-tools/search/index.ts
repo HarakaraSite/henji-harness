@@ -9,9 +9,12 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import {
   GREP_EXECUTABLE,
   RIPGREP_EXECUTABLE,
+  SEARCH_CAPTURE_BYTES,
   SEARCH_LANG,
   SEARCH_LC_ALL,
   SEARCH_PATH,
+  SEARCH_RESULT_BYTES,
+  SEARCH_STDERR_BYTES,
 } from './settings.ts';
 
 type SearchMode = 'paths' | 'files' | 'content' | 'count' | 'entries';
@@ -45,6 +48,12 @@ interface ProcessResult<Output> {
   readonly status: { readonly exitCode: number | null; readonly signal: string | null };
   readonly stdout: Output;
   readonly stderr: Uint8Array;
+  readonly truncated: boolean;
+}
+
+interface CapturedOutput {
+  readonly bytes: Uint8Array;
+  readonly truncated: boolean;
 }
 
 const encoder = new TextEncoder();
@@ -61,7 +70,8 @@ const searchSchema = {
     },
     glob: {
       type: 'string',
-      description: 'Optional path glob matched against workspace-relative paths.',
+      description:
+        'Optional Henji path glob; not passed to rg. A leading ! does not exclude paths.',
     },
     pattern: { type: 'string', description: 'Required for files, content, and count modes.' },
     patternKind: {
@@ -348,6 +358,56 @@ const filterFiles = (
   });
 };
 
+/** Contents modes search text, not database files or NUL-containing binary blobs. */
+const textFiles = async (
+  files: readonly string[],
+  signal?: AbortSignal,
+): Promise<string[]> => {
+  const selected: string[] = [];
+  const buffer = new Uint8Array(64 * 1024);
+  for (const path of files) {
+    if (signal?.aborted) throw new TurnCancelledError();
+    if (/\.(?:db|sqlite|sqlite3|blob)(?:-(?:wal|shm))?$/i.test(path)) continue;
+    const file = await Deno.open(path, { read: true });
+    let binary = false;
+    let first = true;
+    let utf16 = false;
+    let previousByte: number | undefined;
+    try {
+      for (;;) {
+        if (signal?.aborted) throw new TurnCancelledError();
+        const count = await file.read(buffer);
+        if (count === null) break;
+        // rg detects UTF-16 BOMs. Reject encoded U+0000, not its normal zero bytes.
+        if (first && count >= 2) {
+          utf16 = (buffer[0] === 0xff && buffer[1] === 0xfe) ||
+            (buffer[0] === 0xfe && buffer[1] === 0xff);
+        }
+        first = false;
+        if (utf16) {
+          for (let index = 0; index < count; index++) {
+            if (previousByte === undefined) previousByte = buffer[index];
+            else {
+              if (previousByte === 0 && buffer[index] === 0) {
+                binary = true;
+                break;
+              }
+              previousByte = undefined;
+            }
+          }
+        } else {
+          binary = buffer.subarray(0, count).includes(0);
+        }
+        if (binary) break;
+      }
+    } finally {
+      file.close();
+    }
+    if (!binary) selected.push(path);
+  }
+  return selected;
+};
+
 const findExecutable = async (name: string): Promise<string | undefined> => {
   for (const directory of SEARCH_PATH.split(':')) {
     if (directory.length === 0) continue;
@@ -372,16 +432,31 @@ const selectBackend = async (): Promise<
   throw new Error(`search could not find ${RIPGREP_EXECUTABLE} or ${GREP_EXECUTABLE} in its PATH`);
 };
 
-const readAll = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> => {
+const readLimited = async (
+  stream: ReadableStream<Uint8Array>,
+  maximum: number,
+  stop: () => void,
+): Promise<CapturedOutput> => {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
+  let truncated = false;
   try {
     for (;;) {
       const result = await reader.read();
       if (result.done) break;
-      chunks.push(result.value);
-      length += result.value.byteLength;
+      const remaining = maximum - length;
+      if (remaining > 0) {
+        const retained = result.value.subarray(0, remaining);
+        chunks.push(retained);
+        length += retained.byteLength;
+      }
+      if (result.value.byteLength > remaining) {
+        truncated = true;
+        stop();
+        await reader.cancel();
+        break;
+      }
     }
   } finally {
     reader.releaseLock();
@@ -392,22 +467,14 @@ const readAll = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
     output.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return output;
-};
-
-const countOutputLines = async (stream: ReadableStream<Uint8Array>): Promise<number> => {
-  let count = 0;
-  for await (const chunk of stream) {
-    for (const byte of chunk) if (byte === 0x0a) count += 1;
-  }
-  return count;
+  return { bytes: output, truncated };
 };
 
 const runBackend = async <Output>(
   executor: NonNullable<Parameters<ToolFactory>[0]['processExecutor']>,
   command: { readonly executable: string; readonly args: readonly string[]; readonly cwd: string },
   signal: AbortSignal | undefined,
-  readStdout: (stream: ReadableStream<Uint8Array>) => Promise<Output>,
+  readStdout: (stream: ReadableStream<Uint8Array>, stop: () => void) => Promise<Output>,
 ): Promise<ProcessResult<Output>> => {
   if (signal?.aborted) throw new TurnCancelledError();
   const operation: ProcessOperation = executor.start({
@@ -418,12 +485,22 @@ const runBackend = async <Output>(
       LC_ALL: SEARCH_LC_ALL,
     },
   });
+  let stoppingForLimit: Promise<void> | undefined;
+  const stopForLimit = (): void => {
+    stoppingForLimit ??= operation.stop();
+    void stoppingForLimit.catch(() => {});
+  };
   const completion = Promise.all([
-    readStdout(operation.stdout),
-    readAll(operation.stderr),
+    readStdout(operation.stdout, stopForLimit),
+    readLimited(operation.stderr, SEARCH_STDERR_BYTES, stopForLimit),
     operation.status,
     operation.closed,
-  ]).then(([stdout, stderr, status]) => ({ stdout, stderr, status }));
+  ]).then(([stdout, stderr, status]) => ({
+    stdout,
+    stderr: stderr.bytes,
+    status,
+    truncated: stoppingForLimit !== undefined,
+  }));
   let released = false;
   const release = async (): Promise<void> => {
     if (released) return;
@@ -466,6 +543,7 @@ const runBackend = async <Output>(
   }
   if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort);
   try {
+    await stoppingForLimit;
     await release();
   } catch (error) {
     if (signal?.aborted) {
@@ -503,7 +581,7 @@ const flags = (input: SearchArguments): string[] => [
   ...(input.caseSensitive ? [] : ['--ignore-case']),
 ];
 
-const decodeNullRecords = (bytes: Uint8Array): string[] => {
+const decodeNullRecords = (bytes: Uint8Array, truncated = false): string[] => {
   const records: string[] = [];
   let start = 0;
   for (let index = 0; index < bytes.length; index += 1) {
@@ -511,17 +589,23 @@ const decodeNullRecords = (bytes: Uint8Array): string[] => {
     records.push(decoder.decode(bytes.subarray(start, index)));
     start = index + 1;
   }
-  if (start < bytes.length) records.push(decoder.decode(bytes.subarray(start)));
+  if (!truncated && start < bytes.length) records.push(decoder.decode(bytes.subarray(start)));
   return records.filter((record) => record.length > 0);
 };
 
-const contentRecords = (bytes: Uint8Array, root: string): SearchRecord[] => {
+const contentRecords = (
+  bytes: Uint8Array,
+  root: string,
+  truncated = false,
+): SearchRecord[] => {
   const records: SearchRecord[] = [];
   let start = 0;
   while (start < bytes.length) {
     const delimiter = bytes.indexOf(0, start);
+    if (delimiter < 0 && truncated) break;
     if (delimiter < 0) throw new Error('search backend returned an invalid content record');
     const lineEnd = bytes.indexOf(0x0a, delimiter + 1);
+    if (lineEnd < 0 && truncated) break;
     const end = lineEnd < 0 ? bytes.length : lineEnd;
     const file = decoder.decode(bytes.subarray(start, delimiter));
     const rest = bytes.subarray(delimiter + 1, end);
@@ -543,6 +627,7 @@ const contentRecords = (bytes: Uint8Array, root: string): SearchRecord[] => {
 };
 
 const checkBackendResult = (backend: Backend, result: ProcessResult<unknown>): void => {
+  if (result.truncated && result.status.signal !== null) return;
   const exitCode = result.status.exitCode;
   if (exitCode !== 0 && exitCode !== 1) {
     const detail = decoder.decode(result.stderr).trim();
@@ -554,13 +639,15 @@ const checkBackendResult = (backend: Backend, result: ProcessResult<unknown>): v
   }
 };
 
-const sumFileCounts = (bytes: Uint8Array): number => {
+const sumFileCounts = (bytes: Uint8Array, truncated = false): number => {
   let count = 0;
   let start = 0;
   while (start < bytes.length) {
     const delimiter = bytes.indexOf(0, start);
+    if (delimiter < 0 && truncated) break;
     if (delimiter < 0) throw new Error('search backend returned an invalid count record');
     const lineEnd = bytes.indexOf(0x0a, delimiter + 1);
+    if (lineEnd < 0 && truncated) break;
     const end = lineEnd < 0 ? bytes.length : lineEnd;
     count += Number(decoder.decode(bytes.subarray(delimiter + 1, end)));
     start = end + 1;
@@ -574,9 +661,15 @@ const countMatches = async (
   files: readonly string[],
   executor: NonNullable<Parameters<ToolFactory>[0]['processExecutor']>,
   signal?: AbortSignal,
-): Promise<{ readonly mode: 'count'; readonly backend: Backend; readonly matchCount: number }> => {
+): Promise<{
+  readonly mode: 'count';
+  readonly backend: Backend;
+  readonly matchCount: number;
+  readonly truncated?: true;
+}> => {
   const selected = await selectBackend();
   let matchCount = 0;
+  let capturedBytes = 0;
   for (const batch of chunksOf(files)) {
     if (selected.backend === 'rg') {
       const result = await runBackend(
@@ -587,7 +680,6 @@ const countMatches = async (
             '--count-matches',
             '--with-filename',
             '--null',
-            '--text',
             '--no-ignore',
             '--hidden',
             ...flags(input),
@@ -599,23 +691,31 @@ const countMatches = async (
           cwd: root,
         },
         signal,
-        readAll,
+        (stream, stop) => readLimited(stream, SEARCH_CAPTURE_BYTES - capturedBytes, stop),
       );
       checkBackendResult(selected.backend, result);
-      matchCount += sumFileCounts(result.stdout);
+      matchCount += sumFileCounts(result.stdout.bytes, result.truncated);
+      capturedBytes += result.stdout.bytes.byteLength;
+      if (result.truncated) {
+        return { mode: 'count', backend: selected.backend, matchCount, truncated: true };
+      }
     } else {
       const result = await runBackend(
         executor,
         {
           executable: selected.executable,
-          args: ['-a', '-h', '-o', ...flags(input), '-e', input.pattern!, '--', ...batch],
+          args: ['-I', '-h', '-o', ...flags(input), '-e', input.pattern!, '--', ...batch],
           cwd: root,
         },
         signal,
-        countOutputLines,
+        (stream, stop) => readLimited(stream, SEARCH_CAPTURE_BYTES - capturedBytes, stop),
       );
       checkBackendResult(selected.backend, result);
-      matchCount += result.stdout;
+      for (const byte of result.stdout.bytes) if (byte === 0x0a) matchCount += 1;
+      capturedBytes += result.stdout.bytes.byteLength;
+      if (result.truncated) {
+        return { mode: 'count', backend: selected.backend, matchCount, truncated: true };
+      }
     }
   }
   return { mode: 'count', backend: selected.backend, matchCount };
@@ -627,7 +727,11 @@ const search = async (
   files: readonly string[],
   executor: NonNullable<Parameters<ToolFactory>[0]['processExecutor']>,
   signal?: AbortSignal,
-): Promise<{ readonly records: SearchRecord[]; readonly backend?: Backend }> => {
+): Promise<{
+  readonly records: SearchRecord[];
+  readonly backend?: Backend;
+  readonly truncated?: true;
+}> => {
   if (input.mode === 'paths') {
     return {
       records: files.map((file) => workspaceRelative(root, file)),
@@ -638,6 +742,8 @@ const search = async (
   }
   const selected = await selectBackend();
   const matches: SearchRecord[] = [];
+  let capturedBytes = 0;
+  let truncated = false;
   const pattern = input.pattern!;
   for (const batch of chunksOf(files)) {
     if (signal?.aborted) throw new TurnCancelledError();
@@ -646,7 +752,6 @@ const search = async (
         ? [
           '--files-with-matches',
           '--null',
-          '--text',
           '--no-ignore',
           '--hidden',
           ...flags(input),
@@ -662,7 +767,6 @@ const search = async (
           '--no-heading',
           '--color',
           'never',
-          '--text',
           '--no-ignore',
           '--hidden',
           ...flags(input),
@@ -672,8 +776,8 @@ const search = async (
           ...batch,
         ]
       : input.mode === 'files'
-      ? ['-a', '-lZ', ...flags(input), '-e', pattern, '--', ...batch]
-      : ['-a', '-n', '-H', '-Z', ...flags(input), '-e', pattern, '--', ...batch];
+      ? ['-I', '-lZ', ...flags(input), '-e', pattern, '--', ...batch]
+      : ['-I', '-n', '-H', '-Z', ...flags(input), '-e', pattern, '--', ...batch];
     const result = await runBackend(
       executor,
       {
@@ -682,14 +786,23 @@ const search = async (
         cwd: root,
       },
       signal,
-      readAll,
+      (stream, stop) => readLimited(stream, SEARCH_CAPTURE_BYTES - capturedBytes, stop),
     );
     checkBackendResult(selected.backend, result);
     if (input.mode === 'files') {
-      for (const file of decodeNullRecords(result.stdout)) {
+      for (const file of decodeNullRecords(result.stdout.bytes, result.truncated)) {
         matches.push(workspaceRelative(root, resolve(file)));
       }
-    } else matches.push(...contentRecords(result.stdout, root));
+    } else {
+      for (const record of contentRecords(result.stdout.bytes, root, result.truncated)) {
+        matches.push(record);
+      }
+    }
+    capturedBytes += result.stdout.bytes.byteLength;
+    if (result.truncated) {
+      truncated = true;
+      break;
+    }
   }
   if (input.mode === 'files') {
     (matches as string[]).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
@@ -699,15 +812,58 @@ const search = async (
         left.path < right.path ? -1 : left.path > right.path ? 1 : left.line - right.line
       );
   }
-  return { records: matches, backend: selected.backend };
+  return { records: matches, backend: selected.backend, ...(truncated ? { truncated: true } : {}) };
+};
+
+const resultRecord = (record: SearchRecord, maximum: number): SearchRecord | undefined => {
+  if (encoder.encode(JSON.stringify(record)).byteLength <= maximum) return record;
+  if (typeof record !== 'object' || !('text' in record)) return undefined;
+  const marker = '\n[truncated]';
+  let lower = 0;
+  let upper = record.text.length;
+  let selected: SearchRecord | undefined;
+  while (lower <= upper) {
+    const length = Math.floor((lower + upper) / 2);
+    let end = length;
+    const last = record.text.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    const candidate = { ...record, text: record.text.slice(0, end) + marker };
+    if (encoder.encode(JSON.stringify(candidate)).byteLength <= maximum) {
+      selected = candidate;
+      lower = length + 1;
+    } else upper = length - 1;
+  }
+  return selected;
 };
 
 const pagePayload = (
   args: SearchArguments,
   records: readonly SearchRecord[],
   backend: Backend | undefined,
+  captureTruncated = false,
 ): string => {
-  const page = records.slice(args.offset, args.offset + args.limit);
+  const page: SearchRecord[] = [];
+  // Keep room for the fixed envelope and truncation fields, then budget each JSON record.
+  let remaining = SEARCH_RESULT_BYTES - 1024;
+  let truncated = captureTruncated;
+  for (
+    let index = args.offset;
+    index < Math.min(records.length, args.offset + args.limit);
+    index++
+  ) {
+    const original = records[index]!;
+    const record = resultRecord(original, remaining - 1);
+    if (record === undefined) {
+      truncated = true;
+      break;
+    }
+    page.push(record);
+    remaining -= encoder.encode(JSON.stringify(record)).byteLength + 1;
+    if (record !== original) {
+      truncated = true;
+      break;
+    }
+  }
   const next = args.offset + page.length;
   return JSON.stringify({
     mode: args.mode,
@@ -718,6 +874,7 @@ const pagePayload = (
     hasMore: next < records.length,
     nextOffset: next < records.length ? next : null,
     records: page,
+    ...(truncated ? { truncated: true, totalIsExact: !captureTruncated } : {}),
   });
 };
 
@@ -728,10 +885,11 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
   return {
     name: 'search',
     description:
-      'Search the workspace using paths (file listing), entries (directory listing with type, size, and modification time), files (paths whose contents match), content (path, line number, and matching line), or count (total occurrences as matchCount). Use count to answer how many times a string occurs; content total counts matching lines, so several matches on one line count as one record. Searches include hidden, ignored, and dependency files because Deno enumerates the same explicit file paths for rg and grep. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path; the entries mode reports a symlink as a symlink and does not follow symlinked directories. Optional glob without a slash matches a basename at any depth; a glob with a slash matches the workspace-relative path. * matches within one path component, ** can cross components, and ? matches one character. files/content/count use rg when available and otherwise grep; literal patterns work with both, while regex syntax follows that backend. Count uses non-overlapping native matches; rg includes zero-width regex matches, while grep counts only non-empty matches. Count covers the entire selected scope and ignores offset/limit. Other modes return complete records in pages with offset, limit, hasMore, and nextOffset; the default page is 100 records and limit has no fixed maximum.',
+      'Search the workspace using paths (file listing), entries (directory listing with type, size, and modification time), files (text files whose contents match), content (path, line number, and matching text), or count (occurrences as matchCount). Content searches exclude database files and NUL-containing binary blobs. Use bash, SQL, or run_typescript for database/blob investigation. Hidden, ignored, and dependency text files are included. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path. entries reports symlinks without following symlinked directories. Optional glob is a Henji path filter, not an rg argument: without a slash it matches a basename at any depth; with a slash it matches the workspace-relative path. * matches within a component, ** crosses components, and ? matches one character. A leading ! is not an exclusion. files/content/count use rg when available and otherwise grep; regex syntax follows the backend. Count counts non-overlapping matches (rg includes zero-width matches, grep only non-empty matches) and ignores offset/limit. Other modes page with offset, limit, hasMore, and nextOffset; default limit is 100. Search output capture stops at 8 MiB; result JSON is limited to 1 MiB, with oversized matching text cut to a prefix. truncated:true marks partial results; totalIsExact:false means total is only the collected line count. A truncated count is a partial matchCount. hasMore/nextOffset only page the collected records; narrow path/glob/pattern to obtain results omitted by capture limits.',
     inputSchema: searchSchema,
     promptGuidelines: [
       'Prefer search over bash find, grep, or rg for listing, locating, and counting workspace paths and content; use the entries mode when file type, size, or modification time matters.',
+      'Choose the smallest relevant path/glob for the question. glob is a Henji include filter; leading ! exclusions are not supported. Refine the scope when truncated is true; do not treat a partial count or totalIsExact:false as the full total.',
     ],
     async execute(argumentsValue, context) {
       const args = parseArguments(argumentsValue);
@@ -745,18 +903,21 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
         );
         return pagePayload(args, filterEntries(entries, args.glob), undefined);
       }
-      const files = filterFiles(
+      const candidates = filterFiles(
         root,
         await enumerateFiles(root, args.path, context?.signal),
         args.glob,
       );
+      const files = args.mode === 'paths'
+        ? candidates
+        : await textFiles(candidates, context?.signal);
       if (args.mode === 'count') {
         return JSON.stringify(
           await countMatches(args, root, files, input.processExecutor!, context?.signal),
         );
       }
       const result = await search(args, root, files, input.processExecutor!, context?.signal);
-      return pagePayload(args, result.records, result.backend);
+      return pagePayload(args, result.records, result.backend, result.truncated);
     },
   };
 };
