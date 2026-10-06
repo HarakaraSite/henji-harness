@@ -1,21 +1,7 @@
-import type { EntryLayout, EntryLayoutCache } from './entry_layout_cache.ts';
+import { type ConversationView, ConversationViewport } from './conversation_viewport.ts';
 import { type EditorSnapshot } from './input.ts';
-import {
-  uiConversationCount,
-  uiConversationIndexOf,
-  uiConversationWindow,
-  type UiLogEntry,
-  type UiState,
-} from './state.ts';
-import {
-  type AssistantContentRenderer,
-  type AssistantSpan,
-  type ConversationLabelTone,
-  plainTextAssistantRenderer,
-  projectConversationEntry,
-} from './conversation_renderer.ts';
-import { thinkingBodyRenderer } from './assistant_layout.ts';
-import { startupHeaderLines } from './startup_render.ts';
+import { uiConversationCount, uiConversationIndexOf, type UiState } from './state.ts';
+import { type AssistantSpan, type ConversationLabelTone } from './conversation_renderer.ts';
 import {
   cellWidth,
   localTimestampText,
@@ -30,7 +16,6 @@ const MAX_COLUMNS = 512;
 const MAX_ROWS = 200;
 const MAX_EDITOR_ROWS = 8;
 export const MAX_FRAME_BYTES = 128 * 1024;
-const MAX_LAYOUT_SOURCE_BYTES = 2 * 1024 * 1024;
 
 export type FooterTone = 'dim' | 'ready' | 'working';
 
@@ -43,9 +28,7 @@ interface FooterSpan {
 export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
-  readonly sourceScalarOffset?: number;
-  readonly sourceLine?: number;
-  readonly sourceColumn?: number;
+  readonly sourceUtf16Offset?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
   /** Whole-row tone; the renderer applies it to the entire row text. */
@@ -62,19 +45,15 @@ export interface UiLayout {
   readonly rows: number;
   readonly degraded: boolean;
   readonly log: readonly LayoutRow[];
-  readonly allLog: readonly LayoutRow[];
-  readonly logStart: number;
-  readonly totalLogRows: number;
+  readonly viewport?: ConversationView;
   readonly overlay: readonly LayoutRow[];
   readonly beforeInput: readonly LayoutRow[];
   readonly input: readonly LayoutRow[];
   readonly afterInput: readonly LayoutRow[];
   readonly footer: readonly LayoutRow[];
   readonly cursor: { readonly row: number; readonly cell: number };
-  readonly sourceBytes: number;
 }
 
-const encoder = new TextEncoder();
 const clamp = (value: number, min: number, max: number): number =>
   Number.isSafeInteger(value) ? Math.max(min, Math.min(max, value)) : min;
 const width = (text: string): number => cellWidth(safeDisplay(text));
@@ -231,25 +210,12 @@ type HistoryViewport =
 
 const historyViewport = (
   state: UiState,
-  rows: readonly LayoutRow[],
-  start: number,
-  height: number,
+  view: ConversationView,
 ): HistoryViewport => {
-  const firstEntryRow = rows.findIndex((row) => row.entryId !== undefined);
-  if (
-    state.historyWindow?.start === 0 &&
-    (firstEntryRow < 0 || start < firstEntryRow)
-  ) {
-    return { kind: 'start' };
-  }
-  const visibleRow = rows.findIndex((row, index) =>
-    index >= start && index < start + height && row.entryId !== undefined
-  );
-  const entryId = rows[visibleRow]?.entryId;
-  if (entryId === undefined) return { kind: 'start' };
-  const entryIndex = uiConversationIndexOf(state, entryId);
-  if (entryIndex < 0) return { kind: 'start' };
-  return {
+  if (view.atStart) return { kind: 'start' };
+  const entryId = view.cursors.find((cursor) => cursor.entryId !== '@startup')?.entryId;
+  const entryIndex = entryId === undefined ? -1 : uiConversationIndexOf(state, entryId);
+  return entryIndex < 0 ? { kind: 'start' } : {
     kind: 'entry',
     entry: entryIndex + 1,
     totalEntries: uiConversationCount(state),
@@ -591,19 +557,19 @@ const wrap = (
   rowTone?: ConversationLabelTone,
 ): LayoutRow[] => {
   const result: LayoutRow[] = [];
-  const row = (line: string, sourceScalarOffset: number): LayoutRow => {
+  const row = (line: string, sourceUtf16Offset: number): LayoutRow => {
     const labelScalarLength = styledPrefix === undefined ? 0 : Math.max(
       0,
       Math.min(
         [...line].length,
-        styledPrefix.scalarLength - sourceScalarOffset,
+        styledPrefix.scalarLength - sourceUtf16Offset,
       ),
     );
     return {
       text: line,
       kind,
       entryId,
-      sourceScalarOffset,
+      sourceUtf16Offset,
       ...(rowTone === undefined ? {} : { rowTone }),
       ...(labelScalarLength === 0 ? {} : {
         labelScalarLength,
@@ -639,170 +605,6 @@ const wrap = (
   }
   result.push(row(line, lineOffset));
   return result;
-};
-
-const layoutLogEntry = (
-  entry: UiLogEntry,
-  columns: number,
-  assistantRenderer: AssistantContentRenderer,
-  recallAvailable: boolean,
-): EntryLayout => {
-  const result: LayoutRow[] = [];
-  if (entry.kind === 'assistant' || entry.kind === 'thinking') {
-    const labelWidth = [...entry.label].length;
-    const bodyWidth = Math.max(1, columns - labelWidth - 1);
-    const renderer = entry.kind === 'thinking' ? thinkingBodyRenderer : assistantRenderer;
-    const lines = renderer.render(
-      entry.text,
-      entry.live ? 'streaming' : 'settled',
-      bodyWidth,
-    );
-    let offset = 0;
-    const lineOffsets = entry.text.split('\n').map((line) => {
-      const start = offset;
-      offset += [...line].length + 1;
-      return start;
-    });
-    lines.forEach((assistantLine, lineIndex) => {
-      const prefix = lineIndex === 0 ? `${entry.label} ` : '';
-      const shift = [...prefix].length;
-      const body = entry.kind === 'thinking' ? assistantLine.text.trimEnd() : assistantLine.text;
-      const text = safeDisplay(`${prefix}${body}`, false);
-      const spans = assistantLine.spans
-        .filter((span) => span.length > 0)
-        .map((span) => ({
-          start: span.start + shift,
-          length: span.length,
-          tone: span.tone,
-        }));
-      result.push({
-        text,
-        kind: 'log',
-        entryId: entry.id,
-        sourceScalarOffset: (lineOffsets[assistantLine.sourceLine ?? 0] ?? 0) +
-          (assistantLine.sourceColumn ?? 0),
-        ...(assistantLine.sourceLine === undefined ? {} : {
-          sourceLine: assistantLine.sourceLine,
-          sourceColumn: assistantLine.sourceColumn ?? 0,
-        }),
-        ...(lineIndex === 0
-          ? {
-            labelScalarLength: labelWidth,
-            labelTone: entry.kind === 'thinking' ? 'thinking' as const : 'assistant' as const,
-          }
-          : {}),
-        ...(spans.length === 0 ? {} : { spans }),
-      });
-    });
-  } else {
-    const projection = projectConversationEntry(entry, { recallAvailable });
-    result.push(
-      ...wrap(
-        projection.text,
-        columns,
-        'log',
-        entry.id,
-        projection.labelTone === undefined ? undefined : {
-          scalarLength: projection.styledPrefixScalarLength ?? projection.labelScalarLength,
-          tone: projection.labelTone,
-        },
-        projection.rowTone,
-      ).map((row) => ({
-        ...row,
-        sourceScalarOffset: Math.max(
-          0,
-          (row.sourceScalarOffset ?? 0) - projection.labelScalarLength - 1,
-        ),
-      })),
-    );
-  }
-  return {
-    rows: result,
-    sourceBytes: entry.textByteLength ?? encoder.encode(entry.text).byteLength,
-  };
-};
-
-const logRows = (
-  state: UiState,
-  columns: number,
-  assistantRenderer: AssistantContentRenderer,
-  cache?: EntryLayoutCache,
-): { rows: LayoutRow[]; sourceBytes: number } => {
-  const result: LayoutRow[] = [];
-  let sourceBytes = 0;
-  // `/recall` needs the persisted Session history, so a `--no-session` TUI has no reference to
-  // offer on its failure rows.
-  const recallAvailable = state.startup?.state.sessionMode.kind !== 'none';
-  const appendSeparator = (): void => {
-    if (result.at(-1)?.kind !== 'separator') {
-      result.push({ text: '', kind: 'separator' });
-    }
-  };
-  const startupLines = state.startup === undefined || (state.historyWindow?.start ?? 0) > 0
-    ? []
-    : startupHeaderLines(
-      state.startup.state,
-      state.startup.position,
-      columns,
-      state.terminalSize.rows,
-    );
-  for (const line of startupLines) {
-    const content = safeDisplay(line);
-    sourceBytes += encoder.encode(content).byteLength;
-    if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
-    result.push(...wrap(content, columns, 'log'));
-  }
-  if (state.log.omittedCount > 0) {
-    result.push({
-      text: `[${state.log.omittedCount} older entries omitted]`,
-      kind: 'omitted',
-    });
-  }
-  let seenTurnStart = false;
-  const awaitingUserOutput = new Set<number>();
-  let previousEntryKind: UiLogEntry['kind'] | undefined;
-  const visibleEntries = uiConversationWindow(
-    state,
-    state.historyWindow?.start ?? 0,
-    state.historyWindow?.end ?? uiConversationCount(state),
-  );
-  cache?.retain(visibleEntries);
-  for (const entry of visibleEntries) {
-    const turnStart = entry.kind === 'user' && entry.label === 'user>';
-    const userOutputBoundary = entry.turn !== undefined &&
-      awaitingUserOutput.has(entry.turn) &&
-      (entry.kind === 'tool' || entry.kind === 'assistant' ||
-        entry.kind === 'thinking');
-    sourceBytes += entry.textByteLength ??
-      encoder.encode(entry.text).byteLength;
-    if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
-    const thinkingBoundary = previousEntryKind !== undefined &&
-      (entry.kind === 'thinking' || previousEntryKind === 'thinking');
-    if (
-      (turnStart && seenTurnStart) || userOutputBoundary || thinkingBoundary
-    ) {
-      appendSeparator();
-    }
-    const entryLayout = cache === undefined
-      ? layoutLogEntry(entry, columns, assistantRenderer, recallAvailable)
-      : cache.get(
-        entry,
-        columns,
-        assistantRenderer,
-        recallAvailable,
-        () => layoutLogEntry(entry, columns, assistantRenderer, recallAvailable),
-      );
-    result.push(...entryLayout.rows);
-    if (turnStart && entry.turn !== undefined) {
-      seenTurnStart = true;
-      awaitingUserOutput.add(entry.turn);
-    }
-    if (userOutputBoundary && entry.turn !== undefined) {
-      awaitingUserOutput.delete(entry.turn);
-    }
-    previousEntryKind = entry.kind;
-  }
-  return { rows: result, sourceBytes };
 };
 
 const overlayRows = (
@@ -995,14 +797,12 @@ const inputRows = (
   return { rows: visible, cursorRow: cursorRow - first, cursorCell };
 };
 
-/** Pure retained-screen layout. It only reads immutable UI state and a bounded terminal size. */
-export const layoutUi = (
+/** Screen geometry from editor/footer state, without reading conversation bodies. */
+export const measureUi = (
   state: UiState,
   columns = state.terminalSize.columns,
   rows = state.terminalSize.rows,
-  assistantRenderer: AssistantContentRenderer = plainTextAssistantRenderer,
-  cache?: EntryLayoutCache,
-): UiLayout => {
+) => {
   const widthLimit = clamp(columns, 1, MAX_COLUMNS);
   const heightLimit = clamp(rows, 1, MAX_ROWS);
   const degraded = widthLimit < MIN_COLUMNS || heightLimit < MIN_ROWS;
@@ -1039,20 +839,40 @@ export const layoutUi = (
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -
       footerCount,
   );
-  const log = logRows(state, Math.max(1, widthLimit), assistantRenderer, cache);
+  return {
+    widthLimit,
+    heightLimit,
+    degraded,
+    sessionFooter,
+    modelFooter,
+    beforeInputCount,
+    afterInputCount,
+    footerCount,
+    editor,
+    logHeight,
+  };
+};
+
+/** Layout the selected conversation range inside measured screen geometry. */
+export const layoutUi = (
+  state: UiState,
+  columns = state.terminalSize.columns,
+  rows = state.terminalSize.rows,
+  conversation = new ConversationViewport(),
+): UiLayout => {
+  const {
+    widthLimit,
+    heightLimit,
+    degraded,
+    sessionFooter,
+    modelFooter,
+    beforeInputCount,
+    afterInputCount,
+    footerCount,
+    editor,
+    logHeight,
+  } = measureUi(state, columns, rows);
   const overlay = overlayRows(state, Math.max(1, widthLimit), heightLimit);
-  let logStart = Math.max(0, log.rows.length - logHeight);
-  if (state.scroll.kind === 'oldest') {
-    logStart = 0;
-  } else if (state.scroll.kind === 'anchored') {
-    const anchor = state.scroll.entryId;
-    const sourceOffset = state.scroll.sourceScalarOffset;
-    const anchored = log.rows.findLastIndex((row) =>
-      row.entryId === anchor &&
-      (row.sourceScalarOffset ?? 0) <= sourceOffset
-    );
-    if (anchored >= 0) logStart = anchored;
-  }
   const overlayStart = state.overlay.kind === 'startupHelp' ||
       state.overlay.kind === 'readOnlyHelp'
     ? 0
@@ -1098,15 +918,16 @@ export const layoutUi = (
       ];
     })()
     : overlay.rows.slice(overlayStart, overlayStart + logHeight);
-  const visibleLog = overlay.rows.length > 0
-    ? visibleOverlay
-    : log.rows.slice(logStart, logStart + logHeight);
+  const view = overlay.rows.length > 0
+    ? undefined
+    : conversation.view(state, widthLimit, logHeight, heightLimit);
+  const visibleLog = view === undefined ? visibleOverlay : view.rows;
   const paddedLog = [...visibleLog];
   while (paddedLog.length < logHeight) {
     paddedLog.unshift({ text: '', kind: 'log' });
   }
-  const history = state.scroll.kind !== 'followLatest' && state.overlay.kind === 'none'
-    ? historyViewport(state, log.rows, logStart, logHeight)
+  const history = state.scroll.kind !== 'followLatest' && view !== undefined
+    ? historyViewport(state, view)
     : undefined;
   const statusFooter = footerStatusText(
     state,
@@ -1136,9 +957,7 @@ export const layoutUi = (
     rows: heightLimit,
     degraded,
     log: Object.freeze(paddedLog),
-    allLog: Object.freeze(log.rows),
-    logStart,
-    totalLogRows: log.rows.length,
+    viewport: view,
     overlay: Object.freeze(overlay.rows),
     beforeInput: Object.freeze(beforeInput),
     input: Object.freeze(editor.rows),
@@ -1148,8 +967,7 @@ export const layoutUi = (
       row: logHeight + beforeInput.length + editor.cursorRow,
       cell: Math.min(widthLimit, editor.cursorCell + 2),
     }),
-    sourceBytes: Math.min(MAX_LAYOUT_SOURCE_BYTES, log.sourceBytes),
   });
 };
 
-export type { UiLogEntry };
+export type { UiLogEntry } from './state.ts';

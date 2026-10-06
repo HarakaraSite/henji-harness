@@ -1,6 +1,6 @@
-import { markdownAssistantRenderer } from '../../v0/tui/assistant_layout.ts';
 import { cellWidth } from '../../v0/tui/terminal_text.ts';
-import type { AssistantLine, AssistantSpanTone } from '../../v0/tui/conversation_renderer.ts';
+import type { AssistantSpanTone } from '../../v0/tui/conversation_renderer.ts';
+import { collectMarkdownBodyForTest } from './body_document_fixture.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -12,7 +12,7 @@ const assert: (condition: unknown, message?: string) => asserts condition = (
 const widthOf = (text: string): number => cellWidth(text);
 
 const render = (text: string, width: number): string[] =>
-  markdownAssistantRenderer.render(text, 'settled', width).map((line) => line.text);
+  collectMarkdownBodyForTest(text, width).map((line) => line.text);
 
 const pipePositions = (text: string): number[] => {
   const result: number[] = [];
@@ -44,9 +44,14 @@ Deno.test('Increment 84 wraps CJK runs by display cells', () => {
 });
 
 Deno.test('Increment 84 hangs list continuation lines under the marker', () => {
-  const lines = render('- one two three four five six seven eight nine ten', 12);
+  const lines = render(
+    '- one two three four five six seven eight nine ten',
+    12,
+  );
   assert(lines[0].startsWith('- '));
-  for (const continuation of lines.slice(1)) assert(continuation.startsWith('  '));
+  for (const continuation of lines.slice(1)) {
+    assert(continuation.startsWith('  '));
+  }
   for (const line of lines) assert(widthOf(line) <= 12);
 });
 
@@ -99,45 +104,56 @@ Deno.test('Increment 98 leaves fenced code blocks uncolored', () => {
     'const x = 1;',
     '```',
   ].join('\n');
-  const lines = markdownAssistantRenderer.render(markdown, 'settled', 40);
+  const lines = collectMarkdownBodyForTest(markdown, 40);
   assert(lines.length >= 3);
-  assert(lines.every((line) => line.spans.length === 0), 'fenced code must not be colored');
+  assert(
+    lines.every((line) => line.spans.length === 0),
+    'fenced code must not be colored',
+  );
 });
 
 Deno.test('Increment 84 marks inline emphasis and leaves code uncolored', () => {
-  const [line] = markdownAssistantRenderer.render(
+  const [line] = collectMarkdownBodyForTest(
     'a *italic* **bold** ***triple*** `code`',
-    'settled',
     60,
   );
   const chars = [...line.text];
-  const textOf = (span: { readonly start: number; readonly length: number }): string =>
-    chars.slice(span.start, span.start + span.length).join('');
+  const textOf = (
+    span: { readonly start: number; readonly length: number },
+  ): string => chars.slice(span.start, span.start + span.length).join('');
   assert(
     line.spans.every((span) => textOf(span) !== 'code'),
     'inline code must not be colored',
   );
-  const emphasis = line.spans.filter((span) => span.tone === 'emphasis').map(textOf);
+  const emphasis = line.spans.filter((span) => span.tone === 'emphasis').map(
+    textOf,
+  );
   for (const expected of ['*italic*', '**bold**', '***triple***']) {
     assert(emphasis.includes(expected), `missing emphasis span ${expected}`);
   }
-  assert(emphasis.length === 3, `unexpected emphasis spans: ${JSON.stringify(emphasis)}`);
+  assert(
+    emphasis.length === 3,
+    `unexpected emphasis spans: ${JSON.stringify(emphasis)}`,
+  );
 });
 
 Deno.test('Increment 84 marks heading and list markers', () => {
-  const heading = markdownAssistantRenderer.render('## Title', 'settled', 40)[0];
+  const heading = collectMarkdownBodyForTest('## Title', 40)[0];
   assert(
     heading.spans.some((span) =>
-      span.tone === 'heading' && span.start === 0 && span.length === [...heading.text].length
+      span.tone === 'heading' && span.start === 0 &&
+      span.length === [...heading.text].length
     ),
     'heading span does not cover the whole line',
   );
-  const list = markdownAssistantRenderer.render('- item', 'settled', 40)[0];
-  assert(list.spans.some((span) => span.tone === 'list' && span.start === 0 && span.length === 1));
+  const list = collectMarkdownBodyForTest('- item', 40)[0];
+  assert(
+    list.spans.some((span) => span.tone === 'list' && span.start === 0 && span.length === 1),
+  );
 });
 
 Deno.test('Increment 96 renders * ** and *** emphasis green including markers', () => {
-  const [line] = markdownAssistantRenderer.render('a *i* **b** ***c***', 'settled', 40);
+  const [line] = collectMarkdownBodyForTest('a *i* **b** ***c***', 40);
   const chars = [...line.text];
   const emphasis = line.spans
     .filter((span) => span.tone === 'emphasis')
@@ -145,20 +161,26 @@ Deno.test('Increment 96 renders * ** and *** emphasis green including markers', 
   for (const expected of ['*i*', '**b**', '***c***']) {
     assert(emphasis.includes(expected), `missing emphasis span ${expected}`);
   }
-  assert(emphasis.length === 3, `unexpected emphasis spans: ${JSON.stringify(emphasis)}`);
-  assert(line.spans.every((span) => span.tone !== 'bold'), 'emphasis produced a bold span');
+  assert(
+    emphasis.length === 3,
+    `unexpected emphasis spans: ${JSON.stringify(emphasis)}`,
+  );
+  assert(
+    line.spans.every((span) => span.tone !== 'bold'),
+    'emphasis produced a bold span',
+  );
 });
 
 Deno.test('Increment 96 colors the whole wrapped heading line', () => {
-  const lines = markdownAssistantRenderer.render(
+  const lines = collectMarkdownBodyForTest(
     '## alpha bravo charlie delta echo',
-    'settled',
     14,
   );
   for (const line of lines) {
     assert(
       line.spans.some((span) =>
-        span.tone === 'heading' && span.start === 0 && span.length === [...line.text].length
+        span.tone === 'heading' && span.start === 0 &&
+        span.length === [...line.text].length
       ),
       `heading line not fully colored: ${line.text}`,
     );
@@ -166,7 +188,10 @@ Deno.test('Increment 96 colors the whole wrapped heading line', () => {
 });
 
 Deno.test('Increment 96 keeps inline emphasis spans across wrapped lines', () => {
-  const covered = (lines: readonly AssistantLine[], tone: AssistantSpanTone): string =>
+  const covered = (
+    lines: readonly ReturnType<typeof collectMarkdownBodyForTest>[number][],
+    tone: AssistantSpanTone,
+  ): string =>
     lines.map((line) => {
       const chars = [...line.text];
       return line.spans
@@ -176,9 +201,8 @@ Deno.test('Increment 96 keeps inline emphasis spans across wrapped lines', () =>
     }).join('');
 
   const emphasisBody = `**${'あ'.repeat(40)}**`;
-  const emphasisLines = markdownAssistantRenderer.render(
+  const emphasisLines = collectMarkdownBodyForTest(
     `pre ${emphasisBody} post`,
-    'settled',
     16,
   );
   assert(

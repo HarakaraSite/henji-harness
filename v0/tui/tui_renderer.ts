@@ -36,11 +36,9 @@ import type { EditorSnapshot } from './input.ts';
 import type { PendingMetadataSnapshot } from './pending_input.ts';
 import {
   createUiState,
-  pageHistoryWindow,
   reduceUiAction,
   reduceUiEvent,
   setUiProjection,
-  uiConversationCount,
   type UiFooter,
   type UiState,
 } from './state.ts';
@@ -50,21 +48,15 @@ import {
   type LayoutRow,
   layoutUi,
   MAX_FRAME_BYTES,
+  measureUi,
   type UiLayout,
 } from './layout.ts';
-import {
-  type AssistantContentRenderer,
-  type AssistantSpanTone,
-  type ConversationLabelTone,
-} from './conversation_renderer.ts';
-import { markdownAssistantRenderer } from './assistant_layout.ts';
-import { EntryLayoutCache } from './entry_layout_cache.ts';
+import { type AssistantSpanTone, type ConversationLabelTone } from './conversation_renderer.ts';
+import { ConversationViewport } from './conversation_viewport.ts';
 import { startupHelpLines } from './startup_render.ts';
 import { cellWidth, encoder, segmentTerminalText } from './terminal_text.ts';
 
 export interface TuiRendererOptions {
-  /** Host-local assistant body renderer; the default lays out markdown readability spans. */
-  readonly assistantRenderer?: AssistantContentRenderer;
   readonly now?: () => number;
   readonly setInterval?: (
     callback: () => void,
@@ -199,7 +191,6 @@ const boundedStyledRow = (text: string, maxBytes: number): string => {
 
 /** Retained renderer for the production TUI and its injected test seams. */
 export class TuiRenderer implements TerminalRendererGate {
-  private readonly assistantRenderer: AssistantContentRenderer;
   private closing = false;
   private lastSize = { columns: 80, rows: 24 };
   private currentPosition: PresentationPosition | undefined;
@@ -227,15 +218,14 @@ export class TuiRenderer implements TerminalRendererGate {
   private displayedLayout: UiLayout | undefined;
   private navigationGeneration = 0;
   private displayedNavigationGeneration = 0;
-  private readonly entryLayoutCache = new EntryLayoutCache();
+  private readonly conversation = new ConversationViewport();
+  private readonly styledRows = new WeakMap<LayoutRow, { columns: number; text: string }>();
   private readonly renderFailureHandlers = new Set<() => void>();
 
   constructor(
     private readonly terminal: TerminalPort,
     options: TuiRendererOptions = {},
   ) {
-    this.assistantRenderer = options.assistantRenderer ??
-      markdownAssistantRenderer;
     this.now = options.now ?? Date.now;
     this.scheduleInterval = options.setInterval ??
       ((callback, milliseconds) => globalThis.setInterval(callback, milliseconds));
@@ -275,8 +265,7 @@ export class TuiRenderer implements TerminalRendererGate {
       this.ui,
       columns,
       rows,
-      this.assistantRenderer,
-      this.entryLayoutCache,
+      this.conversation,
     );
   }
 
@@ -297,13 +286,21 @@ export class TuiRenderer implements TerminalRendererGate {
     return this.frameFromLayout(layout);
   }
 
+  private renderRow(row: LayoutRow, columns: number): string {
+    const cached = this.styledRows.get(row);
+    if (cached?.columns === columns) return cached.text;
+    const text = renderLayoutRow(row, columns);
+    this.styledRows.set(row, { columns, text });
+    return text;
+  }
+
   private frameFromLayout(layout: UiLayout): ScreenFrame {
     const rendered = [
-      ...layout.log.map((row) => renderLayoutRow(row, layout.columns)),
+      ...layout.log.map((row) => this.renderRow(row, layout.columns)),
       ...layout.beforeInput.map((line) => line.text),
       ...layout.input.map((line) => `> ${line.text}`),
       ...layout.afterInput.map((line) => line.text),
-      ...layout.footer.map((row) => renderLayoutRow(row, layout.columns)),
+      ...layout.footer.map((row) => this.renderRow(row, layout.columns)),
     ];
     // Reserve positioning/sync controls. Keep row coordinates fixed when omitting content.
     let available = Math.max(0, MAX_FRAME_BYTES - rendered.length * 32 - 128);
@@ -653,11 +650,12 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   /** Notify the retained layout of a UI-local resize without crossing into the core. */
-  resize(columns: number, rows: number): void {
+  resize(columns: number, rows: number, redraw = true): void {
     this.geometryGeneration += 1;
     const oldLayout = this.displayedLayout;
-    const oldAnchor = this.ui.scroll.kind === 'anchored' && oldLayout !== undefined
-      ? oldLayout.allLog[oldLayout.logStart]
+    const oldAnchor = this.ui.scroll.kind === 'anchored' && oldLayout !== undefined &&
+        this.navigationGeneration === this.displayedNavigationGeneration
+      ? oldLayout.viewport?.cursors[0]
       : undefined;
     this.lastSize = {
       columns: Number.isSafeInteger(columns) && columns > 0 ? columns : this.lastSize.columns,
@@ -672,7 +670,8 @@ export class TuiRenderer implements TerminalRendererGate {
         mode: {
           kind: 'anchored',
           entryId: oldAnchor.entryId,
-          sourceScalarOffset: oldAnchor.sourceScalarOffset ?? 0,
+          sourceUtf16Offset: oldAnchor.sourceUtf16Offset,
+          part: oldAnchor.part,
         },
       });
     }
@@ -694,7 +693,7 @@ export class TuiRenderer implements TerminalRendererGate {
         },
       });
     }
-    this.redraw();
+    if (redraw) this.redraw();
   }
 
   /** End a bounded modal projection and restore the main editor line. */
@@ -707,145 +706,28 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  /** UI-local scroll action; source anchors remain entry identity plus scalar offset. */
+  /** Page from the displayed position, accumulating operations not yet written. */
   scrollPage(direction: 'up' | 'down'): void {
-    // Navigation starts at the content the user last saw, even when a projection is pending.
-    const layout = this.navigationGeneration === this.displayedNavigationGeneration
-      ? this.displayedLayout ?? this.layoutSnapshot()
-      : this.layoutSnapshot();
-    this.navigationGeneration += 1;
-    const rows = layout.allLog;
-    if (rows.length === 0) return;
-    const viewport = Math.max(1, layout.log.length);
-    let currentStart = layout.logStart;
-    if (this.ui.scroll.kind === 'oldest') {
-      currentStart = 0;
-    } else if (this.ui.scroll.kind === 'anchored') {
-      const anchor = this.ui.scroll.entryId;
-      const offset = this.ui.scroll.sourceScalarOffset;
-      const anchored = rows.findLastIndex((row) =>
-        row.entryId === anchor && (row.sourceScalarOffset ?? 0) <= offset
-      );
-      if (anchored >= 0) currentStart = anchored;
-    }
-    const maxStart = Math.max(0, rows.length - viewport);
-    const history = this.ui.historyWindow;
-    if (
-      direction === 'up' && (currentStart === 0 || maxStart === 0) &&
-      history !== undefined && history.start > 0
-    ) {
-      this.ui = pageHistoryWindow(this.ui, 'up');
-      const previousPage = this.layoutSnapshot();
-      if (
-        this.ui.historyWindow?.start === 0 &&
-        previousPage.allLog.length <= viewport
-      ) {
-        this.ui = reduceUiAction(this.ui, {
-          kind: 'scroll',
-          mode: { kind: 'oldest' },
-        });
-      } else {
-        const firstVisible = previousPage.log.find((row) => row.entryId !== undefined);
-        if (firstVisible?.entryId !== undefined) {
-          this.ui = reduceUiAction(this.ui, {
-            kind: 'scroll',
-            mode: {
-              kind: 'anchored',
-              entryId: firstVisible.entryId,
-              sourceScalarOffset: firstVisible.sourceScalarOffset ?? 0,
-            },
-          });
-        }
-      }
-      this.redraw();
-      return;
-    }
-    if (
-      direction === 'down' && currentStart >= maxStart &&
-      history !== undefined &&
-      history.end < uiConversationCount(this.ui)
-    ) {
-      this.ui = pageHistoryWindow(this.ui, 'down');
-      this.redraw();
-      return;
-    }
-    if (maxStart === 0) {
-      if (
-        direction === 'up' && history?.start === 0 &&
-        history.end < uiConversationCount(this.ui) &&
-        this.ui.scroll.kind !== 'oldest'
-      ) {
-        this.ui = reduceUiAction(this.ui, {
-          kind: 'scroll',
-          mode: { kind: 'oldest' },
-        });
-        this.redraw();
-      } else if (
-        direction === 'down' && this.ui.scroll.kind !== 'followLatest'
-      ) {
-        this.latest();
-      }
-      return;
-    }
-    const nextStart = Math.max(
-      0,
-      Math.min(
-        maxStart,
-        currentStart + (direction === 'up' ? -viewport : viewport),
-      ),
+    const geometry = measureUi(this.ui, this.lastSize.columns, this.lastSize.rows);
+    const displayed = this.navigationGeneration === this.displayedNavigationGeneration &&
+        this.displayedLayout?.columns === geometry.widthLimit &&
+        this.displayedLayout.rows === geometry.heightLimit
+      ? this.displayedLayout.viewport
+      : undefined;
+    const mode = this.conversation.page(
+      this.ui,
+      geometry.widthLimit,
+      geometry.logHeight,
+      direction,
+      displayed,
     );
-    if (direction === 'down' && nextStart === maxStart) {
-      if (history === undefined || history.end >= uiConversationCount(this.ui)) {
-        this.latest();
-        return;
-      }
-    }
-    if (direction === 'up' && nextStart === 0) {
-      this.ui = reduceUiAction(this.ui, {
-        kind: 'scroll',
-        mode: { kind: 'oldest' },
-      });
-      this.redraw();
-      return;
-    }
-    let target = rows[nextStart];
-    if (target?.entryId === undefined) {
-      const step = direction === 'up' ? -1 : 1;
-      for (
-        let index = nextStart;
-        index >= 0 && index < rows.length;
-        index += step
-      ) {
-        if (rows[index].entryId !== undefined) {
-          target = rows[index];
-          break;
-        }
-      }
-    }
-    if (target?.entryId === undefined) {
-      if (direction === 'up') {
-        this.ui = reduceUiAction(this.ui, {
-          kind: 'scroll',
-          mode: { kind: 'oldest' },
-        });
-        this.redraw();
-        return;
-      }
-      this.latest();
-      return;
-    }
-    this.ui = reduceUiAction(this.ui, {
-      kind: 'scroll',
-      mode: {
-        kind: 'anchored',
-        entryId: target.entryId,
-        sourceScalarOffset: target.sourceScalarOffset ?? 0,
-      },
-    });
+    this.navigationGeneration += 1;
+    this.ui = reduceUiAction(this.ui, { kind: 'scroll', mode });
     this.redraw();
   }
 
   latest(redraw = true): void {
+    this.navigationGeneration += 1;
     this.ui = reduceUiAction(this.ui, { kind: 'latest' });
     if (redraw) this.redraw();
   }
@@ -966,7 +848,7 @@ export class TuiRenderer implements TerminalRendererGate {
     if (scope === this.displayScope) return;
     this.displayScope = scope;
     this.displayedLayout = undefined;
-    this.entryLayoutCache.clear();
+    this.conversation.reset();
     this.clearModal();
     this.latest();
   }
@@ -976,8 +858,11 @@ export class TuiRenderer implements TerminalRendererGate {
     resetScroll = false,
     structureChanged = false,
     previousIds?: readonly string[],
+    changedIds: ReadonlySet<string> = new Set(store.ids()),
   ): void {
     if (this.closing) return;
+    if (resetScroll) this.navigationGeneration += 1;
+    this.conversation.changed(changedIds, structureChanged || resetScroll);
     this.ui = reduceUiAction(this.ui, {
       kind: 'keyed_conversation',
       store,
@@ -1029,11 +914,7 @@ export class TuiRenderer implements TerminalRendererGate {
       this.ui.terminalSize.columns !== this.lastSize.columns ||
       this.ui.terminalSize.rows !== this.lastSize.rows
     ) {
-      this.ui = reduceUiAction(this.ui, {
-        kind: 'resize',
-        columns: this.lastSize.columns,
-        rows: this.lastSize.rows,
-      });
+      this.resize(this.lastSize.columns, this.lastSize.rows, false);
     }
     const layout = this.layoutSnapshot(
       this.lastSize.columns,
@@ -1041,8 +922,9 @@ export class TuiRenderer implements TerminalRendererGate {
     );
     const frame = this.frameFromLayout(layout);
     const navigationGeneration = this.navigationGeneration;
+    const geometryGeneration = this.geometryGeneration;
     this.terminal.writeFrame(frame, () => {
-      if (frame.scope === this.displayScope) {
+      if (frame.scope === this.displayScope && geometryGeneration === this.geometryGeneration) {
         this.displayedLayout = layout;
         this.displayedNavigationGeneration = navigationGeneration;
       }

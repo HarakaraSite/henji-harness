@@ -14,7 +14,6 @@ import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentatio
 import { ImmediateTuiRenderer as TuiRenderer } from './tui_renderer_fixture.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
 import {
-  type AssistantContentRenderer,
   failureRecallGuidance,
   failureRecallGuidanceFor,
 } from '../../v0/tui/conversation_renderer.ts';
@@ -124,7 +123,7 @@ Deno.test('conversation presentation keeps successful operational metadata out o
   );
 });
 
-Deno.test('thinking keeps paragraph breaks, wraps at words, and leaves room around tools', () => {
+Deno.test('thinking preserves plain text and paragraph breaks with mechanical cell wrapping', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'user_message',
@@ -164,32 +163,22 @@ Deno.test('thinking keeps paragraph breaks, wraps at words, and leaves room arou
     message: { role: 'assistant', content: { kind: 'text', text: 'The READMEs match.' } },
   });
 
-  assertEquals(layoutUi(state, 80, 24).allLog.map((row) => row.text), [
-    'user> compare READMEs',
-    '',
-    'thinking> Compare the English and Japanese README files section by section',
-    'before reporting the result.',
-    '',
-    'Check the examples next.',
-    '',
-    'tool> read README.md …',
-    '',
-    'thinking> The examples match.',
-    '',
-    'assistant> The READMEs match.',
-  ]);
+  const view = layoutUi(state, 80, 24).viewport!;
+  const thoughts = view.rows.filter((row) => row.entryId?.includes('thinking'));
+  const firstThought = state.log.entries.find((entry) => entry.kind === 'thinking')!;
+  assertEquals(
+    thoughts.filter((row) => row.entryId === firstThought.id && row.labelTone === undefined)
+      .map((row) => row.text).join('\n'),
+    'Compare the English and Japanese README files section by section before reportin\ng the result.\n\nCheck the examples next.',
+  );
+  assert(view.rows.some((row) => row.text === 'tool> read README.md …'));
+  assert(view.rows.some((row) => row.text === 'The READMEs match.'));
+  assert(view.rows.some((row) => row.kind === 'separator'));
 });
 
 Deno.test('conversation layout stays plain while retained frame colors exact conversation labels', () => {
   const terminal = new FakeTerminal();
-  const phases: string[] = [];
-  const assistantRenderer: AssistantContentRenderer = {
-    render: (text, phase) => {
-      phases.push(phase);
-      return text.split('\n').map((line) => ({ text: line, spans: [] }));
-    },
-  };
-  const renderer = new TuiRenderer(terminal, { assistantRenderer });
+  const renderer = new TuiRenderer(terminal);
   renderer.eventSink({
     kind: 'user_message',
     turn: 1,
@@ -197,10 +186,10 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
   });
   renderer.eventSink({ kind: 'assistant_progress', turn: 1, text: '途中' });
   const streaming = renderer.layoutSnapshot(4, 24);
-  assert(streaming.allLog.map((row) => row.text).join('').includes('assistant~'));
-  assert(streaming.allLog.every((row) => !row.text.includes('\x1b')));
+  assert(streaming.log.map((row) => row.text).join('').includes('assistant~'));
+  assert(streaming.log.every((row) => !row.text.includes('\x1b')));
   assert(
-    renderer.layoutSnapshot(80, 24).allLog.some((row) =>
+    renderer.layoutSnapshot(80, 24).log.some((row) =>
       row.text.includes('assistant~') && row.labelTone === 'assistant'
     ),
   );
@@ -233,24 +222,23 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
   });
   renderer.eventSink({ kind: 'notice', generation: 1, text: '履歴を保存しました' });
   const layout = renderer.layoutSnapshot(80, 24);
-  assert(layout.allLog.every((row) => !row.text.includes('\x1b')));
-  assert(layout.allLog.some((row) => row.labelTone === 'user'));
-  assert(layout.allLog.some((row) => row.labelTone === 'assistant'));
-  assert(layout.allLog.some((row) => row.labelTone === 'tool'));
+  assert(layout.log.every((row) => !row.text.includes('\x1b')));
+  assert(layout.log.some((row) => row.labelTone === 'user'));
+  assert(layout.log.some((row) => row.labelTone === 'assistant'));
+  assert(layout.log.some((row) => row.labelTone === 'tool'));
   assert(
-    layout.allLog.some((row) => row.text.startsWith('system>') && row.labelTone === undefined),
+    layout.log.some((row) => row.text.startsWith('system>') && row.labelTone === undefined),
   );
   const frame = renderer.renderFrame(80, 24);
   const userPanel = `\x1b[39m\x1b[48;5;237m\x1b[33muser>\x1b[39m 質問${' '.repeat(70)}\x1b[0m`;
   assert(frame.includes(userPanel));
-  assert(frame.includes('\x1b[33massistant>\x1b[0m 回答'));
+  assert(frame.includes('\x1b[33massistant>\x1b[0m'));
+  assert(layout.log.some((row) => row.text === '回答' && row.labelTone === undefined));
   assert(frame.includes('\x1b[32;2mtool> bash\x1b[0m printf result ✓'));
   assert(frame.includes('system> 履歴を保存しました'));
   assert(!frame.includes('\x1b[33m回答'));
   assert(!frame.includes('\x1b[32;2mprintf'));
   assert(!frame.includes('\x1b[35m履歴'));
-  assert(phases.includes('streaming'));
-  assert(phases.includes('settled'));
 });
 
 Deno.test('conversation presentation reduces tool activity without source contents or raw JSON', () => {
@@ -436,7 +424,7 @@ Deno.test('conversation presentation keeps the final answer after tools that fol
   assertEquals(state.log.entries.at(-1)?.text, 'final answer');
   const layout = layoutUi(state, 80, 24);
   assert(layout.log.some((row) => row.text.includes('final answer')));
-  assertEquals(layout.allLog.at(-1)?.text, 'assistant> final answer');
+  assertEquals(layout.log.at(-1)?.text, 'final answer');
 });
 
 Deno.test('conversation presentation retains assistant text accompanying a tool call', () => {
@@ -681,11 +669,11 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
     },
   });
   const layout = renderer.layoutSnapshot(80, 24);
-  assert(layout.allLog.every((row) => !row.text.includes('\x1b')));
+  assert(layout.log.every((row) => !row.text.includes('\x1b')));
   assert(
-    layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'heading')),
+    layout.log.some((row) => (row.spans ?? []).some((span) => span.tone === 'heading')),
   );
-  assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
+  assert(layout.log.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
   const frame = renderer.renderFrame(80, 24);
   assert(frame.includes('\x1b[34m# Primary\x1b[0m'));
   assert(frame.includes('\x1b[34m## Secondary\x1b[0m'));
@@ -838,16 +826,18 @@ Deno.test('conversation layout derives turn and input boundaries without changin
 
   const layout = layoutUi(state, 80, 24);
   assertEquals(state.log.entries.length, 6);
-  assertEquals(layout.allLog.map((row) => row.text), [
+  assertEquals(layout.viewport!.rows.map((row) => row.text), [
     'user> first',
     '',
     'tool> read README.md lines 1–200 ✓',
     'tool> bash git status --short ✓',
-    'assistant> first answer',
+    'assistant>',
+    'first answer',
     '',
     'user> second',
     '',
-    'assistant> second answer',
+    'assistant>',
+    'second answer',
   ]);
   assertEquals(layout.beforeInput.map((row) => row.text), ['']);
   assertEquals(layout.afterInput.map((row) => row.text), ['']);
@@ -911,12 +901,13 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   };
   const renderer = new TuiRenderer(new FakeTerminal());
   projectEntities(renderer, entities, ['first', 'read', 'bash', 'answer']);
-  assertEquals(layoutUi(renderer.stateSnapshot(), 80, 24).allLog.map((row) => row.text), [
+  assertEquals(layoutUi(renderer.stateSnapshot(), 80, 24).viewport!.rows.map((row) => row.text), [
     'user> first',
     '',
     'tool> read README.md lines 1–200 ✓',
     'tool> bash git status --short ✓',
-    'assistant> first answer',
+    'assistant>',
+    'first answer',
   ]);
 });
 
@@ -1112,7 +1103,7 @@ const failureDiagnostic = (
 });
 
 const failureRows = (renderer: TuiRenderer) =>
-  renderer.layoutSnapshot(80, 24).allLog.filter((row) => row.entryId?.startsWith('failure:'));
+  renderer.layoutSnapshot(80, 24).log.filter((row) => row.entryId?.startsWith('failure:'));
 
 /** The two stopped-execution display shapes observed in the production TUI. */
 const failureCases = [
@@ -1253,7 +1244,7 @@ Deno.test('tool label and displayed name stay green dim across wrapping and sett
     const name = 'read';
     const entity: Extract<ConversationEntity, { kind: 'tool' }> = {
       kind: 'tool',
-      id: 'tool-color',
+      id: 'tool',
       executionId: 'color-execution',
       turn: 1,
       version: 0,
@@ -1290,7 +1281,7 @@ Deno.test('tool label and displayed name stay green dim across wrapping and sett
       }
       const frame = renderer.renderFrame(80, 24);
       assert(frame.includes('\x1b[32;2mtool> read\x1b[0m needle ' + (settled ? '✓' : '…')));
-      const rows = renderer.layoutSnapshot(9, 24).allLog.filter((row) => row.entryId !== undefined);
+      const rows = renderer.layoutSnapshot(9, 24).log.filter((row) => row.entryId !== undefined);
       assertEquals(
         rows.map((row) => row.text).join(''),
         'tool> read needle ' + (settled ? '✓' : '…'),
@@ -1310,7 +1301,7 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
     turn: 1,
     message: { role: 'user', content: { kind: 'text', text: '質問'.repeat(30) } },
   });
-  const rows = renderer.layoutSnapshot(80, 24).allLog.filter((row) => row.rowTone === 'user');
+  const rows = renderer.layoutSnapshot(80, 24).log.filter((row) => row.rowTone === 'user');
   assert(rows.length > 1);
   const panel = renderer.renderFrame(80, 24);
   for (const row of rows) {
@@ -1381,7 +1372,8 @@ Deno.test('thinking and summary labels are green dim while Assistant notes use o
         const label = (thinkingKind === 'summary' ? 'thinking summary' : 'thinking') +
           (complete ? '>' : '~');
         const frame = renderer.renderFrame(80, 24);
-        assert(frame.includes(`\x1b[32;2m${label}\x1b[0m READABLE_THOUGHT`));
+        assert(frame.includes(`\x1b[32;2m${label}\x1b[0m`));
+        assert(renderer.layoutSnapshot().log.some((row) => row.text === 'READABLE_THOUGHT'));
         assert(!frame.includes('\x1b[32;2mREADABLE_THOUGHT'));
         renderer.close();
       }
@@ -1402,6 +1394,7 @@ Deno.test('thinking and summary labels are green dim while Assistant notes use o
       toolIds: ['read-call'],
     },
   }, ['note']);
-  assert(renderer.renderFrame(80, 24).includes('\x1b[33massistant note>\x1b[0m READABLE_NOTE'));
+  assert(renderer.renderFrame(80, 24).includes('\x1b[33massistant note>\x1b[0m'));
+  assert(renderer.layoutSnapshot().log.some((row) => row.text === 'READABLE_NOTE'));
   renderer.close();
 });

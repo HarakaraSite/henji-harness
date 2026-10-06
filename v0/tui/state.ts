@@ -101,7 +101,8 @@ type UiScroll =
     {
       readonly kind: 'anchored';
       readonly entryId: string;
-      readonly sourceScalarOffset: number;
+      readonly sourceUtf16Offset: number;
+      readonly part?: 'separator' | 'label' | 'body';
     }
   >;
 
@@ -127,10 +128,6 @@ export interface UiState {
   >;
   /** Schema-2 remote conversation rows are held by identity and ordered only structurally. */
   readonly keyedConversation?: KeyedConversationStore;
-  /** A rendering window over the complete conversation log. */
-  readonly historyWindow?: Readonly<
-    { readonly start: number; readonly end: number }
-  >;
   readonly activeAssistantId?: string;
   readonly activeToolIds: readonly string[];
   readonly turnAttemptOrdinal: number;
@@ -194,8 +191,6 @@ type UiAction =
   | Readonly<{ readonly kind: 'overlay'; readonly overlay: UiOverlay }>;
 
 const encoder = new TextEncoder();
-const bytes = (text: string): number => encoder.encode(text).byteLength;
-const entryBytes = (entry: UiLogEntry): number => entry.textByteLength ?? bytes(entry.text);
 const snapshot = <T>(value: T): T => snapshotPresentation(value);
 
 const safeText = (text: string): string => {
@@ -256,8 +251,10 @@ export const presentationFailureReason = (
   }
 };
 
-const freezeEntry = (entry: UiLogEntry): UiLogEntry => {
-  const safe = safeTextToBytes(entry.text, UI_MAX_ENTRY_BYTES);
+const freezeEntry = (entry: UiLogEntry, previous?: UiLogEntry): UiLogEntry => {
+  const safe = previous?.text === entry.text && previous.textByteLength !== undefined
+    ? { text: entry.text, byteLength: previous.textByteLength }
+    : safeTextToBytes(entry.text, UI_MAX_ENTRY_BYTES);
   return Object.freeze({
     ...entry,
     text: safe.text,
@@ -268,28 +265,10 @@ const freezeEntry = (entry: UiLogEntry): UiLogEntry => {
 /** Normalize and retain the UTF-8 size for a newly projected conversation entry. */
 export const freezeUiLogEntry = freezeEntry;
 
-const HISTORY_WINDOW_BYTES = 1024 * 1024;
-const HISTORY_WINDOW_ENTRIES = 48;
-
-const historyWindowEndingAt = (
-  entries: readonly UiLogEntry[],
-  end: number,
-): Readonly<{ start: number; end: number }> => {
-  let start = end;
-  let size = 0;
-  while (start > 0 && end - start < HISTORY_WINDOW_ENTRIES) {
-    const nextSize = entryBytes(entries[start - 1]);
-    if (start < end && size + nextSize > HISTORY_WINDOW_BYTES) break;
-    start -= 1;
-    size += nextSize;
-  }
-  return Object.freeze({ start, end });
-};
-
 export const uiConversationCount = (state: UiState): number =>
   state.keyedConversation?.size ?? state.log.entries.length;
 
-const uiConversationEntryAt = (state: UiState, index: number): UiLogEntry | undefined =>
+export const uiConversationEntryAt = (state: UiState, index: number): UiLogEntry | undefined =>
   state.keyedConversation?.entryAt(index) ?? state.log.entries[index];
 
 export const uiConversationIndexOf = (state: UiState, id: string): number =>
@@ -302,61 +281,6 @@ export const uiConversationWindow = (
 ): readonly UiLogEntry[] =>
   state.keyedConversation?.window(start, end) ??
     state.log.entries.slice(start, end);
-
-const historyWindowEndingAtUi = (state: UiState, end: number) => {
-  const total = uiConversationCount(state);
-  let start = end;
-  let size = 0;
-  while (start > 0 && end - start < HISTORY_WINDOW_ENTRIES) {
-    const entry = uiConversationEntryAt(state, start - 1);
-    const nextSize = entry === undefined ? 0 : entryBytes(entry);
-    if (start < end && size + nextSize > HISTORY_WINDOW_BYTES) break;
-    start -= 1;
-    size += nextSize;
-  }
-  return Object.freeze({
-    start: Math.max(0, Math.min(start, total)),
-    end: Math.max(0, Math.min(end, total)),
-  });
-};
-
-const historyWindowStartingAtUi = (state: UiState, start: number) => {
-  let end = start;
-  let size = 0;
-  const total = uiConversationCount(state);
-  while (end < total && end - start < HISTORY_WINDOW_ENTRIES) {
-    const entry = uiConversationEntryAt(state, end);
-    const nextSize = entry === undefined ? 0 : entryBytes(entry);
-    if (end > start && size + nextSize > HISTORY_WINDOW_BYTES) break;
-    end += 1;
-    size += nextSize;
-  }
-  return Object.freeze({ start: Math.max(0, Math.min(start, total)), end });
-};
-
-export const pageHistoryWindow = (
-  state: UiState,
-  direction: 'up' | 'down',
-): UiState => {
-  const window = state.historyWindow;
-  if (window === undefined) return state;
-  if (direction === 'up') {
-    if (window.start === 0) return state;
-    const next = historyWindowEndingAtUi(state, window.start);
-    return Object.freeze({
-      ...state,
-      historyWindow: next,
-      scroll: Object.freeze({ kind: 'followLatest' as const }),
-    });
-  }
-  if (window.end >= uiConversationCount(state)) return state;
-  const next = historyWindowStartingAtUi(state, window.end);
-  return Object.freeze({
-    ...state,
-    historyWindow: next,
-    scroll: Object.freeze({ kind: 'oldest' as const }),
-  });
-};
 
 const turnEntryId = (state: UiState, turn: number, suffix: string): string =>
   `turn-${turn}:attempt-${state.turnAttemptOrdinal}:${suffix}`;
@@ -380,9 +304,6 @@ const appendEntry = (
       entries: Object.freeze(entries),
       omittedCount: state.log.omittedCount,
     }),
-    historyWindow: state.scroll.kind === 'followLatest'
-      ? historyWindowEndingAt(entries, entries.length)
-      : state.historyWindow,
   });
 };
 
@@ -404,7 +325,7 @@ const replaceEntry = (
     live,
     ...(label === undefined ? {} : { label }),
     revision: prior.revision + 1,
-  });
+  }, prior);
   if (relocateToEnd && index < entries.length - 1) {
     entries.splice(index, 1);
     entries.push(replacement);
@@ -417,9 +338,6 @@ const replaceEntry = (
       entries: Object.freeze(entries),
       omittedCount: state.log.omittedCount,
     }),
-    historyWindow: state.scroll.kind === 'followLatest'
-      ? historyWindowEndingAt(entries, entries.length)
-      : state.historyWindow,
   });
 };
 
@@ -485,7 +403,7 @@ const removeLiveEntries = (
       scroll = successor === undefined ? Object.freeze({ kind: 'followLatest' }) : Object.freeze({
         kind: 'anchored',
         entryId: successor.id,
-        sourceScalarOffset: 0,
+        sourceUtf16Offset: 0,
       });
       status = 'live output cleared; showing nearest retained entry';
     }
@@ -495,14 +413,6 @@ const removeLiveEntries = (
     status,
     scroll,
     log: Object.freeze({ ...state.log, entries: Object.freeze(entries) }),
-    historyWindow: state.historyWindow === undefined
-      ? undefined
-      : state.scroll.kind === 'followLatest'
-      ? historyWindowEndingAt(entries, entries.length)
-      : Object.freeze({
-        start: Math.min(state.historyWindow.start, entries.length),
-        end: Math.min(state.historyWindow.end, entries.length),
-      }),
   });
 };
 
@@ -782,7 +692,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
                     ...entry,
                     text,
                     ...(event.executionId === undefined ? {} : { executionId: event.executionId }),
-                  })
+                  }, entry)
                   : entry
               ),
             ),
@@ -895,7 +805,6 @@ export const createUiState = (
     projection: projection === undefined ? undefined : snapshotPresentation(projection),
     lifecycle: projection?.lifecycle ?? 'starting',
     log: Object.freeze({ entries: Object.freeze([]), omittedCount: 0 }),
-    historyWindow: Object.freeze({ start: 0, end: 0 }),
     activeToolIds: Object.freeze([]),
     turnAttemptOrdinal: 0,
     editor: Object.freeze({ ...editor }),
@@ -930,75 +839,40 @@ const applyKeyedConversation = (
   action: Extract<UiAction, { readonly kind: 'keyed_conversation' }>,
 ): UiState => {
   const store = action.store;
-  const count = store.size;
-  const resetScroll = action.resetScroll === true;
-  const structural = action.structureChanged === true || resetScroll;
-  let scroll = resetScroll ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
-  let historyWindow = state.historyWindow;
-  let newBelowCount = state.newBelowCount;
-  const previousIds = action.previousIds;
-  if (resetScroll || scroll.kind === 'followLatest') {
-    historyWindow = historyWindowEndingAtUi({ ...state, keyedConversation: store }, count);
-  } else if (structural && scroll.kind === 'anchored' && previousIds !== undefined) {
-    const priorAnchorIndex = previousIds.indexOf(scroll.entryId);
-    let anchorId = store.indexOf(scroll.entryId) >= 0 ? scroll.entryId : undefined;
-    let sourceScalarOffset = scroll.sourceScalarOffset;
-    if (anchorId === undefined && priorAnchorIndex >= 0) {
-      for (let index = priorAnchorIndex + 1; index < previousIds.length; index += 1) {
-        const candidate = previousIds[index];
-        if (candidate !== undefined && store.indexOf(candidate) >= 0) {
-          anchorId = candidate;
-          break;
-        }
-      }
-      if (anchorId === undefined) {
-        for (let index = priorAnchorIndex - 1; index >= 0; index -= 1) {
-          const candidate = previousIds[index];
-          if (candidate !== undefined && store.indexOf(candidate) >= 0) {
-            anchorId = candidate;
-            break;
-          }
-        }
-      }
-      sourceScalarOffset = 0;
-    }
-    if (anchorId !== undefined) {
-      const nextIndex = store.indexOf(anchorId);
-      const oldStart = state.historyWindow?.start ?? 0;
-      const oldViewportOffset = Math.max(0, priorAnchorIndex - oldStart);
-      const length = Math.max(1, (state.historyWindow?.end ?? count) - oldStart);
-      let start = Math.max(0, nextIndex - oldViewportOffset);
-      const end = Math.min(count, start + length);
-      start = Math.max(0, end - length);
-      historyWindow = Object.freeze({ start, end });
-      scroll = Object.freeze({ kind: 'anchored', entryId: anchorId, sourceScalarOffset });
-    }
-  } else if (structural && scroll.kind === 'oldest') {
-    const length = Math.max(
-      1,
-      (state.historyWindow?.end ?? count) - (state.historyWindow?.start ?? 0),
-    );
-    historyWindow = Object.freeze({ start: 0, end: Math.min(count, length) });
-  } else if (structural && state.historyWindow !== undefined) {
-    const start = Math.min(state.historyWindow.start, count);
-    historyWindow = Object.freeze({ start, end: Math.min(count, state.historyWindow.end) });
+  const reset = action.resetScroll === true;
+  let scroll = reset ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
+  const previous = action.previousIds;
+  if (
+    action.structureChanged && previous !== undefined && scroll.kind === 'anchored' &&
+    scroll.entryId !== '@startup' && store.indexOf(scroll.entryId) < 0
+  ) {
+    const oldIndex = previous.indexOf(scroll.entryId);
+    const successor = previous.slice(Math.max(0, oldIndex + 1)).find((id) =>
+      store.indexOf(id) >= 0
+    ) ??
+      previous.slice(0, Math.max(0, oldIndex)).reverse().find((id) => store.indexOf(id) >= 0);
+    scroll = successor === undefined ? Object.freeze({ kind: 'oldest' }) : Object.freeze({
+      kind: 'anchored',
+      entryId: successor,
+      sourceUtf16Offset: 0,
+    });
   }
-  if (!resetScroll && structural && scroll.kind !== 'followLatest' && previousIds !== undefined) {
-    const previous = new Set(previousIds);
-    const boundary = state.historyWindow?.end ?? 0;
-    let addedBelow = 0;
+  let newBelowCount = state.newBelowCount;
+  if (action.structureChanged && previous !== undefined && scroll.kind !== 'followLatest') {
+    const old = new Set(previous);
+    const boundary = scroll.kind === 'anchored' ? store.indexOf(scroll.entryId) : -1;
     for (const id of store.ids()) {
-      if (!previous.has(id) && store.indexOf(id) >= boundary) addedBelow += 1;
+      if (!old.has(id) && store.indexOf(id) > boundary) newBelowCount += 1;
     }
-    newBelowCount = Math.min(UI_MAX_NEW_BELOW, state.newBelowCount + addedBelow);
   }
   return Object.freeze({
     ...state,
     log: Object.freeze({ entries: Object.freeze([]), omittedCount: store.omitted }),
     keyedConversation: store,
-    historyWindow,
     scroll,
-    newBelowCount: resetScroll || scroll.kind === 'followLatest' ? 0 : newBelowCount,
+    newBelowCount: reset || scroll.kind === 'followLatest'
+      ? 0
+      : Math.min(UI_MAX_NEW_BELOW, newBelowCount),
   });
 };
 
@@ -1099,9 +973,6 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       return Object.freeze({
         ...state,
         scroll: Object.freeze({ kind: 'followLatest' }),
-        historyWindow: state.historyWindow === undefined
-          ? undefined
-          : historyWindowEndingAtUi(state, uiConversationCount(state)),
         newBelowCount: 0,
       });
     case 'overlay':

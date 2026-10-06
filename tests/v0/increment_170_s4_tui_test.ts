@@ -1,7 +1,5 @@
 import { equal, strictEqual } from 'node:assert/strict';
 import type { ConversationEntity } from '../../v0/conversation/model.ts';
-import { EntryLayoutCache } from '../../v0/tui/entry_layout_cache.ts';
-import { plainTextAssistantRenderer } from '../../v0/tui/conversation_renderer.ts';
 import { cancelTargetExecutionId, presentationLifecycle } from '../../v0/tui/remote_session.ts';
 import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentation.ts';
 import { TuiRenderer } from '../../v0/tui/tui_renderer.ts';
@@ -115,58 +113,6 @@ Deno.test('Increment 170 S4 applies each body revision synchronously and coalesc
   equal(frames.length, 1);
   equal(timers.size, 0);
   renderer.close();
-});
-
-Deno.test('Increment 170 S4 body changes invalidate only their row layout cache', () => {
-  const projector = new SnapshotConversationProjector();
-  const first = projector.project(
-    tuiClientState(tuiSnapshot({
-      first: assistantEntity('first answer', 0),
-      second: { ...assistantEntity('second answer', 0), id: 'second' },
-    }, ['first', 'second'])),
-    'core/cache',
-  );
-  const cache = new EntryLayoutCache();
-  let builds = 0;
-  const build = () => {
-    builds += 1;
-    return { rows: [], sourceBytes: 0 };
-  };
-  const one = first.store.get('conversation:first')!;
-  const two = first.store.get('conversation:second')!;
-  cache.get(one, 80, plainTextAssistantRenderer, true, build);
-  cache.get(two, 80, plainTextAssistantRenderer, true, build);
-  const updated = projector.project(
-    tuiClientState(
-      tuiSnapshot(
-        {
-          first: { ...assistantEntity('updated answer', 1), id: 'first' },
-          second: { ...assistantEntity('second answer', 0), id: 'second' },
-        },
-        ['first', 'second'],
-        {
-          cursor: { coreEpoch: 'tui-core', sessionId: 'tui-entity-session', revision: 2 },
-          conversation: {
-            schemaVersion: 2,
-            sessionId: 'tui-entity-session',
-            cut: 2,
-            storeRevision: 2,
-            entities: {
-              first: { ...assistantEntity('updated answer', 1), id: 'first' },
-              second: { ...assistantEntity('second answer', 0), id: 'second' },
-            },
-            order: ['first', 'second'],
-          },
-        },
-      ),
-      new Set(['first']),
-      false,
-    ),
-    'core/cache',
-  );
-  cache.get(updated.store.get('conversation:first')!, 80, plainTextAssistantRenderer, true, build);
-  cache.get(updated.store.get('conversation:second')!, 80, plainTextAssistantRenderer, true, build);
-  equal(builds, 3);
 });
 
 Deno.test('Increment 170 S4 reserves cancellation identity through a late admission receipt', () => {

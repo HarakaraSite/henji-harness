@@ -2,7 +2,15 @@
 
 再開時の入口。現在地・次の一手・正本へのpointer・承認境界だけを保持する。
 
-## 現在地（2026-10-05）
+## 現在地（2026-10-06）
+
+[Increment 198](../docs/increments/increment-198.md)はalternate
+screenを継続し、更新依存・可視範囲加工・
+Page/resizeの改善をlocal実装・検証した。独立reviewと最終候補の隔離production TUI確認を完了した。
+利用者の追加指示でsource
+commit・公式build・常用配置を進める。次は配置後の隔離起動・終了確認と結果記録。
+採用要件・実装結果・検証は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
+新しい実provider call、構想・architecture・roadmapの正本反映は未承認。
 
 [Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
 tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした。local実装・focused確認70件pass・
@@ -41,6 +49,9 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
+198のlocal実装・非破壊的検証は完了。利用者の通常利用確認・完了承認は未実施。 198のsource
+commit・常用配置は追加指示で承認済み。公式build・配置・隔離起動確認を進める。
+
 197は利用者による見た目確認・完了承認済みで完了した。 色調整のpendingなし。
 193の追加指定の配色は197の追加調整で現行配色が上書きされ、193以来の見た目確認も197の
 現行表示に対する利用者確認で確認済みの扱い。S33は193へ採用・移設した。
@@ -65,9 +76,13 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 
 ## 正本への入口
 
+- [Increment 198](../docs/increments/increment-198.md): alternate
+  screenの採用要件、本文位置からの可視範囲加工、更新依存・Page/resizeの実装、
+  focused確認・独立review・隔離production TUI結果、承認境界。
+
 - [Increment 197](../docs/increments/increment-197.md):
-  tool名とthinking系ラベルの緑dimの採用要件・解釈、実装・focused確認・独立review、
-  隔離production TUI確認の結果、commit・build・常用配置記録、承認境界。
+  tool名とthinking系ラベルの緑dimの採用要件・解釈、実装・focused確認・独立review、 隔離production
+  TUI確認の結果、commit・build・常用配置記録、承認境界。
 
 - [Increment 196](../docs/increments/increment-196.md):
   最新request・request件数の採用要件、必要な記録だけの読取、focused確認、実DBコピーの一致と compiled

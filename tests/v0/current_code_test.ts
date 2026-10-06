@@ -682,7 +682,7 @@ Deno.test('production model and saved messages use the expanded text ceilings', 
   assert(entry !== undefined && entry.text === text);
   const layout = layoutUi(ui, 80, 24);
   assert(
-    layout.allLog.some((row) => row.entryId === 'turn-1:attempt-0:assistant'),
+    layout.log.some((row) => row.entryId === 'turn-1:attempt-0:assistant'),
   );
 });
 

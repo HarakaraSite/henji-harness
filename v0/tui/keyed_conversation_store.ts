@@ -70,7 +70,7 @@ export const mapConversationEntity = (
       return undefined;
   }
   const id = displayId(entity.id);
-  const candidate = freezeUiLogEntry({
+  const candidate: UiLogEntry = {
     id,
     kind,
     label,
@@ -81,12 +81,12 @@ export const mapConversationEntity = (
     ...(callId === undefined ? {} : { callId }),
     ...(entity.kind === 'tool' ? { toolName: entity.name } : {}),
     executionId: entity.executionId,
-  });
+  };
   if (previous !== undefined && sameDisplayedEntry(previous, candidate)) return previous;
   if (previous !== undefined) {
-    return freezeUiLogEntry({ ...candidate, revision: previous.revision + 1 });
+    return freezeUiLogEntry({ ...candidate, revision: previous.revision + 1 }, previous);
   }
-  return candidate;
+  return freezeUiLogEntry(candidate);
 };
 
 export interface KeyedNoticePlacement {

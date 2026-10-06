@@ -527,6 +527,7 @@ const renderSnapshot = (
     !preserveScroll || projected.reset,
     structureChanged,
     projected.previousIds ?? noticeUpdate.previousIds,
+    new Set([...projected.changedIds, ...noticeUpdate.changedIds]),
   );
 };
 
@@ -811,6 +812,7 @@ export const runRemoteTui = async (
             false,
             noticeUpdate.structureChanged,
             noticeUpdate.previousIds,
+            noticeUpdate.changedIds,
           );
         }
       }

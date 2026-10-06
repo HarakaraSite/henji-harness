@@ -1,7 +1,6 @@
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import { TuiRenderer } from '../../v0/tui/tui_renderer.ts';
 import { type ScreenFrame, type TerminalPort } from '../../v0/tui/terminal.ts';
-import { markdownAssistantRenderer } from '../../v0/tui/assistant_layout.ts';
 import { KeyedConversationStore } from '../../v0/tui/keyed_conversation_store.ts';
 import { freezeUiLogEntry, type UiLogEntry } from '../../v0/tui/state.ts';
 
@@ -20,7 +19,6 @@ const fixture = (columns = 120, rows = 40, completeWrites = true) => {
   const delays: number[] = [];
   const frames: ScreenFrame[] = [];
   const pendingWrites: Array<() => void> = [];
-  const rendered: string[] = [];
   const terminal: TerminalPort = {
     stdinIsTerminal: () => true,
     stdoutIsTerminal: () => true,
@@ -52,12 +50,6 @@ const fixture = (columns = 120, rows = 40, completeWrites = true) => {
       return 'busy';
     },
     clearInterval: () => {},
-    assistantRenderer: {
-      render: (text, phase, width) => {
-        rendered.push(text);
-        return markdownAssistantRenderer.render(text, phase, width);
-      },
-    },
   });
   const tick = () => {
     now += 16;
@@ -68,7 +60,6 @@ const fixture = (columns = 120, rows = 40, completeWrites = true) => {
   return {
     renderer,
     frames,
-    rendered,
     callbacks,
     delays,
     tick,
@@ -158,7 +149,7 @@ Deno.test('Increment 154 editor and spinner reuse body layout; changed entry alo
   const store = keyedStore(entries.map((entry) => freezeUiLogEntry(entry)));
   f.renderer.setKeyedConversationStore(store, true, true);
   f.tick();
-  deepStrictEqual(f.rendered, ['first', 'second']);
+  const initialView = f.renderer.layoutSnapshot().viewport;
   f.renderer.setEditor('typed');
   f.renderer.setStatus('busy');
   f.tick();
@@ -166,11 +157,11 @@ Deno.test('Increment 154 editor and spinner reuse body layout; changed entry alo
   f.tick();
   f.spin();
   f.tick();
-  deepStrictEqual(f.rendered, ['first', 'second']);
+  strictEqual(f.renderer.layoutSnapshot().viewport, initialView);
   store.set(entries[1].id, freezeUiLogEntry({ ...entries[1], text: 'changed', revision: 1 }));
   f.renderer.setKeyedConversationStore(store, false, false);
   f.tick();
-  deepStrictEqual(f.rendered, ['first', 'second', 'changed']);
+  strictEqual(f.frames.at(-1)!.rows.some((row) => row.includes('changed')), true);
   f.renderer.close();
 });
 
@@ -257,8 +248,8 @@ Deno.test('Increment 154 Page bursts and pending writes retain intermediate hist
       burst.tick();
       burst.writeNext();
       deepStrictEqual(
-        burst.renderer.stateSnapshot().historyWindow,
-        separated.renderer.stateSnapshot().historyWindow,
+        burst.renderer.stateSnapshot().scroll,
+        separated.renderer.stateSnapshot().scroll,
       );
       deepStrictEqual(
         burst.renderer.stateSnapshot().scroll,

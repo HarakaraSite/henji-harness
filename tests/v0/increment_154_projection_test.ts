@@ -206,7 +206,7 @@ Deno.test('Increment 154 keyed conversation action preserves editor, modal and s
   const anchor = state.keyedConversation!.entryAt(0)!;
   state = reduceUiAction(state, {
     kind: 'scroll',
-    mode: { kind: 'anchored', entryId: anchor.id, sourceScalarOffset: 4 },
+    mode: { kind: 'anchored', entryId: anchor.id, sourceUtf16Offset: 4 },
   });
   const updated = projector.project(
     tuiClientState(
@@ -250,7 +250,7 @@ Deno.test('Increment 154 keyed conversation action preserves editor, modal and s
     store: updated.store,
     structureChanged: updated.structureChanged,
   });
-  deepEqual(state.scroll, { kind: 'anchored', entryId: anchor.id, sourceScalarOffset: 4 });
+  deepEqual(state.scroll, { kind: 'anchored', entryId: anchor.id, sourceUtf16Offset: 4 });
   deepEqual(state.overlay, { kind: 'readOnlyHelp', lines: ['help'] });
   equal(state.editor.text, 'draft');
 });
@@ -283,7 +283,7 @@ Deno.test('Increment 154 deleted scroll anchors move to the nearest surviving ro
   });
   state = reduceUiAction(state, {
     kind: 'scroll',
-    mode: { kind: 'anchored', entryId: 'conversation:anchor', sourceScalarOffset: 7 },
+    mode: { kind: 'anchored', entryId: 'conversation:anchor', sourceUtf16Offset: 7 },
   });
 
   const remaining = { first: initial.first!, last: initial.last! };
@@ -314,6 +314,6 @@ Deno.test('Increment 154 deleted scroll anchors move to the nearest surviving ro
   deepEqual(state.scroll, {
     kind: 'anchored',
     entryId: 'conversation:last',
-    sourceScalarOffset: 0,
+    sourceUtf16Offset: 0,
   });
 });

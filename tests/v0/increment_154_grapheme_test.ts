@@ -1,4 +1,4 @@
-import { markdownAssistantRenderer } from '../../v0/tui/assistant_layout.ts';
+import { collectMarkdownBodyForTest } from './body_document_fixture.ts';
 import type {
   PresentationPosition,
   PresentationStartupState,
@@ -48,9 +48,7 @@ Deno.test('Increment 154 cell and byte truncation keeps grapheme clusters whole'
 
 Deno.test('Increment 154 assistant wrap and table columns preserve emoji clusters', () => {
   const family = '👨‍👩‍👧';
-  const wrapped = markdownAssistantRenderer.render(`${family}X`, 'settled', 2).map((line) =>
-    line.text
-  );
+  const wrapped = collectMarkdownBodyForTest(`${family}X`, 2).map((line) => line.text);
   assert(wrapped.length === 2);
   assert(wrapped[0] === family && wrapped[1] === 'X');
 
@@ -60,7 +58,7 @@ Deno.test('Increment 154 assistant wrap and table columns preserve emoji cluster
     `| family | ${family} |`,
     '| other | x |',
   ].join('\n');
-  const lines = markdownAssistantRenderer.render(table, 'settled', 30).map((line) => line.text);
+  const lines = collectMarkdownBodyForTest(table, 30).map((line) => line.text);
   const pipeColumns = lines.map((line) => {
     const positions: number[] = [];
     let cell = 0;

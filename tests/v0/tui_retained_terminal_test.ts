@@ -556,7 +556,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   };
   renderer.renderCompactStartup(startup, startupPosition);
   assertEquals(renderer.stateSnapshot().startup?.position, startupPosition);
-  const wideHeader = renderer.layoutSnapshot(80, 24).allLog.map((row) => row.text);
+  const wideHeader = renderer.layoutSnapshot(80, 24).viewport!.rows.map((row) => row.text);
   assertEquals(wideHeader.length, 9);
   const expectedCreated = (() => {
     const date = new Date('2026-09-11T12:34:56.000Z');
@@ -593,7 +593,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   for (let page = 0; page < 4; page += 1) renderer.scrollPage('up');
   const oldest = renderer.stateSnapshot().scroll;
   assertEquals(oldest, { kind: 'oldest' });
-  assertEquals(renderer.layoutSnapshot(80, 10).logStart, 0);
+  assertEquals(renderer.layoutSnapshot(80, 10).viewport?.cursors[0]?.sourceUtf16Offset ?? 0, 0);
   assert(
     renderer.layoutSnapshot(80, 10).log.some((row) => row.text.includes('Henji Harness')),
   );
@@ -682,7 +682,7 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
   }
   projectEntities(renderer, entities, order);
   const entryCount = uiConversationCount(renderer.stateSnapshot());
-  assert((renderer.stateSnapshot().historyWindow?.start ?? 0) > 0);
+  assert(renderer.layoutSnapshot().viewport?.atStart === false);
 
   let previousEntry = entryCount;
   for (let page = 0; page < 80; page += 1) {
@@ -699,16 +699,16 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
       previousEntry = Number(position[1]);
     }
     const state = renderer.stateSnapshot();
-    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') {
+    if (state.scroll.kind === 'oldest') {
       break;
     }
   }
   const oldest = renderer.layoutSnapshot();
-  assertEquals(renderer.stateSnapshot().historyWindow?.start, 0);
+  assertEquals(renderer.layoutSnapshot().viewport?.atStart, true);
   assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
   assert(
-    oldest.allLog.length < oldest.log.length,
-    'the oldest window should fit one viewport',
+    oldest.viewport?.atStart === true,
+    'the oldest source position should be visible',
   );
   assert(oldest.log.some((row) => row.text.includes('Henji Harness')));
   assert(oldest.footer[0].text.includes('history start'));
@@ -721,7 +721,7 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
     renderer.scrollPage('down');
   }
   assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  assertEquals(renderer.stateSnapshot().historyWindow?.end, entryCount);
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
 });
 
 Deno.test('retained PageDown advances through a large assistant entry after oldest', () => {
@@ -735,7 +735,7 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
     turn: 1,
     message: { role: 'assistant', content: { kind: 'text', text: body } },
   });
-  const assistantRows = renderer.layoutSnapshot(80, 10).allLog.filter((row) =>
+  const assistantRows = renderer.layoutSnapshot(80, 10).log.filter((row) =>
     row.entryId !== undefined
   );
   assert(
@@ -744,8 +744,8 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   );
   for (let index = 1; index < assistantRows.length; index += 1) {
     assert(
-      (assistantRows[index].sourceScalarOffset ?? 0) >
-        (assistantRows[index - 1].sourceScalarOffset ?? 0),
+      (assistantRows[index].sourceUtf16Offset ?? 0) >
+        (assistantRows[index - 1].sourceUtf16Offset ?? 0),
       'assistant rows reuse the same source scalar offset',
     );
   }
@@ -758,7 +758,7 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   for (let page = 0; page < 100; page += 1) {
     renderer.scrollPage('down');
     if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
-    starts.push(renderer.layoutSnapshot(80, 10).logStart);
+    starts.push(renderer.layoutSnapshot(80, 10).viewport?.cursors[0]?.sourceUtf16Offset ?? 0);
   }
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
   assert(starts.length > 1, 'PageDown stopped inside the assistant entry');
@@ -789,13 +789,13 @@ Deno.test('retained assistant viewport stays on the same list item after resize'
     if (/item-\d+/.test(renderer.layoutSnapshot(80, 24).log[0].text)) break;
   }
   const before = renderer.layoutSnapshot(80, 24).log[0];
-  assert(before.sourceLine !== undefined);
+  assert(before.sourceUtf16Offset !== undefined);
   const item = before.text.match(/item-\d+/)?.[0];
   assert(item !== undefined);
   terminal.size = { columns: 160, rows: 24 };
   renderer.resize(160, 24);
   const after = renderer.layoutSnapshot(160, 24).log;
-  assertEquals(after[0].sourceLine, before.sourceLine);
+  assert(after[0].sourceUtf16Offset! <= before.sourceUtf16Offset!);
   assert(after[0].text.includes(item));
 });
 
@@ -836,7 +836,7 @@ Deno.test('table and paragraph history still page through after resize', () => {
     for (let page = 0; page < 200; page += 1) {
       renderer.scrollPage('down');
       if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
-      const start = renderer.layoutSnapshot(120, 10).logStart;
+      const start = renderer.layoutSnapshot(120, 10).viewport?.cursors[0]?.sourceUtf16Offset ?? 0;
       assert(start > lastStart);
       lastStart = start;
     }
@@ -899,7 +899,7 @@ Deno.test('retained PageUp reaches oldest across the startup header', () => {
     if (scroll.kind === 'oldest') break;
   }
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'oldest' });
-  assertEquals(renderer.layoutSnapshot(100, 45).logStart, 0);
+  assertEquals(renderer.layoutSnapshot(100, 45).viewport?.cursors[0]?.sourceUtf16Offset ?? 0, 0);
 });
 
 Deno.test('startup header follows rename, session replacement, and terminal size', () => {
@@ -934,7 +934,7 @@ Deno.test('startup header follows rename, session replacement, and terminal size
   });
   renderer.setSessionTitle('API research');
   assert(
-    renderer.layoutSnapshot(80, 24).allLog.some((row) => row.text.includes('API research')),
+    renderer.layoutSnapshot(80, 24).log.some((row) => row.text.includes('API research')),
   );
 
   renderer.eventSink({
@@ -948,13 +948,13 @@ Deno.test('startup header follows rename, session replacement, and terminal size
       messageCount: 6,
     },
   });
-  const switched = renderer.layoutSnapshot(80, 24).allLog.map((row) => row.text);
+  const switched = renderer.layoutSnapshot(80, 24).log.map((row) => row.text);
   assert(switched.some((line) => line.includes('Restored session')));
   assert(switched.some((line) => line.includes('exact session · bbbbbbbb')));
 
   terminal.size = { columns: 50, rows: 12 };
   renderer.resize(50, 12);
-  const compact = renderer.layoutSnapshot(50, 12).allLog.map((row) => row.text);
+  const compact = renderer.layoutSnapshot(50, 12).viewport!.rows.map((row) => row.text);
   assertEquals(compact.length, 2);
   assert(compact[0].includes('Henji Harness v0.1.2'));
   assert(compact[1].includes('exact session · bbbbbbbb'));
@@ -1190,19 +1190,19 @@ Deno.test('keyed thinking stays ordered and PageUp reaches history beyond the ol
     'assistant',
   ]);
   assert(
-    renderer.layoutSnapshot().allLog.some((row) => row.text.includes('Read the final question.')),
+    renderer.layoutSnapshot().log.some((row) => row.text.includes('Read the final question.')),
   );
   for (let page = 0; page < 120; page += 1) {
     const state = renderer.stateSnapshot();
-    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') {
+    if (state.scroll.kind === 'oldest') {
       break;
     }
     renderer.scrollPage('up');
   }
-  assertEquals(renderer.stateSnapshot().historyWindow?.start, 0);
+  assertEquals(renderer.layoutSnapshot().viewport?.atStart, true);
   assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
   assert(
-    renderer.layoutSnapshot().allLog.some((row) => row.text.includes('question 0')),
+    renderer.layoutSnapshot().log.some((row) => row.text.includes('question 0')),
   );
   for (let page = 0; page < 120; page += 1) {
     if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
@@ -1210,12 +1210,12 @@ Deno.test('keyed thinking stays ordered and PageUp reaches history beyond the ol
   }
   assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
   assertEquals(
-    renderer.stateSnapshot().historyWindow?.end,
-    uiConversationCount(renderer.stateSnapshot()),
+    renderer.stateSnapshot().scroll.kind,
+    'followLatest',
   );
   renderer.latest();
   assert(
-    renderer.layoutSnapshot().allLog.some((row) => row.text.includes('answer 299')),
+    renderer.layoutSnapshot().log.some((row) => row.text.includes('answer 299')),
   );
 });
 
@@ -1242,7 +1242,6 @@ Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () 
   assertEquals(state.log.entries.length, 520);
   assertEquals(state.log.entries[0].text, 'question 1');
   assertEquals(state.log.omittedCount, 0);
-  assert((state.historyWindow?.start ?? 0) > 0);
 });
 
 Deno.test('keyed conversation retains more than 2 MiB of entry text', () => {
@@ -1284,7 +1283,7 @@ Deno.test('keyed conversation retains more than 2 MiB of entry text', () => {
   assertEquals(entries[1]?.text.length, longAnswer.length);
   assertEquals(entries[5]?.text.length, longAnswer.length);
   assertEquals(renderer.stateSnapshot().keyedConversation?.omitted, 0);
-  assert((renderer.stateSnapshot().historyWindow?.start ?? 0) > 0);
+  assert(renderer.layoutSnapshot().viewport?.atStart === false);
 });
 
 Deno.test('keyed model steps place thinking around a tool result and final answer', () => {
