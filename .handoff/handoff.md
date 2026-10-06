@@ -4,6 +4,24 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 204](../docs/increments/increment-204.md)は利用者指示でcredential保存先の分離と
+run_typescriptのconfig root読み取りを実装し、local検証・独立review・公式build（build ID `7ecf58e9…`）・
+常用配置（`~/.local/bin/henji`、旧binaryは`henji.previous`）・実configの`run-typescript.json`配置・
+旧credential file削除まで完了した。source commitは`d1a26f7c`、review対応は`2a95f72f`。
+要件・検証・review・移行記録・残る範囲は204を参照する。pushは未実施。
+旧Coreが削除済みの旧pathを参照してSession `f040537a`の1 executionが失敗したが、利用者がTUIを再起動し
+（2026-10-06 20:37、配置済みbinary）、credentialが新rootのみに存在する状態で同Sessionのmodel requestが
+成立している。実provider callを伴う利用者自身の確認項目は残る。205（S34）は利用者指示で未着手。
+
+利用者は本Sessionを終了する。A6・A28は利用者指示で完了とし、通常利用メモから除いた。
+A6の判断・観測は[172](../docs/increments/increment-172.md)・[200](../docs/increments/increment-200.md)、
+A28の判断と原観測の移設先は[199](../docs/increments/increment-199.md)を参照する。
+この文書整理のうちhandoff・通常利用メモは204のdocs commitへ保存済み。172・194〜196・198〜200と
+新規`docs/increments/increment-199-a28-observations.md`は未commit。runtime変更・追加配置はない。
+既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`は今回の変更に含めない。
+B5は再発時の原因調査待ち。原観測・未特定事項・再検討条件は
+[通常利用メモのB5](../docs/experience/normal-use-inbox.md#b5--commit-proposal-invalidの具体的な検証不合格理由を特定できない)を参照する。
+
 [Increment 203](../docs/increments/increment-203.md)は利用者指示でB12を採用し、local実装・
 focused/compiled確認・独立reviewを完了した。要件・調査根拠・結果・承認境界は203を参照する。
 利用者の「コミット配置してください」でsource commit `34032880`・公式build（build ID `69a26b8d…`）・
@@ -31,7 +49,10 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 203のcommit・常用配置結果を利用者へ報告し、通常利用での確認・完了判断を受ける。
+**次の一手**: 旧Core終了後、利用者が配置済みbinaryでSession
+`f040537a`を再開して実providerを確認する。
+再開手順と確認待ちは204を参照する。こちらからの新Core起動・実provider callは行わない。
+203のcommit・常用配置結果は報告済み。 B5の追加調査は再発または利用者の明示採用まで行わない。
 push、実provider call、実Core/TUIの再起動は未承認。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>
@@ -75,7 +96,8 @@ tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした�
 [Increment 195](../docs/increments/increment-195.md)はA28のCore保存会話復元の一括本文保持を採用し、
 local修正・focused確認・実DBコピー比較・compiled production Core／TUI確認済み。
 通常・批判的reviewでも未解消findingはない。
-復元単体のピークは減ったがCore全体の常駐PSSに残る課題はA28へ残した。 196との合同source
+復元単体のピークは減ったがCore全体の常駐PSSに残る課題は当時A28へ残した。A28全体は利用者指示で
+完了とし、判断と原観測の移設先は199を参照する。196との合同source
 commit・常用配置済み。結果と証拠は195・196を参照する。
 
 [Increment 194](../docs/increments/increment-194.md)はA28のTUI待機loopの保持問題を採用し、
@@ -120,8 +142,8 @@ push、公開/release、構想・architecture・roadmap変更、新しい実prov
 
 194・195・196のlocal修正・非破壊的検証、source commit・常用配置は承認済みで完了した。
 push、公開、新しい実provider call、構想・architecture・roadmap変更は未承認。
-A28のCore全体等の追加調査候補は通常利用メモに残る。
-195後のmetadata読取候補は196へ採用・移設した。native内訳などの追加候補は未採用である。
+A28は利用者の「A28も完了でいい」により完了とし、通常利用メモから除いた。
+完了判断と原観測・旧候補の移設先は199を参照する。195後のmetadata読取候補は196へ採用・移設した。
 類似問題reviewで見つかったcontext読取・終了後artifact更新・recall/診断読取の候補は、199の計画対象へ移設した。
 
 192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。

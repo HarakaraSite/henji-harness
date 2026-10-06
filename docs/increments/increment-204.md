@@ -1,8 +1,11 @@
 # Increment 204 — credential保存先の分離とrun_typescriptのconfig root読み取り
 
-状態: 実装・検証・独立review完了（2026-10-06、利用者指示）。source commit `d1a26f7c`、公式build
-`7ecf58e9…`を常用配置済み。残るは実configへの`run-typescript.json`配置、旧credential fileの削除、
-実provider callを伴う確認（利用者実施）、handoff等の記録である。
+状態: 実装・検証・独立review・常用配置・実環境移行まで完了（2026-10-06、利用者指示）。source commit
+`d1a26f7c`、review対応`2a95f72f`、公式build `7ecf58e9…`を常用配置済み。実configへの
+`run-typescript.json`配置と旧credential fileの削除も実施済み。削除直後に旧Coreが旧保存先を参照して
+Session `f040537a`の1 executionが失敗したが、利用者がTUIを再起動し（2026-10-06 20:37、配置済みbinary）、
+credentialが新rootのみに存在する状態で同Sessionのmodel requestが成立している。実provider callを伴う
+利用者自身の確認項目は残る。
 
 ## 利用者が必要とする動作と根拠
 
@@ -164,12 +167,33 @@ reviewerによるsource・test reviewを実施（2026-10-06）。product correct
   配置済み環境では`/home/agent/.local/state/henji-harness/v1/credentials`で重複しない。
 - 実configでは`run-typescript.json`の`deny`にcredential rootを記載し、監査層を有効にする（配置項目）。
 
+### 実環境の移行と旧Coreの認証失敗（2026-10-06）
+
+- 利用者の「1を実施して」により、常用config rootへ`run-typescript.json`を作成した。
+  `schemaVersion: 1`、`deny: ["~/.local/state/henji-harness/v1/credentials"]`を配置済み。
+- 旧locationと新credential rootの比較はAPI key 4件・ChatGPT配下7ファイルの全11件で
+  `IDENTICAL`、`MISMATCH`は0件だった。その後、旧config rootのAPI key 4件と`chatgpt/`を削除した。
+- 削除直後、Session `f040537a-e9c6-415e-a265-3c45f1d38f66`のexecution
+  `380c49ed-16f3-4ecd-8052-ee568d989f89`は`credential_resolution`／`missing_credential`で終了した
+  （2026-10-06 20:29:39 JST）。配置済みbinaryは新root対応済みだが、稼働中のTUI／Core （PID
+  161597／161603）は置換前binaryを実行していた。両processの実行fileは`(deleted)`で、
+  digestは`henji.previous`と一致し、配置済みbinaryとは異なることを確認した。
+- 利用者の「あと始末して」と「今のコアは古いから終了する」を受け、記録を整理した。 新rootにはAPI key
+  4件とChatGPT配下7ファイルが残っており、旧locationへの復元は行っていない。 現行sourceのproduction
+  credential resolverでAPI key 4件の`present`と読取り成功、
+  ChatGPTの`present`を確認した。credential値・Authorizationは出力せず、実provider callは0回。
+- 利用者は2026-10-06 20:37に`henji tui --continue`を起動した。Core（pid 218238）は配置済みbinary
+  （`/proc/<pid>/exe`が現行file、build ID `7ecf58e9…`）で稼働し、旧Core（161603）は終了済み。
+  credentialが新rootのみに存在する状態で同Session `f040537a`のmodel requestが成立している。
+  利用者自身の実provider call確認項目は残る。
+- review対応後のfull test結果は保存Sessionの報告で680 pass／0 failと記録されている。
+  今回のあと始末ではruntime sourceを変更せず、full suiteの再実行は行っていない。
+
 ### 未確認・残る範囲
 
-- 実provider requestでのcredential解決（新pathからの読取り）は実provider callの承認が必要
-  （利用者が実施）。
+- 実provider callを伴う利用者自身の確認は残る（配置済みbinaryの新Coreで同Sessionのmodel requestは
+  成立済み）。
 - config rootへの書込みを伴う実利用（model生成codeによるinstruction/tool設定の書換え）は未確認。
-- 実configへの`run-typescript.json`配置と旧credential fileの削除は未実施。
+- 204の記録・handoff・通常利用メモの更新は本項のcommitへ保存した。205（S34）は未着手。
 - `run_typescript`のsandbox境界は同toolの実行のみを対象とし、`bash`等を含むAgent全体の制限ではない
   （Increment 191と同じ。production probeでも`bash`はcredential fileを読めることを記録）。
-
