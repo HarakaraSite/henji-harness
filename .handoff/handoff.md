@@ -6,13 +6,14 @@
 
 [Increment 203](../docs/increments/increment-203.md)は利用者指示でB12を採用し、local実装・
 focused/compiled確認・独立reviewを完了した。要件・調査根拠・結果・承認境界は203を参照する。
-利用者の「コミット配置してください」でsource commit・公式build・常用配置を承認され、実施中。
-202の未配置修正も含める。pushは未承認。
+利用者の「コミット配置してください」でsource commit `34032880`・公式build（build ID `69a26b8d…`）・
+常用配置・配置後の隔離production確認を完了した。202の修正もbinaryとsearch local-4へ反映済み。
+pushは未実施/未承認。
 
 [Increment 202](../docs/increments/increment-202.md)は利用者指示でsearchのDB/blob除外・出力上限と
 run_typescriptのCore返却1 MiB上限を実装し、source commit `57484793`へ保存した。
 利用者の「このインクリメントは完了とします」により完了。要件・結果・承認境界は202を参照する。
-常用配置・pushは未実施。
+常用配置は203と同時に完了。pushは未実施。
 
 [Increment 200](../docs/increments/increment-200.md)と[201](../docs/increments/increment-201.md)は利用者指示
 「コミット、配置して」「プッシュして」により完了した。source commit `6f6f9a6a`（200・201合同）、
@@ -24,12 +25,13 @@ mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・sea
 reviewer（revision 3）を反映済み。`agent inspect`はdefault／reviewerともrejections `[]`。
 配置binaryは親commitの199も含む。
 
-Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了し、TUIは切断表示となった。
-再起動・常用配置は行っていない。原因と修正後の再実行結果は202を参照する。
+Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
+元のCore/TUIのPIDは203配置前に不在を確認し、実Core/TUIの再起動は行っていない。
+原因と修正後の再実行結果は202を参照する。新しい起動から202・203の配置済み修正が適用される。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 203のsource commit・公式build・常用配置と配置後の隔離確認を完了し、結果を記録する。
+**次の一手**: 203のcommit・常用配置結果を利用者へ報告し、通常利用での確認・完了判断を受ける。
 push、実provider call、実Core/TUIの再起動は未承認。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>

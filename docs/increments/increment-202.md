@@ -1,7 +1,8 @@
 # Increment 202 — searchのテキスト検索・出力上限とrun_typescript返却上限
 
 状態: 完了（2026-10-06、利用者による完了承認済み）。local実装・focused確認・独立reviewを完了し、
-利用者指示でsource commit `57484793`へ保存した。常用配置・pushは未実施。
+利用者指示でsource commit `57484793`へ保存した。後続203の配置でbinary・外部searchも常用反映済み。
+pushは未実施。
 
 ## 利用者が必要とする動作と根拠
 
@@ -111,8 +112,9 @@ artifactは保存せずtool transcriptで結果を受領した。
 
 ### 未確認範囲・正本変更案
 
-常用binaryと常用configのsearchは未更新。compiled binary・実provider・production TUIからの model
-call確認は本incrementでは未実施。変更はTUI Surfaceを含まず、実provider callは0回。
+local確認時点では常用binaryと常用configのsearchは未更新だった。compiled binary・実provider・
+production TUIからのmodel call確認は本incrementのlocal実装では未実施。 後続203の配置と隔離production
+Core確認は下段を参照する。変更はTUI Surfaceを含まず、実provider callは0回。
 元のA34の文書更新・続行Sessionのtool定義問題は今回扱っていない。
 
 architectureの「完全なrecord単位」「対象全体のmatchCount」には、text scope・capture超過時の
@@ -122,6 +124,9 @@ architectureの「完全なrecord単位」「対象全体のmatchCount」には�
 ## 承認境界
 
 利用者の「このインクリメントは完了とします」により本incrementを完了とした。
+後続203の「コミット配置してください」により、203のbinaryへ本修正を含め、常用search folderをlocal-4へ
+更新した。隔離production CoreでもDB/blob除外、返却1 MiBの切捨、2 MiBのfile保存を確認済み。
+配置と証拠の詳細は[Increment 203](increment-203.md#commit常用配置結果2026-10-06)を参照する。
 
 local実装と非破壊的な検証は今回の利用者指示で承認済み。後続指示「コミットして」によりsource
 commitも承認された。常用配置、push、公開、実provider call、Product正本の変更、実data/artifact削除は

@@ -1,8 +1,9 @@
 # Increment 203 — B12: binary更新後のprocess runner起動と早期終了の原因表示
 
-状態: local実装・focused/compiled確認・独立review完了（2026-10-06）。
-利用者の「続いてb13対応」「ごめんb12だ」でB12を採用した。
-後続指示「コミット配置してください」によりsource commit・公式build・常用配置を承認され、実施中。
+状態: local実装・focused/compiled確認・独立review・source
+commit・公式build・常用配置・配置後確認完了
+（2026-10-06）。利用者の「続いてb13対応」「ごめんb12だ」でB12を採用し、
+後続指示「コミット配置してください」によりcommitと配置を実施した。pushは未実施。
 
 ## 必要なproduct動作・根拠
 
@@ -148,9 +149,41 @@ compiled testの成功により、初回review時に未確認だった新しいo
 stderrがないため、当時の個々の失敗がすべてexit 127だったと直接断定することは
 できない。配置時系列と親/子の失敗傾向・再現機構は一致する。
 
-常用binaryは未更新、commit/push・公開は未実施。実provider callは0回。
+local確認時点では常用binary・commitは未更新だった。後続指示によるcommitと配置は下段に記録する。
+push・公開は未実施。実provider callは0回。
 TUI表示・操作の変更は含まないためtmuxのSurface確認は対象外。
 構想・architecture・roadmapの正本は変更していない。202は利用者による完了承認を別途記録した。
+
+## Commit・常用配置結果（2026-10-06）
+
+- source commit: `3403288084fe5ee8ec5dec33cf8db745a34fe5aa`
+  （`fix: preserve runtime launches after binary updates (increment 203)`）。203のsource・test・採用記録、
+  202の利用者完了承認、handoffを保存した。既存の`191-result.json`・diagnosticsのpycacheは含めていない。
+- 公式build: `scripts/build_henji.ts`、Deno 2.9.7、sourceDirty=false。 build ID
+  `69a26b8da2d86ec6f3bdd79b246bc7d0babb102f8145bacdbfcd323c056b2211`、runtime digest
+  `9694004d66e68c04be8bb562ba32376f77441daa6312bae48d11abdbd8b26575`。
+  202のrun_typescript返却上限も含む。build logとcandidateは`.tools/increment-203/deployment/`。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。両者のversionとSHA-256が
+  candidateに一致した。SHA-256は
+  `7d54afd878b66cfb10f945af0b8a7b111da06a26e56e8d307d56ecab7c553038`。
+  旧binaryは`.tools/increment-203/deployment/henji.dist.previous`・`henji.local.previous`へ退避した。
+- 未配置だった202のsearchを常用config rootの`tools/search`へ反映した。既存3 fileが更新前sourceと
+  一致することを確認してから、index.ts・settings.ts・tool.jsonを更新した。revisionは`local-4`。
+  旧folderは`.tools/increment-203/deployment/search.previous`へ退避し、binding・他tool・実credentialは
+  変更していない。配置後の`tool list`でlocal-4、default/reviewerの`agent inspect`でrejections `[]`。
+- 配置binaryを指定したprocess executorのfocused確認は5 pass / 0 fail。
+  正常status・背景writer・TERM→KILL・owner close・早期終了factをcompiled runnerで確認した。
+- 配置済みbinaryのcopyを、隔離HOME/XDG/workspaceのproduction Coreとlocalhost模擬providerで確認した。
+  binary pathnameをexit
+  88の別実行体へ置換後も、新しい子Agentのbash・run_typescriptとcollectが成功した。 Core更新前/後の2
+  executionはcompleted / processSettlement:complete。模擬HTTP requestは7回、 外部provider
+  callは0回。隔離CoreはHTTP shutdown後exit 0で終了した。
+- 同じproduction経路で、常用search folderのDB/blob除外、run_typescriptの返却1,048,575 bytesと
+  切捨marker、2,097,152 bytesのfile保存とpath/size返却を確認した。
+  生存中の実Core/TUIの再起動は行っていない（元の切断したCore/TUIのPIDは配置前に不在を確認）。
+- 配置・probeのmetadataは`.tools/increment-203/deployment/deployment.json`・
+  `production-probe.json`・`installed-executor-test.log`。raw model request/responseとcredential値・
+  Authorizationは記録せず、短いrequest factと検証結果のみ保存した。
 
 ## 承認境界
 
