@@ -7,7 +7,9 @@ import {
 } from '../../../v0/agent/runtime/process_executor.ts';
 import type { JsonValue } from '../../../v0/agent/core/contracts.ts';
 
-const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-i204-' });
+// The fixture root stays outside /tmp: /tmp is always readable and writable for run_typescript, so a
+// /tmp-based root could not prove that the config root and the configured allow path are admitted.
+const root = await Deno.makeTempDir({ dir: '/var/tmp', prefix: 'henji-i204-' });
 const workspaceRoot = `${root}/workspace`;
 const configRoot = `${root}/config/henji-harness`;
 const extraRoot = `${root}/extra`;

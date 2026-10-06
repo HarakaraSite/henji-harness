@@ -1,6 +1,8 @@
 # Increment 204 — credential保存先の分離とrun_typescriptのconfig root読み取り
 
-状態: 計画中（2026-10-06、利用者指示）。実装・検証・reviewはこれから。
+状態: 実装・検証・独立review完了（2026-10-06、利用者指示）。source commit `d1a26f7c`、公式build
+`7ecf58e9…`を常用配置済み。残るは実configへの`run-typescript.json`配置、旧credential fileの削除、
+実provider callを伴う確認（利用者実施）、handoff等の記録である。
 
 ## 利用者が必要とする動作と根拠
 
@@ -135,13 +137,39 @@ declaration説明・runtime配置、architectureのcredential scope記載、
 - compiled binary（`dist/henji`、build ID `4ada81cda5e0ebcb17cde7745d2972ca9a55b507f05e35b23941dec3438d6acd`）の
   `--internal-run-typescript`を実走し、config rootのread/write成功、credential rootのread/writeが
   `NotCapable`、deny entry参照codeが監査で拒否されることを確認した。
-- 未実施: 実provider callを伴う確認、旧fileの削除。
+- 隔離XDG production probe（配置済みbinary build ID `7ecf58e9…`、localhost模擬provider、実provider
+  call 0回）: config rootのread/write成功、credential rootのread/write `NotCapable`、設定`allow`
+  pathの読取成功、`deny`監査の拒否、credential presenceが新root=present／旧locationのみ=missing、
+  provider requestのAuthorizationが新root値（旧locationの別値は不使用）、Core exit 0を確認。
+  証跡: `.tools/increment-204/deployment/production-probe.json`。
+
+### 独立review
+
+reviewerによるsource・test reviewを実施（2026-10-06）。product correctnessの欠陥は無し。findingと
+対応は次のとおり。
+
+- F1（test-gap）: 新規fixtureが`/tmp`配下にrootを置いていたため、`/tmp`が常に許可される現行sandbox
+  ではconfig root／`allow` pathの許可を証明できなかった。fixtureのrootを`/var/tmp`へ移し、
+  config root・allow path・credential rootがすべて`/tmp`外になるよう修正した。config rootのallow配線を
+  一時的に外す変異チェックで、fixtureがこのregressionを検出する（failする）ことを確認した。
+- F2（前提の明示）: credential rootがworkspace・config root・`/tmp`と重ならないことが要件2の前提で
+  あり、記録が無かった。下記「前提」に明記した。code側の変更は行わない。
+- F3（記録の不整合）: 「未確認・残る範囲」が同一commitで修正済みのincrement 189 test失敗を残存失敗と
+  して記載していた。本節を実態に合わせて修正した。
+
+### 前提（要件2の成立条件）
+
+- credential root（`${stateRoot}/credentials`）はworkspace・config root・`/tmp`のいずれとも重ならな
+  いこと。重なる場合はそれらが許可対象であるため、credential値がrun_typescriptから見える。
+  配置済み環境では`/home/agent/.local/state/henji-harness/v1/credentials`で重複しない。
+- 実configでは`run-typescript.json`の`deny`にcredential rootを記載し、監査層を有効にする（配置項目）。
 
 ### 未確認・残る範囲
 
-- 実provider requestでのcredential解決（新pathからの読取り）は実provider callの承認が必要。
+- 実provider requestでのcredential解決（新pathからの読取り）は実provider callの承認が必要
+  （利用者が実施）。
 - config rootへの書込みを伴う実利用（model生成codeによるinstruction/tool設定の書換え）は未確認。
-- 既存失敗（204と無関係）: `tests/v0/increment_189_distribution_test.ts`のpackage manifest期待値が
-  3 toolのまま。`external-tools/git_inspect`は`6f6f9a6a`（Increment 201）で追加済みで、
-  同testの最終更新は`ecb63510`のため、201以降の既存失敗である。
+- 実configへの`run-typescript.json`配置と旧credential fileの削除は未実施。
+- `run_typescript`のsandbox境界は同toolの実行のみを対象とし、`bash`等を含むAgent全体の制限ではない
+  （Increment 191と同じ。production probeでも`bash`はcredential fileを読めることを記録）。
 
