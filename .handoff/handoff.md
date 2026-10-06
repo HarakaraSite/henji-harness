@@ -25,7 +25,11 @@ type check/fmt/lint/`git diff --check`・隔離XDGとlocal providerでのtmux pr
 59 fileで成功した。利用者承認を経て`@henji/harness@0.10.0`を公開し（registry `latest: 0.10.0`、
 creation `2026-10-06T21:35:08.085714Z`）、exact versionのtool 7 export・hooks 2 export・
 `ToolFactory`／`ToolFactoryInput`／`HookFactory`の型checkを確認した。source commit `88f75055`は
-push済み。常用native binaryは207配置の0.9.0のまま。
+push済み。その後、利用者の「0.10.0として再build・配置」（2026-10-07）により、JSR公開後のcommit
+`e11a978e`から公式`henji:compile`で0.10.0をbuildし（build ID `89d2edb4…`、sourceDirty=false）、
+`dist/henji`と`~/.local/bin/henji`へatomic配置した。配置後smoke（隔離HOME/XDG、実provider 0回）で
+`Henji Harness v0.10.0`・ready表示・Ctrl-Q終了・Core exit 0を確認した。詳細は
+[0.10.0配置記録](../docs/operations/native-0.10.0-deployment.md)を参照する。
 
 [Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
 選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。source commit `3b84501f`、
@@ -105,8 +109,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 0.10.0は公開・検証・記録まで完了（source commit `88f75055`はpush済み）。native binaryの
-0.10.0再build・常用配置は指示があれば行う。207は利用者受入済みで完了。
+**次の一手**: 0.10.0はJSR公開・検証・native binary再build・常用配置・配置後smokeまで完了。
+配置記録commitのpushは未実施/未承認。207は利用者受入済みで完了。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
 206のsource commit・公式build・常用配置・pushは利用者指示で完了。

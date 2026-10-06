@@ -226,8 +226,9 @@ Registry metadata confirmed `latest: 0.10.0` with creation timestamp
 seven runtime exports, and the hooks entrypoint loaded `HOOK_API_CONTRACT` and `HOOK_PHASES`.
 `deno check` of `ToolFactory`, `ToolFactoryInput`, and `HookFactory` from the exact version passed.
 
-Removed the clean release worktree after verification. The accepted native binary remains the
-Increment 207 deployment (`henji 0.9.0`); this request published the JSR package.
+Removed the clean release worktree after verification. At publication time the accepted native
+binary was the Increment 207 deployment (`henji 0.9.0`); a later user request rebuilt and deployed
+the native binary as 0.10.0 (see [native 0.10.0 deployment](native-0.10.0-deployment.md)).
 
 Verification logs are stored in the ignored `.tools/jsr-0.10.0/` directory (`gate.log`,
 `gate-home.log`, `gate-release.log`, `focused-tests.log`, `pre-dry-run-dirty.log`) and in
