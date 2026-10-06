@@ -10,8 +10,8 @@
 201は外部tool `git_inspect`（read-onlyなstatus/diff/log/show、親・generic・reviewerで選択）と`search`の
 `entries` mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・search更新（`local-3`）・
 reviewer（revision 3）を反映済み。配置後の`agent inspect`はdefault／reviewerともrejections
-`[]`。旧binaryは`~/.local/bin/henji.previous`。pushと実provider
-callは未実施で、既存Core/TUIは再起動していない（新しい起動から適用）。配置binaryは親commitの199も含む。
+`[]`。旧binaryは`~/.local/bin/henji.previous`。pushは完了（`8f6e113b..3872f0ec`、以前のローカルcommit 21件を含む）。
+実provider callは未実施で、既存Core/TUIは再起動していない（新しい起動から適用）。配置binaryは親commitの199も含む。
 設計・検証の詳細は各文書を参照する。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>

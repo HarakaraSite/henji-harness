@@ -1,7 +1,7 @@
 # Increment 201 — 読み取り専用のinspection tool（git_inspect新設・search entries拡張）
 
-状態: local実装・検証・常用config rootへの外部tool配置まで完了（2026-10-06）。commit/push、
-公式build、常用配置（binary）、実provider callは未実施。
+状態: local実装・検証・常用config rootへの外部tool配置・commit・公式build・常用配置・pushまで完了
+（2026-10-06）。公式build（`henji:compile`）と常用配置は利用者指示で実施した。
 
 ## 利用者が必要とする動作と根拠
 
@@ -91,6 +91,7 @@ local実装・検証・常用config rootへの外部tool配置は利用者指示
   Worker起動時のconfiguration rejection（system notice）は表示されず、**外部tool `git_inspect`のimport
   を含む起動経路がcompiled binaryで成立**した。終了はCtrl-Qで行い、隔離Core/TUIを残していない。
   観測した起動画面とisolated XDGの状態は`.tools/increment-201/`へ保存した
-- 未実施: push、実provider call。既存のCore／TUIは再起動していない（新しい起動から適用）
+- 未実施: 実provider call。既存のCore／TUIは再起動していない（新しい起動から適用）
+- push: `main`を`8f6e113b..3872f0ec`でpush（未pushだった以前のローカルcommit 21件を含む）
 - 留意: 配置したbinaryは親commitのIncrement 199（Data Worker最適化）も含む（同workstreamはcommit済み・
 gate済みだが、その配置判断は別途）
