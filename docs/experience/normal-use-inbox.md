@@ -50,6 +50,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback              | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
 | A30 | Agent実行      | tool間の結果連鎖（tool resultを別toolの入力にできない）。利用者は安易なパイプ連結を希望しない | パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき                                  |
 | A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                      | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき               |
+| A34 | Agent実行      | 再起動後の続行セッションで新規toolがmodel定義に現れない疑い          | 新規セッションで再確認し、同じ現象なら定義更新の経路を調査するとき                                                       |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | B12 | Agent実行      | process runner早期終了でbashが全件失敗し、原因も復旧も残らない       | 同エラーが通常利用で再観測されたとき、またはrunner診断・復旧を個別incrementへ採用するとき                              |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
@@ -1104,6 +1105,22 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 通常利用でworkspace外の確認・一時file作成が繰り返し必要になり、bash併用の使い分けが
   負担・誤用の原因になるとき。
 - 関連: A5、A30、`v0/agent/tools/work_tool_workspace.ts`、`v0/agent/tools/run_typescript_executor.ts`、E1。
+
+### A34 — 再起動後の続行セッションで新規toolがmodel定義に現れない疑い（未確認）
+
+- 観測（2026-10-06、Session `91cb1f45`）: Core/TUIを再起動（新binary build `5bfcdbaa`・source
+  `6f6f9a6a`、Core `c6afea6d`、`henji tui --continue`）した。
+  - config側: `tool list`に`git_inspect`、`agent inspect`はdefault・reviewerともrejections `[]`
+  - 実行側: `search`の`entries` mode（local-3）は**このセッションで動作**した（type/bytes/modifiedAtを返した）
+  - しかし新規tool名`git_inspect`は**このセッションのtool呼び出しとして発行できなかった**（複数回試行したがbashへ
+    落ちた）。
+- 仮説（未確認）: 会話のmodel-facing tool定義がセッション開始時のbinaryで固定され、`--continue`では新しいtool名が
+  追加されない。実行はliveなWorker Registryへ届くため、同名toolの新機能（search entries）は使える。
+- 利用者影響: 再起動しても、新規追加toolを既存セッションの続きでは使えない可能性がある。新規セッションなら
+  使える見込み（未確認）。
+- 次の確認: ①`henji tui --new`の新規セッションで`git_inspect`を呼べるか、②呼べない場合はmodel requestの`tools`を
+  組み立てる経路（`loadWorkerTools`・Worker composition）とHost/TUIが保持する会話stateの関係を確認する。
+- 再検討条件: 利用者が新規セッションで確認するとき、または同現象が再観測されるとき。
 
 ## F24・自己改訂
 
