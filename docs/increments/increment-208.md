@@ -1,7 +1,7 @@
 # Increment 208 — TUI: マウススクロールで会話履歴を参照する
 
 状態: local実装・検証・source commit・公式build・常用配置・配置後smoke・利用者受入（2026-10-07、
-Shift+ドラッグ運用）まで完了。pushは未実施で利用者指示を必要とする。full gateは実行していない。
+Shift+ドラッグ運用）まで完了。pushは2026-10-07の利用者指示で実施済み。full gateは実行していない。
 
 ## 利用者が必要とする動作と根拠
 
@@ -139,7 +139,8 @@ PageUp／PageDownのまま。reviewerはtest実行・`v0:check`／fmt／lintの�
   `history 4/28 · Esc latest`、wheel downで最新復帰、click無視とdraft保持、終了後flags `00`を確認した
   （`.tools/increment-208/tui-mouse-probe-deployed.json`）。
 - 稼働中の実Core/TUIは配置前binaryのままで、停止・再起動していない。
-- `origin/main`へのpushと公開/releaseは実施していない。
+- 2026-10-07の利用者指示で`origin/main`へpush済み（`83b05023`・`c39e39a6`・`bad4381c`・`1cffe8b0`）。
+  公開/releaseは実施していない。
 
 ## 配置後の利用者観測（2026-10-07）: 素のドラッグでコピーできない
 
@@ -196,7 +197,7 @@ tmuxのキーボードコピー（`prefix + [`→移動→`C-Space`→移動→`
 ## 承認境界
 
 - 構想・architecture・roadmapは変更しない。通常利用メモの候補追加・採用は行わない。
-- source commit・公式build・常用配置は利用者指示により実施済み。push・公開/release・実provider callは
+- source commit・公式build・常用配置・pushは利用者指示により実施済み。公開/release・実provider callは
   未実施であり、それぞれ利用者指示を必要とする。
 - 利用者は2026-10-07に実環境（Ghostty > ssh > tmux）でwheel履歴参照を確認し、mouse capture中の
   素のドラッグコピー不可を仕様（選択はShift+ドラッグまたはキーボードcopy-mode）として受入した。

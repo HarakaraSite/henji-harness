@@ -23,7 +23,8 @@ source `c39e39a6`）で稼働中。実pane（`0:0.0`、tty `/dev/pts/1`）の`#{
 利用者からwheel履歴参照の動作報告とともに「素のドラッグでコピーできなくなった」報告を受け、
 原因（paneのmouse mode優先によるtmuxの転送）・回避経路・改善案を208へ記録した。利用者は
 2026-10-07に208をShift+ドラッグ運用で受入（wheel履歴参照は動作確認済み、mouse capture中の
-素のドラッグコピー不可は仕様として受入。改善案2・3は不採用）。pushは未実施/未承認。
+素のドラッグコピー不可は仕様として受入。改善案2・3は不採用）。208のsource/docs commitは2026-10-07に
+`origin/main`へpush済み（最新`1cffe8b0`）。
 
 [Increment 207](../docs/increments/increment-207.md)は利用者指示（2026-10-07、Ghostty>ssh>tmux環境で
 Shift+Enterを改行にしたい）で、TUIの`TerminalLifecycle`にmodifyOtherKeys mode 1の要求/復元を追加し、
@@ -132,10 +133,9 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 
 **次の一手**: 208は利用者指示によるcommit・公式build・常用配置・配置後smokeと、2026-10-07の
 Core/TUI再起動での実運用適用・利用者受入（Shift+ドラッグ運用、wheel履歴参照の動作確認済み）まで
-完了した。pushは未実施/未承認。未commitのdocs/handoff変更（208の受入・観測記録と本handoff）は
-次回の利用者指示でcommitする。207は利用者受入済みで完了。
+完了した。208は利用者指示（2026-10-07）で`origin/main`へpush済み（最新`1cffe8b0`）。208にpendingなし。207は利用者受入済みで完了。
 0.10.0はJSR公開・検証・native binary再build・常用配置・配置後smokeまで完了。
-配置記録commitのpushは未実施/未承認。207は利用者受入済みで完了。
+配置記録commitも2026-10-07にpush済み（`83b05023`）。
 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
 206のsource commit・公式build・常用配置・pushは利用者指示で完了。
