@@ -6,6 +6,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設）。
 2026-10-06にA30・A31を追加し、A32・A33はIncrement 200・201へ採用・移設（A32: review用Agentの
 tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。
+B12はIncrement 203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。
 A30へは保存Session `0cd5c22e`・`2bc2699f`の分析結果も追記した。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
@@ -52,7 +53,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                      | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき               |
 | A34 | Agent実行      | 再起動後の続行セッションで新規toolがmodel定義に現れない疑い          | 新規セッションで再確認し、同じ現象なら定義更新の経路を調査するとき                                                       |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
-| B12 | Agent実行      | process runner早期終了でbashが全件失敗し、原因も復旧も残らない       | 同エラーが通常利用で再観測されたとき、またはrunner診断・復旧を個別incrementへ採用するとき                              |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                              | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -1414,29 +1414,3 @@ Pi／OpenCode／Henjiの画面表示比較
   [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
   `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
   `v0/agent/history/sqlite_history_store.ts`。
-
-### B12 — `process runner ended before command status`でbashが全件失敗し、原因も復旧も残らない
-
-- 原観測（2026-10-05、Session `2bc2699f`の保存履歴分析、2026-10-06にread-onlyで集計）:
-  2026-10-05T04:58:31Z–06:16:31Zの間に6 executionで`process runner ended before command
-  status`のtool resultが生じた。失敗したcommandはgit status/diff・find・rg・grep・ls・echoで、
-  対象executionでは**bash callが全件失敗**した（例: execution `99fae222`は130件すべて失敗）。
-- 利用者影響: review子Agentが差分・gitを取得できないまま終了し、親はreviewを計6 execution
-  spawnし直した。`99fae222`は同一`ls .tools/increment-193/apply-palette/`を125回再試行し、
-  128 model step limitで停止した（診断`model_step_limit`、requestCount 128）。review未完の判定と
-  再実行のstep・時間を浪費した。
-- 現行source: `v0/agent/runtime/process_executor.ts`はrunner childのcontrol fd（stdio[3]）が
-  `status`messageを返す前に`end`した場合にこのエラーを返す。runner自身の終了理由（exit code・
-  signal・crash出力）はtool結果に含まれず、`diagnostic`recordにも残らない（同時期の診断はprovider系と
-  model_step_limitのみ）。runner死亡後の再生成・復旧経路も確認していない。
-- 未確認: runner childが早期終了した原因（生成失敗・crash・外部要因等）。1.5時間と新しいWorker世代を
-  またいで継続したため環境要因の疑いがあるが、再現probeは未実施。
-- 対応候補（未採用）: runner早期終了時にexit code・signal・短いcrash出力等を短いfactとして残す。
-  runner死亡後の復旧（再生成）の是非は、原因確認後に採用判断する。修正・実装は未指示。
-- 利用者判断（2026-10-06）: 別途調査とする。本項は通常利用メモに残し、原因究明・再現・対応の実施は
-  別途の調査・指示で行う（この分析では追加probe・修正をしていない）。
-- 再検討条件: 同エラーが通常利用で再観測されたとき、またはrunner診断・復旧を個別incrementへ採用するとき。
-- 証拠: `.tools/tool-trend-2bc2699f/`（detail.jsonと集計）、分析scriptは`.tools/tool-trend/analyze.ts`。
-- 関連: [Increment 133](../increments/increment-133.md)（managed process runner）、
-  [Increment 176](../increments/increment-176.md)（失敗分類・短い診断）、
-  `v0/agent/runtime/process_executor.ts`、`v0/agent/runtime/process_runner.ts`。

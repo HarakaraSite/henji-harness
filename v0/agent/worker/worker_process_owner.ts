@@ -1,7 +1,7 @@
 import type { ProcessOperation } from '../runtime/process_contract.ts';
 import {
+  currentRuntimeProcessRunnerLaunch,
   LinuxProcessExecutor,
-  runtimeProcessRunnerLaunch,
   sourceProcessRunnerLaunch,
 } from '../runtime/process_executor.ts';
 import type { WorkerProcessReply, WorkerProcessRequest } from './worker_process_protocol.ts';
@@ -20,7 +20,7 @@ interface OwnedOperation {
 export class WorkerProcessOwner {
   private readonly executor = new LinuxProcessExecutor(
     Deno.build.standalone
-      ? runtimeProcessRunnerLaunch(Deno.execPath(), ['--internal-process-runner'])
+      ? currentRuntimeProcessRunnerLaunch(['--internal-process-runner'])
       : sourceProcessRunnerLaunch(),
   );
   private readonly operations = new Map<string, OwnedOperation>();

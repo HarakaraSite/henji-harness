@@ -1,7 +1,7 @@
 import type { Workspace } from './work_tool_contract.ts';
 import type { ToolContext } from './tools.ts';
 import type { ProcessExecutor, ProcessOperation } from '../runtime/process_contract.ts';
-import { runtimeProcessRunnerLaunch } from '../runtime/process_executor.ts';
+import { currentRuntimeProcessRunnerLaunch } from '../runtime/process_executor.ts';
 import {
   CancellationCleanupError,
   throwIfCancelled,
@@ -56,7 +56,7 @@ export const executeTypescriptProcess = async (
     new URL('../cli/henji_cli.ts', import.meta.url).pathname,
     ...applicationArgs,
   ];
-  const launch = runtimeProcessRunnerLaunch(Deno.execPath(), args);
+  const launch = currentRuntimeProcessRunnerLaunch(args);
   let operation: ProcessOperation | undefined;
   let stopping: Promise<void> | undefined;
   const onAbort = (): void => {

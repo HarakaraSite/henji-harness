@@ -196,6 +196,8 @@ class OwnedProcess implements ProcessOperation {
     void this.runnerReady.catch(() => {});
     this.status = new Promise((resolve, reject) => {
       let pending = '';
+      let commandStarted = false;
+      let commandStatusReceived = false;
       const control = child.stdio[3] as Readable;
       control.on('data', (bytes: Uint8Array) => {
         pending += new TextDecoder().decode(bytes, { stream: true });
@@ -203,8 +205,11 @@ class OwnedProcess implements ProcessOperation {
         while ((end = pending.indexOf('\n')) >= 0) {
           const message = JSON.parse(pending.slice(0, end));
           pending = pending.slice(end + 1);
-          if (message.kind === 'started') readyResolve();
-          else if (message.kind === 'status') {
+          if (message.kind === 'started') {
+            commandStarted = true;
+            readyResolve();
+          } else if (message.kind === 'status') {
+            commandStatusReceived = true;
             resolve({ exitCode: message.exitCode, signal: message.signal });
           }
         }
@@ -212,9 +217,20 @@ class OwnedProcess implements ProcessOperation {
       control.once(
         'end',
         () => {
-          const error = new Error('process runner ended before command status');
-          readyReject(error);
-          reject(error);
+          if (commandStatusReceived) return;
+          // Pipe EOF can precede the exit event; wait for the actual runner status.
+          void this.runnerExit.then(() => {
+            const error = new Error(
+              'process runner ended before command status ' +
+                `(exitCode=${child.exitCode}, signal=${child.signalCode ?? 'none'}, ` +
+                `commandStarted=${commandStarted})`,
+            );
+            readyReject(error);
+            reject(error);
+          }, (error) => {
+            readyReject(error);
+            reject(error);
+          });
         },
       );
       child.once('error', (error) => {
@@ -362,9 +378,13 @@ export const runtimeProcessRunnerLaunch = (
   ],
 });
 
+/** Linux's running executable survives an atomic update of its original pathname. */
+export const currentRuntimeProcessRunnerLaunch = (
+  args: readonly string[] = [],
+): ProcessRunnerLaunch => runtimeProcessRunnerLaunch(`/proc/${Deno.pid}/exe`, args);
+
 export const sourceProcessRunnerLaunch = (): ProcessRunnerLaunch =>
-  runtimeProcessRunnerLaunch(
-    Deno.execPath(),
+  currentRuntimeProcessRunnerLaunch(
     [
       'run',
       '--no-prompt',

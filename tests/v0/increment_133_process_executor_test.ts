@@ -148,3 +148,34 @@ Deno.test('owner close cleans normally returned background groups', async () => 
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test('runner startup exit 127 retains its status and releases the operation', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i203-runner-' });
+  const owner = new LinuxProcessExecutor(
+    runtimeProcessRunnerLaunch(`${root}/henji (deleted)`, ['--internal-process-runner']),
+  );
+  try {
+    const operation = owner.start(command('printf never-started'));
+    const settled = await Promise.allSettled([
+      text(operation.stdout),
+      text(operation.stderr),
+      operation.status,
+      operation.closed,
+    ]);
+    equal(settled[0], { status: 'fulfilled', value: '' });
+    for (const result of settled.slice(2)) {
+      assert(result.status === 'rejected');
+      if (result.status === 'rejected') {
+        equal(
+          String(result.reason),
+          'Error: process runner ended before command status ' +
+            '(exitCode=127, signal=none, commandStarted=false)',
+        );
+      }
+    }
+    equal(owner.activeOperations, 0);
+  } finally {
+    await owner.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});

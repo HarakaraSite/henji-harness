@@ -1,7 +1,7 @@
 # Increment 202 — searchのテキスト検索・出力上限とrun_typescript返却上限
 
-状態: local実装・focused確認・独立review完了（2026-10-06）。利用者指示で本source commitへ保存。
-常用配置・pushは未実施。
+状態: 完了（2026-10-06、利用者による完了承認済み）。local実装・focused確認・独立reviewを完了し、
+利用者指示でsource commit `57484793`へ保存した。常用配置・pushは未実施。
 
 ## 利用者が必要とする動作と根拠
 
@@ -120,6 +120,8 @@ architectureの「完全なrecord単位」「対象全体のmatchCount」には�
 反映する案がある。いずれも別途の明示承認が必要な正本変更案としてここに留め、正本は変更しない。
 
 ## 承認境界
+
+利用者の「このインクリメントは完了とします」により本incrementを完了とした。
 
 local実装と非破壊的な検証は今回の利用者指示で承認済み。後続指示「コミットして」によりsource
 commitも承認された。常用配置、push、公開、実provider call、Product正本の変更、実data/artifact削除は
