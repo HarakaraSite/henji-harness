@@ -63,6 +63,43 @@ export interface SessionRecordV1 {
 export type StoredSessionRecord = SessionRecordV1;
 export type SessionRecord = SessionRecordV1;
 
+/** Compact state used to answer a Session descriptor without reading its transcript. */
+export interface WorkerSessionMetadataSnapshot {
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agent: string;
+  readonly agentChoice: AgentConfigurationChoice;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly title: string | null;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly messageCount: number;
+  readonly activeModel: ModelSelection;
+  readonly privateStateFromTurn: number;
+  readonly checkpoint?: SemanticContextCheckpointV1;
+}
+
+/** Canonical state needed to resume one Session; historical turn attribution stays in SQLite. */
+export interface WorkerSessionOwnerState extends WorkerSessionMetadataSnapshot {
+  readonly transcript: readonly Message[];
+}
+
+/** The small metadata written by Session selection/title changes and first admission. */
+export interface WorkerSessionMetadataWrite {
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agentChoice: AgentConfigurationChoice;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly title: string | null;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly activeModel: ModelSelection;
+  /** Only changes not yet written to session_model_changes. */
+  readonly modelChangesToAppend: readonly SessionModelChange[];
+}
+
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {
   readonly contextSchemaVersion: 1;
@@ -108,14 +145,16 @@ export const isSessionId = (value: unknown): value is string =>
 
 export interface WorkerSessionHandle {
   readonly id: string;
-  readonly record?: StoredSessionRecord;
   readonly checkpoint?: SemanticContextCheckpointV1;
-  commit(record: StoredSessionRecord): void;
-  /** SQLite history seam: update the owner-stable in-memory snapshot after an external atomic commit. */
-  acceptCommitted?(record: StoredSessionRecord): void;
+  saveMetadata(update: WorkerSessionMetadataWrite): void;
   installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
   rollbackCheckpoint(): void;
   close(): Promise<void>;
+}
+
+export interface OpenedWorkerSession {
+  readonly handle: WorkerSessionHandle;
+  readonly state: WorkerSessionOwnerState;
 }
 
 export interface WorkerSessionMetadata extends SessionMetadata {
@@ -129,11 +168,12 @@ export interface WorkerSessionListResult {
 
 export interface WorkerSessionStorePort {
   readWorker(id: string): Promise<StoredSessionRecord>;
+  readSessionMetadataSnapshot(id: string): Promise<WorkerSessionMetadataSnapshot>;
   readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined>;
   listWorker(): Promise<WorkerSessionListResult>;
   allocateWorker(
     agent: string,
     agentChoice: AgentConfigurationChoice,
   ): Promise<WorkerSessionHandle>;
-  openExistingWorker(id: string): Promise<WorkerSessionHandle>;
+  openExistingWorker(id: string): Promise<OpenedWorkerSession>;
 }

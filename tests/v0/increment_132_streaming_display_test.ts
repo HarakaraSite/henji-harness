@@ -272,8 +272,13 @@ Deno.test('Increment 132 shows one settled thinking entry per step in the human 
     store.appendExecutionEvent(thinkingRow(1, 1, 'Par', false));
     store.appendExecutionEvent(thinkingRow(2, 1, 'Partial then complete.', true));
     store.appendExecutionEvent(thinkingRow(3, 2, 'Second step.', true));
+    const messageSuffix = [
+      ...record.transcript,
+      { role: 'user' as const, content: { kind: 'text' as const, text: input.task } },
+    ];
     store.settleNonCanonicalExecution({
       ...input,
+      messageSuffix,
       outcome: {
         ok: false,
         task: input.task,
@@ -282,10 +287,6 @@ Deno.test('Increment 132 shows one settled thinking entry per step in the human 
         steps: 2,
         toolCallCount: 0,
         toolResultCount: 0,
-        transcript: [
-          ...record.transcript,
-          { role: 'user', content: { kind: 'text', text: input.task } },
-        ],
       },
     });
     const timeline = store.readSessionHistory(sessionId);

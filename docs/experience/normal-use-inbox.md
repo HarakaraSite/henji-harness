@@ -508,40 +508,9 @@ Pi／OpenCode／Henjiの画面表示比較
   [Increment 196](../increments/increment-196.md)へ採用し、追加調査の根拠・比較と修正要件を移設した。
 - 残る観測・候補: 196の同条件の隔離compiled確認で、100回参照後も約384 MiBのCore process
   PSSが残った。 native memory全体の所有・未使用領域の分解や、長時間のAgent実行の内訳は未確認。
-- 類似問題reviewの追加候補（同日、未採用）:
-  利用者が195・196の通常／批判的reviewに加え、別のreviewerによる類似問題調査を依頼した。
-  下記は既存の別経路に残る不要な本文展開で、195・196による回帰や返値のcorrectness不具合ではない。
-  稼働Core・実DBを操作せず、調査用DBコピーをさらにscratchへbackupして確認した。
-  - TUIの`/context` → API／CoreのcontextRead → DataServiceのcontextRead →
-    `data_service.ts`のlatestRequest →
-    listSemanticOccurrencesで、最新requestの短い情報だけを得るために
-    全semantic本文を読む。対象executionでは171 bytesの返値に2,080 payload／32,120,512
-    bytesをdecodeし、 うちassistant_messageが1,726件／31,294,685 bytesだった。
-    runtime限定probeでmodel_request読取に絞ると15件／61,660 bytesになり、返値のSHA-256は一致した。
-    最小修正候補は196のlistModelRequestOccurrencesをこの別consumerにも適用すること。
-  - WorkerHostCoordinatorのpersistExecutionControl → Data／SessionDataOwnerのrecordExecutionControl
-    → updatePostCommitArtifactで、execution artifactの取得とmetadata照合が全semantic本文を読む。
-    `sqlite_history_store.ts`のderiveArtifactはadmissionと最新execution_metadataを選ぶために全件を2回decodeし、
-    recordArtifactMetadataは同値照合のためにさらに1回decodeする。 コピーDBでartifact読取は4,160
-    payload／64,241,024 bytes、同値照合は2,080 payload／32,120,512 bytesだった。
-    acknowledgement、turn_settled、process_cleanup等の保存後に通る経路で、turnごとのData側割当を増やす。
-    admissionとmetadataだけに絞るruntime限定probeは14,826 bytesのdecodeでartifact全体192,949 bytesの
-    SHA-256が一致した。最小修正候補は該当kind／最新metadataだけのSQL読取へ切り替えること。
-    artifactに必要なrecall・outcome・config等の本文取得は維持する。
-    両候補はP2相当の性能改善候補として記録する。decode量は測定済みだが、compiled production全体での
-    長時間メモリ削減量は未確認である。probeでproduct
-    sourceは変更しておらず、実装は個別採用後に行う。
-  - 追加候補として、recall／診断CLIのeffects集計（P2）、診断CLIのprovider fact抽出とexecution
-    context読取 （各P3）にも、選別前の全event読取・hydrate／cloneが残る。
-    `listExecutionEffects`、`readExecutionRequestFacts`、`listExecutionContext`の単体probeでは、
-    各32,120,512 bytesのdecodeを、それぞれ69,249、61,660、235,433
-    bytesに絞り、返値のSHA-256は一致した。
-    effects集計はrecallで必要なmessage／tool本文を読む処理とは別の二回目の読取である。 execution
-    contextに必要な本文は残し、無関係なthinking本文の読取を減らす候補である。
-    比較は同じコピーDB一件で、recallの全操作や終了後control一連の時間・メモリ削減量は未確認。
-    request一件のために全request contextを再構築する部分は追加調査候補に留めた。
-    export、会話復元、recallのmessage／tool観測本文など、必要な全文読取は問題扱いしない。
-    証拠はgit管理外の`.tools/review-195-196/similar-probe/`に保存する。
+- 類似問題reviewのcontext読取・終了後artifact更新・recall/診断読取の候補は
+  [Increment 199](../increments/increment-199.md)の計画対象へ移設した。 Data
+  Worker全体の処理調査と合わせて採用・実装・検証し、利用者による完了承認を得た。結果は199を参照する。
 - 保持内訳の確認と限界（196採用前、195のsourceを使った調査）:
   実DBコピーを100回参照後に各isolateでGCすると、生存heapUsedはCore 5.6、Data 9.4、API 4.5 MiBで、
   GC後もprocess PSSは約704 MiBで、glibcの未使用malloc領域を約201 MiB確認した。

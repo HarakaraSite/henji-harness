@@ -2,8 +2,13 @@ import { projectApplicationControl } from './api_projection.ts';
 import { type ApplicationService, createApplicationService } from './application_service.ts';
 import type { ExecutionTrackingChange } from './application_port.ts';
 import { createDataClient, DataServiceError, type EncodedDataReply } from '../data/client.ts';
+import type { DataConversationSnapshot, DataConversationUpdate } from '../data/data_contract.ts';
 import type { DataSessionDescriptor } from '../data/session_data_owner.ts';
-import { encodedSessionSnapshot, encodedSessionUpdate } from './encoded_public_frame.ts';
+import {
+  encodedSessionSnapshot,
+  encodedSessionSnapshotFrame,
+  encodedSessionUpdate,
+} from './encoded_public_frame.ts';
 import type {
   ApiSelection,
   CatalogReadInput,
@@ -117,7 +122,6 @@ export type CoreSessionFrameSink = (
 ) => void;
 
 interface CoreSessionSubscription {
-  readonly snapshot: EncodedDataReply;
   readonly unsubscribe: () => void;
 }
 
@@ -190,6 +194,30 @@ interface CoreSlot {
   snapshot: SessionControlSnapshot;
   readonly options: WorkerSessionOptions;
   unsubscribeObservations?: () => void;
+  unsubscribeDescriptor?: () => void;
+}
+
+interface PublishedSessionFrame {
+  readonly bytes: Uint8Array<ArrayBuffer>;
+  readonly previous: SessionControlSnapshot;
+  readonly current: SessionControlSnapshot;
+  readonly changes: readonly SessionChange[];
+  readonly conversationCut?: number;
+}
+
+interface SessionSubscriber {
+  readonly receive: (frame: PublishedSessionFrame) => void;
+  readonly close: () => void;
+}
+
+interface SessionConversationWatch {
+  ready: Promise<void>;
+  active: boolean;
+  initializing: boolean;
+  cut: number;
+  initial?: DataConversationSnapshot;
+  unsubscribe?: () => void;
+  readonly pending: DataConversationUpdate[];
 }
 
 interface TrackedCommand {
@@ -323,7 +351,7 @@ export const createCoreService = async (
   const liveSubscriptions = new Set<() => void>();
   const credentialRegistrations = new Set<Promise<CredentialRegisterResult>>();
   const chatgptOperations = new Set<Promise<ChatGPTAuthResult>>();
-  const sessionSubscribers = new Map<string, Set<CoreSessionFrameSink>>();
+  const sessionSubscribers = new Map<string, Set<SessionSubscriber>>();
   const sessionSnapshots = new Map<string, SessionControlSnapshot>();
   const providerById = new Map(
     providerDeclarations.map((
@@ -369,21 +397,22 @@ export const createCoreService = async (
     for (const closeStream of [...liveSubscriptions]) closeStream();
   };
 
-  const subscribersFor = (sessionId: string): Set<CoreSessionFrameSink> => {
-    let subscribers = sessionSubscribers.get(sessionId);
-    if (subscribers === undefined) {
-      subscribers = new Set();
-      sessionSubscribers.set(sessionId, subscribers);
-    }
-    return subscribers;
-  };
+  const conversationWatches = new Map<string, SessionConversationWatch>();
 
-  const watchedSessions = new Map<string, Promise<void>>();
-  const dataWatches = new Map<string, () => void>();
+  const stopConversationWatch = (sessionId: string): void => {
+    const watch = conversationWatches.get(sessionId);
+    if (watch === undefined) return;
+    watch.active = false;
+    conversationWatches.delete(sessionId);
+    watch.pending.length = 0;
+    watch.initial = undefined;
+    watch.unsubscribe?.();
+  };
 
   const publishSnapshot = (
     candidate: SessionControlSnapshot,
     dataDelta?: Uint8Array<ArrayBuffer>,
+    conversationCut?: number,
   ): SessionControlSnapshot => {
     const execution = candidate.runtime.execution;
     const tracked = execution === null ? undefined : executions.get(execution.executionId);
@@ -435,43 +464,88 @@ export const createCoreService = async (
       cursor: { ...candidate.cursor, revision: previous.cursor.revision + 1 },
     };
     sessionSnapshots.set(sessionId, updated);
+    const subscribers = sessionSubscribers.get(sessionId);
+    if (subscribers === undefined || subscribers.size === 0) return updated;
     const bytes = encodedSessionUpdate(
       updated.cursor,
       previous.cursor.revision,
       changes,
       dataDelta,
     );
-    for (const sink of [...subscribersFor(sessionId)]) sink(bytes);
+    const frame: PublishedSessionFrame = {
+      bytes,
+      previous,
+      current: updated,
+      changes,
+      ...(conversationCut === undefined ? {} : { conversationCut }),
+    };
+    for (const subscriber of [...subscribers]) subscriber.receive(frame);
     return updated;
   };
 
-  const ensureWatch = async (sessionId: string): Promise<void> => {
-    let pending = watchedSessions.get(sessionId);
-    if (pending === undefined) {
-      pending = data.watchSession(sessionId, (delta) => {
-        const previous = sessionSnapshots.get(sessionId);
-        if (previous === undefined) return;
-        const descriptor = delta.descriptor;
-        const updated = publishSnapshot({
-          ...previous,
-          session: {
-            ...previous.session,
-            position: descriptor.currentPosition,
-            selection: apiSelection(descriptor.modelSelection),
-          },
-          runtime: { ...previous.runtime, execution: descriptor.latestExecution ?? null },
-          context: descriptor.context,
-        }, delta.bytes);
-        if (slot?.snapshot.session.id === sessionId) slot.snapshot = updated;
-      }).then((watch) => {
-        dataWatches.set(sessionId, watch.unsubscribe);
-      }).catch((error) => {
-        watchedSessions.delete(sessionId);
-        throw error;
-      });
-      watchedSessions.set(sessionId, pending);
-    }
-    await pending;
+  const applyDataDescriptor = (
+    sessionId: string,
+    descriptor: DataSessionDescriptor,
+    delta?: Uint8Array<ArrayBuffer>,
+    cut?: number,
+  ): void => {
+    const previous = sessionSnapshots.get(sessionId);
+    if (previous === undefined) return;
+    const updated = publishSnapshot(
+      {
+        ...previous,
+        session: {
+          ...previous.session,
+          position: descriptor.currentPosition,
+          selection: apiSelection(descriptor.modelSelection),
+        },
+        runtime: { ...previous.runtime, execution: descriptor.latestExecution ?? null },
+        context: descriptor.context,
+      },
+      delta,
+      cut,
+    );
+    if (slot?.snapshot.session.id === sessionId) slot.snapshot = updated;
+  };
+
+  const applyConversationUpdate = (
+    watch: SessionConversationWatch,
+    update: DataConversationUpdate,
+  ): void => {
+    if (!watch.active || update.cut <= watch.cut) return;
+    watch.cut = update.cut;
+    applyDataDescriptor(update.sessionId, update.descriptor, update.bytes, update.cut);
+  };
+
+  const startConversationWatch = (
+    sessionId: string,
+  ): { watch: SessionConversationWatch; first: boolean } => {
+    const current = conversationWatches.get(sessionId);
+    if (current !== undefined) return { watch: current, first: false };
+    const watch: SessionConversationWatch = {
+      ready: Promise.resolve(),
+      active: true,
+      initializing: true,
+      cut: 0,
+      pending: [],
+    };
+    conversationWatches.set(sessionId, watch);
+    watch.ready = readData(() =>
+      data.watchConversation(sessionId, (update) => {
+        if (!watch.active) return;
+        if (watch.initializing) watch.pending.push(update);
+        else applyConversationUpdate(watch, update);
+      })
+    ).then((subscription) => {
+      if (!watch.active) {
+        subscription.unsubscribe();
+        return;
+      }
+      watch.unsubscribe = subscription.unsubscribe;
+      watch.initial = subscription.snapshot;
+      watch.cut = subscription.snapshot.cut;
+    });
+    return { watch, first: true };
   };
 
   const pendingForSession = (
@@ -697,7 +771,17 @@ export const createCoreService = async (
       options: invocation,
       snapshot: initial,
     };
-    await ensureWatch(sessionId);
+    let descriptorSequence = -1;
+    const acceptDescriptor = (update: { sequence: number; descriptor: DataSessionDescriptor }) => {
+      if (update.sequence <= descriptorSequence) return;
+      descriptorSequence = update.sequence;
+      applyDataDescriptor(sessionId, update.descriptor);
+    };
+    const descriptorWatch = await readData(() =>
+      data.watchSessionDescriptor(sessionId, acceptDescriptor)
+    );
+    next.unsubscribeDescriptor = descriptorWatch.unsubscribe;
+    acceptDescriptor(descriptorWatch.snapshot);
     knownServices.set(service.query.currentSession().sessionId, service);
     allServices.add(service);
     next.unsubscribeObservations = service.subscribe((observation) => {
@@ -733,12 +817,13 @@ export const createCoreService = async (
     refreshSlotSnapshot(next);
     if (previous !== undefined) {
       previous.unsubscribeObservations?.();
+      previous.unsubscribeDescriptor?.();
       await previous.service.close();
     }
     return structuredClone(next.snapshot);
   };
 
-  const sessionRead = async (sessionId: string): Promise<EncodedDataReply> => {
+  const refreshReadControl = async (sessionId: string): Promise<void> => {
     if (!isSessionId(sessionId)) {
       throw new CoreServiceError(400, 'invalid_session_id', 'invalid session id');
     }
@@ -760,8 +845,10 @@ export const createCoreService = async (
         },
       });
     }
-    await ensureWatch(sessionId);
-    // Last await: Data's snapshot reply and later deltas share one ordered port.
+  };
+
+  const sessionRead = async (sessionId: string): Promise<EncodedDataReply> => {
+    await refreshReadControl(sessionId);
     const conversation = await readData(() => data.conversationSnapshot(sessionId));
     const control = sessionSnapshots.get(sessionId);
     if (control === undefined) throw sessionNotFound();
@@ -1121,18 +1208,17 @@ export const createCoreService = async (
               Object.keys(input.activation ?? {}).length > 0
             ) return rejected(input.commandId, target, 'invalid');
             await openSlot(selection, input.activation, input.fromSessionId);
-            // A subscription follows its Session when that Session moves between
-            // saved viewing and the execution slot. Rehydrate the read model at
-            // this boundary; later observations use the same subscriber set.
+            // Existing streams retain their conversation watch across slot changes.
+            // Refresh only the control state for a Session that is now read-only.
             for (const [sessionId, subscribers] of sessionSubscribers) {
               if (subscribers.size === 0) continue;
               try {
-                await sessionRead(sessionId);
+                await refreshReadControl(sessionId);
               } catch (error) {
                 if (
                   !(error instanceof CoreServiceError && error.status === 404)
                 ) throw error;
-                for (const sink of [...subscribers]) sink(undefined);
+                for (const subscriber of [...subscribers]) subscriber.close();
               }
             }
             openingSlot = false;
@@ -1170,11 +1256,11 @@ export const createCoreService = async (
           }
           try {
             await data.deleteSession(sessionId);
-            dataWatches.get(sessionId)?.();
-            dataWatches.delete(sessionId);
-            watchedSessions.delete(sessionId);
+            for (const subscriber of [...(sessionSubscribers.get(sessionId) ?? [])]) {
+              subscriber.close();
+            }
+            stopConversationWatch(sessionId);
             sessionSnapshots.delete(sessionId);
-            for (const sink of [...(sessionSubscribers.get(sessionId) ?? [])]) sink(undefined);
             sessionSubscribers.delete(sessionId);
             return {
               kind: 'accepted',
@@ -1691,13 +1777,22 @@ export const createCoreService = async (
       if (admissionClosed) {
         throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
       }
+      await refreshReadControl(sessionId);
+      const subscribers = sessionSubscribers.get(sessionId) ?? new Set<SessionSubscriber>();
+      sessionSubscribers.set(sessionId, subscribers);
       let closed = false;
-      let detach = (): void => {};
+      let pending: PublishedSessionFrame[] | undefined = [];
+      let conversationCut = 0;
       const release = (): void => {
         if (closed) return;
         closed = true;
-        detach();
+        pending = undefined;
+        subscribers.delete(subscriber);
         liveSubscriptions.delete(closeStream);
+        if (subscribers.size === 0) {
+          sessionSubscribers.delete(sessionId);
+          stopConversationWatch(sessionId);
+        }
       };
       const closeStream = (): void => {
         if (closed) return;
@@ -1707,15 +1802,70 @@ export const createCoreService = async (
           release();
         }
       };
-      const snapshot = await sessionRead(sessionId);
-      if (admissionClosed) throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
-      liveSubscriptions.add(closeStream);
-      const subscribers = subscribersFor(sessionId);
-      subscribers.add(sink);
-      detach = () => {
-        subscribers.delete(sink);
+      const deliver = (frame: PublishedSessionFrame): void => {
+        if (closed) return;
+        if (frame.conversationCut !== undefined) {
+          if (frame.conversationCut <= conversationCut) {
+            // The new subscriber's snapshot already contains this saved update. Keep the
+            // shared public revision without applying its conversation payload twice.
+            sink(encodedSessionUpdate(
+              frame.current.cursor,
+              frame.previous.cursor.revision,
+              frame.changes,
+            ));
+            return;
+          }
+          conversationCut = frame.conversationCut;
+        }
+        sink(frame.bytes);
       };
-      return { snapshot, unsubscribe: release };
+      const subscriber: SessionSubscriber = {
+        receive(frame) {
+          if (closed) return;
+          if (pending !== undefined) pending.push(frame);
+          else deliver(frame);
+        },
+        close: closeStream,
+      };
+      subscribers.add(subscriber);
+      liveSubscriptions.add(closeStream);
+      const { watch, first } = startConversationWatch(sessionId);
+      try {
+        await watch.ready;
+        if (closed || admissionClosed) {
+          throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
+        }
+        const conversation = first
+          ? watch.initial!
+          : await readData(() => data.conversationSnapshot(sessionId));
+        if (closed || admissionClosed) {
+          throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
+        }
+        // Only this subscriber may need the interval between its snapshot's Data cut
+        // and the RPC reply. Existing streams keep receiving their ordinary updates.
+        const buffered = pending!;
+        const afterSnapshot = buffered.find((frame) =>
+          frame.conversationCut !== undefined && frame.conversationCut > conversation.cut
+        );
+        const control = afterSnapshot?.previous ?? sessionSnapshots.get(sessionId);
+        if (control === undefined) throw sessionNotFound();
+        conversationCut = conversation.cut;
+        sink(encodedSessionSnapshotFrame(control, conversation.bytes));
+        pending = undefined;
+        for (const frame of buffered) {
+          if (frame.current.cursor.revision > control.cursor.revision) deliver(frame);
+        }
+        if (watch.initializing) {
+          watch.initial = undefined;
+          watch.cut = conversation.cut;
+          watch.initializing = false;
+          for (const update of watch.pending.splice(0)) applyConversationUpdate(watch, update);
+        }
+        return { unsubscribe: release };
+      } catch (error) {
+        release();
+        throw error;
+      }
     },
     async close(): Promise<void> {
       beginShutdown();
@@ -1729,12 +1879,12 @@ export const createCoreService = async (
           const active = slot;
           if (active !== undefined) {
             active.unsubscribeObservations?.();
+            active.unsubscribeDescriptor?.();
             await active.service.close();
             if (slot === active) slot = undefined;
           }
         } finally {
-          for (const unwatch of dataWatches.values()) unwatch();
-          dataWatches.clear();
+          for (const sessionId of conversationWatches.keys()) stopConversationWatch(sessionId);
           await data.close();
         }
       })();

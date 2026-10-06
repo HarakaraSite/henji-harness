@@ -50,7 +50,10 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
       command: 'test-command',
     });
     const notifications: number[] = [];
-    const watch = writer.watchSession(sessionId, (delta) => notifications.push(delta.cut));
+    const watch = writer.watchSession(
+      sessionId,
+      (delta) => notifications.push(delta.cut),
+    );
     const failures: Error[] = [];
     journal = new ExecutionDataJournal({
       executionId,
@@ -60,7 +63,19 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
       onFailure: (error) => failures.push(error),
     });
     const statuses: string[] = [];
-    channel.port2.onmessage = (event) => statuses.push(journal!.receive(event.data));
+    channel.port2.onmessage = (event) => {
+      const input = event.data as {
+        executionId: string;
+        sequence: number;
+        message: WorkerToHostMessage;
+      };
+      statuses.push(journal!.receive(input));
+      if (input.sequence === 3) {
+        (input.message as unknown as {
+          observation: { event: { text: string } };
+        }).observation.event.text = 'mutated after Data accepted it';
+      }
+    };
     const messages: WorkerToHostMessage[] = [];
     const producer = new ProviderEvidenceRecorder(
       crypto.randomUUID(),
@@ -101,8 +116,21 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
     strictEqual(journal.receivedSequence, 3);
     strictEqual(journal.durableSequence, 3);
     strictEqual(notifications.length, 1);
+    const savedLatestProgress = store.listAssistantTextStates(executionId).find(
+      (state) => state.key.modelStep === 1,
+    );
+    ok(savedLatestProgress);
+    strictEqual(
+      (savedLatestProgress.event.payload as unknown as {
+        observation: { event: { text: string } };
+      }).observation.event.text,
+      'latest',
+      'Data owns the event payload before the journal flushes it',
+    );
     const snapshot = () =>
-      JSON.parse(new TextDecoder().decode(writer.snapshotSession(sessionId).bytes)) as {
+      JSON.parse(
+        new TextDecoder().decode(writer.snapshotSession(sessionId).bytes),
+      ) as {
         entities: Record<string, ConversationMessageEntity>;
       };
     const body = Object.values(snapshot().entities).find((entity) =>
@@ -117,8 +145,14 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
     const futureBarrier = journal.flushThrough(4).then(() => false, () => true);
     strictEqual(await futureBarrier, true);
     producer.recordAssistantProgress('in flight after seal', 1, 'parent');
-    channel.port1.postMessage({ executionId, sequence: 4, message: messages[3] });
-    while (statuses.length < 4) await new Promise((resolve) => setTimeout(resolve, 1));
+    channel.port1.postMessage({
+      executionId,
+      sequence: 4,
+      message: messages[3],
+    });
+    while (statuses.length < 4) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
     strictEqual(statuses[3], 'sealed');
     strictEqual(journal.receivedSequence, 3);
     writer.reconcileExecution({ executionId, settlement: 'interrupted' });
@@ -128,7 +162,10 @@ Deno.test('Increment 170 Data journal waits for final data sequence and seals on
     strictEqual(terminal.complete, false);
     ok(terminal.semanticOccurrenceId);
     strictEqual(terminal.position.eventOrdinal, body.position.eventOrdinal);
-    strictEqual(store.readExecutionMetadata(executionId).outcome, 'interrupted');
+    strictEqual(
+      store.readExecutionMetadata(executionId).outcome,
+      'interrupted',
+    );
     strictEqual(failures.length, 0);
     watch.unsubscribe();
   } finally {

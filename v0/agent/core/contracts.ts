@@ -221,3 +221,5 @@ export interface LoopOutcome {
   readonly toolResultCount: number;
   readonly transcript: readonly Message[];
 }
+
+export type LoopOutcomeMetadata = Omit<LoopOutcome, 'transcript'>;

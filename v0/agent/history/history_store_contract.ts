@@ -1,4 +1,4 @@
-import type { LoopOutcome, Message } from '../core/contracts.ts';
+import type { LoopOutcome, LoopOutcomeMetadata, Message } from '../core/contracts.ts';
 export type {
   HistoryAssistantTextKey,
   HistoryAssistantTextState,
@@ -8,9 +8,12 @@ import type { ProviderEvidenceObservation } from '../provider/provider_evidence.
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type { StoredSessionRecord } from '../session/session_store_contract.ts';
+import type { WorkerSessionMetadataWrite } from '../session/session_store_contract.ts';
 import type { RecalledExecutionContext } from '../worker/recalled_execution_context.ts';
-import type { WorkerExecutionArtifactV1 } from '../worker/worker_execution_artifact.ts';
+import type {
+  WorkerExecutionArtifactMetadata,
+  WorkerExecutionArtifactV1,
+} from '../worker/worker_execution_artifact.ts';
 import type {
   WorkerCommitProposalMessage,
   WorkerEffectObservationMessage,
@@ -333,6 +336,12 @@ export interface StoredExecutionEffect {
   readonly status: ExecutionEffectStatus;
 }
 
+/** The selected journal facts and full-read event count needed to build a recall projection. */
+export interface StoredExecutionRecallFacts {
+  readonly events: readonly StoredExecutionEvent[];
+  readonly eventCount: number;
+}
+
 export interface StoredExecutionRow {
   readonly executionId: string;
   readonly taskId: string;
@@ -367,6 +376,37 @@ export interface StoredExecutionRow {
   readonly diagnosticId?: string;
   readonly artifactCapture: string;
   readonly contextCapture: 'none' | 'partial' | 'complete' | 'failed';
+}
+
+/** Execution facts used only to build a Session descriptor, without runtime outcome/config hydration. */
+export interface StoredExecutionDescriptorSummary {
+  readonly executionId: string;
+  readonly sessionCorrelation: string;
+  readonly task: string;
+  readonly turn: number;
+  readonly createdAt: string;
+  readonly lifecycle: ExecutionLifecycle;
+  readonly outcome: ExecutionOutcome;
+  readonly stopReason?: string;
+  readonly diagnostic?: Readonly<{ code: string; stage: string }>;
+  readonly adoption: ExecutionAdoption;
+  readonly committedRevision?: number;
+  readonly acknowledgement: string;
+  readonly generationAvailability: string;
+  readonly diagnosticCapture: string;
+  readonly diagnosticId?: string;
+  readonly artifactCapture: string;
+  readonly contextCapture: 'none' | 'partial' | 'complete' | 'failed';
+  readonly requestCount: number;
+}
+
+export interface StoredSessionLatestRequest {
+  readonly executionId: string;
+  readonly requestOrdinal: number;
+  readonly lane: 'parent' | 'planner';
+  readonly purpose: string;
+  readonly modelStep: number;
+  readonly itemCount: number;
 }
 
 /** Human session timeline input from semantic rows, without diagnostic attachments. */
@@ -409,7 +449,7 @@ export interface BeginExecutionInput extends HistoryExecutionInput {
   /** Admission owner boundary is explicit so a persistent Session cannot be mistaken for detached mode. */
   readonly sessionMode: 'persistent' | 'no_session';
   /** Empty Session materialization for the first persistent turn. */
-  readonly sessionRecord?: StoredSessionRecord;
+  readonly initialSession?: WorkerSessionMetadataWrite;
 }
 
 export interface ReconcileExecutionInput {
@@ -461,18 +501,16 @@ interface HistoryCaptureInput {
 }
 
 export interface CanonicalTurnCommitInput extends HistoryExecutionInput, HistoryCaptureInput {
-  readonly record: StoredSessionRecord;
-  readonly outcome: LoopOutcome;
-  readonly artifactForCapture?: (
-    capture: HistoryCaptureResult,
-  ) => WorkerExecutionArtifactV1;
+  readonly messageSuffix: readonly Message[];
+  readonly updatedAt: string;
+  readonly outcome: LoopOutcomeMetadata;
+  readonly executionMetadata?: WorkerExecutionArtifactMetadata;
 }
 
 export interface NonCanonicalExecutionInput extends HistoryExecutionInput, HistoryCaptureInput {
-  readonly outcome: LoopOutcome;
-  readonly artifactForCapture?: (
-    capture: HistoryCaptureResult,
-  ) => WorkerExecutionArtifactV1;
+  readonly messageSuffix: readonly Message[];
+  readonly outcome: LoopOutcomeMetadata;
+  readonly executionMetadata?: WorkerExecutionArtifactMetadata;
 }
 
 export interface HistoryCaptureResult {
@@ -511,6 +549,7 @@ export interface HistoryPersistencePort {
   validateExecutionEvent(input: ExecutionEventInput): boolean;
   /** Bound terminal transcript content before Host history projection. */
   prepareWorkerObservationForHistory?(
+    executionId: string,
     message: import('../worker/worker_protocol.ts').WorkerToHostMessage,
   ): import('../worker/worker_protocol.ts').WorkerToHostMessage;
   reconcileExecution(
@@ -519,12 +558,19 @@ export interface HistoryPersistencePort {
   listExecutions(): readonly StoredExecutionRow[];
   /** Indexed v6 path used by normal Session recall selection. */
   listExecutionsForSession?(sessionId: string): readonly StoredExecutionRow[];
+  readLatestExecutionForSession?(
+    sessionId: string,
+  ): StoredExecutionDescriptorSummary | undefined;
+  readLatestRequestForSession?(
+    sessionId: string,
+  ): StoredSessionLatestRequest | undefined;
   /** Consume once; the SQLite snapshot closes on completion or iterator return. */
   readSessionConversationFacts?(
     sessionId: string,
   ): Iterable<StoredSessionConversationExecution>;
   readExecution(id: string): StoredExecutionRow;
   listExecutionEvents(id: string): readonly StoredExecutionEvent[];
+  readExecutionRecallFacts(id: string): StoredExecutionRecallFacts;
   /** Semantic source rows used by the shared read projection. */
   listSemanticOccurrences?(id: string): readonly HistorySemanticOccurrence[];
   /** Latest request text while its provider request is incomplete. */
@@ -534,7 +580,10 @@ export interface HistoryPersistencePort {
   settleNonCanonicalExecution(
     input: NonCanonicalExecutionInput,
   ): HistoryCaptureResult;
-  recordPostCommitObservation(artifact: WorkerExecutionArtifactV1): void;
+  recordExecutionMetadata(
+    executionId: string,
+    metadata: WorkerExecutionArtifactMetadata,
+  ): void;
   listExecutionContext(executionId: string): {
     readonly snapshot?: WorkerContextSnapshot;
     readonly relations: readonly ExecutionContextRelation[];

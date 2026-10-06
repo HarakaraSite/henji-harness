@@ -1,6 +1,6 @@
 import { deepStrictEqual, throws } from 'node:assert';
 import { DatabaseSync } from 'node:sqlite';
-import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
+import type { LoopOutcomeMetadata } from '../../v0/agent/core/contracts.ts';
 import type { ExecutionEventInput } from '../../v0/agent/history/history_store_contract.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../../v0/agent/provider/provider_evidence.ts';
@@ -64,7 +64,7 @@ const progress = (text: string, step = 1): ProviderEvidenceRuntimeEvent => ({
   requestOrdinal: step,
   lane: 'parent',
 });
-const outcome = (stopReason: 'cancelled' | 'contract_failure'): LoopOutcome => ({
+const outcome = (stopReason: 'cancelled' | 'contract_failure'): LoopOutcomeMetadata => ({
   ok: false,
   task: input.task,
   outcome: stopReason,
@@ -72,7 +72,6 @@ const outcome = (stopReason: 'cancelled' | 'contract_failure'): LoopOutcome => (
   steps: 2,
   toolCallCount: 0,
   toolResultCount: 0,
-  transcript: [],
 });
 const rowCount = (db: DatabaseSync, table: string): number =>
   Number(
@@ -129,7 +128,11 @@ Deno.test('Increment 134 production keeps completed result and only latest cance
         payload: { text: 'request a change while generating' },
       });
       const last = store.appendExecutionEvent(observation(progress('Second latest', 2), 7));
-      store.settleNonCanonicalExecution({ ...input, outcome: outcome('cancelled') });
+      store.settleNonCanonicalExecution({
+        ...input,
+        messageSuffix: [],
+        outcome: outcome('cancelled'),
+      });
       deepStrictEqual(rowCount(db, 'assistant_text_states'), 0);
       deepStrictEqual(rowCount(db, 'semantic_records'), 5); // admission, result, steer, partial, terminal
       const events = store.listExecutionEvents(executionId);
@@ -191,26 +194,21 @@ Deno.test('Increment 134 active detail retains one text snapshot across later mo
       sessionCorrelation: sessionId,
       sessionMode: 'persistent',
       baseStateRevision: 1,
-      sessionRecord: {
-        schemaVersion: 1,
+      initialSession: {
         sessionId,
         workspaceRoot,
-        agent: 'default',
+        agentChoice: {},
         createdAt: input.createdAt,
         updatedAt: input.createdAt,
         title: null,
         stateRevision: 1,
         nextTurn: 1,
-        transcript: [],
-        agentChoice: {},
         activeModel: input.model,
-        modelChanges: [{
+        modelChangesToAppend: [{
           effectiveFromTurn: 1,
           changedAt: input.createdAt,
           selection: input.model,
         }],
-        turnModels: [],
-        turnExecutions: [],
       },
     });
     store.appendExecutionEvents([
@@ -271,7 +269,11 @@ Deno.test('Increment 134 failed settlement retains latest text for restart recon
     await store.beginExecution({ ...input, sessionMode: 'no_session' });
     const latest = store.appendExecutionEvent(observation(progress('saved before failure'), 1));
     throws(() =>
-      store.settleNonCanonicalExecution({ ...input, outcome: outcome('contract_failure') })
+      store.settleNonCanonicalExecution({
+        ...input,
+        messageSuffix: [],
+        outcome: outcome('contract_failure'),
+      })
     );
     const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
     const db = new DatabaseSync(path, { readOnly: true });

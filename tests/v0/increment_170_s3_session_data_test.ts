@@ -86,6 +86,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
   let reopenedWriter: ConversationWriter | undefined;
   let owner: DataSessionOwner | undefined;
   let reopened: DataSessionOwner | undefined;
+  let unsubscribeWriter: (() => void) | undefined;
   const notifications: ConversationWriterDelta[] = [];
   const configuration = workerConfigurationFixture();
   try {
@@ -98,10 +99,14 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       persistence: 'new',
       agent: 'default',
       agentChoice: {},
-      onConversationDelta: (delta) => notifications.push(delta),
     });
     const sessionId = owner.sessionId;
-    const initial = decode(owner.snapshot().bytes);
+    const snapshot = () => writer!.snapshotSession(sessionId);
+    unsubscribeWriter = writer.watchSession(
+      sessionId,
+      (delta) => notifications.push(delta),
+    ).unsubscribe;
+    const initial = decode(snapshot().bytes);
     strictEqual(initial.schemaVersion, 2);
     strictEqual(initial.sessionId, sessionId);
     strictEqual(initial.cut, 0);
@@ -166,6 +171,32 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       store.readExecutionMetadata(firstExecutionId).outcome,
       'cancelled',
     );
+    deepStrictEqual(notifications.map((delta) => delta.cut), [1, 2, 3]);
+
+    // A cancelled first execution leaves a valid empty canonical Session. Reopen it before
+    // the first accepted turn to cover the persisted-owner path with zero transcript turns.
+    await owner.close();
+    owner = undefined;
+    unsubscribeWriter?.();
+    unsubscribeWriter = undefined;
+    writer.close();
+    writer = undefined;
+    writer = new ConversationWriter(store);
+    owner = await DataSessionOwner.open({
+      store,
+      writer,
+      workspaceRoot,
+      persistence: 'session',
+      sessionId,
+      agent: 'default',
+      agentChoice: {},
+    });
+    const resumedEmpty = owner.generationContext(
+      correlationFor(sessionId, 1, 'after-empty-reopen'),
+    );
+    deepStrictEqual(resumedEmpty.initialTranscript, []);
+    strictEqual(resumedEmpty.nextTurn, 1);
+    strictEqual(resumedEmpty.stateRevision, 1);
 
     const nextContextCorrelation = correlationFor(
       sessionId,
@@ -198,7 +229,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     });
     owner.receiveData({ executionId, sequence: 1, message: partial });
     owner.getJournal(executionId).flush();
-    const partialEntity = entitiesOf(decode(owner.snapshot().bytes)).find((
+    const partialEntity = entitiesOf(decode(snapshot().bytes)).find((
       entity,
     ) =>
       entity.kind === 'message' && entity.role === 'assistant' &&
@@ -253,7 +284,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       storedTranscript[1]?.role === 'assistant' ? storedTranscript[1].providerState : undefined,
       providerState,
     );
-    const saved = decode(owner.snapshot().bytes);
+    const saved = decode(snapshot().bytes);
     const partialFinal = entitiesOf(saved).find((entity) =>
       entity.kind === 'message' && entity.role === 'assistant' &&
       entity.text === 'The saved marker is amber.'
@@ -287,7 +318,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       reason: 'late physical cleanup observation',
     });
     strictEqual(lateSeal, committed, 'authorized terminal result is reused');
-    strictEqual(decode(owner.snapshot().bytes).cut, cutBeforeLateSeal);
+    strictEqual(snapshot().cut, cutBeforeLateSeal);
     strictEqual(store.readExecutionMetadata(executionId).outcome, 'completed');
 
     const nextGeneration = owner.generationContext(
@@ -298,13 +329,40 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     strictEqual(nextGeneration.stateRevision, 2);
     strictEqual(nextGeneration.privateStateFromTurn, 1);
 
-    const cuts = notifications.map((delta) => delta.cut);
-    deepStrictEqual(cuts, [1, 2, 3, 4, 5, 6, 7]);
-    strictEqual(
-      notifications.length,
-      7,
-      'each admission, append batch, and terminal COMMIT notifies once',
-    );
+    // Proposal validation checks one new turn after the already validated owner prefix.
+    const secondTask = 'Append a second canonical task';
+    const secondExecutionId = '17000000-0000-4000-8000-000000000175';
+    const secondCorrelation = correlationFor(sessionId, 2, 'second-authorized-commit');
+    await owner.admit({
+      executionId: secondExecutionId,
+      taskId: '17000000-0000-4000-8000-000000000176',
+      task: secondTask,
+      correlation: secondCorrelation,
+      createdAt: '2026-10-03T00:00:03.000Z',
+      configuration,
+      maxSteps: 128,
+    });
+    const secondTranscript = [
+      ...transcript,
+      userMessage(secondTask),
+      assistantMessage('The second answer is saved.'),
+    ];
+    const secondToken = await owner.prepareProposal({
+      proposalId: 'proposal-second-authorized-commit',
+      executionId: secondExecutionId,
+      finalDataSequence: 0,
+      message: {
+        kind: 'commit_proposal',
+        correlation: secondCorrelation,
+        transcript: secondTranscript,
+        nextTurn: 3,
+      },
+    });
+    const secondCommitted = owner.authorizeCommit(secondToken, { accepted: true });
+    strictEqual(secondCommitted.canonical, true);
+    strictEqual(secondCommitted.stateRevision, 3);
+    strictEqual(secondCommitted.nextTurn, 3);
+    deepStrictEqual((await store.readWorker(sessionId)).transcript, secondTranscript);
 
     await owner.close();
     owner = undefined;
@@ -321,12 +379,14 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       agentChoice: {},
     });
     const restored = reopened.generationContext(
-      correlationFor(sessionId, 2, 'reopened-next-turn'),
+      correlationFor(sessionId, 3, 'reopened-next-turn'),
     );
-    deepStrictEqual(restored.initialTranscript, transcript);
-    strictEqual(restored.nextTurn, 2);
-    strictEqual(restored.stateRevision, 2);
-    const reopenedSnapshot = decode(reopened.snapshot().bytes);
+    deepStrictEqual(restored.initialTranscript, secondTranscript);
+    strictEqual(restored.nextTurn, 3);
+    strictEqual(restored.stateRevision, 3);
+    const reopenedSnapshot = decode(
+      reopenedWriter!.snapshotSession(sessionId).bytes,
+    );
     const replay = replaySessionConversation(
       sessionId,
       store.readSessionConversationFacts(sessionId),
@@ -336,8 +396,9 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       orderedConversationEntities(replay.state),
     );
     strictEqual(reopenedSnapshot.cut, 0);
-    strictEqual(reopenedSnapshot.storeRevision, 2);
+    strictEqual(reopenedSnapshot.storeRevision, 3);
   } finally {
+    unsubscribeWriter?.();
     await reopened?.close();
     await owner?.close();
     reopenedWriter?.close();

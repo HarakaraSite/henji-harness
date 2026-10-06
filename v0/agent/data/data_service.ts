@@ -10,7 +10,11 @@ import type {
 } from '../../api/contract.ts';
 import { replaySessionConversation } from '../../conversation/history_adapter.ts';
 import { renderCanonicalView, renderConversationTimeline } from '../history/history_view.ts';
-import { HistoryStoreError, type StoredExecutionRow } from '../history/history_store_contract.ts';
+import {
+  HistoryStoreError,
+  type StoredExecutionDescriptorSummary,
+  type StoredExecutionRow,
+} from '../history/history_store_contract.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { isSessionId, SessionStoreError } from '../session/session_store_contract.ts';
 import { sessionPaths } from '../session/session_store_paths.ts';
@@ -35,6 +39,8 @@ import type {
   DataPrepareProposalRequest,
   DataSealGenerationRequest,
   DataService,
+  DataSessionDescriptorListener,
+  DataSessionDescriptorUpdate,
   DataSessionOpenInput,
   DataSettleChildExecutionRequest,
   DataSettleFailureRequest,
@@ -43,21 +49,13 @@ import type {
 import { DataServiceError as DataServiceErrorClass } from './data_contract.ts';
 import type { LiveModelCatalogFact } from '../provider/live_model_catalog.ts';
 
-type StoredContextDelta = Readonly<{
-  requestOrdinal: number;
-  lane: 'parent' | 'planner';
-  purpose: string;
-  modelStep: number;
-  resultItemCount: number;
-}>;
-
 interface GenerationEntry {
   readonly sessionId: string;
   readonly correlation: WorkerCorrelation;
   readonly endpoint: AgentDataEndpoint;
 }
 
-interface SessionWatchEntry {
+interface ConversationWatchEntry {
   readonly listeners: Set<{
     readonly callback: DataConversationDeltaListener;
     readonly afterCut: number;
@@ -66,8 +64,9 @@ interface SessionWatchEntry {
   delivery: Promise<void>;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+interface DescriptorWatchEntry {
+  readonly listeners: Set<DataSessionDescriptorListener>;
+}
 
 const sessionNotFound = (): DataServiceErrorClass =>
   new DataServiceErrorClass(404, 'session_not_found', 'session not found');
@@ -127,106 +126,45 @@ const encode = (value: unknown): EncodedDataReply => ({
   bytes: new TextEncoder().encode(JSON.stringify(value)),
 });
 
-const contextDelta = (value: unknown): StoredContextDelta | undefined => {
-  if (!isRecord(value) || !isRecord(value.event)) return undefined;
-  const event = value.event;
-  if (event.kind !== 'context_observation' || !isRecord(event.payload)) {
-    return undefined;
-  }
-  const payload = event.payload;
-  if (
-    !isRecord(payload.observation) ||
-    payload.observation.kind !== 'model_request_delta'
-  ) {
-    return undefined;
-  }
-  const delta = payload.observation.delta;
-  if (
-    !isRecord(delta) || !Number.isSafeInteger(delta.requestOrdinal) ||
-    typeof delta.requestOrdinal !== 'number' ||
-    (delta.lane !== 'parent' && delta.lane !== 'planner') ||
-    typeof delta.purpose !== 'string' ||
-    !Number.isSafeInteger(delta.modelStep) ||
-    typeof delta.modelStep !== 'number' ||
-    !Number.isSafeInteger(delta.resultItemCount) ||
-    typeof delta.resultItemCount !== 'number'
-  ) return undefined;
+const executionView = (
+  row: StoredExecutionRow | StoredExecutionDescriptorSummary,
+  history: SqliteHistoryStore,
+): ExecutionView => {
+  const outcome = 'outcomeJson' in row ? row.outcomeJson : undefined;
+  const stopReason = 'stopReason' in row ? row.stopReason : outcome?.stopReason;
+  const diagnostic = 'diagnostic' in row ? row.diagnostic : outcome?.diagnostic;
+  const requestCount = 'requestCount' in row
+    ? row.requestCount
+    : history.readExecutionRequestCount(row.executionId);
   return {
-    requestOrdinal: delta.requestOrdinal,
-    lane: delta.lane,
-    purpose: delta.purpose,
-    modelStep: delta.modelStep,
-    resultItemCount: delta.resultItemCount,
+    executionId: row.executionId,
+    sessionId: row.sessionCorrelation,
+    task: row.task,
+    turn: row.turn,
+    createdAt: row.createdAt,
+    lifecycle: row.lifecycle,
+    outcome: row.outcome,
+    ...(stopReason === undefined ? {} : { stopReason }),
+    ...(diagnostic === undefined ? {} : {
+      diagnostic: {
+        code: diagnostic.code,
+        stage: diagnostic.stage,
+      },
+    }),
+    adoption: row.adoption,
+    ...(row.committedRevision === undefined ? {} : { committedRevision: row.committedRevision }),
+    processSettlement: 'unknown',
+    requestCount,
+    durability: {
+      acknowledgement: row.acknowledgement,
+      generationAvailability: row.generationAvailability,
+      diagnosticCapture: row.diagnosticCapture,
+      artifactCapture: row.artifactCapture,
+      contextCapture: row.contextCapture,
+    },
+    ...(row.diagnosticId === undefined ? {} : { diagnosticId: row.diagnosticId }),
   };
 };
-
-const latestRequest = (
-  store: SqliteHistoryStore,
-  sessionId: string,
-): ContextView['latestRequest'] => {
-  const executions = [...store.listExecutionsForSession(sessionId)].sort((
-    left,
-    right,
-  ) =>
-    right.createdAt.localeCompare(left.createdAt) ||
-    right.executionId.localeCompare(left.executionId)
-  );
-  for (const execution of executions) {
-    let latest: StoredContextDelta | undefined;
-    for (
-      const occurrence of store.listSemanticOccurrences(execution.executionId)
-    ) {
-      const candidate = contextDelta(occurrence.payload);
-      if (
-        candidate !== undefined &&
-        (latest === undefined ||
-          candidate.requestOrdinal > latest.requestOrdinal)
-      ) latest = candidate;
-    }
-    if (latest === undefined) continue;
-    return {
-      executionId: execution.executionId,
-      requestOrdinal: latest.requestOrdinal,
-      lane: latest.lane,
-      purpose: latest.purpose,
-      modelStep: latest.modelStep,
-      itemCount: latest.resultItemCount,
-    };
-  }
-  return undefined;
-};
-
-const executionView = (
-  row: StoredExecutionRow,
-  requestCount: number,
-): ExecutionView => ({
-  executionId: row.executionId,
-  sessionId: row.sessionCorrelation,
-  task: row.task,
-  turn: row.turn,
-  createdAt: row.createdAt,
-  lifecycle: row.lifecycle,
-  outcome: row.outcome,
-  ...(row.outcomeJson === undefined ? {} : { stopReason: row.outcomeJson.stopReason }),
-  ...(row.outcomeJson?.diagnostic === undefined ? {} : {
-    diagnostic: {
-      code: row.outcomeJson.diagnostic.code,
-      stage: row.outcomeJson.diagnostic.stage,
-    },
-  }),
-  adoption: row.adoption,
-  ...(row.committedRevision === undefined ? {} : { committedRevision: row.committedRevision }),
-  processSettlement: 'unknown',
-  requestCount,
-  durability: {
-    acknowledgement: row.acknowledgement,
-    generationAvailability: row.generationAvailability,
-    diagnosticCapture: row.diagnosticCapture,
-    artifactCapture: row.artifactCapture,
-    contextCapture: row.contextCapture,
-  },
-  ...(row.diagnosticId === undefined ? {} : { diagnosticId: row.diagnosticId }),
-});
 
 const generationKey = (
   sessionId: string,
@@ -374,7 +312,9 @@ export const createDataService = async (input: {
   const descriptors = new Map<string, DataSessionDescriptor>();
   const generations = new Map<string, GenerationEntry>();
   const executionGenerations = new Map<string, string>();
-  const watches = new Map<string, SessionWatchEntry>();
+  const conversationWatches = new Map<string, ConversationWatchEntry>();
+  const descriptorWatches = new Map<string, DescriptorWatchEntry>();
+  const descriptorSequences = new Map<string, number>();
   const sessionMutations = new Map<string, Set<Promise<void>>>();
 
   const beginSessionMutation = (sessionId: string): () => void => {
@@ -447,37 +387,86 @@ export const createDataService = async (input: {
     return owner;
   };
 
+  const setDescriptor = (
+    sessionId: string,
+    descriptor: DataSessionDescriptor,
+  ): void => {
+    const previous = descriptors.get(sessionId);
+    descriptors.set(sessionId, descriptor);
+    if (
+      previous !== undefined &&
+      JSON.stringify(previous) === JSON.stringify(descriptor)
+    ) return;
+    const sequence = (descriptorSequences.get(sessionId) ?? 0) + 1;
+    descriptorSequences.set(sessionId, sequence);
+    const watch = descriptorWatches.get(sessionId);
+    if (watch === undefined) return;
+    const update: DataSessionDescriptorUpdate = {
+      sequence,
+      descriptor: structuredClone(descriptor),
+    };
+    for (const listener of [...watch.listeners]) listener(update);
+  };
+
   const cachedOrReadDescriptor = async (
     sessionId: string,
   ): Promise<DataSessionDescriptor> => {
     const owner = owners.get(sessionId);
     if (owner !== undefined) {
       const descriptor = owner.descriptor();
-      descriptors.set(sessionId, descriptor);
+      setDescriptor(sessionId, descriptor);
       return structuredClone(descriptor);
     }
     const cached = descriptors.get(sessionId);
     if (cached !== undefined) return structuredClone(cached);
     if (!isSessionId(sessionId)) throw sessionNotFound();
     const history = await currentStore();
-    let record;
+    let metadata;
     try {
-      record = await history.readWorker(sessionId);
+      metadata = await history.readSessionMetadataSnapshot(sessionId);
     } catch (error) {
       throw serviceError(error);
     }
-    const readOwner = await DataSessionOwner.open({
-      store: history,
-      writer: await currentWriter(),
-      workspaceRoot: input.workspaceRoot,
-      persistence: 'session',
-      agent: record.agent,
-      agentChoice: record.agentChoice,
-      sessionId,
-    });
-    const descriptor = readOwner.descriptor();
-    descriptors.set(sessionId, descriptor);
-    await readOwner.close();
+    const checkpoint = metadata.checkpoint === undefined ? undefined : {
+      summary: metadata.checkpoint.summary,
+      coveredThroughTurn: metadata.checkpoint.coveredThroughTurn,
+      retainedFromTurn: metadata.checkpoint.retainedFromTurn,
+    };
+    const latestRequest = history.readLatestRequestForSession(sessionId);
+    const latestExecutionRow = history.readLatestExecutionForSession(sessionId);
+    const descriptor: DataSessionDescriptor = {
+      id: sessionId,
+      persistence: 'persistent',
+      agent: metadata.agent,
+      agentChoice: metadata.agentChoice,
+      modelSelection: metadata.activeModel,
+      stateRevision: metadata.stateRevision,
+      nextTurn: metadata.nextTurn,
+      privateStateFromTurn: metadata.privateStateFromTurn,
+      currentPosition: {
+        sessionId,
+        createdAt: metadata.createdAt,
+        ...(metadata.title === null ? {} : { title: metadata.title }),
+        agent: metadata.agent,
+        committedTurn: metadata.nextTurn - 1,
+        messageCount: metadata.messageCount,
+        ...(checkpoint === undefined ? {} : { checkpoint }),
+      },
+      ...(latestExecutionRow === undefined
+        ? {}
+        : { latestExecution: executionView(latestExecutionRow, history) }),
+      context: {
+        ...(checkpoint === undefined ? {} : { checkpoint }),
+        ...(latestRequest === undefined ? {} : { latestRequest }),
+      },
+      ...(metadata.checkpoint === undefined ? {} : {
+        checkpoint: {
+          coveredThroughTurn: metadata.checkpoint.coveredThroughTurn,
+          retainedFromTurn: metadata.checkpoint.retainedFromTurn,
+        },
+      }),
+    };
+    setDescriptor(sessionId, descriptor);
     return structuredClone(descriptor);
   };
 
@@ -525,7 +514,7 @@ export const createDataService = async (input: {
     if (descriptor === undefined) {
       descriptor = await cachedOrReadDescriptor(sessionId);
     }
-    descriptors.set(sessionId, descriptor);
+    setDescriptor(sessionId, descriptor);
     return {
       sessionId,
       cut: delta.cut,
@@ -535,8 +524,8 @@ export const createDataService = async (input: {
     };
   };
 
-  const drainWatchDelivery = async (
-    entry: SessionWatchEntry,
+  const drainConversationDelivery = async (
+    entry: ConversationWatchEntry,
   ): Promise<void> => {
     for (;;) {
       const pending = entry.delivery;
@@ -545,21 +534,21 @@ export const createDataService = async (input: {
     }
   };
 
-  const installWatch = (
+  const installConversationWatch = (
     sessionId: string,
     listener: DataConversationDeltaListener,
   ): {
     readonly snapshot: DataConversationSnapshot;
     readonly unsubscribe: () => void;
   } => {
-    let entry = watches.get(sessionId);
+    let entry = conversationWatches.get(sessionId);
     if (entry === undefined) {
       const listeners = new Set<{
         readonly callback: DataConversationDeltaListener;
         readonly afterCut: number;
       }>();
       const writerWatch = writer!.watchSession(sessionId, (delta) => {
-        const current = watches.get(sessionId);
+        const current = conversationWatches.get(sessionId);
         if (current === undefined) return;
         const delivery = current.delivery.then(async () => {
           const update = await publicUpdate(sessionId, delta);
@@ -569,13 +558,13 @@ export const createDataService = async (input: {
         });
         current.delivery = delivery.catch(() => undefined);
       });
-      const installed: SessionWatchEntry = {
+      const installed: ConversationWatchEntry = {
         listeners,
         unsubscribeWriter: writerWatch.unsubscribe,
         delivery: Promise.resolve(),
       };
       entry = installed;
-      watches.set(sessionId, installed);
+      conversationWatches.set(sessionId, installed);
       const snapshot = publicSnapshot(writerWatch.snapshot);
       const target = { callback: listener, afterCut: snapshot.cut };
       installed.listeners.add(target);
@@ -588,7 +577,7 @@ export const createDataService = async (input: {
           installed.listeners.delete(target);
           if (installed.listeners.size === 0) {
             installed.unsubscribeWriter();
-            watches.delete(sessionId);
+            conversationWatches.delete(sessionId);
           }
         },
       };
@@ -605,7 +594,7 @@ export const createDataService = async (input: {
         entry!.listeners.delete(target);
         if (entry!.listeners.size === 0) {
           entry!.unsubscribeWriter();
-          watches.delete(sessionId);
+          conversationWatches.delete(sessionId);
         }
       },
     };
@@ -712,7 +701,7 @@ export const createDataService = async (input: {
           !(await history.listWorker()).sessions.some((session) => session.id === sessionId)
         ) throw sessionNotFound();
         const checkpoint = await history.readCheckpoint(sessionId);
-        const request = latestRequest(history, sessionId);
+        const request = history.readLatestRequestForSession(sessionId);
         const context: ContextView = {
           ...(checkpoint === undefined ? {} : {
             checkpoint: {
@@ -737,10 +726,7 @@ export const createDataService = async (input: {
         const live = owners.get(row.sessionCorrelation)?.descriptor()
           .latestExecution;
         return {
-          execution: live?.executionId === executionId ? live : executionView(
-            row,
-            history.readExecutionRequestCount(executionId),
-          ),
+          execution: live?.executionId === executionId ? live : executionView(row, history),
         };
       } catch (error) {
         if (
@@ -775,14 +761,14 @@ export const createDataService = async (input: {
       const owner = await DataSessionOwner.open(await ownerOpenInput(value));
       const descriptor = owner.descriptor();
       owners.set(descriptor.id, owner);
-      descriptors.set(descriptor.id, descriptor);
+      setDescriptor(descriptor.id, descriptor);
       return structuredClone(descriptor);
     },
 
     async closeSession(sessionId: string): Promise<void> {
       const owner = owners.get(sessionId);
       if (owner === undefined) return;
-      descriptors.set(sessionId, owner.descriptor());
+      setDescriptor(sessionId, owner.descriptor());
       for (const [key, generation] of generations) {
         if (generation.sessionId === sessionId) closeGeneration(key);
       }
@@ -814,10 +800,10 @@ export const createDataService = async (input: {
     async deleteSession(sessionId: string): Promise<void> {
       const history = await currentStore();
       await service.closeSession(sessionId);
-      const watch = watches.get(sessionId);
+      const watch = conversationWatches.get(sessionId);
       if (watch !== undefined) {
         watch.unsubscribeWriter();
-        watches.delete(sessionId);
+        conversationWatches.delete(sessionId);
       }
       try {
         await history.delete(sessionId);
@@ -826,6 +812,9 @@ export const createDataService = async (input: {
       }
       writer!.releaseSession(sessionId);
       descriptors.delete(sessionId);
+      descriptorSequences.delete(sessionId);
+      descriptorWatches.get(sessionId)?.listeners.clear();
+      descriptorWatches.delete(sessionId);
     },
 
     async conversationSnapshot(
@@ -833,8 +822,9 @@ export const createDataService = async (input: {
     ): Promise<DataConversationSnapshot> {
       const current = await currentWriter();
       try {
-        const watch = watches.get(sessionId);
-        if (watch !== undefined) await drainWatchDelivery(watch);
+        const watch = conversationWatches.get(sessionId);
+        if (watch !== undefined) await drainConversationDelivery(watch);
+        if (!owners.has(sessionId)) current.closeSession(sessionId);
         return publicSnapshot(current.snapshotSession(sessionId));
       } catch (error) {
         if (
@@ -846,7 +836,7 @@ export const createDataService = async (input: {
       }
     },
 
-    async watchSession(
+    async watchConversation(
       sessionId: string,
       listener: DataConversationDeltaListener,
     ): Promise<
@@ -857,9 +847,49 @@ export const createDataService = async (input: {
     > {
       await currentWriter();
       try {
-        const watch = watches.get(sessionId);
-        if (watch !== undefined) await drainWatchDelivery(watch);
-        return installWatch(sessionId, listener);
+        const watch = conversationWatches.get(sessionId);
+        if (watch !== undefined) await drainConversationDelivery(watch);
+        if (!owners.has(sessionId)) writer!.closeSession(sessionId);
+        return installConversationWatch(sessionId, listener);
+      } catch (error) {
+        throw serviceError(error);
+      }
+    },
+
+    async watchSessionDescriptor(
+      sessionId: string,
+      listener: DataSessionDescriptorListener,
+    ): Promise<{
+      readonly snapshot: DataSessionDescriptorUpdate;
+      readonly unsubscribe: () => void;
+    }> {
+      try {
+        const descriptor = await cachedOrReadDescriptor(sessionId);
+        const current = owners.get(sessionId)?.descriptor() ??
+          descriptors.get(sessionId) ?? descriptor;
+        setDescriptor(sessionId, current);
+        let entry = descriptorWatches.get(sessionId);
+        if (entry === undefined) {
+          entry = { listeners: new Set() };
+          descriptorWatches.set(sessionId, entry);
+        }
+        entry.listeners.add(listener);
+        const snapshot: DataSessionDescriptorUpdate = {
+          sequence: descriptorSequences.get(sessionId) ?? 0,
+          descriptor: structuredClone(current),
+        };
+        let active = true;
+        return {
+          snapshot,
+          unsubscribe: () => {
+            if (!active) return;
+            active = false;
+            entry!.listeners.delete(listener);
+            if (entry!.listeners.size === 0) {
+              descriptorWatches.delete(sessionId);
+            }
+          },
+        };
       } catch (error) {
         throw serviceError(error);
       }
@@ -892,6 +922,13 @@ export const createDataService = async (input: {
           const finishMutation = beginSessionMutation(sessionId);
           try {
             const accepted = owner.receiveData(data);
+            if (
+              accepted === 'accepted' &&
+              (data.message.kind === 'provider_observation' &&
+                  data.message.observation.kind === 'request_start' ||
+                data.message.kind === 'context_observation' &&
+                  data.message.observation.kind === 'model_request_delta')
+            ) setDescriptor(sessionId, owner.descriptor());
             if (accepted === 'accepted' && agentEventListeners.size > 0) {
               const event = projectAgentEvent(data.executionId, data.message);
               if (event !== undefined) {
@@ -908,21 +945,28 @@ export const createDataService = async (input: {
             finishMutation();
           }
         },
-        checkpoint: (message) => owner.installCheckpoint(message),
+        checkpoint: (message) => {
+          const accepted = owner.installCheckpoint(message);
+          if (accepted) setDescriptor(sessionId, owner.descriptor());
+          return accepted;
+        },
         afterTurn: async (update, sequence) => {
           const accepted = await withSessionMutation(
             sessionId,
             () => owner.installAfterTurnContext(update, sequence),
           );
-          if (accepted) descriptors.set(sessionId, owner.descriptor());
+          if (accepted) setDescriptor(sessionId, owner.descriptor());
           return accepted;
         },
-        postSettlementHook: async (update: AgentPostSettlementHookUpdate, sequence) => {
+        postSettlementHook: async (
+          update: AgentPostSettlementHookUpdate,
+          sequence,
+        ) => {
           const accepted = await withSessionMutation(
             sessionId,
             () => owner.installPostSettlementHook(update, sequence),
           );
-          if (accepted) descriptors.set(sessionId, owner.descriptor());
+          if (accepted) setDescriptor(sessionId, owner.descriptor());
           return accepted;
         },
         onFailure: () => {
@@ -957,7 +1001,7 @@ export const createDataService = async (input: {
         value.executionId,
         generationKey(sessionId, value.correlation),
       );
-      descriptors.set(sessionId, admitted.descriptor);
+      setDescriptor(sessionId, admitted.descriptor);
       return admitted;
     },
 
@@ -978,7 +1022,7 @@ export const createDataService = async (input: {
         value.executionId,
         generationKey(sessionId, value.correlation),
       );
-      descriptors.set(sessionId, admitted.descriptor);
+      setDescriptor(sessionId, admitted.descriptor);
       return admitted;
     },
 
@@ -991,7 +1035,7 @@ export const createDataService = async (input: {
         sessionId,
         () => requireOwner(sessionId).recordExecutionControl(executionId, value),
       );
-      descriptors.set(sessionId, descriptor);
+      setDescriptor(sessionId, descriptor);
       return descriptor;
     },
 
@@ -1028,7 +1072,7 @@ export const createDataService = async (input: {
         sessionId,
         () => requireOwner(sessionId).authorizeCommit(token, decision),
       );
-      descriptors.set(sessionId, result.descriptor);
+      setDescriptor(sessionId, result.descriptor);
       executionEndpoint(token.executionId)?.releaseExecution(token.executionId);
       return result;
     },
@@ -1054,7 +1098,7 @@ export const createDataService = async (input: {
             message: failure.message,
           }),
       );
-      descriptors.set(sessionId, result.descriptor);
+      setDescriptor(sessionId, result.descriptor);
       endpoint.releaseExecution(value.executionId);
       return result;
     },
@@ -1069,7 +1113,7 @@ export const createDataService = async (input: {
         sessionId,
         () => requireOwner(sessionId).sealGeneration(value),
       );
-      descriptors.set(sessionId, result.descriptor);
+      setDescriptor(sessionId, result.descriptor);
       const key = executionGenerations.get(value.executionId);
       if (key !== undefined) closeGeneration(key);
       return result;
@@ -1128,7 +1172,7 @@ export const createDataService = async (input: {
         );
         endpoint.releaseExecution(value.executionId);
       }
-      descriptors.set(sessionId, result.descriptor);
+      setDescriptor(sessionId, result.descriptor);
       return result;
     },
 
@@ -1148,13 +1192,13 @@ export const createDataService = async (input: {
 
     updateModelSelection(sessionId, selection) {
       const result = requireOwner(sessionId).updateModelSelection(selection);
-      descriptors.set(sessionId, result.descriptor);
+      setDescriptor(sessionId, result.descriptor);
       return Promise.resolve(result);
     },
 
     updateTitle(sessionId, title) {
       const result = requireOwner(sessionId).updateTitle(title);
-      descriptors.set(sessionId, result.descriptor);
+      setDescriptor(sessionId, result.descriptor);
       return Promise.resolve(result);
     },
 
@@ -1162,7 +1206,7 @@ export const createDataService = async (input: {
       try {
         const owner = requireOwner(sessionId);
         const result = await owner.prepareRecall(executionIdPrefix);
-        descriptors.set(sessionId, owner.descriptor());
+        setDescriptor(sessionId, owner.descriptor());
         return result;
       } catch (error) {
         throw serviceError(error);
@@ -1171,7 +1215,7 @@ export const createDataService = async (input: {
 
     clearPendingRecall(sessionId) {
       const result = requireOwner(sessionId).clearPendingRecall();
-      descriptors.set(sessionId, requireOwner(sessionId).descriptor());
+      setDescriptor(sessionId, requireOwner(sessionId).descriptor());
       return Promise.resolve(result);
     },
 
@@ -1212,8 +1256,11 @@ export const createDataService = async (input: {
       if (closed) return;
       closed = true;
       for (const key of [...generations.keys()]) closeGeneration(key);
-      for (const watch of watches.values()) watch.unsubscribeWriter();
-      watches.clear();
+      for (const watch of conversationWatches.values()) {
+        watch.unsubscribeWriter();
+      }
+      conversationWatches.clear();
+      descriptorWatches.clear();
       await Promise.all([...owners.values()].map((owner) => owner.close()));
       owners.clear();
       descriptors.clear();

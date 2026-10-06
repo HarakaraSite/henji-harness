@@ -5,6 +5,7 @@ import {
   type DataConversationUpdate,
   type DataService,
   DataServiceError,
+  type DataSessionDescriptorUpdate,
   type DataWorkerRequest,
   type DataWorkerResponse,
 } from './data_contract.ts';
@@ -17,7 +18,8 @@ type DataWorkerScope = {
 
 const scope = globalThis as unknown as DataWorkerScope;
 let service: DataService | undefined;
-const sessionWatches = new Map<string, () => void>();
+const conversationWatches = new Map<string, () => void>();
+const descriptorWatches = new Map<string, () => void>();
 let unsubscribeAgentEvents: (() => void) | undefined;
 
 const asDataError = (error: unknown): DataServiceError =>
@@ -41,12 +43,22 @@ const replyError = (id: number, error: unknown, operation: string): void => {
   });
 };
 
-const replyValue = (id: number, value: unknown): void => {
-  scope.postMessage({ id, kind: 'value', value });
+const replyValue = (
+  id: number,
+  value: unknown,
+  transfer?: Transferable[],
+): void => {
+  scope.postMessage({ id, kind: 'value', value }, transfer);
 };
 
-const postSessionDelta = (update: DataConversationUpdate): void => {
-  scope.postMessage({ kind: 'session_delta', update });
+const postConversationDelta = (update: DataConversationUpdate): void => {
+  scope.postMessage({ kind: 'conversation_delta', update }, [update.bytes.buffer]);
+};
+
+const postSessionDescriptorDelta = (
+  update: DataSessionDescriptorUpdate,
+): void => {
+  scope.postMessage({ kind: 'session_descriptor_delta', update });
 };
 
 const requireService = (): DataService => {
@@ -72,8 +84,10 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
     }
 
     if (request.kind === 'close') {
-      for (const unsubscribe of sessionWatches.values()) unsubscribe();
-      sessionWatches.clear();
+      for (const unsubscribe of conversationWatches.values()) unsubscribe();
+      conversationWatches.clear();
+      for (const unsubscribe of descriptorWatches.values()) unsubscribe();
+      descriptorWatches.clear();
       unsubscribeAgentEvents?.();
       unsubscribeAgentEvents = undefined;
       await service?.close();
@@ -134,38 +148,71 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
         await data.deleteSession(request.sessionId);
         replyValue(request.id, undefined);
         return;
-      case 'conversation_snapshot':
-        replyValue(
-          request.id,
-          await data.conversationSnapshot(request.sessionId),
-        );
+      case 'conversation_snapshot': {
+        const snapshot = await data.conversationSnapshot(request.sessionId);
+        replyValue(request.id, snapshot, [snapshot.bytes.buffer]);
         return;
-      case 'watch_session': {
-        const existing = sessionWatches.get(request.sessionId);
+      }
+      case 'watch_conversation': {
+        const existing = conversationWatches.get(request.sessionId);
         if (existing !== undefined) {
-          replyValue(
-            request.id,
-            await data.conversationSnapshot(request.sessionId),
-          );
+          const snapshot = await data.conversationSnapshot(request.sessionId);
+          replyValue(request.id, snapshot, [snapshot.bytes.buffer]);
           return;
         }
         const buffered: DataConversationUpdate[] = [];
         let registering = true;
-        const watched = await data.watchSession(request.sessionId, (update) => {
+        const watched = await data.watchConversation(request.sessionId, (update) => {
           if (registering) buffered.push(update);
-          else postSessionDelta(update);
+          else postConversationDelta(update);
         });
-        sessionWatches.set(request.sessionId, watched.unsubscribe);
-        replyValue(request.id, watched.snapshot);
+        conversationWatches.set(request.sessionId, watched.unsubscribe);
+        replyValue(request.id, watched.snapshot, [watched.snapshot.bytes.buffer]);
         registering = false;
         for (const update of buffered) {
-          if (update.cut > watched.snapshot.cut) postSessionDelta(update);
+          if (update.cut > watched.snapshot.cut) postConversationDelta(update);
         }
         return;
       }
-      case 'unwatch_session': {
-        sessionWatches.get(request.sessionId)?.();
-        sessionWatches.delete(request.sessionId);
+      case 'unwatch_conversation': {
+        conversationWatches.get(request.sessionId)?.();
+        conversationWatches.delete(request.sessionId);
+        replyValue(request.id, undefined);
+        return;
+      }
+      case 'watch_session_descriptor': {
+        const existing = descriptorWatches.get(request.sessionId);
+        if (existing !== undefined) {
+          const snapshot = await data.watchSessionDescriptor(
+            request.sessionId,
+            () => {},
+          );
+          snapshot.unsubscribe();
+          replyValue(request.id, snapshot.snapshot);
+          return;
+        }
+        const buffered: DataSessionDescriptorUpdate[] = [];
+        let registering = true;
+        const watched = await data.watchSessionDescriptor(
+          request.sessionId,
+          (update) => {
+            if (registering) buffered.push(update);
+            else postSessionDescriptorDelta(update);
+          },
+        );
+        descriptorWatches.set(request.sessionId, watched.unsubscribe);
+        replyValue(request.id, watched.snapshot);
+        registering = false;
+        for (const update of buffered) {
+          if (update.sequence > watched.snapshot.sequence) {
+            postSessionDescriptorDelta(update);
+          }
+        }
+        return;
+      }
+      case 'unwatch_session_descriptor': {
+        descriptorWatches.get(request.sessionId)?.();
+        descriptorWatches.delete(request.sessionId);
         replyValue(request.id, undefined);
         return;
       }

@@ -314,7 +314,7 @@ const sseFrame = (value: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> =>
   encodedEnvelope('data: ', value, '\n\n');
 
 export interface CoreHttpSubscription {
-  readonly snapshot: Promise<EncodedDataReply>;
+  readonly ready: Promise<void>;
   readonly unsubscribe: () => void;
 }
 
@@ -378,9 +378,8 @@ const streamSession = async (
     unsubscribe();
   };
   request.signal.addEventListener('abort', abort, { once: true });
-  let snapshot: EncodedDataReply;
   try {
-    snapshot = await subscription.snapshot;
+    await subscription.ready;
   } catch (error) {
     request.signal.removeEventListener('abort', abort);
     unsubscribe();
@@ -390,15 +389,6 @@ const streamSession = async (
     start(value) {
       controller = value;
       try {
-        controller.enqueue(
-          sseFrame(
-            encodedEnvelope(
-              '{"kind":"session.snapshot","snapshot":',
-              snapshot.bytes,
-              '}',
-            ),
-          ),
-        );
         for (const frame of pending) controller.enqueue(frame);
         pending.length = 0;
         if (streamClosed) controller.close();

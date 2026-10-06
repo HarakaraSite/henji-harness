@@ -91,7 +91,6 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
       turnModels: [],
       turnExecutions: [],
     };
-    handle.commit(record);
     handle.close();
     handle = undefined;
 
@@ -115,7 +114,22 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
       maxSteps: 128,
       command: 'test-command',
     };
-    await store.beginExecution({ ...input, sessionMode: 'persistent' });
+    await store.beginExecution({
+      ...input,
+      sessionMode: 'persistent',
+      initialSession: {
+        sessionId: record.sessionId,
+        workspaceRoot: record.workspaceRoot,
+        agentChoice: record.agentChoice,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        title: record.title,
+        stateRevision: record.stateRevision,
+        nextTurn: record.nextTurn,
+        activeModel: record.activeModel,
+        modelChangesToAppend: record.modelChanges,
+      },
+    });
 
     const state = createConversationState(sessionId);
     const normalizer = createConversationNormalizer();

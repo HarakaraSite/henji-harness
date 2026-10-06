@@ -18,6 +18,7 @@ import type {
   StoredExecutionEvent,
   StoredExecutionRow,
 } from '../history/history_store_contract.ts';
+import { executionEffectsFromEvents } from '../history/execution_effect_projection.ts';
 
 type RecalledExecutionObservationV1 =
   | {
@@ -165,7 +166,7 @@ interface ResolveRecalledExecutionContextOptions {
   /** The v2 execution row/journal is the source of lifecycle and outcome truth. */
   readonly historyPersistence?: Pick<
     HistoryPersistencePort,
-    'readExecution' | 'listExecutionEvents' | 'listExecutionEffects'
+    'readExecution' | 'readExecutionRecallFacts'
   >;
 }
 
@@ -196,7 +197,8 @@ const matchingModelResult = (
 ): boolean =>
   events.slice(progressIndex + 1).some((event) =>
     event.kind === 'model_result' && event.modelStep === progress.modelStep &&
-    sameLane(event, progress) && event.requestOrdinal === progress.requestOrdinal
+    sameLane(event, progress) &&
+    event.requestOrdinal === progress.requestOrdinal
   );
 
 const matchingToolResult = (
@@ -314,7 +316,9 @@ const observationsFromJournal = (
   const observations: RecalledJournalObservationV2[] = [];
   for (const stored of events) {
     const payload = stored.payload;
-    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) continue;
+    if (
+      typeof payload !== 'object' || payload === null || Array.isArray(payload)
+    ) continue;
     const payloadObject = payload as Record<string, unknown>;
     // Runtime deliveries and effects use different envelopes. Unwrap both forms, while also
     // accepting an already-unwrapped AgentEvent for journals produced by older host adapters.
@@ -323,13 +327,18 @@ const observationsFromJournal = (
       : stored.kind === 'runtime_event'
       ? payloadObject.kind === 'provider_observation' &&
           typeof payloadObject.observation === 'object' &&
-          payloadObject.observation !== null && !Array.isArray(payloadObject.observation)
-        ? (payloadObject.observation as Record<string, unknown>).kind === 'runtime_event'
+          payloadObject.observation !== null &&
+          !Array.isArray(payloadObject.observation)
+        ? (payloadObject.observation as Record<string, unknown>).kind ===
+            'runtime_event'
           ? (payloadObject.observation as Record<string, unknown>).event
           : undefined
         : payloadObject.event ?? payloadObject
       : undefined;
-    if (typeof workerEvent !== 'object' || workerEvent === null || Array.isArray(workerEvent)) {
+    if (
+      typeof workerEvent !== 'object' || workerEvent === null ||
+      Array.isArray(workerEvent)
+    ) {
       continue;
     }
     const workerEventObject = workerEvent as Record<string, unknown>;
@@ -338,7 +347,9 @@ const observationsFromJournal = (
       : workerEventObject.kind === 'runtime_event'
       ? workerEventObject.event
       : workerEventObject;
-    if (typeof event !== 'object' || event === null || Array.isArray(event)) continue;
+    if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+      continue;
+    }
     const eventObject = event as Record<string, unknown>;
     // Provider runtime observations do not carry the AgentEvent turn field. They are retained
     // when the Worker envelope did include it; the ordinary runtime/effect channels remain the
@@ -347,7 +358,8 @@ const observationsFromJournal = (
     if (!Number.isSafeInteger(eventTurn) || (eventTurn as number) < 1) continue;
     const turn = eventTurn as number;
     if (
-      (eventObject.kind === 'user_message' || eventObject.kind === 'steering_message') &&
+      (eventObject.kind === 'user_message' ||
+        eventObject.kind === 'steering_message') &&
       typeof eventObject.message === 'object' &&
       eventObject.message !== null && !Array.isArray(eventObject.message)
     ) {
@@ -427,7 +439,9 @@ const runtimeEventsFromJournal = (
     if (stored.kind !== 'runtime_event') return [];
     const payload = stored.payload as Record<string, unknown>;
     if (payload.kind !== 'provider_observation') return [];
-    const observation = payload.observation as Record<string, unknown> | undefined;
+    const observation = payload.observation as
+      | Record<string, unknown>
+      | undefined;
     if (observation?.kind !== 'runtime_event') return [];
     return [observation.event as ProviderEvidenceRuntimeEvent];
   });
@@ -435,11 +449,16 @@ const runtimeEventsFromJournal = (
 const providerFactsFromJournal = (
   events: readonly StoredExecutionEvent[],
 ): RecalledProviderObservationV2 | undefined => {
-  const requests = new Map<number, RecalledProviderObservationV2['requests'][number]>();
+  const requests = new Map<
+    number,
+    RecalledProviderObservationV2['requests'][number]
+  >();
   for (const stored of events) {
     if (!stored.kind.startsWith('provider_')) continue;
     const payload = stored.payload as Record<string, unknown>;
-    const observation = payload.observation as Record<string, unknown> | undefined;
+    const observation = payload.observation as
+      | Record<string, unknown>
+      | undefined;
     if (observation?.kind === 'request_start') {
       const request = observation.request as Record<string, unknown>;
       const metadata = request.requestMetadata as Record<string, unknown>;
@@ -468,7 +487,10 @@ const providerFactsFromJournal = (
       if (request === undefined) continue;
       if (observation.kind === 'response_start') {
         const response = observation.response as Record<string, unknown>;
-        requests.set(ordinal, { ...request, httpStatus: response.status as number });
+        requests.set(ordinal, {
+          ...request,
+          httpStatus: response.status as number,
+        });
       } else if (observation.kind === 'request_failure') {
         const failure = observation.failure as NonNullable<
           RecalledProviderObservationV2['requests'][number]['failure']
@@ -517,15 +539,20 @@ export const resolveRecalledExecutionContext = async (
   let executionRow: StoredExecutionRow | undefined;
   let executionEvents: readonly StoredExecutionEvent[] = [];
   let executionEffects: readonly StoredExecutionEffect[] = [];
+  let journalEventCount = 0;
   if (options.historyPersistence !== undefined) {
     executionRow = options.historyPersistence.readExecution(
       options.executionId,
     );
-    executionEvents = options.historyPersistence.listExecutionEvents(
+    const recallFacts = options.historyPersistence.readExecutionRecallFacts(
       options.executionId,
     );
-    executionEffects = options.historyPersistence.listExecutionEffects(
+    executionEvents = recallFacts.events;
+    journalEventCount = recallFacts.eventCount;
+    executionEffects = executionEffectsFromEvents(
       options.executionId,
+      executionRow.outcome,
+      executionEvents,
     );
     if (
       executionRow.canonicalSessionId !== undefined
@@ -582,13 +609,17 @@ export const resolveRecalledExecutionContext = async (
       lifecycle: 'settled',
       outcome,
       capture: executionRow !== undefined &&
-          executionRow.outcome !== 'interrupted' && executionRow.outcome !== 'unknown'
+          executionRow.outcome !== 'interrupted' &&
+          executionRow.outcome !== 'unknown'
         ? 'complete' as const
         : 'partial' as const,
       task: executionRow?.task ?? artifact!.command.task,
-      ...((executionRow?.outcomeJson?.error ?? artifact?.outcome?.error) === undefined
+      ...((executionRow?.outcomeJson?.error ?? artifact?.outcome?.error) ===
+          undefined
         ? {}
-        : { error: executionRow?.outcomeJson?.error ?? artifact?.outcome?.error }),
+        : {
+          error: executionRow?.outcomeJson?.error ?? artifact?.outcome?.error,
+        }),
       evidence: providerObservation === undefined &&
           runtimeEvents.length === 0
         ? 'unavailable' as const
@@ -596,7 +627,7 @@ export const resolveRecalledExecutionContext = async (
       observations: observationsFromRuntimeEvents(runtimeEvents),
       journalObservations: observationsFromJournal(executionEvents),
       ...(providerObservation === undefined ? {} : { providerObservation }),
-      journalEventCount: executionEvents.length,
+      journalEventCount,
       effectObservations: executionEffects.map((effect) => ({
         callId: effect.callId,
         name: effect.name,

@@ -299,8 +299,12 @@ Deno.test('Increment 120 reads cancelled thinking in the normal Session view fro
         },
       },
     });
+    const messageSuffix = [
+      { role: 'user' as const, content: { kind: 'text' as const, text: input.task } },
+    ];
     store.settleNonCanonicalExecution({
       ...input,
+      messageSuffix,
       outcome: {
         ok: false,
         task: input.task,
@@ -309,10 +313,6 @@ Deno.test('Increment 120 reads cancelled thinking in the normal Session view fro
         steps: 1,
         toolCallCount: 0,
         toolResultCount: 0,
-        transcript: [
-          ...record.transcript,
-          { role: 'user', content: { kind: 'text', text: input.task } },
-        ],
       },
     });
     const timeline = store.readSessionHistory(sessionId);

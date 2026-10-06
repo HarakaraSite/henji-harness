@@ -140,7 +140,12 @@ export const adoptCanonicalInTransaction = (
   db.prepare(`
     INSERT INTO session_turns(session_id, turn_ordinal, turn_number, execution_id)
     VALUES(?, ?, ?, ?)
-  `).run(input.sessionId, input.turnOrdinal, input.turnNumber, input.executionId);
+  `).run(
+    input.sessionId,
+    input.turnOrdinal,
+    input.turnNumber,
+    input.executionId,
+  );
   const insertConversationMessage = db.prepare(`
     INSERT INTO conversation_messages(
       session_id, message_ordinal, turn_number, execution_id, execution_message_ordinal
@@ -217,7 +222,9 @@ export class SqliteHistoryCore {
         );
         if (currentVersion === 0) this.#db.exec(HISTORY_SCHEMA_SQL);
         else if (currentVersion !== HISTORY_SCHEMA_VERSION) {
-          throw new Error(`unsupported history schema version: ${currentVersion}`);
+          throw new Error(
+            `unsupported history schema version: ${currentVersion}`,
+          );
         }
         this.#db.exec('COMMIT;');
       } catch (error) {
@@ -366,7 +373,9 @@ export class SqliteHistoryCore {
           const stored = this.#db.prepare(
             'SELECT byte_length FROM contents WHERE content_digest=?',
           ).get(occurrence.contentDigest) as Row | undefined;
-          if (stored === undefined) throw new Error('history content reference missing');
+          if (stored === undefined) {
+            throw new Error('history content reference missing');
+          }
           contentDigest = occurrence.contentDigest;
         }
         this.#db.prepare(`
@@ -523,7 +532,9 @@ export class SqliteHistoryCore {
           throw new Error('history control event execution mismatch');
         }
         const recordId = `control:${randomUUID()}`;
-        const payload = encodeHistoryPayload({ controlEvent: event } as unknown as JsonValue);
+        const payload = encodeHistoryPayload(
+          { controlEvent: event } as unknown as JsonValue,
+        );
         this.#db.prepare(`
           INSERT INTO semantic_records(
             record_id, execution_id, ordinal, kind, observed_at, payload_json, content_digest
@@ -598,7 +609,9 @@ export class SqliteHistoryCore {
       `).run(event.ordinal, ordinal, event.executionId);
       result = { event, semanticOccurrenceId };
     });
-    if (result === undefined) throw new Error('history post-settlement append failed');
+    if (result === undefined) {
+      throw new Error('history post-settlement append failed');
+    }
     return result;
   }
 
@@ -698,7 +711,9 @@ export class SqliteHistoryCore {
         canonicalSessionId: String(row.canonical_session_id),
       }),
       baseRevision: Number(row.base_revision),
-      lifecycle: String(row.lifecycle) as HistoryCoreExecutionState['lifecycle'],
+      lifecycle: String(
+        row.lifecycle,
+      ) as HistoryCoreExecutionState['lifecycle'],
       outcome: String(row.outcome) as HistoryCoreExecutionState['outcome'],
       adoption: String(row.adoption) as HistoryCoreExecutionState['adoption'],
       latestOrdinal: Number(row.latest_ordinal),
@@ -790,11 +805,18 @@ export class SqliteHistoryCore {
     );
     for (const reference of references) {
       if (reference.textKey !== undefined) {
-        const state = this.readAssistantTextState(executionId, reference.textKey, db)!;
-        yield { event: { ...state.event, firstEventOrdinal: state.firstEventOrdinal } };
+        const state = this.readAssistantTextState(
+          executionId,
+          reference.textKey,
+          db,
+        )!;
+        yield {
+          event: { ...state.event, firstEventOrdinal: state.firstEventOrdinal },
+        };
       } else {
         const occurrence = this.readOccurrence(reference.occurrenceId, db);
-        const event = (occurrence.payload as { event: unknown }).event as StoredExecutionEvent;
+        const event = (occurrence.payload as { event: unknown })
+          .event as StoredExecutionEvent;
         yield { event, semanticOccurrenceId: occurrence.occurrenceId };
       }
     }
@@ -855,6 +877,23 @@ export class SqliteHistoryCore {
         String(row.event_json),
       ) as HistoryAssistantTextState['event'],
     };
+  }
+
+  readAssistantTextFirstEventOrdinal(
+    executionId: string,
+    key: HistoryAssistantTextKey,
+    db: DatabaseSync = this.#db,
+  ): number | undefined {
+    const row = db.prepare(`
+      SELECT first_event_ordinal FROM assistant_text_states
+      WHERE execution_id=? AND lane=? AND model_step=? AND request_ordinal=?
+    `).get(
+      executionId,
+      key.lane ?? '',
+      key.modelStep,
+      key.requestOrdinal ?? -1,
+    ) as Row | undefined;
+    return row === undefined ? undefined : Number(row.first_event_ordinal);
   }
 
   readContent(contentDigest: string, db: DatabaseSync = this.#db): Uint8Array {

@@ -66,7 +66,18 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
       turnModels: [],
       turnExecutions: [],
     };
-    handle.commit(record);
+    handle.saveMetadata({
+      sessionId: record.sessionId,
+      workspaceRoot: record.workspaceRoot,
+      agentChoice: record.agentChoice,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      title: record.title,
+      stateRevision: record.stateRevision,
+      nextTurn: record.nextTurn,
+      activeModel: record.activeModel,
+      modelChangesToAppend: record.modelChanges,
+    });
     handle.close();
     handle = undefined;
 
@@ -379,9 +390,11 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
       toolResultCount: 1,
       transcript: [{ role: 'user' as const, content: { kind: 'text' as const, text: input.task } }],
     };
+    const { transcript: messageSuffix, ...outcomeMetadata } = outcome;
     const terminal = store.settleNonCanonicalExecution({
       ...input,
-      outcome,
+      messageSuffix,
+      outcome: outcomeMetadata,
     });
     ok(terminal.commitDelta !== undefined);
     const delta = terminal.commitDelta!;
@@ -564,7 +577,8 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
     };
     const committed = store.commitCanonicalTurn({
       ...nextInput,
-      record: committedRecord,
+      messageSuffix: nextTranscript.slice(record.transcript.length),
+      updatedAt: committedRecord.updatedAt,
       outcome: {
         ok: true,
         task: nextInput.task,
@@ -574,7 +588,6 @@ Deno.test('Increment 170 S1 save facts and first history replay share the conver
         steps: 1,
         toolCallCount: 0,
         toolResultCount: 0,
-        transcript: nextTranscript,
       },
     });
     ok(committed.commitDelta !== undefined);

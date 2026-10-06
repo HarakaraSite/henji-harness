@@ -1,7 +1,10 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { Message } from '../../v0/agent/core/contracts.ts';
 import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
-import type { DataConversationUpdate } from '../../v0/agent/data/data_contract.ts';
+import type {
+  DataConversationUpdate,
+  DataSessionDescriptorUpdate,
+} from '../../v0/agent/data/data_contract.ts';
 import { createDataClient } from '../../v0/agent/data/client.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -37,6 +40,21 @@ const waitForUpdate = async (
   const current = updates[index];
   if (current !== undefined) return current;
   return await new Promise<DataConversationUpdate>((resolve) => {
+    waiters.push({ index, resolve });
+  });
+};
+
+const waitForDescriptorUpdate = async (
+  updates: readonly DataSessionDescriptorUpdate[],
+  waiters: {
+    readonly index: number;
+    readonly resolve: (value: DataSessionDescriptorUpdate) => void;
+  }[],
+  index: number,
+): Promise<DataSessionDescriptorUpdate> => {
+  const current = updates[index];
+  if (current !== undefined) return current;
+  return await new Promise<DataSessionDescriptorUpdate>((resolve) => {
     waiters.push({ index, resolve });
   });
 };
@@ -113,6 +131,11 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     readonly index: number;
     readonly resolve: (value: DataConversationUpdate) => void;
   }[] = [];
+  const descriptorUpdates: DataSessionDescriptorUpdate[] = [];
+  const descriptorUpdateWaiters: {
+    readonly index: number;
+    readonly resolve: (value: DataSessionDescriptorUpdate) => void;
+  }[] = [];
   const agentEvents: unknown[] = [];
   const eventWaiters: { readonly resolve: (value: unknown) => void }[] = [];
   let agentEventSessionId: string | undefined;
@@ -123,6 +146,7 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     for (const waiter of eventWaiters.splice(0)) waiter.resolve(event);
   });
   let unsubscribeWatch: (() => void) | undefined;
+  let unsubscribeDescriptorWatch: (() => void) | undefined;
   const ports: ReturnType<typeof createAgentDataPortClient>[] = [];
 
   try {
@@ -133,7 +157,22 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
       initialModelSelection: ROOT_DEFAULT_MODEL_SELECTION,
     });
     const sessionId = descriptor.id;
-    const watched = await data.watchSession(sessionId, (update) => {
+    const watchedDescriptor = await data.watchSessionDescriptor(
+      sessionId,
+      (update) => {
+        descriptorUpdates.push(update);
+        for (let index = descriptorUpdateWaiters.length - 1; index >= 0; index -= 1) {
+          const waiter = descriptorUpdateWaiters[index]!;
+          if (descriptorUpdates[waiter.index] !== undefined) {
+            descriptorUpdateWaiters.splice(index, 1);
+            waiter.resolve(descriptorUpdates[waiter.index]!);
+          }
+        }
+      },
+    );
+    unsubscribeDescriptorWatch = watchedDescriptor.unsubscribe;
+    strictEqual(watchedDescriptor.snapshot.descriptor.id, sessionId);
+    const watched = await data.watchConversation(sessionId, (update) => {
       updates.push(update);
       for (let index = updateWaiters.length - 1; index >= 0; index -= 1) {
         const waiter = updateWaiters[index]!;
@@ -183,6 +222,20 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     });
     strictEqual(admission.descriptor.latestExecution?.executionId, executionId);
     strictEqual(admission.descriptor.latestExecution?.lifecycle, 'active');
+    const admittedDescriptor = await waitForDescriptorUpdate(
+      descriptorUpdates,
+      descriptorUpdateWaiters,
+      0,
+    );
+    strictEqual(
+      admittedDescriptor.descriptor.latestExecution?.executionId,
+      executionId,
+    );
+    strictEqual(
+      admittedDescriptor.descriptor.latestExecution?.lifecycle,
+      'active',
+    );
+    ok(admittedDescriptor.sequence > watchedDescriptor.snapshot.sequence);
     const admittedUpdate = await waitForUpdate(updates, updateWaiters, 0);
     strictEqual(admittedUpdate.cut, 1);
     strictEqual(
@@ -313,6 +366,44 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     strictEqual(terminal.descriptor.latestExecution?.lifecycle, 'settled');
     strictEqual(terminal.descriptor.latestExecution?.outcome, 'completed');
     strictEqual(terminal.currentPosition.committedTurn, 1);
+    await data.recordExecutionControl(sessionId, executionId, {
+      controlSequence: 1,
+      kind: 'acknowledgement_requested',
+      accepted: true,
+    });
+    await data.recordExecutionControl(sessionId, executionId, {
+      controlSequence: 2,
+      kind: 'acknowledgement_sent',
+      accepted: true,
+    });
+    await data.recordExecutionControl(sessionId, executionId, {
+      controlSequence: 3,
+      kind: 'turn_settled',
+      correlation,
+    });
+    await data.recordExecutionControl(sessionId, executionId, {
+      controlSequence: 4,
+      kind: 'post_commit_turn_end',
+      correlation,
+      turn: 1,
+      outcome: 'final',
+      committed: true,
+      generationUnavailable: false,
+    });
+    const afterCleanup = await data.recordExecutionControl(
+      sessionId,
+      executionId,
+      {
+        controlSequence: 5,
+        kind: 'process_cleanup_finished',
+        result: 'complete',
+      },
+    );
+    strictEqual(
+      afterCleanup.latestExecution?.durability.acknowledgement,
+      'accepted_sent',
+    );
+    strictEqual(afterCleanup.latestExecution?.processSettlement, 'complete');
     const terminalUpdate = await waitForUpdate(updates, updateWaiters, 2);
     strictEqual(terminalUpdate.cut, 3);
     strictEqual(terminalUpdate.descriptor.stateRevision, 2);
@@ -447,6 +538,10 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
         persisted.readExecutionMetadata(executionId).outcome,
         'completed',
       );
+      const artifact = await persisted.executionArtifacts.read(executionId);
+      strictEqual(artifact.adoption, 'canonical');
+      strictEqual(artifact.acknowledgement, 'accepted_sent');
+      strictEqual(artifact.settlement, 'committed');
       strictEqual(
         persisted.readExecutionMetadata(secondExecutionId).outcome,
         'interrupted',
@@ -456,6 +551,7 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     }
   } finally {
     unsubscribeWatch?.();
+    unsubscribeDescriptorWatch?.();
     unsubscribeEvents();
     for (const port of ports) port.close();
     await data.close();

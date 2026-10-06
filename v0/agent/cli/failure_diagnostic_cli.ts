@@ -10,6 +10,7 @@ import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import type { StoredExecutionRow } from '../history/history_store_contract.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
+import { executionEffectsFromEvents } from '../history/execution_effect_projection.ts';
 import { HistoryStoreError } from '../history/history_store_contract.ts';
 
 const encoder = new TextEncoder();
@@ -42,15 +43,23 @@ type FailureDiagnosticCliCommand =
   | { readonly kind: 'execution_show'; readonly id: string }
   | { readonly kind: 'execution_events'; readonly id: string }
   | { readonly kind: 'execution_context'; readonly id: string }
-  | { readonly kind: 'execution_request'; readonly id: string; readonly ordinal: number };
+  | {
+    readonly kind: 'execution_request';
+    readonly id: string;
+    readonly ordinal: number;
+  };
 
-const parseFailureDiagnosticArgs = (args: readonly string[]): FailureDiagnosticCliCommand => {
+const parseFailureDiagnosticArgs = (
+  args: readonly string[],
+): FailureDiagnosticCliCommand => {
   const execution = args[0] === 'executions';
   const command = args[execution ? 1 : 0];
   const commands = execution
     ? ['list', 'show', 'events', 'context', 'request']
     : ['list', 'latest', 'show', 'delete'];
-  if (!commands.includes(command)) throw commandError(command, commands.join(', '));
+  if (!commands.includes(command)) {
+    throw commandError(command, commands.join(', '));
+  }
   const needsId = !['list', 'latest'].includes(command);
   const flags = parseCliOptions(
     args.slice(execution ? 2 : 1),
@@ -58,9 +67,13 @@ const parseFailureDiagnosticArgs = (args: readonly string[]): FailureDiagnosticC
     command === 'delete' ? ['--yes'] : [],
   );
   const id = flags.get('--id');
-  if (needsId && id === undefined) throw new CliInvocationError('Missing required --id');
+  if (needsId && id === undefined) {
+    throw new CliInvocationError('Missing required --id');
+  }
   if (id !== undefined && !UUID_V4.test(id)) {
-    throw new CliInvocationError('--id must be a full execution or diagnostic UUID');
+    throw new CliInvocationError(
+      '--id must be a full execution or diagnostic UUID',
+    );
   }
   if (command === 'delete' && !flags.has('--yes')) {
     throw new CliInvocationError('Diagnostic deletion requires --yes');
@@ -69,15 +82,24 @@ const parseFailureDiagnosticArgs = (args: readonly string[]): FailureDiagnosticC
     if (command === 'list') return { kind: 'execution_list' };
     if (command === 'request') {
       const value = flags.get('--ordinal');
-      if (value === undefined) throw new CliInvocationError('Missing required --ordinal');
+      if (value === undefined) {
+        throw new CliInvocationError('Missing required --ordinal');
+      }
       const ordinal = Number(value);
-      if (!/^\d+$/u.test(value) || !Number.isSafeInteger(ordinal) || ordinal < 1) {
-        throw new CliInvocationError('--ordinal must be a positive integer starting at 1');
+      if (
+        !/^\d+$/u.test(value) || !Number.isSafeInteger(ordinal) || ordinal < 1
+      ) {
+        throw new CliInvocationError(
+          '--ordinal must be a positive integer starting at 1',
+        );
       }
       return { kind: 'execution_request', id: id!, ordinal };
     }
     return {
-      kind: `execution_${command}` as 'execution_show' | 'execution_events' | 'execution_context',
+      kind: `execution_${command}` as
+        | 'execution_show'
+        | 'execution_events'
+        | 'execution_context',
       id: id!,
     };
   }
@@ -128,7 +150,8 @@ const contextCaptureForReadback = (
   execution: StoredExecutionRow,
   hasContext: boolean,
 ): StoredExecutionRow['contextCapture'] =>
-  execution.lifecycle === 'active' && execution.contextCapture === 'none' && hasContext
+  execution.lifecycle === 'active' && execution.contextCapture === 'none' &&
+    hasContext
     ? 'partial'
     : execution.contextCapture;
 
@@ -187,7 +210,8 @@ export const main = async (
     await history.initialize();
     if (
       command.kind === 'execution_list' || command.kind === 'execution_show' ||
-      command.kind === 'execution_events' || command.kind === 'execution_context' ||
+      command.kind === 'execution_events' ||
+      command.kind === 'execution_context' ||
       command.kind === 'execution_request'
     ) {
       if (command.kind === 'execution_list') {
@@ -204,27 +228,37 @@ export const main = async (
         );
       } else if (command.kind === 'execution_show') {
         const execution = history.readExecution(command.id);
+        const events = history.listExecutionEvents(command.id);
         await writeOutput(
           dependencies.writeStdout,
           `${
             JSON.stringify({
               ...executionSummary(execution),
-              events: history.listExecutionEvents(command.id),
-              effects: history.listExecutionEffects(command.id),
+              events,
+              effects: executionEffectsFromEvents(
+                command.id,
+                execution.outcome,
+                events,
+              ),
             })
           }\n`,
           'stdout',
         );
       } else if (command.kind === 'execution_events') {
         const execution = history.readExecution(command.id);
+        const events = history.listExecutionEvents(command.id);
         await writeOutput(
           dependencies.writeStdout,
           `${
             JSON.stringify({
               schemaVersion: 3,
               executionId: execution.executionId,
-              events: history.listExecutionEvents(command.id),
-              effects: history.listExecutionEffects(command.id),
+              events,
+              effects: executionEffectsFromEvents(
+                command.id,
+                execution.outcome,
+                events,
+              ),
             })
           }\n`,
           'stdout',
@@ -254,7 +288,10 @@ export const main = async (
         );
       } else {
         const execution = history.readExecution(command.id);
-        const request = history.readExecutionRequest(command.id, command.ordinal);
+        const request = history.readExecutionRequest(
+          command.id,
+          command.ordinal,
+        );
         const contextCapture = contextCaptureForReadback(
           execution,
           true,
@@ -328,15 +365,18 @@ export const main = async (
             command.kind === 'show' || command.kind === 'delete'
           ? 'diagnostic_busy'
           : 'history_busy'
-        : error.code === 'history_invalid' || error.code === 'history_io_failure'
+        : error.code === 'history_invalid' ||
+            error.code === 'history_io_failure'
         ? error.code
-        : command.kind === 'execution_list' || command.kind === 'execution_show' ||
+        : command.kind === 'execution_list' ||
+            command.kind === 'execution_show' ||
             command.kind === 'execution_events'
         ? 'history_io_failure'
         : 'diagnostic_io_failure'
       : error instanceof FailureDiagnosticStoreError
       ? error.code
-      : command.kind === 'execution_list' || command.kind === 'execution_show' ||
+      : command.kind === 'execution_list' ||
+          command.kind === 'execution_show' ||
           command.kind === 'execution_events'
       ? 'history_io_failure'
       : 'diagnostic_io_failure';

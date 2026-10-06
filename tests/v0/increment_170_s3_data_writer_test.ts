@@ -68,7 +68,18 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
       turnModels: [],
       turnExecutions: [],
     };
-    handle.commit(record);
+    handle.saveMetadata({
+      sessionId: record.sessionId,
+      workspaceRoot: record.workspaceRoot,
+      agentChoice: record.agentChoice,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      title: record.title,
+      stateRevision: record.stateRevision,
+      nextTurn: record.nextTurn,
+      activeModel: record.activeModel,
+      modelChangesToAppend: record.modelChanges,
+    });
     handle.close();
     handle = undefined;
 
@@ -193,7 +204,9 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
     strictEqual(firstAppend.result.length, 3);
     strictEqual(firstAppend.deltas.length, 1);
     strictEqual(firstAppend.deltas[0].cut, 2);
-    const firstChanges = decode(firstAppend.deltas[0].bytes).changes ?? [];
+    const firstDelta = notifications.find((delta) => delta.cut === firstAppend.deltas[0].cut);
+    ok(firstDelta);
+    const firstChanges = decode(firstDelta.bytes).changes ?? [];
     const firstAssistantChanges = firstChanges.filter((change) =>
       change.kind === 'upsert' && change.entity?.kind === 'message' &&
       change.entity.role === 'assistant'
@@ -309,8 +322,8 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
         steps: 1,
         toolCallCount: 1,
         toolResultCount: 1,
-        transcript: [userMessage(execution.task)],
       },
+      messageSuffix: [userMessage(execution.task)],
     });
     strictEqual(terminal.deltas.length, 1);
     strictEqual(terminal.deltas[0].cut, 4);
@@ -398,7 +411,8 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
     };
     const canonical = writer.commitCanonicalTurn({
       ...nextInput,
-      record: committedRecord,
+      messageSuffix: canonicalTranscript.slice(record.transcript.length),
+      updatedAt: committedRecord.updatedAt,
       outcome: {
         ok: true,
         task: nextInput.task,
@@ -408,7 +422,6 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
         steps: 1,
         toolCallCount: 0,
         toolResultCount: 0,
-        transcript: canonicalTranscript,
       },
     });
     strictEqual(canonical.deltas.length, 1);
@@ -508,7 +521,18 @@ Deno.test('Increment 170 S3 Data writer notifies each affected Session once for 
         turnModels: [],
         turnExecutions: [],
       };
-      handle.commit(record);
+      handle.saveMetadata({
+        sessionId: record.sessionId,
+        workspaceRoot: record.workspaceRoot,
+        agentChoice: record.agentChoice,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        title: record.title,
+        stateRevision: record.stateRevision,
+        nextTurn: record.nextTurn,
+        activeModel: record.activeModel,
+        modelChangesToAppend: record.modelChanges,
+      });
       handle.close();
       return {
         sessionId: handle.id,

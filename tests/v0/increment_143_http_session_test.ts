@@ -12,7 +12,7 @@ import type {
   SessionStreamFrame,
 } from '../../v0/api/contract.ts';
 
-import { decodeSessionSnapshot, decodeSessionStreamFrame } from '../../v0/api/codec.ts';
+import { decodeSessionStreamFrame } from '../../v0/api/codec.ts';
 import { initialSessionClientState, reduceSessionStreamFrame } from '../../v0/api/reducer.ts';
 
 const frame = (value: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
@@ -232,18 +232,18 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     core = undefined;
     const history = new SqliteHistoryStore(stateRoot, workspaceRoot, {});
     await history.initialize();
-    const handle = await history.openExistingWorker(id);
+    const openedSession = await history.openExistingWorker(id);
     const checkpointSummary = 'Slice 5 existing checkpoint applied on resume';
-    handle.installCheckpoint({
+    openedSession.handle.installCheckpoint({
       contextSchemaVersion: 1,
       sessionId: id,
       createdAt: new Date().toISOString(),
-      sourceProfileId: modelRouteProfileId(handle.record!.activeModel),
+      sourceProfileId: modelRouteProfileId(openedSession.state.activeModel),
       coveredThroughTurn: 1,
       retainedFromTurn: 2,
       summary: checkpointSummary,
     });
-    await handle.close();
+    await openedSession.handle.close();
     core = await createCoreService(options);
     server = await startCoreServer(core);
     client = new HenjiApiClient(server.url);
@@ -259,9 +259,7 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
         ).snapshot;
       }
     });
-    observedSnapshot = decodeSessionSnapshot(
-      JSON.parse(new TextDecoder().decode(viewing.snapshot.bytes)),
-    );
+    ok(observedSnapshot !== undefined);
     strictEqual(observedSnapshot.runtime.activeSessionId, null);
     const resumed = await opened(
       await client.sessionOpen({
@@ -301,7 +299,8 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
     strictEqual(observedSnapshot.runtime.effectiveConfig, undefined);
     ok(!observedSnapshot.runtime.operations.includes('task.submit'));
     ok(observedSnapshot.runtime.operations.includes('session.open'));
-    ok(viewingFrames.every((frame) => frame.kind === 'session.update'));
+    strictEqual(viewingFrames[0]?.kind, 'session.snapshot');
+    ok(viewingFrames.slice(1).every((frame) => frame.kind === 'session.update'));
     viewing.unsubscribe();
     strictEqual((await client.sessionRead(none.session.id)).session.persistence, 'none');
     const sameNone = await opened(

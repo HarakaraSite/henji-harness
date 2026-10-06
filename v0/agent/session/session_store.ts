@@ -7,6 +7,7 @@ export {
   MAX_SESSION_FILE_BYTES,
   MAX_VALID_SESSIONS_PER_WORKSPACE,
   normalizeSessionTitle,
+  type OpenedWorkerSession,
   type SemanticContextCheckpointV1,
   SESSION_SCHEMA_VERSION,
   type SessionErrorCode,
@@ -21,6 +22,9 @@ export {
   type WorkerSessionHandle,
   type WorkerSessionListResult,
   type WorkerSessionMetadata,
+  type WorkerSessionMetadataSnapshot,
+  type WorkerSessionMetadataWrite,
+  type WorkerSessionOwnerState,
   type WorkerSessionStorePort,
 } from './session_store_contract.ts';
 export {

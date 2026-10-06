@@ -384,7 +384,12 @@ Deno.test('History facade settles non-canonical semantic history without diagnos
       settlementHistoryReads += 1;
       return originalListExecutionEvents(id);
     };
-    store.settleNonCanonicalExecution({ ...input, outcome });
+    const { transcript: messageSuffix, ...outcomeMetadata } = outcome;
+    store.settleNonCanonicalExecution({
+      ...input,
+      messageSuffix,
+      outcome: outcomeMetadata,
+    });
     mutableStore.listExecutionEvents = originalListExecutionEvents;
     assertEquals(settlementHistoryReads, 0);
     const row = store.readExecution(executionId);
@@ -648,6 +653,7 @@ Deno.test('History settlement transaction rolls back its terminal before a crash
   try {
     store.settleNonCanonicalExecution({
       ...input,
+      messageSuffix: [],
       outcome: {
         ok: false,
         task: input.task,
@@ -656,7 +662,6 @@ Deno.test('History settlement transaction rolls back its terminal before a crash
         steps: 0,
         toolCallCount: 0,
         toolResultCount: 0,
-        transcript: [],
       },
     });
   } catch {
@@ -796,23 +801,28 @@ Deno.test('Increment 94 model selection preserves committed turn attribution', a
     const before = readAttribution();
     assertEquals(before.messageTurns, [1, 1, 2, 2]);
     assertEquals(before.turnExecutions, executionIds);
-    const handle = await store.openExistingWorker(sessionId);
+    const opened = await store.openExistingWorker(sessionId);
     try {
       const selection = selectOpenRouterModel('qwen/qwen3.8-max-0902');
       const changedAt = new Date().toISOString();
-      handle.commit({
-        ...original,
-        activeModel: selection,
-        stateRevision: original.stateRevision + 1,
+      opened.handle.saveMetadata({
+        sessionId: original.sessionId,
+        workspaceRoot: original.workspaceRoot,
+        agentChoice: original.agentChoice,
+        createdAt: original.createdAt,
         updatedAt: changedAt,
-        modelChanges: [...original.modelChanges, {
+        title: original.title,
+        stateRevision: original.stateRevision + 1,
+        nextTurn: original.nextTurn,
+        activeModel: selection,
+        modelChangesToAppend: [{
           effectiveFromTurn: original.nextTurn,
           changedAt,
           selection,
         }],
       });
     } finally {
-      await handle.close();
+      await opened.handle.close();
     }
     assertEquals((await store.readWorker(sessionId)).turnExecutions, original.turnExecutions);
     assertEquals(readAttribution(), before);
@@ -1015,7 +1025,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     await store.beginExecution({
       ...sourceInput,
       sessionMode: 'persistent',
-      sessionRecord: record,
     });
     const correlation = {
       session: sessionId!,
@@ -1065,6 +1074,7 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     }]);
     store.settleNonCanonicalExecution({
       ...sourceInput,
+      messageSuffix: [user, assistant],
       outcome: {
         ok: false,
         task: sourceInput.task,
@@ -1074,7 +1084,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
         steps: 1,
         toolCallCount: 1,
         toolResultCount: 1,
-        transcript: [...record.transcript, user, assistant],
       },
     });
   } finally {

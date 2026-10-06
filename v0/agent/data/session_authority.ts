@@ -1,30 +1,27 @@
 import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { Message } from '../core/contracts.ts';
-import { indexSessionHistory } from '../session/session_history.ts';
 import {
   normalizeSessionTitle,
   type SemanticContextCheckpointV1,
   type SessionModelChange,
   type SessionRecord,
-  type SessionRecordV1,
-  type SessionTurnExecutionAttribution,
-  type SessionTurnModelAttribution,
-  validateStoredSessionRecord,
-  type WorkerSessionHandle,
+  type WorkerSessionMetadataWrite,
+  type WorkerSessionOwnerState,
 } from '../session/session_store.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
+import { causalTranscriptIndex } from '../session/session_record_codec.ts';
 import type { WorkerCommitProposalMessage } from '../worker/worker_protocol.ts';
 
 interface SessionAuthorityOptions {
-  readonly handle: WorkerSessionHandle;
+  readonly sessionId: string;
   readonly workspaceRoot: string;
   readonly agent: SessionRecord['agent'];
   readonly agentChoice: AgentConfigurationChoice;
   readonly initialModelSelection?: ModelSelection;
-  readonly durableCanonicalHistory?: boolean;
+  readonly checkpoint?: SemanticContextCheckpointV1;
 }
 
 type ActiveSessionProjection = {
@@ -34,22 +31,18 @@ type ActiveSessionProjection = {
   stateRevision: number;
   checkpoint?: SemanticContextCheckpointV1;
   modelSelection: ModelSelection;
-  modelChanges: SessionModelChange[];
-  turnModels: SessionTurnModelAttribution[];
-  turnExecutions: SessionTurnExecutionAttribution[];
+  privateStateFromTurn: number;
   title: string | null;
 };
 
-/**
- * Owns the canonical Session projection: transcript, state revision, checkpoint, model selection
- * history, title, and the record construction/validation used for admission, commit proposals, and
- * projection updates. It performs no Worker transport and owns no journal state.
- */
+/** Owns only the current canonical context and compact state needed for the next generation. */
 export class SessionAuthority {
   readonly projection: ActiveSessionProjection;
   readonly build: BuildManifestV1;
   readonly createdAt: string;
+  readonly agentChoiceValue: AgentConfigurationChoice;
   private configuredAgent: string;
+  #pendingModelChanges: SessionModelChange[];
   private autoCompactionNotice: {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
@@ -57,41 +50,40 @@ export class SessionAuthority {
 
   constructor(
     private readonly options: SessionAuthorityOptions,
-    record: SessionRecordV1 | undefined,
+    state: WorkerSessionOwnerState | undefined,
   ) {
-    this.configuredAgent = record?.agent ?? options.agent;
-    const nextTurn = record?.nextTurn ?? 1;
+    this.configuredAgent = state?.agent ?? options.agent;
+    this.agentChoiceValue = structuredClone(
+      state?.agentChoice ?? options.agentChoice,
+    );
+    const nextTurn = state?.nextTurn ?? 1;
     const defaultSelection = options.initialModelSelection ??
       ROOT_DEFAULT_MODEL_SELECTION;
-    const modelSelection = record === undefined
+    const modelSelection = state === undefined
       ? structuredClone(defaultSelection)
-      : structuredClone(record.activeModel);
+      : structuredClone(state.activeModel);
+    this.createdAt = state?.createdAt ?? new Date().toISOString();
     this.projection = {
-      sessionId: options.handle.id,
-      transcript: record === undefined ? [] : structuredClone(record.transcript) as Message[],
+      sessionId: state?.sessionId ?? options.sessionId,
+      // The opened-session read transfers its one canonical transcript to this owner.
+      transcript: state === undefined ? [] : state.transcript as Message[],
       nextTurn,
-      stateRevision: record?.stateRevision ?? 1,
+      stateRevision: state?.stateRevision ?? 1,
       modelSelection,
-      modelChanges: record === undefined
-        ? [{
-          effectiveFromTurn: nextTurn,
-          changedAt: new Date().toISOString(),
-          selection: structuredClone(modelSelection),
-        }]
-        : structuredClone(record.modelChanges) as SessionModelChange[],
-      turnModels: record === undefined
-        ? []
-        : structuredClone(record.turnModels) as SessionTurnModelAttribution[],
-      turnExecutions: record === undefined ? [] : structuredClone(
-        record.turnExecutions,
-      ) as SessionTurnExecutionAttribution[],
-      title: record?.title ?? null,
-      ...(options.handle.checkpoint === undefined
+      privateStateFromTurn: state?.privateStateFromTurn ?? 1,
+      title: state?.title ?? null,
+      ...(options.checkpoint === undefined
         ? {}
-        : { checkpoint: structuredClone(options.handle.checkpoint) }),
+        : { checkpoint: structuredClone(options.checkpoint) }),
     };
+    this.#pendingModelChanges = state === undefined
+      ? [{
+        effectiveFromTurn: nextTurn,
+        changedAt: this.createdAt,
+        selection: structuredClone(modelSelection),
+      }]
+      : [];
     this.build = buildManifest();
-    this.createdAt = record?.createdAt ?? new Date().toISOString();
   }
 
   get sessionId(): string {
@@ -113,7 +105,7 @@ export class SessionAuthority {
   }
 
   agentChoice(): AgentConfigurationChoice {
-    return structuredClone(this.options.agentChoice);
+    return structuredClone(this.agentChoiceValue);
   }
 
   setConfiguredAgent(name: string): void {
@@ -144,13 +136,66 @@ export class SessionAuthority {
     this.projection.checkpoint = structuredClone(checkpoint);
   }
 
+  modelChange(
+    selection: ModelSelection,
+    changedAt: string,
+  ): SessionModelChange {
+    return {
+      effectiveFromTurn: this.projection.nextTurn,
+      changedAt,
+      selection: structuredClone(selection),
+    };
+  }
+
+  metadataWrite(input: {
+    readonly updatedAt: string;
+    readonly stateRevision: number;
+    readonly title?: string | null;
+    readonly modelSelection?: ModelSelection;
+    readonly modelChange?: SessionModelChange;
+  }): WorkerSessionMetadataWrite {
+    const additional = input.modelChange === undefined ? [] : [input.modelChange];
+    return {
+      sessionId: this.sessionId,
+      workspaceRoot: this.options.workspaceRoot,
+      agentChoice: this.agentChoice(),
+      createdAt: this.createdAt,
+      updatedAt: input.updatedAt,
+      title: input.title ?? this.projection.title,
+      stateRevision: input.stateRevision,
+      nextTurn: this.projection.nextTurn,
+      activeModel: structuredClone(
+        input.modelSelection ?? this.projection.modelSelection,
+      ),
+      modelChangesToAppend: [
+        ...this.#pendingModelChanges,
+        ...additional.map((change) => structuredClone(change)),
+      ],
+    };
+  }
+
+  initialMetadataWrite(): WorkerSessionMetadataWrite | undefined {
+    if (this.#pendingModelChanges.length === 0) return undefined;
+    return this.metadataWrite({
+      updatedAt: this.createdAt,
+      stateRevision: this.projection.stateRevision,
+    });
+  }
+
+  metadataWriteCommitted(): void {
+    this.#pendingModelChanges = [];
+  }
+
   applyModelSelection(
     selection: ModelSelection,
-    changes: SessionModelChange[],
+    change: SessionModelChange,
     stateRevision: number,
   ): void {
+    if (
+      this.projection.modelSelection.provider !== selection.provider ||
+      this.projection.modelSelection.modelId !== selection.modelId
+    ) this.projection.privateStateFromTurn = change.effectiveFromTurn;
     this.projection.modelSelection = structuredClone(selection);
-    this.projection.modelChanges = changes;
     this.projection.stateRevision = stateRevision;
   }
 
@@ -159,152 +204,23 @@ export class SessionAuthority {
     this.projection.stateRevision = stateRevision;
   }
 
-  applyCommitted(record: SessionRecordV1): void {
-    this.projection.transcript = structuredClone(
-      record.transcript,
-    ) as Message[];
-    this.projection.nextTurn = record.nextTurn;
-    this.projection.stateRevision = record.stateRevision;
-    this.projection.turnModels = structuredClone(
-      record.turnModels,
-    ) as SessionTurnModelAttribution[];
-    this.projection.turnExecutions = structuredClone(
-      record.turnExecutions,
-    ) as SessionTurnExecutionAttribution[];
-  }
-
-  admissionSessionRecord(): SessionRecordV1 | undefined {
-    if (this.options.handle.record !== undefined) return undefined;
-    if (this.options.durableCanonicalHistory !== true) return undefined;
-    const record: SessionRecordV1 = {
-      schemaVersion: 1,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.configuredAgent,
-      createdAt: this.createdAt,
-      updatedAt: this.createdAt,
-      title: null,
-      stateRevision: this.projection.stateRevision,
-      nextTurn: this.projection.nextTurn,
-      transcript: [],
-      agentChoice: structuredClone(this.options.agentChoice),
-      activeModel: structuredClone(this.projection.modelSelection),
-      modelChanges: structuredClone(this.projection.modelChanges),
-      turnModels: [],
-      turnExecutions: [],
-    };
-    if (!validateStoredSessionRecord(record)) {
-      throw new Error('empty session record invalid');
-    }
-    return record;
-  }
-
-  proposalRecord(
-    proposal: WorkerCommitProposalMessage,
-    execution: { executionId: string; configurationId: string },
-  ): SessionRecordV1 | undefined {
-    const committedTurn = proposal.nextTurn - 1;
-    const record: SessionRecordV1 = {
-      schemaVersion: 1,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.configuredAgent,
-      createdAt: this.createdAt,
-      updatedAt: new Date().toISOString(),
-      title: this.projection.title,
-      stateRevision: this.projection.stateRevision + 1,
-      nextTurn: proposal.nextTurn,
-      transcript: structuredClone(proposal.transcript),
-      agentChoice: structuredClone(this.options.agentChoice),
-      activeModel: structuredClone(this.projection.modelSelection),
-      modelChanges: structuredClone(this.projection.modelChanges),
-      turnModels: [
-        ...structuredClone(this.projection.turnModels),
-        {
-          turn: proposal.nextTurn - 1,
-          selection: structuredClone(this.projection.modelSelection),
-        },
-      ],
-      turnExecutions: [
-        ...structuredClone(this.projection.turnExecutions),
-        {
-          turn: committedTurn,
-          build: structuredClone(this.build),
-          executionId: execution.executionId,
-          configurationId: execution.configurationId,
-        },
-      ],
-    };
-    // Detached model state uses its execution correlation and is never a persisted Session record.
-    // The saved-record codec requires a canonical UUID and applies only to canonical Sessions.
-    return this.options.durableCanonicalHistory !== true || validateStoredSessionRecord(record)
-      ? record
-      : undefined;
-  }
-
-  modelSelectionRecord(
-    selection: ModelSelection,
-    changes: SessionModelChange[],
+  applyCommitted(
+    messageSuffix: readonly Message[],
+    nextTurn: number,
     stateRevision: number,
-    changedAt: string,
-  ): SessionRecordV1 {
-    const record: SessionRecordV1 = {
-      schemaVersion: 1,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.configuredAgent,
-      createdAt: this.createdAt,
-      updatedAt: changedAt,
-      title: this.projection.title,
-      stateRevision,
-      nextTurn: this.projection.nextTurn,
-      transcript: structuredClone(this.projection.transcript),
-      agentChoice: structuredClone(this.options.agentChoice),
-      activeModel: structuredClone(selection),
-      modelChanges: changes,
-      turnModels: structuredClone(this.projection.turnModels),
-      turnExecutions: structuredClone(this.projection.turnExecutions),
-    };
-    if (!validateStoredSessionRecord(record)) {
-      throw new Error('model selection record invalid');
-    }
-    return record;
-  }
-
-  titleRecord(
-    title: string,
-    stateRevision: number,
-    changedAt: string,
-  ): SessionRecordV1 {
-    const record: SessionRecordV1 = {
-      schemaVersion: 1,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.configuredAgent,
-      createdAt: this.createdAt,
-      updatedAt: changedAt,
-      title,
-      stateRevision,
-      nextTurn: this.projection.nextTurn,
-      transcript: structuredClone(this.projection.transcript),
-      agentChoice: structuredClone(this.options.agentChoice),
-      activeModel: structuredClone(this.projection.modelSelection),
-      modelChanges: structuredClone(this.projection.modelChanges),
-      turnModels: structuredClone(this.projection.turnModels),
-      turnExecutions: structuredClone(this.projection.turnExecutions),
-    };
-    if (!validateStoredSessionRecord(record)) {
-      throw new Error('session title record invalid');
-    }
-    return record;
+  ): void {
+    // Prepared messages become canonical only after the SQLite adoption transaction commits.
+    this.projection.transcript.push(...messageSuffix);
+    this.projection.nextTurn = nextTurn;
+    this.projection.stateRevision = stateRevision;
   }
 
   normalizeTitle(value: string): string {
     return normalizeSessionTitle(value);
   }
 
-  completedTurnCount(): number {
-    return indexSessionHistory(this.projection.transcript)?.turns.length ?? 0;
+  privateStateFromTurn(): number {
+    return this.projection.privateStateFromTurn;
   }
 
   currentPosition(): {
@@ -333,5 +249,29 @@ export class SessionAuthority {
         },
       }),
     };
+  }
+
+  proposalSuffix(proposal: WorkerCommitProposalMessage): readonly Message[] | undefined {
+    const messageCount = this.projection.transcript.length;
+    if (
+      proposal.nextTurn !== this.projection.nextTurn + 1 ||
+      proposal.transcript.length < messageCount
+    ) return undefined;
+    // The canonical prefix was validated when it was opened or committed. New proposals
+    // append exactly one complete turn after that immutable owner state.
+    const suffix = proposal.transcript.slice(messageCount);
+    const suffixIndex = causalTranscriptIndex(suffix);
+    if (
+      suffixIndex === undefined || suffixIndex.turns.length !== 1
+    ) return undefined;
+    // WorkerRuntime begins each turn with a snapshot of generationContext.initialTranscript,
+    // then runAgentTurn clones it and appends this turn. Keep only that appended suffix here.
+    return structuredClone(suffix) as Message[];
+  }
+
+  messageSuffix(transcript: readonly Message[]): readonly Message[] {
+    return structuredClone(
+      transcript.slice(this.projection.transcript.length),
+    ) as Message[];
   }
 }

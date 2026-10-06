@@ -99,15 +99,3 @@ Deno.test('Increment 103 rejects invalid content and read failures before the tu
 Deno.test('Increment 103 built-in instruction identity matches the minimal content', async () => {
   assert(await verifyBuiltinHenjiBaseInstructionIdentity());
 });
-
-Deno.test('Increment 103 template keeps the moved detailed policy', async () => {
-  const template = await Deno.readTextFile(
-    'docs/operations/base-instruction-template.md',
-  );
-  assert(template.includes('Before changing implementation'));
-  assert(
-    template.includes('Prefer the smallest change that satisfies the request.'),
-  );
-  assert(template.includes('faithful artifact'));
-  assert(template.includes('reuse successful tool results'));
-});

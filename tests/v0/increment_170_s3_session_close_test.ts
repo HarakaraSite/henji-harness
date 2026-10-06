@@ -25,9 +25,9 @@ Deno.test('Increment 170 started Session close releases its shared Data writer l
     const before = await data.conversationSnapshot(sessionId);
     await created.close();
     await second.initialize();
-    const handle = await second.openExistingWorker(sessionId);
-    ok(handle.record);
-    await handle.close();
+    const opened = await second.openExistingWorker(sessionId);
+    ok(opened.state.sessionId === sessionId);
+    await opened.handle.close();
     const saved = await data.conversationSnapshot(sessionId);
     strictEqual(saved.cut, before.cut);
     strictEqual(new TextDecoder().decode(saved.bytes), new TextDecoder().decode(before.bytes));

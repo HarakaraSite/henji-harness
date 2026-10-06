@@ -1,4 +1,4 @@
-import type { LoopOutcome } from '../core/contracts.ts';
+import type { LoopOutcome, LoopOutcomeMetadata } from '../core/contracts.ts';
 import type {
   WorkerCorrelation,
   WorkerHostCommand,
@@ -45,6 +45,11 @@ export interface WorkerExecutionArtifactV1 {
   readonly effectCommitRelation: 'not_transactional';
   readonly automaticReplay: false;
 }
+
+export type WorkerExecutionArtifactMetadata = Pick<
+  WorkerExecutionArtifactV1,
+  'storeResult' | 'protocolTrace' | 'storeError' | 'childCleanup'
+>;
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -127,7 +132,7 @@ export const validateWorkerExecutionArtifact = (
 };
 
 export const workerExecutionOutcome = (
-  outcome: LoopOutcome,
+  outcome: LoopOutcomeMetadata,
 ): WorkerExecutionOutcome => {
   const result: WorkerExecutionOutcome = {
     ok: outcome.ok,

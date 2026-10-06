@@ -6,7 +6,7 @@ import {
 } from '../session/failure_diagnostic.ts';
 import { captureFailureDetails } from '../core/failure_details.ts';
 import type { ContextView, ExecutionView } from '../../api/contract.ts';
-import type { JsonValue, LoopOutcome } from '../core/contracts.ts';
+import type { JsonValue, LoopOutcomeMetadata, Message } from '../core/contracts.ts';
 import type {
   AgentAfterTurnContextUpdate,
   AgentPostSettlementHookUpdate,
@@ -18,6 +18,7 @@ import type {
   HistoryCaptureResult,
   HistoryExecutionInput,
   HistoryPostSettlementSemanticEventInput,
+  StoredExecutionDescriptorSummary,
 } from '../history/history_store_contract.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { indexSessionHistory } from '../session/session_history.ts';
@@ -25,9 +26,10 @@ import {
   type SemanticContextCheckpointV1,
   type SessionRecord,
   SessionStoreError,
-  type StoredSessionRecord,
   validateSemanticContextCheckpoint,
   type WorkerSessionHandle,
+  type WorkerSessionMetadataWrite,
+  type WorkerSessionOwnerState,
 } from '../session/session_store.ts';
 import {
   isStoredModelSelection,
@@ -36,10 +38,7 @@ import {
 } from '../provider/model_selection.ts';
 import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
 import type { RecalledExecutionContext } from '../worker/recalled_execution_context.ts';
-import {
-  recalledExecutionProjectionText,
-  resolveRecalledExecutionContext,
-} from '../worker/recalled_execution_context.ts';
+import { resolveRecalledExecutionContext } from '../worker/recalled_execution_context.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
@@ -49,12 +48,7 @@ import type {
   WorkerTurnFailedMessage,
 } from '../worker/worker_protocol.ts';
 import type { AgentGenerationContextBasis } from './agent_data_contract.ts';
-import {
-  ConversationWriter,
-  type ConversationWriterDelta,
-  type ConversationWriterSnapshot,
-  type ConversationWriterWatch,
-} from './conversation_writer.ts';
+import { ConversationWriter } from './conversation_writer.ts';
 import { type ExecutionDataInput, ExecutionDataJournal } from './execution_data_journal.ts';
 import {
   failedOutcome,
@@ -64,15 +58,10 @@ import {
 } from '../worker/worker_host_outcome.ts';
 import { SessionAuthority } from './session_authority.ts';
 import {
-  type StoredWorkerExecutionArtifact,
-  type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV1,
-  workerExecutionOutcome,
-  type WorkerExecutionSettlement,
+  type WorkerExecutionArtifactMetadata,
   type WorkerExecutionStoreResult,
   type WorkerExecutionTraceEntry,
 } from '../worker/worker_execution_artifact.ts';
-import { WorkerExecutionArtifactStoreError } from '../worker/worker_execution_artifact_store.ts';
 import type { ChildCleanupObservationV1 } from '../worker/worker_child_contract.ts';
 
 export type DataSessionPersistence = 'new' | 'continue' | 'session' | 'none';
@@ -113,7 +102,7 @@ export type DataExecutionControlInput =
       kind: 'post_commit_turn_end';
       correlation: WorkerCorrelation;
       turn: number;
-      outcome: LoopOutcome['stopReason'];
+      outcome: LoopOutcomeMetadata['stopReason'];
       committed: boolean;
       generationUnavailable: boolean;
     }>
@@ -139,32 +128,20 @@ export class DataRecallSelectionError extends Error {
   }
 }
 
-type MemoryWorkerHandle = WorkerSessionHandle & {
-  readonly record: StoredSessionRecord | undefined;
-  readonly checkpoint: SemanticContextCheckpointV1 | undefined;
-};
+type MemoryWorkerHandle = WorkerSessionHandle;
 
 /** A Session handle for detached runs whose accepted turns live only for this owner lifetime. */
 class DetachedSessionHandle implements MemoryWorkerHandle {
-  #record: StoredSessionRecord | undefined;
   #checkpoint: SemanticContextCheckpointV1 | undefined;
 
   constructor(readonly id: string) {}
-
-  get record(): StoredSessionRecord | undefined {
-    return this.#record === undefined ? undefined : structuredClone(this.#record);
-  }
 
   get checkpoint(): SemanticContextCheckpointV1 | undefined {
     return this.#checkpoint === undefined ? undefined : structuredClone(this.#checkpoint);
   }
 
-  commit(record: StoredSessionRecord): void {
-    this.#record = structuredClone(record);
-  }
-
-  rollback(): void {
-    this.#record = undefined;
+  saveMetadata(_update: WorkerSessionMetadataWrite): void {
+    // Detached Sessions keep their canonical metadata in SessionAuthority.
   }
 
   installCheckpoint(checkpoint: SemanticContextCheckpointV1): void {
@@ -190,8 +167,6 @@ export interface DataSessionOwnerOpenInput {
   readonly agentChoice: AgentConfigurationChoice;
   readonly sessionId?: string;
   readonly initialModelSelection?: ModelSelection;
-  /** One per-Session watch, owned for this Session's lifetime. */
-  readonly onConversationDelta?: (delta: ConversationWriterDelta) => void;
 }
 
 export interface DataSessionDescriptor {
@@ -271,11 +246,9 @@ export interface DataSessionTerminalResult {
   readonly receivedSequence: number;
   readonly durableSequence: number;
   /** The transcript remains Data-owned; Core receives only outcome metadata. */
-  readonly outcome: Omit<LoopOutcome, 'transcript'>;
+  readonly outcome: LoopOutcomeMetadata;
   readonly capture?: Omit<HistoryCaptureResult, 'commitDelta'>;
 }
-
-type DataSessionDeltaListener = (delta: ConversationWriterDelta) => void;
 
 interface DataArtifactState {
   readonly protocolTrace?: readonly WorkerExecutionTraceEntry[];
@@ -291,15 +264,6 @@ interface DataExecutionState {
   history: HistoryExecutionInput;
   readonly journal: ExecutionDataJournal;
   readonly prepared: Map<string, PreparedProposal>;
-  readonly control: {
-    acknowledgement?: WorkerExecutionAcknowledgement;
-    turnSettled?: boolean;
-    turnEnd?: Readonly<{
-      committed: boolean;
-      generationUnavailable: boolean;
-    }>;
-    processCleanup?: 'complete' | 'failed';
-  };
   artifact: DataArtifactState;
   terminal?: DataSessionTerminalResult;
   terminalError?: Error;
@@ -309,34 +273,15 @@ interface DataExecutionState {
 
 interface PreparedProposal {
   readonly token: DataProposalToken;
-  readonly message: WorkerCommitProposalMessage;
-  readonly record: StoredSessionRecord;
-  readonly outcome: LoopOutcome;
+  readonly message: Pick<
+    WorkerCommitProposalMessage,
+    'contextManifest' | 'diagnostic'
+  >;
+  readonly messageSuffix: readonly Message[];
+  readonly outcome: LoopOutcomeMetadata;
+  readonly nextTurn: number;
+  readonly updatedAt: string;
 }
-
-const privateStateFromTurn = (
-  changes: readonly {
-    readonly effectiveFromTurn: number;
-    readonly selection: ModelSelection;
-  }[],
-): number => {
-  let boundary = 1;
-  for (let index = 1; index < changes.length; index += 1) {
-    if (
-      changes[index - 1].selection.provider !==
-        changes[index].selection.provider ||
-      changes[index - 1].selection.modelId !== changes[index].selection.modelId
-    ) boundary = changes[index].effectiveFromTurn;
-  }
-  return boundary;
-};
-
-const emptyOutcomeTranscript = (
-  outcome: LoopOutcome,
-): Omit<LoopOutcome, 'transcript'> => {
-  const { transcript: _transcript, ...small } = outcome;
-  return small;
-};
 
 const sameToken = (
   left: DataProposalToken,
@@ -377,7 +322,7 @@ const executionControlEvent = (
         workerSequence: input.workerSequence,
         payload: {
           kind: 'cancel_received',
-          correlation: structuredClone(input.correlation),
+          correlation: input.correlation,
           sequence: input.workerSequence,
           result: input.result,
           observedAt: input.observedAt ?? new Date().toISOString(),
@@ -413,7 +358,7 @@ const executionControlEvent = (
         source: 'worker',
         kind: 'turn_settled',
         payload: {
-          correlation: structuredClone(input.correlation),
+          correlation: input.correlation,
           controlSequence,
         },
       };
@@ -424,7 +369,7 @@ const executionControlEvent = (
         source: 'host',
         kind: 'post_commit_turn_end',
         payload: {
-          correlation: structuredClone(input.correlation),
+          correlation: input.correlation,
           turn: input.turn,
           outcome: input.outcome,
           committed: input.committed,
@@ -443,17 +388,6 @@ const executionControlEvent = (
   }
 };
 
-const normalizeOutcome = (
-  outcome: LoopOutcome,
-): 'completed' | 'cancelled' | 'failed' | 'interrupted' =>
-  outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal'
-    ? 'completed'
-    : outcome.stopReason === 'cancelled'
-    ? 'cancelled'
-    : outcome.stopReason === 'interrupted'
-    ? 'interrupted'
-    : 'failed';
-
 /**
  * Data-local owner for one active model Session. It owns the real session handle and canonical
  * authority while sharing the Data service's single ConversationWriter.
@@ -464,18 +398,17 @@ export class DataSessionOwner {
   readonly persistence: DataSessionPersistence;
   readonly durableCanonicalHistory: boolean;
   readonly #executions = new Map<string, DataExecutionState>();
-  readonly #listeners = new Set<DataSessionDeltaListener>();
   readonly #store: SqliteHistoryStore;
   readonly #writer: ConversationWriter;
   #pendingRecall: RecalledExecutionContext | undefined;
   #latestRequest: ContextView['latestRequest'];
   #latestExecutionValue: ExecutionView | undefined;
-  #writerWatch: ConversationWriterWatch | undefined;
   #closed = false;
 
   private constructor(
     private readonly options: DataSessionOwnerOpenInput,
     handle: WorkerSessionHandle,
+    state?: WorkerSessionOwnerState,
   ) {
     this.handle = handle;
     this.persistence = options.persistence;
@@ -485,29 +418,24 @@ export class DataSessionOwner {
     if (this.#writer.store !== options.store) {
       throw new Error('ConversationWriter must use the Data Session store');
     }
-    const record = handle.record;
     if (
-      record !== undefined &&
-      (record.workspaceRoot !== options.workspaceRoot ||
-        record.agent !== options.agent)
+      state !== undefined &&
+      (state.workspaceRoot !== options.workspaceRoot ||
+        state.agent !== options.agent)
     ) throw new Error('session binding does not match the opened session');
     this.authority = new SessionAuthority({
-      handle,
+      sessionId: handle.id,
       workspaceRoot: options.workspaceRoot,
       agent: options.agent,
       agentChoice: options.agentChoice,
+      ...(handle.checkpoint === undefined ? {} : { checkpoint: handle.checkpoint }),
       ...(options.initialModelSelection === undefined
         ? {}
         : { initialModelSelection: options.initialModelSelection }),
-      durableCanonicalHistory: this.durableCanonicalHistory,
-    }, record);
+    }, state);
     this.#latestRequest = this.#readLatestRequest();
     this.#latestExecutionValue = this.#readLatestExecution();
-    if (record === undefined) this.#writer.initializeEmptySession(handle.id);
-    if (options.onConversationDelta !== undefined) {
-      this.#listeners.add(options.onConversationDelta);
-      this.#ensureWriterWatch();
-    }
+    this.#writer.openSession(handle.id);
   }
 
   static async open(
@@ -515,6 +443,7 @@ export class DataSessionOwner {
   ): Promise<DataSessionOwner> {
     await input.store.initialize();
     let handle: WorkerSessionHandle;
+    let state: WorkerSessionOwnerState | undefined;
     if (input.persistence === 'none') {
       handle = new DetachedSessionHandle(
         input.sessionId ?? crypto.randomUUID().toLowerCase(),
@@ -523,7 +452,9 @@ export class DataSessionOwner {
       handle = await input.store.allocateWorker(input.agent, input.agentChoice);
     } else if (input.persistence === 'session') {
       if (input.sessionId === undefined) throw new Error('session id required');
-      handle = await input.store.openExistingWorker(input.sessionId);
+      const opened = await input.store.openExistingWorker(input.sessionId);
+      handle = opened.handle;
+      state = opened.state;
     } else {
       const candidate = (await input.store.listWorker()).sessions.find((
         session,
@@ -531,10 +462,12 @@ export class DataSessionOwner {
       if (candidate === undefined) {
         throw new SessionStoreError('session_not_found');
       }
-      handle = await input.store.openExistingWorker(candidate.id);
+      const opened = await input.store.openExistingWorker(candidate.id);
+      handle = opened.handle;
+      state = opened.state;
     }
     try {
-      return new DataSessionOwner(input, handle);
+      return new DataSessionOwner(input, handle, state);
     } catch (error) {
       await handle.close();
       throw error;
@@ -556,9 +489,7 @@ export class DataSessionOwner {
       modelSelection: this.authority.modelSelectionSnapshot(),
       stateRevision: this.authority.projection.stateRevision,
       nextTurn: this.authority.projection.nextTurn,
-      privateStateFromTurn: privateStateFromTurn(
-        this.authority.projection.modelChanges,
-      ),
+      privateStateFromTurn: this.authority.privateStateFromTurn(),
       currentPosition: position,
       ...(this.#latestExecutionValue === undefined
         ? {}
@@ -607,18 +538,11 @@ export class DataSessionOwner {
         ? {}
         : { checkpoint: this.authority.checkpointSnapshot()! }),
       modelSelection: this.authority.modelSelectionSnapshot(),
-      privateStateFromTurn: privateStateFromTurn(
-        this.authority.projection.modelChanges,
-      ),
+      privateStateFromTurn: this.authority.privateStateFromTurn(),
       ...(admitted?.input.recalledContext === undefined
         ? {}
         : { recalledContext: structuredClone(admitted.input.recalledContext) }),
     };
-  }
-
-  snapshot(): ConversationWriterSnapshot {
-    this.#assertOpen();
-    return this.#writer.snapshotSession(this.sessionId);
   }
 
   async prepareRecall(id?: string): Promise<{
@@ -691,23 +615,16 @@ export class DataSessionOwner {
       return { result: 'unchanged', descriptor: this.descriptor() };
     }
     const changedAt = new Date().toISOString();
-    const changes = [
-      ...structuredClone(this.authority.projection.modelChanges),
-      {
-        effectiveFromTurn: this.authority.projection.nextTurn,
-        changedAt,
-        selection: structuredClone(selection),
-      },
-    ];
     const revision = this.authority.projection.stateRevision + 1;
-    const record = this.authority.modelSelectionRecord(
-      selection,
-      changes,
-      revision,
-      changedAt,
-    );
-    this.handle.commit(record);
-    this.authority.applyModelSelection(selection, changes, revision);
+    const change = this.authority.modelChange(selection, changedAt);
+    this.handle.saveMetadata(this.authority.metadataWrite({
+      updatedAt: changedAt,
+      stateRevision: revision,
+      modelSelection: selection,
+      modelChange: change,
+    }));
+    this.authority.applyModelSelection(selection, change, revision);
+    this.authority.metadataWriteCommitted();
     return { result: 'selected', descriptor: this.descriptor() };
   }
 
@@ -722,9 +639,13 @@ export class DataSessionOwner {
     }
     const changedAt = new Date().toISOString();
     const revision = this.authority.projection.stateRevision + 1;
-    const record = this.authority.titleRecord(title, revision, changedAt);
-    this.handle.commit(record);
+    this.handle.saveMetadata(this.authority.metadataWrite({
+      updatedAt: changedAt,
+      stateRevision: revision,
+      title,
+    }));
     this.authority.applyTitle(title, revision);
+    this.authority.metadataWriteCommitted();
     return { result: 'renamed', descriptor: this.descriptor() };
   }
 
@@ -747,7 +668,7 @@ export class DataSessionOwner {
     };
   }
 
-  async recordExecutionControl(
+  recordExecutionControl(
     executionId: string,
     input: DataExecutionControlInput,
   ): Promise<DataSessionDescriptor> {
@@ -768,33 +689,21 @@ export class DataSessionOwner {
     }
     state.journal.appendControl(executionControlEvent(executionId, recorded));
     this.#acceptExecutionControl(state, recorded);
-    await this.#updatePostCommitArtifact(state);
-    return this.descriptor();
+    return Promise.resolve(this.descriptor());
   }
 
   #acceptExecutionControl(
     state: DataExecutionState,
     input: DataExecutionControlInput,
   ): void {
-    if (input.kind === 'acknowledgement_sent') {
-      state.control.acknowledgement = input.accepted ? 'accepted_sent' : 'rejected_sent';
-    } else if (input.kind === 'acknowledgement_failed') {
-      state.control.acknowledgement = 'delivery_failed';
-    } else if (input.kind === 'turn_settled') {
-      state.control.turnSettled = true;
-    } else if (input.kind === 'post_commit_turn_end') {
-      state.control.turnEnd = {
-        committed: input.committed,
-        generationUnavailable: input.generationUnavailable,
-      };
-    } else if (input.kind === 'process_cleanup_finished') {
-      state.control.processCleanup = input.result;
-    }
-
     if (this.#latestExecutionValue?.executionId !== state.history.executionId) {
       return;
     }
-    const acknowledgement = state.control.acknowledgement;
+    const acknowledgement = input.kind === 'acknowledgement_sent'
+      ? input.accepted ? 'accepted_sent' : 'rejected_sent'
+      : input.kind === 'acknowledgement_failed'
+      ? 'delivery_failed'
+      : this.#latestExecutionValue.durability.acknowledgement;
     this.#latestExecutionValue = {
       ...this.#latestExecutionValue,
       ...(acknowledgement === undefined ? {} : {
@@ -807,67 +716,6 @@ export class DataSessionOwner {
           input.result === 'complete'
         ? { processSettlement: 'complete' as const }
         : {}),
-    };
-  }
-
-  async #updatePostCommitArtifact(state: DataExecutionState): Promise<void> {
-    if (
-      state.terminal === undefined ||
-      state.control.acknowledgement === undefined &&
-        state.control.turnSettled !== true &&
-        state.control.turnEnd === undefined &&
-        state.control.processCleanup === undefined
-    ) return;
-    let artifact: StoredWorkerExecutionArtifact;
-    try {
-      artifact = await this.#store.executionArtifacts.read(
-        state.history.executionId,
-      );
-    } catch (error) {
-      if (
-        error instanceof WorkerExecutionArtifactStoreError &&
-        error.code === 'worker_execution_artifact_not_found'
-      ) return;
-      throw error;
-    }
-    if (artifact.schemaVersion !== 1 || artifact.outcome === undefined) return;
-    let settlement: WorkerExecutionArtifactV1['settlement'] = artifact.settlement;
-    if (settlement === 'committed_observation_pending') {
-      if (
-        state.control.acknowledgement === 'delivery_failed' ||
-        state.control.processCleanup === 'failed' ||
-        state.control.turnEnd?.generationUnavailable === true
-      ) settlement = 'committed_generation_unavailable';
-      else if (
-        state.control.acknowledgement === 'accepted_sent' &&
-        state.control.turnSettled === true &&
-        state.control.processCleanup === 'complete' &&
-        state.control.turnEnd?.committed === true
-      ) settlement = 'committed';
-    }
-    const updated: WorkerExecutionArtifactV1 = {
-      ...artifact,
-      ...(state.control.acknowledgement === undefined ? {} : {
-        acknowledgement: state.control.acknowledgement,
-      }),
-      settlement,
-    };
-    this.#store.recordPostCommitObservation(updated);
-  }
-
-  watch(listener: DataSessionDeltaListener): ConversationWriterWatch {
-    this.#assertOpen();
-    const snapshot = this.#writer.snapshotSession(this.sessionId);
-    this.#listeners.add(listener);
-    this.#ensureWriterWatch();
-    let active = true;
-    return {
-      snapshot,
-      unsubscribe: () => {
-        if (!active) return;
-        active = false;
-        this.#listeners.delete(listener);
-      },
     };
   }
 
@@ -913,19 +761,14 @@ export class DataSessionOwner {
       ...(input.spawnCallId === undefined ? {} : { spawnCallId: input.spawnCallId }),
       ...(input.contextSnapshot === undefined ? {} : { contextSnapshot: input.contextSnapshot }),
     };
-    const sessionRecord = this.authority.admissionSessionRecord();
+    const initialSession = this.durableCanonicalHistory
+      ? this.authority.initialMetadataWrite()
+      : undefined;
     const begin: BeginExecutionInput = {
       ...history,
       sessionMode: this.durableCanonicalHistory ? 'persistent' : 'no_session',
-      ...(sessionRecord === undefined ? {} : { sessionRecord }),
+      ...(initialSession === undefined ? {} : { initialSession }),
     };
-    if (
-      sessionRecord !== undefined && this.handle.acceptCommitted === undefined
-    ) {
-      throw new Error(
-        'persistent Session handle cannot accept its admitted record',
-      );
-    }
     const artifact: DataArtifactState = {};
     const state: DataExecutionState = {
       input: {
@@ -935,7 +778,6 @@ export class DataSessionOwner {
       },
       history,
       prepared: new Map(),
-      control: {},
       artifact,
       journal: new ExecutionDataJournal({
         executionId: input.executionId,
@@ -948,12 +790,10 @@ export class DataSessionOwner {
       }),
     };
     await this.#writer.beginExecution(begin);
-    if (sessionRecord !== undefined) {
-      this.handle.acceptCommitted!(sessionRecord);
-    }
+    if (initialSession !== undefined) this.authority.metadataWriteCommitted();
     this.#executions.set(input.executionId, state);
     this.#latestExecutionValue = this.#executionView(
-      this.#store.readExecutionMetadata(input.executionId),
+      this.#store.readLatestExecutionForSession(this.sessionId)!,
     );
     if (input.recalledContext === undefined) this.#pendingRecall = undefined;
     return { executionId: input.executionId, descriptor: this.descriptor() };
@@ -1016,11 +856,8 @@ export class DataSessionOwner {
       state.terminal !== undefined || state.authorization !== undefined ||
       state.sealed === true
     ) throw new Error('execution is already settling');
-    const record = this.authority.proposalRecord(input.message, {
-      executionId: state.history.executionId,
-      configurationId: state.history.configurationId,
-    });
-    if (record === undefined) throw new Error('commit proposal invalid');
+    const messageSuffix = this.authority.proposalSuffix(input.message);
+    if (messageSuffix === undefined) throw new Error('commit proposal invalid');
     const proposalId = input.proposalId ?? crypto.randomUUID().toLowerCase();
     const token: DataProposalToken = {
       proposalId,
@@ -1034,11 +871,10 @@ export class DataSessionOwner {
     }
     const baseOutcome = input.message.outcome === undefined
       ? proposalOutcome(state.history.task, input.message.transcript, undefined)
-      : {
-        ...structuredClone(input.message.outcome),
-        task: state.history.task,
-        transcript: structuredClone(input.message.transcript),
-      };
+      : (() => {
+        const { transcript: _transcript, ...metadata } = input.message.outcome!;
+        return { ...structuredClone(metadata), task: state.history.task };
+      })();
     const outcome = baseOutcome.diagnostic === undefined &&
         input.message.diagnostic !== undefined
       ? {
@@ -1050,9 +886,18 @@ export class DataSessionOwner {
     state.sealed = true;
     state.prepared.set(proposalId, {
       token,
-      message: structuredClone(input.message),
-      record,
+      message: {
+        ...(input.message.contextManifest === undefined ? {} : {
+          contextManifest: structuredClone(input.message.contextManifest),
+        }),
+        ...(input.message.diagnostic === undefined
+          ? {}
+          : { diagnostic: structuredClone(input.message.diagnostic) }),
+      },
+      messageSuffix,
       outcome,
+      nextTurn: input.message.nextTurn,
+      updatedAt: new Date().toISOString(),
     });
     return token;
   }
@@ -1095,17 +940,9 @@ export class DataSessionOwner {
           diagnostic: structuredClone(prepared.message.diagnostic),
         }
         : baseOutcome;
-      const artifactForCapture = this.#artifactCapture(state, outcome, {
-        proposedStateRevision: prepared.record.stateRevision,
-        canonical: false,
-        diagnostic: prepared.message.diagnostic ?? outcome.diagnostic,
-
-        storeResult: 'not_attempted',
-        acknowledgement: 'not_sent',
-        settlement: 'uncommitted',
-      });
       const capture = this.#writer.settleNonCanonicalExecution({
         ...state.history,
+        messageSuffix: [],
         outcome,
         ...(prepared.message.contextManifest === undefined
           ? {}
@@ -1113,7 +950,7 @@ export class DataSessionOwner {
         ...(prepared.message.diagnostic === undefined
           ? {}
           : { diagnostic: prepared.message.diagnostic }),
-        ...(artifactForCapture === undefined ? {} : { artifactForCapture }),
+        executionMetadata: this.#executionMetadata(state, 'not_attempted'),
       }).result;
       const terminal = this.#terminalResult(
         state,
@@ -1153,31 +990,26 @@ export class DataSessionOwner {
     }
     state.journal.seal();
     state.sealed = true;
+    const { transcript: failedTranscript, ...failureMetadata } = input.message.outcome;
     const outcome = {
-      ...structuredClone(input.message.outcome),
+      ...structuredClone(failureMetadata),
       task: state.history.task,
       ...(input.message.outcome.diagnostic === undefined &&
           input.message.diagnostic !== undefined
         ? { diagnostic: structuredClone(input.message.diagnostic) }
         : {}),
     };
+    const messageSuffix = this.authority.messageSuffix(failedTranscript);
     state.authorization = false;
-    const artifactForCapture = this.#artifactCapture(state, outcome, {
-      canonical: false,
-      diagnostic: input.message.diagnostic ?? outcome.diagnostic,
-
-      storeResult: 'not_attempted',
-      acknowledgement: 'not_sent',
-      settlement: 'uncommitted',
-    });
     const capture = this.#writer.settleNonCanonicalExecution({
       ...state.history,
+      messageSuffix,
       outcome,
       ...(input.message.contextManifest === undefined
         ? {}
         : { contextManifest: input.message.contextManifest }),
       ...(input.message.diagnostic === undefined ? {} : { diagnostic: input.message.diagnostic }),
-      ...(artifactForCapture === undefined ? {} : { artifactForCapture }),
+      executionMetadata: this.#executionMetadata(state, 'not_attempted'),
     }).result;
     const terminal = this.#terminalResult(state, outcome, capture, false, true);
     this.#recordTerminal(state, terminal);
@@ -1203,33 +1035,25 @@ export class DataSessionOwner {
     const baseOutcome = input.decision === 'cancelled'
       ? failedOutcome(
         state.history.task,
-        this.authority.transcriptSnapshot(),
         input.reason,
         true,
       )
       : interruptedOutcome(
         state.history.task,
-        this.authority.transcriptSnapshot(),
         input.reason,
       );
     const outcome = input.diagnostic === undefined
       ? baseOutcome
       : { ...baseOutcome, diagnostic: input.diagnostic };
-    const artifactForCapture = this.#artifactCapture(state, outcome, {
-      canonical: false,
-
-      storeResult: 'not_attempted',
-      acknowledgement: 'not_sent',
-      settlement: 'uncommitted',
-    });
     const capture = this.#writer.settleNonCanonicalExecution({
       ...state.history,
+      messageSuffix: [],
       outcome,
       ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
       ...(this.#latestContextManifest(state) === undefined
         ? {}
         : { contextManifest: this.#latestContextManifest(state)! }),
-      ...(artifactForCapture === undefined ? {} : { artifactForCapture }),
+      executionMetadata: this.#executionMetadata(state, 'not_attempted'),
     }).result;
     const terminal = this.#terminalResult(
       state,
@@ -1313,8 +1137,10 @@ export class DataSessionOwner {
       update.effect.settlement.durable !== terminal.durable ||
       update.effect.settlement.stateRevision !== terminal.stateRevision ||
       update.effect.settlement.terminalOutcome.ok !== terminal.outcome.ok ||
-      update.effect.settlement.terminalOutcome.outcome !== terminal.outcome.outcome ||
-      update.effect.settlement.terminalOutcome.stopReason !== terminal.outcome.stopReason ||
+      update.effect.settlement.terminalOutcome.outcome !==
+        terminal.outcome.outcome ||
+      update.effect.settlement.terminalOutcome.stopReason !==
+        terminal.outcome.stopReason ||
       update.effect.settlement.terminalOutcome.error !== terminal.outcome.error
     ) return false;
 
@@ -1362,7 +1188,9 @@ export class DataSessionOwner {
           source: 'worker',
           kind: 'runtime_event',
           workerSequence: sequence,
-          payload: structuredClone(message) as unknown as import('../core/contracts.ts').JsonValue,
+          payload: structuredClone(
+            message,
+          ) as unknown as import('../core/contracts.ts').JsonValue,
         },
       };
       this.#writer.appendPostSettlementSemanticEvent(historyInput);
@@ -1403,7 +1231,8 @@ export class DataSessionOwner {
       update.settlement.stateRevision !== terminal.stateRevision ||
       update.settlement.terminalOutcome.ok !== terminal.outcome.ok ||
       update.settlement.terminalOutcome.outcome !== terminal.outcome.outcome ||
-      update.settlement.terminalOutcome.stopReason !== terminal.outcome.stopReason ||
+      update.settlement.terminalOutcome.stopReason !==
+        terminal.outcome.stopReason ||
       update.settlement.terminalOutcome.error !== terminal.outcome.error
     ) return false;
 
@@ -1478,9 +1307,6 @@ export class DataSessionOwner {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
-    this.#writerWatch?.unsubscribe();
-    this.#writerWatch = undefined;
-    this.#listeners.clear();
     for (const state of this.#executions.values()) {
       try {
         if (state.terminal === undefined && state.authorization === undefined) {
@@ -1492,19 +1318,13 @@ export class DataSessionOwner {
     }
     this.#executions.clear();
     await this.handle.close();
+    this.#writer.closeSession(this.sessionId);
   }
 
   #commitPrepared(
     state: DataExecutionState,
     prepared: PreparedProposal,
   ): DataSessionTerminalResult {
-    if (
-      this.durableCanonicalHistory && this.handle.acceptCommitted === undefined
-    ) {
-      throw new Error(
-        'persistent Session handle cannot accept an atomic commit',
-      );
-    }
     const outcome = prepared.outcome.diagnostic === undefined &&
         prepared.message.diagnostic !== undefined
       ? {
@@ -1512,42 +1332,34 @@ export class DataSessionOwner {
         diagnostic: structuredClone(prepared.message.diagnostic),
       }
       : prepared.outcome;
-    const artifactForCapture = this.#artifactCapture(state, outcome, {
-      committedStateRevision: this.durableCanonicalHistory
-        ? prepared.record.stateRevision
-        : undefined,
-      proposedStateRevision: prepared.record.stateRevision,
-      canonical: this.durableCanonicalHistory,
-      diagnostic: prepared.message.diagnostic ?? outcome.diagnostic,
-    });
+    const metadata = this.#executionMetadata(state, 'committed');
+    const common = {
+      ...state.history,
+      messageSuffix: prepared.messageSuffix,
+      outcome,
+      executionMetadata: metadata,
+      ...(prepared.message.contextManifest === undefined
+        ? {}
+        : { contextManifest: prepared.message.contextManifest }),
+      ...(prepared.message.diagnostic === undefined
+        ? outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }
+        : { diagnostic: prepared.message.diagnostic }),
+    };
     const capture = this.durableCanonicalHistory
       ? this.#writer.commitCanonicalTurn({
-        ...state.history,
+        ...common,
         canonicalSessionId: this.sessionId,
-        contextManifest: prepared.message.contextManifest,
-        record: prepared.record,
-        outcome,
-        ...(prepared.message.diagnostic === undefined
-          ? outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }
-          : { diagnostic: prepared.message.diagnostic }),
-        ...(artifactForCapture === undefined ? {} : { artifactForCapture }),
+        updatedAt: prepared.updatedAt,
       }).result
       : this.#writer.settleNonCanonicalExecution({
-        ...state.history,
-        contextManifest: prepared.message.contextManifest,
-        outcome,
-        ...(prepared.message.diagnostic === undefined
-          ? outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }
-          : { diagnostic: prepared.message.diagnostic }),
-        ...(artifactForCapture === undefined ? {} : { artifactForCapture }),
+        ...common,
       }).result;
 
     // The memory projection advances only after its SQLite evidence transaction committed.
-    if (this.durableCanonicalHistory) {
-      this.handle.acceptCommitted!(prepared.record);
-    } else this.handle.commit(prepared.record);
     this.authority.applyCommitted(
-      prepared.record as import('../session/session_store.ts').SessionRecordV1,
+      prepared.messageSuffix,
+      prepared.nextTurn,
+      prepared.token.baseStateRevision + 1,
     );
     return this.#terminalResult(
       state,
@@ -1560,111 +1372,33 @@ export class DataSessionOwner {
     );
   }
 
-  #artifactCapture(
+  #executionMetadata(
     state: DataExecutionState,
-    outcome: LoopOutcome,
-    fields: {
-      readonly committedStateRevision?: number;
-      readonly proposedStateRevision?: number;
-      readonly canonical: boolean;
-      readonly diagnostic?: LoopOutcome['diagnostic'];
-      readonly storeResult?: WorkerExecutionStoreResult;
-      readonly acknowledgement?: WorkerExecutionAcknowledgement;
-      readonly settlement?: WorkerExecutionSettlement;
-    },
-  ):
-    | ((capture: HistoryCaptureResult) => WorkerExecutionArtifactV1)
-    | undefined {
-    return (capture) => {
-      const capturedOutcome = {
-        ...outcome,
-        ...(capture.diagnosticDurability === undefined
-          ? {}
-          : { diagnosticDurability: capture.diagnosticDurability }),
-        ...(capture.diagnosticPersistenceError === undefined
-          ? {}
-          : { diagnosticPersistenceError: capture.diagnosticPersistenceError }),
-        ...(fields.diagnostic === undefined ? {} : { diagnostic: fields.diagnostic }),
-      };
-      const contextCapture = capture.contextDurability === 'partial'
-        ? 'failed'
-        : capture.contextDurability ?? 'none';
-      const eventOutcome = workerExecutionOutcome(capturedOutcome);
-      const artifact: WorkerExecutionArtifactV1 = {
-        schemaVersion: 1,
-        contextCapture,
-        executionId: state.history.executionId,
-        createdAt: state.history.createdAt,
-        settledAt: new Date().toISOString(),
-        sessionId: this.sessionId,
-        turn: state.history.turn,
-        agent: state.history.agent,
-        instanceCorrelation: state.history.instanceCorrelation ??
-          state.input.correlation.instanceCorrelation,
-        workerGeneration: state.history.workerGeneration ??
-          state.input.correlation.workerGeneration,
-        build: state.history.build,
-        configurationId: state.history.configurationId,
-        configuration: state.history.configuration,
-        model: state.history.model,
-        maxSteps: state.history.maxSteps,
-        command: {
-          kind: 'turn',
-          correlation: state.input.correlation,
-          task: state.history.task,
-        },
-        baseStateRevision: state.history.baseStateRevision,
-        ...(fields.proposedStateRevision === undefined
-          ? {}
-          : { proposedStateRevision: fields.proposedStateRevision }),
-        ...(fields.committedStateRevision === undefined
-          ? {}
-          : { committedStateRevision: fields.committedStateRevision }),
-        ...(state.input.recalledContext === undefined ? {} : {
-          recall: {
-            schemaVersion: 1,
-            sourceExecutionId: state.input.recalledContext.sourceExecutionId,
-            projectedContext: recalledExecutionProjectionText(
-              state.input.recalledContext,
-            ),
-          },
-        }),
-        protocolTrace: (state.artifact.protocolTrace ?? []).map((
-          entry,
-          index,
-        ) => ({
-          ...structuredClone(entry),
-          sequence: index + 1,
-        })),
-        ...(state.artifact.childCleanup === undefined
-          ? {}
-          : { childCleanup: structuredClone(state.artifact.childCleanup) }),
-        storeResult: fields.storeResult ?? 'committed',
-        ...(state.artifact.storeError === undefined
-          ? {}
-          : { storeError: state.artifact.storeError }),
-        acknowledgement: fields.acknowledgement ?? 'not_sent',
-        settlement: fields.settlement ?? 'committed_observation_pending',
-        lifecycle: 'settled',
-        normalizedOutcome: normalizeOutcome(capturedOutcome),
-        adoption: fields.canonical ? 'canonical' : 'non_canonical',
-        outcome: eventOutcome,
-        effectCommitRelation: 'not_transactional',
-        automaticReplay: false,
-      };
-      return artifact;
+    storeResult: WorkerExecutionStoreResult,
+  ): WorkerExecutionArtifactMetadata {
+    return {
+      storeResult,
+      protocolTrace: (state.artifact.protocolTrace ?? []).map((
+        entry,
+        index,
+      ) => ({
+        ...entry,
+        sequence: index + 1,
+      })),
+      ...(state.artifact.storeError === undefined ? {} : { storeError: state.artifact.storeError }),
+      ...(state.artifact.childCleanup === undefined
+        ? {}
+        : { childCleanup: state.artifact.childCleanup }),
     };
   }
 
   #rejectionOutcome(
     state: DataExecutionState,
     decision: Extract<DataCommitDecision, { accepted: false }>,
-  ): LoopOutcome {
-    const transcript = this.authority.transcriptSnapshot();
+  ): LoopOutcomeMetadata {
     if (decision.settlement === 'cancelled') {
       return failedOutcome(
         state.history.task,
-        transcript,
         decision.reason,
         true,
       );
@@ -1672,16 +1406,15 @@ export class DataSessionOwner {
     if (decision.settlement === 'interrupted') {
       return interruptedOutcome(
         state.history.task,
-        transcript,
         decision.reason,
       );
     }
-    return failedOutcome(state.history.task, transcript, decision.reason);
+    return failedOutcome(state.history.task, decision.reason);
   }
 
   #terminalResult(
     state: DataExecutionState,
-    outcome: LoopOutcome,
+    outcome: LoopOutcomeMetadata,
     capture: HistoryCaptureResult,
     canonical: boolean,
     durable: boolean,
@@ -1692,7 +1425,7 @@ export class DataSessionOwner {
     accepted = false,
   ): DataSessionTerminalResult {
     this.#latestExecutionValue = this.#executionView(
-      this.#store.readExecutionMetadata(state.history.executionId),
+      this.#store.readLatestExecutionForSession(this.sessionId)!,
     );
     return {
       executionId: state.history.executionId,
@@ -1706,7 +1439,7 @@ export class DataSessionOwner {
       descriptor: this.descriptor(),
       receivedSequence: cut?.receivedSequence ?? state.journal.receivedSequence,
       durableSequence: cut?.durableSequence ?? state.journal.durableSequence,
-      outcome: emptyOutcomeTranscript({
+      outcome: {
         ...outcome,
         ...(capture.diagnosticDurability === undefined
           ? {}
@@ -1714,7 +1447,7 @@ export class DataSessionOwner {
         ...(capture.diagnosticPersistenceError === undefined
           ? {}
           : { diagnosticPersistenceError: capture.diagnosticPersistenceError }),
-      }),
+      },
       capture: {
         ...(capture.diagnosticDurability === undefined
           ? {}
@@ -1737,13 +1470,6 @@ export class DataSessionOwner {
     return prepared?.message.contextManifest;
   }
 
-  #ensureWriterWatch(): void {
-    if (this.#writerWatch !== undefined) return;
-    this.#writerWatch = this.#writer.watchSession(this.sessionId, (delta) => {
-      for (const listener of this.#listeners) listener(delta);
-    });
-  }
-
   #hasUnsettledExecution(): boolean {
     return [...this.#executions.values()].some((state) =>
       state.terminal === undefined && state.authorization === undefined
@@ -1751,19 +1477,13 @@ export class DataSessionOwner {
   }
 
   #readLatestExecution(): ExecutionView | undefined {
-    const latest = [...this.#store.listExecutionsForSession(this.sessionId)].sort((
-      left,
-      right,
-    ) =>
-      right.createdAt.localeCompare(left.createdAt) ||
-      right.executionId.localeCompare(left.executionId)
-    )[0];
+    const latest = this.#store.readLatestExecutionForSession(this.sessionId);
     if (latest === undefined) return undefined;
     return this.#executionView(latest);
   }
 
   #executionView(
-    latest: ReturnType<SqliteHistoryStore['readExecutionMetadata']>,
+    latest: StoredExecutionDescriptorSummary,
   ): ExecutionView {
     return {
       executionId: latest.executionId,
@@ -1773,13 +1493,11 @@ export class DataSessionOwner {
       createdAt: latest.createdAt,
       lifecycle: latest.lifecycle,
       outcome: latest.outcome,
-      ...(latest.outcomeJson?.stopReason === undefined
-        ? {}
-        : { stopReason: latest.outcomeJson.stopReason }),
-      ...(latest.outcomeJson?.diagnostic === undefined ? {} : {
+      ...(latest.stopReason === undefined ? {} : { stopReason: latest.stopReason }),
+      ...(latest.diagnostic === undefined ? {} : {
         diagnostic: {
-          code: latest.outcomeJson.diagnostic.code,
-          stage: latest.outcomeJson.diagnostic.stage,
+          code: latest.diagnostic.code,
+          stage: latest.diagnostic.stage,
         },
       }),
       adoption: latest.adoption,
@@ -1787,7 +1505,7 @@ export class DataSessionOwner {
         ? {}
         : { committedRevision: latest.committedRevision }),
       processSettlement: 'unknown',
-      requestCount: this.#store.readExecutionRequestCount(latest.executionId),
+      requestCount: latest.requestCount,
       durability: {
         acknowledgement: latest.acknowledgement,
         generationAvailability: latest.generationAvailability,
@@ -1840,57 +1558,7 @@ export class DataSessionOwner {
   }
 
   #readLatestRequest(): ContextView['latestRequest'] {
-    const executions = [...this.#store.listExecutionsForSession(this.sessionId)]
-      .sort((left, right) =>
-        right.createdAt.localeCompare(left.createdAt) ||
-        right.executionId.localeCompare(left.executionId)
-      );
-    for (const execution of executions) {
-      let latest: ContextView['latestRequest'];
-      for (
-        const occurrence of this.#store.listModelRequestOccurrences(
-          execution.executionId,
-        )
-      ) {
-        const value = occurrence.payload as {
-          readonly event?: {
-            readonly kind?: unknown;
-            readonly payload?: {
-              readonly observation?: {
-                readonly kind?: unknown;
-                readonly delta?: unknown;
-              };
-            };
-          };
-        };
-        const delta = value.event?.payload?.observation?.delta as
-          | Record<string, unknown>
-          | undefined;
-        if (
-          value.event?.kind !== 'context_observation' ||
-          value.event.payload?.observation?.kind !== 'model_request_delta' ||
-          delta === undefined || typeof delta.requestOrdinal !== 'number' ||
-          (delta.lane !== 'parent' && delta.lane !== 'planner') ||
-          typeof delta.purpose !== 'string' ||
-          typeof delta.modelStep !== 'number' ||
-          typeof delta.resultItemCount !== 'number'
-        ) continue;
-        if (
-          latest === undefined || delta.requestOrdinal > latest.requestOrdinal
-        ) {
-          latest = {
-            executionId: execution.executionId,
-            requestOrdinal: delta.requestOrdinal,
-            lane: delta.lane,
-            purpose: delta.purpose,
-            modelStep: delta.modelStep,
-            itemCount: delta.resultItemCount,
-          };
-        }
-      }
-      if (latest !== undefined) return latest;
-    }
-    return undefined;
+    return this.#store.readLatestRequestForSession(this.sessionId);
   }
 
   #execution(executionId: string): DataExecutionState {

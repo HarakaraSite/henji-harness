@@ -31,7 +31,7 @@ Deno.test('196 saved Session metadata preserves latest request and count without
     });
     const sessionId = owner.sessionId;
     // Persist the new Session before creating the saved execution facts.
-    owner.handle.commit(owner.authority.admissionSessionRecord()!);
+    owner.handle.saveMetadata(owner.authority.initialMetadataWrite()!);
     await owner.close();
     owner = undefined;
     const configuration = workerConfigurationFixture();
@@ -135,8 +135,11 @@ Deno.test('196 saved Session metadata preserves latest request and count without
         agent: 'default',
         agentChoice: {},
       });
-      strictEqual(decodedKinds.length > 0, true);
-      strictEqual(decodedKinds.every((kind) => kind === 'model_request'), true);
+      strictEqual(
+        decodedKinds.length,
+        0,
+        'latest request metadata is projected without occurrence hydration',
+      );
       return owner.descriptor();
     };
     // The newest execution has no request yet, so context keeps the earlier execution's latest.

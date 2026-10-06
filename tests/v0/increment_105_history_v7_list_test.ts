@@ -14,26 +14,21 @@ Deno.test('history listWorker skips an unreadable current Session record', async
       const handle = await store.allocateWorker('default', {});
       ids.push(handle.id);
       const createdAt = new Date().toISOString();
-      handle.commit({
-        schemaVersion: 1,
+      handle.saveMetadata({
         sessionId: handle.id,
         workspaceRoot: root,
-        agent: 'default',
         agentChoice: {},
         createdAt,
         updatedAt: createdAt,
         title: null,
         stateRevision: 1,
         nextTurn: 1,
-        transcript: [],
         activeModel: ROOT_DEFAULT_MODEL_SELECTION,
-        modelChanges: [{
+        modelChangesToAppend: [{
           effectiveFromTurn: 1,
           changedAt: createdAt,
           selection: ROOT_DEFAULT_MODEL_SELECTION,
         }],
-        turnModels: [],
-        turnExecutions: [],
       });
       await handle.close();
     }

@@ -18,5 +18,4 @@ export class WorkerExecutionArtifactStoreError extends Error {
 export interface WorkerExecutionArtifactStore {
   list(): Promise<readonly StoredWorkerExecutionArtifact[]>;
   read(id: string): Promise<StoredWorkerExecutionArtifact>;
-  write(artifact: StoredWorkerExecutionArtifact): Promise<void>;
 }

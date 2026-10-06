@@ -191,7 +191,8 @@ Deno.test('Increment 170 public entity frames apply saved Data batches without r
     });
     writer.settleNonCanonicalExecution({
       ...execution,
-      outcome: { ...failedOutcome(execution.task, [], 'provider response invalid'), diagnostic },
+      messageSuffix: [],
+      outcome: { ...failedOutcome(execution.task, 'provider response invalid'), diagnostic },
       diagnostic,
     });
     const terminal = Object.values(state.snapshot.conversation.entities).find((entity) =>

@@ -1,5 +1,5 @@
 import type { AgentEvent } from '../core/events.ts';
-import type { LoopOutcome, Message } from '../core/contracts.ts';
+import type { LoopOutcomeMetadata, Message } from '../core/contracts.ts';
 
 import type { WorkerCorrelation, WorkerRuntimeEventMessage } from './worker_protocol.ts';
 
@@ -32,7 +32,7 @@ export const proposalOutcome = (
   task: string,
   transcript: readonly Message[],
   terminal: WorkerRuntimeEventMessage | undefined,
-): LoopOutcome => {
+): LoopOutcomeMetadata => {
   const toolCallCount = transcript.reduce(
     (count, message) =>
       message.role === 'assistant' && Array.isArray(message.content)
@@ -59,16 +59,14 @@ export const proposalOutcome = (
     steps: Math.max(1, toolResultCount),
     toolCallCount,
     toolResultCount,
-    transcript: structuredClone(transcript),
   };
 };
 
 export const failedOutcome = (
   task: string,
-  transcript: readonly Message[],
   reason: string,
   cancelled = false,
-): LoopOutcome => ({
+): LoopOutcomeMetadata => ({
   ok: false,
   task,
   outcome: cancelled ? 'cancelled' : 'contract_failure',
@@ -77,14 +75,12 @@ export const failedOutcome = (
   steps: 0,
   toolCallCount: 0,
   toolResultCount: 0,
-  transcript: structuredClone(transcript),
 });
 
 export const interruptedOutcome = (
   task: string,
-  transcript: readonly Message[],
   reason: string,
-): LoopOutcome => ({
+): LoopOutcomeMetadata => ({
   ok: false,
   task,
   outcome: 'interrupted',
@@ -93,12 +89,11 @@ export const interruptedOutcome = (
   steps: 0,
   toolCallCount: 0,
   toolResultCount: 0,
-  transcript: structuredClone(transcript),
 });
 
 export const turnEndFromOutcome = (
   turn: number,
-  outcome: Omit<LoopOutcome, 'transcript'>,
+  outcome: LoopOutcomeMetadata,
   committed: boolean,
 ): AgentEvent => ({
   kind: 'turn_end',

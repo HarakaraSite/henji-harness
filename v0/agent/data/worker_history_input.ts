@@ -43,7 +43,7 @@ export const workerObservationInput = (
     ? 'cancel_received' as const
     : 'runtime_event' as const;
   const historyMessage = history
-    ?.prepareWorkerObservationForHistory?.(message) ?? message;
+    ?.prepareWorkerObservationForHistory?.(executionId, message) ?? message;
   return {
     executionId: executionId,
     direction: 'worker_to_host',

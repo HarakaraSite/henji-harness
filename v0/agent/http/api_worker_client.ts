@@ -105,7 +105,7 @@ export const startCoreServer = async (
         );
         if (cancelledSubscriptions.delete(subscriptionId)) subscription.unsubscribe();
         else subscriptions.set(subscriptionId, subscription.unsubscribe);
-        value = subscription.snapshot;
+        value = undefined;
       } else if (operation === 'coreShutdown') {
         value = await service.coreShutdown(
           args[0] as Parameters<CoreService['coreShutdown']>[0],

@@ -55,8 +55,17 @@ export interface DataConversationUpdate extends DataConversationSnapshot {
   readonly descriptor: DataSessionDescriptor;
 }
 
+/** Descriptor-only revision, independent of the conversation save cut. */
+export interface DataSessionDescriptorUpdate {
+  readonly sequence: number;
+  readonly descriptor: DataSessionDescriptor;
+}
+
 export type DataConversationDeltaListener = (
   update: DataConversationUpdate,
+) => void;
+export type DataSessionDescriptorListener = (
+  update: DataSessionDescriptorUpdate,
 ) => void;
 export type DataAgentEventListener = (
   sessionId: string,
@@ -131,12 +140,21 @@ export interface DataService {
   sessionsList(): Promise<SessionsListResult>;
   deleteSession(sessionId: string): Promise<void>;
   conversationSnapshot(sessionId: string): Promise<DataConversationSnapshot>;
-  watchSession(
+  watchConversation(
     sessionId: string,
     listener: DataConversationDeltaListener,
   ): Promise<
     {
       readonly snapshot: DataConversationSnapshot;
+      readonly unsubscribe: () => void;
+    }
+  >;
+  watchSessionDescriptor(
+    sessionId: string,
+    listener: DataSessionDescriptorListener,
+  ): Promise<
+    {
+      readonly snapshot: DataSessionDescriptorUpdate;
       readonly unsubscribe: () => void;
     }
   >;
@@ -255,8 +273,10 @@ export type DataWorkerRequest =
   | Readonly<{ id: number; kind: 'sessions_list' }>
   | Readonly<{ id: number; kind: 'session_delete'; sessionId: string }>
   | Readonly<{ id: number; kind: 'conversation_snapshot'; sessionId: string }>
-  | Readonly<{ id: number; kind: 'watch_session'; sessionId: string }>
-  | Readonly<{ id: number; kind: 'unwatch_session'; sessionId: string }>
+  | Readonly<{ id: number; kind: 'watch_conversation'; sessionId: string }>
+  | Readonly<{ id: number; kind: 'unwatch_conversation'; sessionId: string }>
+  | Readonly<{ id: number; kind: 'watch_session_descriptor'; sessionId: string }>
+  | Readonly<{ id: number; kind: 'unwatch_session_descriptor'; sessionId: string }>
   | Readonly<
     {
       id: number;
@@ -390,8 +410,12 @@ export type DataWorkerResponse =
     error: Readonly<{ status: number; code: string; message: string; details?: FailureDetails }>;
   }>
   | Readonly<{
-    kind: 'session_delta';
+    kind: 'conversation_delta';
     update: DataConversationUpdate;
+  }>
+  | Readonly<{
+    kind: 'session_descriptor_delta';
+    update: DataSessionDescriptorUpdate;
   }>
   | Readonly<{
     kind: 'agent_event';

@@ -103,7 +103,18 @@ if (mode === 'create-session') {
     turnExecutions: [],
   };
   try {
-    handle.commit(record);
+    handle.saveMetadata({
+      sessionId: record.sessionId,
+      workspaceRoot: record.workspaceRoot,
+      agentChoice: record.agentChoice,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      title: record.title,
+      stateRevision: record.stateRevision,
+      nextTurn: record.nextTurn,
+      activeModel: record.activeModel,
+      modelChangesToAppend: record.modelChanges,
+    });
     const readback = await store.readWorker(handle.id);
     if (readback.sessionId !== handle.id || readback.title !== (label ?? null)) {
       throw new Error('created Session was not readable in its writer process');

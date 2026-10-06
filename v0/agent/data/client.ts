@@ -23,6 +23,8 @@ import {
   type DataService,
   DataServiceError,
   type DataSessionDescriptor,
+  type DataSessionDescriptorListener,
+  type DataSessionDescriptorUpdate,
   type DataSessionMutationResult,
   type DataSessionOpenInput,
   type DataSessionTerminalResult,
@@ -64,10 +66,25 @@ interface LocalWatch {
   unwatching?: Promise<void>;
 }
 
+interface LocalDescriptorWatchListener {
+  readonly callback: DataSessionDescriptorListener;
+  initializing: boolean;
+  afterSequence: number;
+  readonly buffered: DataSessionDescriptorUpdate[];
+}
+
+interface LocalDescriptorWatch {
+  readonly listeners: Set<LocalDescriptorWatchListener>;
+  initializing?: Promise<DataSessionDescriptorUpdate>;
+  remoteReady: boolean;
+  unwatching?: Promise<void>;
+}
+
 class DataClient implements DataService {
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
-  private readonly watches = new Map<string, LocalWatch>();
+  private readonly conversationWatches = new Map<string, LocalWatch>();
+  private readonly descriptorWatches = new Map<string, LocalDescriptorWatch>();
   private readonly agentEventListeners = new Set<DataAgentEventListener>();
   private failed = false;
   private closing = false;
@@ -77,8 +94,12 @@ class DataClient implements DataService {
   constructor(private readonly worker: DataWorker) {
     worker.onmessage = (event: MessageEvent<DataWorkerResponse>): void => {
       const response = event.data;
-      if (response.kind === 'session_delta') {
-        this.receiveSessionUpdate(response.update);
+      if (response.kind === 'conversation_delta') {
+        this.receiveConversationUpdate(response.update);
+        return;
+      }
+      if (response.kind === 'session_descriptor_delta') {
+        this.receiveSessionDescriptorUpdate(response.update);
         return;
       }
       if (response.kind === 'agent_event') {
@@ -148,8 +169,8 @@ class DataClient implements DataService {
     return response.value as T;
   }
 
-  private receiveSessionUpdate(update: DataConversationUpdate): void {
-    const watch = this.watches.get(update.sessionId);
+  private receiveConversationUpdate(update: DataConversationUpdate): void {
+    const watch = this.conversationWatches.get(update.sessionId);
     if (watch === undefined) return;
     for (const subscriber of [...watch.listeners]) {
       if (subscriber.initializing) subscriber.buffered.push(update);
@@ -157,13 +178,26 @@ class DataClient implements DataService {
     }
   }
 
-  private async initializeWatch(
+  private receiveSessionDescriptorUpdate(
+    update: DataSessionDescriptorUpdate,
+  ): void {
+    const watch = this.descriptorWatches.get(update.descriptor.id);
+    if (watch === undefined) return;
+    for (const subscriber of [...watch.listeners]) {
+      if (subscriber.initializing) subscriber.buffered.push(update);
+      else if (update.sequence > subscriber.afterSequence) {
+        subscriber.callback(update);
+      }
+    }
+  }
+
+  private async initializeConversationWatch(
     sessionId: string,
     watch: LocalWatch,
   ): Promise<DataConversationSnapshot> {
     if (watch.initializing !== undefined) return await watch.initializing;
     watch.initializing = this.value<DataConversationSnapshot>({
-      kind: 'watch_session',
+      kind: 'watch_conversation',
       sessionId,
     }).then((snapshot) => {
       watch.remoteReady = true;
@@ -176,7 +210,7 @@ class DataClient implements DataService {
     }
   }
 
-  private async stopRemoteWatch(
+  private async stopRemoteConversationWatch(
     sessionId: string,
     watch: LocalWatch,
   ): Promise<void> {
@@ -191,15 +225,70 @@ class DataClient implements DataService {
       }
       if (watch.remoteReady) {
         try {
-          await this.value<void>({ kind: 'unwatch_session', sessionId });
+          await this.value<void>({ kind: 'unwatch_conversation', sessionId });
         } catch {
           // Worker close owns final watch cleanup if unregistration cannot be delivered.
         }
       }
     })().finally(() => {
-      if (watch.listeners.size === 0 && this.watches.get(sessionId) === watch) {
-        this.watches.delete(sessionId);
+      if (
+        watch.listeners.size === 0 &&
+        this.conversationWatches.get(sessionId) === watch
+      ) {
+        this.conversationWatches.delete(sessionId);
       }
+      watch.unwatching = undefined;
+    });
+    return await watch.unwatching;
+  }
+
+  private async initializeDescriptorWatch(
+    sessionId: string,
+    watch: LocalDescriptorWatch,
+  ): Promise<DataSessionDescriptorUpdate> {
+    if (watch.initializing !== undefined) return await watch.initializing;
+    watch.initializing = this.value<DataSessionDescriptorUpdate>({
+      kind: 'watch_session_descriptor',
+      sessionId,
+    }).then((snapshot) => {
+      watch.remoteReady = true;
+      return snapshot;
+    });
+    try {
+      return await watch.initializing;
+    } finally {
+      watch.initializing = undefined;
+    }
+  }
+
+  private async stopRemoteDescriptorWatch(
+    sessionId: string,
+    watch: LocalDescriptorWatch,
+  ): Promise<void> {
+    if (watch.unwatching !== undefined) return await watch.unwatching;
+    watch.unwatching = (async () => {
+      if (!watch.remoteReady && watch.initializing !== undefined) {
+        try {
+          await watch.initializing;
+        } catch {
+          // A failed initial request left no remote descriptor watch.
+        }
+      }
+      if (watch.remoteReady) {
+        try {
+          await this.value<void>({
+            kind: 'unwatch_session_descriptor',
+            sessionId,
+          });
+        } catch {
+          // Worker close owns final watch cleanup if unregistration cannot be delivered.
+        }
+      }
+    })().finally(() => {
+      if (
+        watch.listeners.size === 0 &&
+        this.descriptorWatches.get(sessionId) === watch
+      ) this.descriptorWatches.delete(sessionId);
       watch.unwatching = undefined;
     });
     return await watch.unwatching;
@@ -265,7 +354,7 @@ class DataClient implements DataService {
     return this.value({ kind: 'conversation_snapshot', sessionId });
   }
 
-  async watchSession(
+  async watchConversation(
     sessionId: string,
     listener: DataConversationDeltaListener,
   ): Promise<
@@ -276,14 +365,14 @@ class DataClient implements DataService {
   > {
     let watch: LocalWatch | undefined;
     for (;;) {
-      watch = this.watches.get(sessionId);
+      watch = this.conversationWatches.get(sessionId);
       if (watch?.unwatching !== undefined) {
         await watch.unwatching;
         continue;
       }
       if (watch === undefined) {
         watch = { listeners: new Set(), remoteReady: false };
-        this.watches.set(sessionId, watch);
+        this.conversationWatches.set(sessionId, watch);
       }
       break;
     }
@@ -300,7 +389,7 @@ class DataClient implements DataService {
           kind: 'conversation_snapshot',
           sessionId,
         })
-        : await this.initializeWatch(sessionId, watch);
+        : await this.initializeConversationWatch(sessionId, watch);
       subscriber.afterCut = snapshot.cut;
       subscriber.initializing = false;
       for (const update of subscriber.buffered) {
@@ -315,13 +404,72 @@ class DataClient implements DataService {
           active = false;
           watch!.listeners.delete(subscriber);
           if (watch!.listeners.size === 0) {
-            void this.stopRemoteWatch(sessionId, watch!);
+            void this.stopRemoteConversationWatch(sessionId, watch!);
           }
         },
       };
     } catch (error) {
       watch.listeners.delete(subscriber);
-      if (watch.listeners.size === 0) this.watches.delete(sessionId);
+      if (watch.listeners.size === 0) this.conversationWatches.delete(sessionId);
+      throw error;
+    }
+  }
+
+  async watchSessionDescriptor(
+    sessionId: string,
+    listener: DataSessionDescriptorListener,
+  ): Promise<{
+    readonly snapshot: DataSessionDescriptorUpdate;
+    readonly unsubscribe: () => void;
+  }> {
+    let watch: LocalDescriptorWatch | undefined;
+    for (;;) {
+      watch = this.descriptorWatches.get(sessionId);
+      if (watch?.unwatching !== undefined) {
+        await watch.unwatching;
+        continue;
+      }
+      if (watch === undefined) {
+        watch = { listeners: new Set(), remoteReady: false };
+        this.descriptorWatches.set(sessionId, watch);
+      }
+      break;
+    }
+    const subscriber: LocalDescriptorWatchListener = {
+      callback: listener,
+      initializing: true,
+      afterSequence: -1,
+      buffered: [],
+    };
+    watch.listeners.add(subscriber);
+    try {
+      const snapshot = watch.remoteReady
+        ? await this.value<DataSessionDescriptorUpdate>({
+          kind: 'watch_session_descriptor',
+          sessionId,
+        })
+        : await this.initializeDescriptorWatch(sessionId, watch);
+      subscriber.afterSequence = snapshot.sequence;
+      subscriber.initializing = false;
+      for (const update of subscriber.buffered) {
+        if (update.sequence > subscriber.afterSequence) listener(update);
+      }
+      subscriber.buffered.length = 0;
+      let active = true;
+      return {
+        snapshot,
+        unsubscribe: () => {
+          if (!active) return;
+          active = false;
+          watch!.listeners.delete(subscriber);
+          if (watch!.listeners.size === 0) {
+            void this.stopRemoteDescriptorWatch(sessionId, watch!);
+          }
+        },
+      };
+    } catch (error) {
+      watch.listeners.delete(subscriber);
+      if (watch.listeners.size === 0) this.descriptorWatches.delete(sessionId);
       throw error;
     }
   }
@@ -514,7 +662,8 @@ class DataClient implements DataService {
       .finally(() => {
         this.closed = true;
         this.agentEventListeners.clear();
-        this.watches.clear();
+        this.conversationWatches.clear();
+        this.descriptorWatches.clear();
         this.worker.terminate();
       });
     return this.closeTask;

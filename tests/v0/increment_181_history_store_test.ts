@@ -35,7 +35,7 @@ const makeSessionRecord = (
   activeModel: ROOT_DEFAULT_MODEL_SELECTION,
   modelChanges: [{
     effectiveFromTurn: 1,
-    changedAt: timestamp,
+    changedAt: '2026-10-03T23:59:59.000Z',
     selection: ROOT_DEFAULT_MODEL_SELECTION,
   }],
   turnModels: [],
@@ -195,9 +195,19 @@ Deno.test('Increment 181 production store settles canonical and detached executi
       workerGeneration: firstCorrelation.workerGeneration,
       contextManifest,
       sessionMode: 'persistent',
-      sessionRecord: initial,
+      initialSession: {
+        sessionId: initial.sessionId,
+        workspaceRoot: initial.workspaceRoot,
+        agentChoice: initial.agentChoice,
+        createdAt: initial.createdAt,
+        updatedAt: initial.updatedAt,
+        title: initial.title,
+        stateRevision: initial.stateRevision,
+        nextTurn: initial.nextTurn,
+        activeModel: initial.activeModel,
+        modelChangesToAppend: initial.modelChanges,
+      },
     });
-    handle.acceptCommitted?.(initial);
     store.appendExecutionEvent({
       executionId: firstExecutionId,
       direction: 'worker_to_host',
@@ -225,6 +235,8 @@ Deno.test('Increment 181 production store settles canonical and detached executi
         configurationId: firstConfiguration.configurationId,
       }],
     };
+    const canonicalOutcome = successfulOutcome(firstTask, messages);
+    const { transcript: _canonicalTranscript, ...canonicalOutcomeMetadata } = canonicalOutcome;
     const canonicalCapture = store.commitCanonicalTurn({
       taskId: '181-task-first',
       executionId: firstExecutionId,
@@ -244,11 +256,16 @@ Deno.test('Increment 181 production store settles canonical and detached executi
       instanceCorrelation: firstCorrelation.instanceCorrelation,
       workerGeneration: firstCorrelation.workerGeneration,
       contextManifest,
-      record: canonicalRecord,
-      outcome: successfulOutcome(firstTask, messages),
+      messageSuffix: messages,
+      updatedAt: canonicalRecord.updatedAt,
+      outcome: canonicalOutcomeMetadata,
     });
     strictEqual(canonicalCapture.commitDelta?.committedRevision, 2);
-    handle.acceptCommitted?.(canonicalRecord);
+    strictEqual(
+      (await store.readSessionMetadataSnapshot(handle.id)).messageCount,
+      messages.length,
+      'older model-selection timestamps remain valid Session metadata',
+    );
 
     const recalledContext = {
       schemaVersion: 1 as const,
@@ -328,6 +345,10 @@ Deno.test('Increment 181 production store settles canonical and detached executi
         assistantMessage('Partial response before cancellation.'),
       ],
     };
+    const {
+      transcript: nonCanonicalMessages,
+      ...nonCanonicalOutcomeMetadata
+    } = nonCanonicalOutcome;
     const nonCanonicalCapture = store.settleNonCanonicalExecution({
       taskId: '181-task-second',
       executionId: secondExecutionId,
@@ -346,7 +367,8 @@ Deno.test('Increment 181 production store settles canonical and detached executi
       instanceCorrelation: secondCorrelation.instanceCorrelation,
       workerGeneration: secondCorrelation.workerGeneration,
       recalledContext,
-      outcome: nonCanonicalOutcome,
+      messageSuffix: nonCanonicalMessages,
+      outcome: nonCanonicalOutcomeMetadata,
     });
     ok(nonCanonicalCapture.commitDelta);
     handle.close();
@@ -396,6 +418,10 @@ Deno.test('Increment 181 production store settles canonical and detached executi
       deepStrictEqual(context.requests[0].request?.transcript, [
         userMessage(firstTask),
       ]);
+      deepStrictEqual(
+        reader.readExecutionRequest(firstExecutionId, 1),
+        context.requests[0],
+      );
       strictEqual(
         context.relations.some((relation) => relation.logicalIdentity === 'workspace-cwd'),
         true,

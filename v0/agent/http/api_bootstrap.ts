@@ -1,4 +1,3 @@
-import type { EncodedDataReply } from '../data/client.ts';
 import type { CoreService } from '../host/core_service.ts';
 import { CoreServiceError } from '../host/core_service_error.ts';
 import type { CoreSessionFrameSink } from '../host/core_service.ts';
@@ -58,11 +57,9 @@ const api: CoreHttpApi = {
   subscribeSession(sessionId, sink, subscriptionId): CoreHttpSubscription {
     subscriptions.set(subscriptionId, sink);
     let active = true;
-    const snapshot = rpc('subscribeSession', [sessionId], subscriptionId).then((value) =>
-      value as EncodedDataReply
-    );
+    const ready = rpc('subscribeSession', [sessionId], subscriptionId).then(() => {});
     return {
-      snapshot,
+      ready,
       unsubscribe() {
         if (!active) return;
         active = false;

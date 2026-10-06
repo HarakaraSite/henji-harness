@@ -4,13 +4,19 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 199](../docs/increments/increment-199.md)はData
+Workerの処理最適化の承認済みSlice1〜6を完了。 同一入力の返値一致・独立review対応・隔離compiled
+Core/TUI/CLI・authoritative gate（672 pass/0 fail）済みで、
+local実装・検証にpendingなし。wireはfullを採用し、条件付き4bは実施しない。
+隔離メモリ比較後、利用者の完了承認・source commit指示を受け、本commitへ保存した。
+常用配置は未実施/未承認。要件・採否・全結果・承認境界は199を参照する。
+
 [Increment 198](../docs/increments/increment-198.md)は実装・検証・source
 commit・公式build・常用配置・配置後確認を完了した。
 同じ保存入力での新版実測を確認した利用者が「今回の対応は完了とする」と完了承認した。198のpendingなし。
 常用binaryのsourceは
 `a3312284`。採用要件・結果・実測・利用者の判断は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
-次は新しい依頼に沿って対象範囲を具体化する。新しい実provider
-call、構想・architecture・roadmapの正本反映は未承認。
+新しい実provider call、構想・architecture・roadmapの正本反映は未承認。
 
 [Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
 tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした。local実装・focused確認70件pass・
@@ -49,6 +55,10 @@ JSR `@henji/harness@0.9.0`は公開・両entrypointの実import・公開型の�
 
 ## 次の一手と承認境界
 
+199は利用者による完了承認済みで、source commitまで完了。採用範囲にpendingなし。
+常用配置・push・公開/release・実provider call・構想/architecture/roadmap正本変更は未承認。
+最初のgateの容量不足/obsolete fixture切分けと再実行理由・全結果は199に記録した。
+
 198は利用者による完了承認済み。継続的な処理最適化についての利用者の判断は198末尾を参照する。
 198の未実施作業・確認待ちはない。未採用候補は通常利用メモを参照する。
 
@@ -62,7 +72,7 @@ push、公開/release、構想・architecture・roadmap変更、新しい実prov
 push、公開、新しい実provider call、構想・architecture・roadmap変更は未承認。
 A28のCore全体等の追加調査候補は通常利用メモに残る。
 195後のmetadata読取候補は196へ採用・移設した。native内訳などの追加候補は未採用である。
-類似問題reviewで見つかったcontext読取・終了後artifact更新等の別経路は、通常利用メモA28の未採用候補を参照する。
+類似問題reviewで見つかったcontext読取・終了後artifact更新・recall/診断読取の候補は、199の計画対象へ移設した。
 
 192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
 192の追加指示はarchitecture/roadmap正本変更、push、公開/release、
@@ -75,6 +85,9 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 199](../docs/increments/increment-199.md): Data
+  Workerの処理最適化の要件・調査根拠・承認済みスライス計画・実装/検証/review結果・承認境界。
 
 - [Increment 198](../docs/increments/increment-198.md): alternate
   screenの採用要件、本文位置からの可視範囲加工、更新依存・Page/resizeの実装、

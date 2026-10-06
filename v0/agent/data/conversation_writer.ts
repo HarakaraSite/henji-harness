@@ -21,15 +21,17 @@ import {
   compareConversationPositions,
   type ConversationChange,
   type ConversationState,
-  orderedConversationEntities,
 } from '../../conversation/model.ts';
 import { applyObservation, conversationJson } from '../../conversation/normalizer.ts';
 
-export interface ConversationWriterDelta {
+interface ConversationWriterChange {
   readonly sessionId: string;
   /** Data-local save cut. Core assigns the public stream cursor. */
   readonly cut: number;
   readonly storeRevision: number;
+}
+
+export interface ConversationWriterDelta extends ConversationWriterChange {
   readonly bytes: Uint8Array<ArrayBuffer>;
 }
 
@@ -42,13 +44,12 @@ export interface ConversationWriterSnapshot {
 
 interface ConversationWriterWriteResult<T> {
   readonly result: T;
-  readonly deltas: readonly ConversationWriterDelta[];
+  readonly deltas: readonly ConversationWriterChange[];
 }
 
 type ConversationWriterListener = (
   delta: ConversationWriterDelta,
 ) => void;
-
 export interface ConversationWriterWatch {
   readonly snapshot: ConversationWriterSnapshot;
   readonly unsubscribe: () => void;
@@ -59,11 +60,19 @@ interface SessionConversation {
   readonly normalizer: ReturnType<
     typeof replaySessionConversation
   >['normalizer'];
-  readonly executionOrders: Map<string, number>;
   readonly listeners: Set<ConversationWriterListener>;
+  nextExecutionOrder: number;
+}
+
+interface SessionSaveCursor {
   cut: number;
   storeRevision: number;
-  nextExecutionOrder: number;
+  view?: SessionConversation;
+}
+
+interface LoadedSessionConversation {
+  readonly view: SessionConversation;
+  readonly storeRevision: number;
 }
 
 const encode = (value: unknown): Uint8Array<ArrayBuffer> =>
@@ -102,7 +111,7 @@ const snapshotValue = (
   cut: number,
   storeRevision: number,
 ) => {
-  const entities = orderedConversationEntities(state);
+  const entities = Object.fromEntries(state.entities);
   const order = [...state.order.entries()]
     .sort((left, right) =>
       compareConversationPositions(left[1], right[1]) ||
@@ -114,7 +123,7 @@ const snapshotValue = (
     sessionId,
     cut,
     storeRevision,
-    entities: Object.fromEntries(entities.map((entity) => [entity.id, entity])),
+    entities,
     order,
   } as const;
 };
@@ -124,7 +133,6 @@ const executionEntity = (
   input: BeginExecutionInput,
 ): readonly ConversationChange[] => {
   const executionOrder = session.nextExecutionOrder++;
-  session.executionOrders.set(input.executionId, executionOrder);
   return applyObservation(session.state, session.normalizer, {
     kind: 'execution',
     execution: {
@@ -157,8 +165,9 @@ const executionEntity = (
  * reconstructs a Session during an append or terminal write.
  */
 export class ConversationWriter {
-  readonly #sessions = new Map<string, SessionConversation>();
+  readonly #sessions = new Map<string, SessionSaveCursor>();
   readonly #executionSessions = new Map<string, string>();
+  readonly #closedSessions = new Set<string>();
   #closed = false;
 
   constructor(
@@ -170,23 +179,17 @@ export class ConversationWriter {
     input: BeginExecutionInput,
   ): Promise<ConversationWriterWriteResult<void>> {
     this.#assertOpen();
-    let session = this.#sessions.get(input.sessionCorrelation);
-    if (session === undefined) {
-      session = input.sessionRecord !== undefined || input.sessionMode === 'no_session'
-        ? this.#emptySession(input.sessionCorrelation)
-        : this.#loadSession(input.sessionCorrelation);
-      // Read/watch may run while durable admission awaits a lock. Keep one shared instance.
-      this.#sessions.set(input.sessionCorrelation, session);
-    }
+    const cursor = this.#ensureCursor(input.sessionCorrelation);
     await this.store.beginExecution(input);
 
     this.#executionSessions.set(input.executionId, input.sessionCorrelation);
-    const changes = executionEntity(session, input);
-    session.storeRevision = Math.max(
-      session.storeRevision,
-      input.baseStateRevision,
+    cursor.storeRevision = Math.max(cursor.storeRevision, input.baseStateRevision);
+    const changes = cursor.view === undefined ? [] : executionEntity(cursor.view, input);
+    const delta = this.#publish(
+      input.sessionCorrelation,
+      cursor,
+      changes,
     );
-    const delta = this.#publish(input.sessionCorrelation, session, changes);
     return { result: undefined, deltas: [delta] };
   }
 
@@ -201,7 +204,7 @@ export class ConversationWriter {
       if (sessionsByExecution.has(input.executionId)) continue;
       const sessionId = this.#sessionIdForExecution(input.executionId);
       sessionsByExecution.set(input.executionId, sessionId);
-      this.#ensureSession(sessionId);
+      this.#ensureCursor(sessionId);
     }
 
     const results = this.store.appendExecutionEventsWithSemanticIds(inputs);
@@ -209,10 +212,11 @@ export class ConversationWriter {
     for (const result of results) {
       const sessionId = sessionsByExecution.get(result.event.executionId);
       if (sessionId === undefined) continue;
-      const session = this.#sessions.get(sessionId)!;
+      const view = this.#sessions.get(sessionId)?.view;
+      if (view === undefined) continue;
       const changes = applyHistoryAppendResults(
-        session.state,
-        session.normalizer,
+        view.state,
+        view.normalizer,
         [result],
       );
       const group = changesBySession.get(sessionId) ?? [];
@@ -229,7 +233,7 @@ export class ConversationWriter {
     const deltas = [...touched].map((sessionId) =>
       this.#publish(
         sessionId,
-        this.#sessions.get(sessionId)!,
+        this.#ensureCursor(sessionId),
         changesBySession.get(sessionId) ?? [],
       )
     );
@@ -241,16 +245,16 @@ export class ConversationWriter {
   ): ConversationWriterWriteResult<HistoryAppendResult> {
     this.#assertOpen();
     const sessionId = this.#sessionIdForExecution(input.event.executionId);
-    const session = this.#ensureSession(sessionId);
+    const cursor = this.#ensureCursor(sessionId);
     const result = this.store.appendPostSettlementSemanticEvent(input);
-    const changes = applyHistoryAppendResults(
-      session.state,
-      session.normalizer,
+    const changes = cursor.view === undefined ? [] : applyHistoryAppendResults(
+      cursor.view.state,
+      cursor.view.normalizer,
       [result],
     );
     return {
       result,
-      deltas: [this.#publish(sessionId, session, changes)],
+      deltas: [this.#publish(sessionId, cursor, changes)],
     };
   }
 
@@ -269,12 +273,12 @@ export class ConversationWriter {
       input.executionId,
       input.sessionCorrelation,
     );
-    const session = this.#ensureSession(sessionId);
+    const cursor = this.#ensureCursor(sessionId);
     const result = this.store.commitCanonicalTurn(input);
     const delta = result.commitDelta;
     if (delta === undefined) return { result, deltas: [] };
-    session.storeRevision = Math.max(
-      session.storeRevision,
+    cursor.storeRevision = Math.max(
+      cursor.storeRevision,
       delta.committedRevision ?? 0,
     );
     return {
@@ -282,8 +286,12 @@ export class ConversationWriter {
       deltas: [
         this.#publish(
           sessionId,
-          session,
-          applyHistoryCommitDelta(session.state, session.normalizer, delta),
+          cursor,
+          cursor.view === undefined ? [] : applyHistoryCommitDelta(
+            cursor.view.state,
+            cursor.view.normalizer,
+            delta,
+          ),
         ),
       ],
     };
@@ -297,17 +305,25 @@ export class ConversationWriter {
       input.executionId,
       input.sessionCorrelation,
     );
-    const session = this.#ensureSession(sessionId);
+    const cursor = this.#ensureCursor(sessionId);
     const result = this.store.settleNonCanonicalExecution(input);
     const delta = result.commitDelta;
     if (delta === undefined) return { result, deltas: [] };
+    cursor.storeRevision = Math.max(
+      cursor.storeRevision,
+      delta.committedRevision ?? 0,
+    );
     return {
       result,
       deltas: [
         this.#publish(
           sessionId,
-          session,
-          applyHistoryCommitDelta(session.state, session.normalizer, delta),
+          cursor,
+          cursor.view === undefined ? [] : applyHistoryCommitDelta(
+            cursor.view.state,
+            cursor.view.normalizer,
+            delta,
+          ),
         ),
       ],
     };
@@ -318,34 +334,45 @@ export class ConversationWriter {
   ): ConversationWriterWriteResult<HistoryCommitDelta | undefined> {
     this.#assertOpen();
     const sessionId = this.#sessionIdForExecution(input.executionId);
-    const session = this.#ensureSession(sessionId);
+    const cursor = this.#ensureCursor(sessionId);
     const result = this.store.reconcileExecution(input);
     if (result === undefined) return { result, deltas: [] };
+    cursor.storeRevision = Math.max(
+      cursor.storeRevision,
+      result.committedRevision ?? 0,
+    );
     return {
       result,
       deltas: [
         this.#publish(
           sessionId,
-          session,
-          applyHistoryCommitDelta(session.state, session.normalizer, result),
+          cursor,
+          cursor.view === undefined ? [] : applyHistoryCommitDelta(
+            cursor.view.state,
+            cursor.view.normalizer,
+            result,
+          ),
         ),
       ],
     };
   }
 
-  /** Register a new, not-yet-persisted Session at cut zero without reading nonexistent rows. */
-  initializeEmptySession(sessionId: string): ConversationWriterSnapshot {
+  /** Register the lifetime owner without materializing its conversation view. */
+  openSession(sessionId: string): void {
     this.#assertOpen();
-    if (!this.#sessions.has(sessionId)) {
-      this.#sessions.set(sessionId, this.#emptySession(sessionId));
-    }
-    return this.#snapshot(sessionId, this.#sessions.get(sessionId)!);
+    this.#ensureCursor(sessionId);
+    this.#closedSessions.delete(sessionId);
   }
 
   snapshotSession(sessionId: string): ConversationWriterSnapshot {
     this.#assertOpen();
-    const session = this.#ensureSession(sessionId);
-    return this.#snapshot(sessionId, session);
+    const cursor = this.#ensureCursor(sessionId);
+    const view = this.#ensureView(sessionId, cursor);
+    const snapshot = this.#snapshot(sessionId, cursor, view);
+    if (this.#closedSessions.has(sessionId) && view.listeners.size === 0) {
+      cursor.view = undefined;
+    }
+    return snapshot;
   }
 
   /** Snapshot creation and watch registration run synchronously at the same cut. */
@@ -354,25 +381,36 @@ export class ConversationWriter {
     listener: ConversationWriterListener,
   ): ConversationWriterWatch {
     this.#assertOpen();
-    const session = this.#ensureSession(sessionId);
-    const snapshot = this.#snapshot(sessionId, session);
-    session.listeners.add(listener);
+    const cursor = this.#ensureCursor(sessionId);
+    const view = this.#ensureView(sessionId, cursor);
+    const snapshot = this.#snapshot(sessionId, cursor, view);
+    view.listeners.add(listener);
     let active = true;
     return {
       snapshot,
       unsubscribe: () => {
         if (!active) return;
         active = false;
-        session.listeners.delete(listener);
+        view.listeners.delete(listener);
+        if (this.#closedSessions.has(sessionId) && view.listeners.size === 0) {
+          cursor.view = undefined;
+        }
       },
     };
   }
 
+  closeSession(sessionId: string): void {
+    this.#assertOpen();
+    const cursor = this.#ensureCursor(sessionId);
+    this.#closedSessions.add(sessionId);
+    if (cursor.view?.listeners.size === 0) cursor.view = undefined;
+  }
+
   releaseSession(sessionId: string): void {
-    const session = this.#sessions.get(sessionId);
-    if (session === undefined) return;
-    session.listeners.clear();
+    const cursor = this.#sessions.get(sessionId);
+    cursor?.view?.listeners.clear();
     this.#sessions.delete(sessionId);
+    this.#closedSessions.delete(sessionId);
     for (const [executionId, executionSessionId] of this.#executionSessions) {
       if (executionSessionId === sessionId) {
         this.#executionSessions.delete(executionId);
@@ -383,8 +421,9 @@ export class ConversationWriter {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    for (const session of this.#sessions.values()) session.listeners.clear();
+    for (const session of this.#sessions.values()) session.view?.listeners.clear();
     this.#sessions.clear();
+    this.#closedSessions.clear();
     this.#executionSessions.clear();
     if (this.options.ownsStore === true) this.store.close();
   }
@@ -393,27 +432,13 @@ export class ConversationWriter {
     if (this.#closed) throw new Error('conversation writer closed');
   }
 
-  #emptySession(sessionId: string): SessionConversation {
-    const replay = replaySessionConversation(sessionId, []);
-    return {
-      state: replay.state,
-      normalizer: replay.normalizer,
-      executionOrders: new Map(),
-      listeners: new Set(),
-      cut: 0,
-      storeRevision: 0,
-      nextExecutionOrder: 0,
-    };
-  }
-
-  #loadSession(sessionId: string): SessionConversation {
+  #loadSession(sessionId: string): LoadedSessionConversation {
     const facts = this.store.readSessionConversationFacts(sessionId);
-    const executionOrders = new Map<string, number>();
     let storeRevision = 0;
     let nextExecutionOrder = 0;
     function* trackedFacts() {
       for (const item of facts) {
-        executionOrders.set(item.execution.executionId, nextExecutionOrder++);
+        nextExecutionOrder += 1;
         storeRevision = Math.max(
           storeRevision,
           item.execution.committedRevision ?? item.execution.baseRevision,
@@ -423,25 +448,34 @@ export class ConversationWriter {
     }
     const replay = replaySessionConversation(sessionId, trackedFacts());
     return {
-      state: replay.state,
-      normalizer: replay.normalizer,
-      executionOrders,
-      listeners: new Set(),
-      cut: 0,
+      view: {
+        state: replay.state,
+        normalizer: replay.normalizer,
+        listeners: new Set(),
+        nextExecutionOrder,
+      },
       storeRevision,
-      nextExecutionOrder,
     };
   }
 
-  #ensureSession(sessionId: string): SessionConversation {
-    const current = this.#sessions.get(sessionId);
-    if (current !== undefined) return current;
-    const loaded = this.#loadSession(sessionId);
-    this.#sessions.set(sessionId, loaded);
-    for (const executionId of loaded.executionOrders.keys()) {
-      this.#executionSessions.set(executionId, sessionId);
+  #ensureCursor(sessionId: string): SessionSaveCursor {
+    let current = this.#sessions.get(sessionId);
+    if (current === undefined) {
+      current = { cut: 0, storeRevision: 0 };
+      this.#sessions.set(sessionId, current);
     }
-    return loaded;
+    return current;
+  }
+
+  #ensureView(
+    sessionId: string,
+    cursor: SessionSaveCursor,
+  ): SessionConversation {
+    if (cursor.view !== undefined) return cursor.view;
+    const loaded = this.#loadSession(sessionId);
+    cursor.storeRevision = Math.max(cursor.storeRevision, loaded.storeRevision);
+    cursor.view = loaded.view;
+    return loaded.view;
   }
 
   #sessionIdForExecution(executionId: string): string {
@@ -462,18 +496,19 @@ export class ConversationWriter {
 
   #snapshot(
     sessionId: string,
-    session: SessionConversation,
+    cursor: SessionSaveCursor,
+    view: SessionConversation,
   ): ConversationWriterSnapshot {
     return {
       sessionId,
-      cut: session.cut,
-      storeRevision: session.storeRevision,
+      cut: cursor.cut,
+      storeRevision: cursor.storeRevision,
       bytes: encode(
         snapshotValue(
           sessionId,
-          session.state,
-          session.cut,
-          session.storeRevision,
+          view.state,
+          cursor.cut,
+          cursor.storeRevision,
         ),
       ),
     };
@@ -481,24 +516,30 @@ export class ConversationWriter {
 
   #publish(
     sessionId: string,
-    session: SessionConversation,
+    cursor: SessionSaveCursor,
     changes: readonly ConversationChange[],
-  ): ConversationWriterDelta {
-    session.cut += 1;
-    const delta: ConversationWriterDelta = {
+  ): ConversationWriterChange {
+    cursor.cut += 1;
+    const change: ConversationWriterChange = {
       sessionId,
-      cut: session.cut,
-      storeRevision: session.storeRevision,
-      bytes: encode({
-        schemaVersion: 2,
-        kind: 'delta',
-        sessionId,
-        cut: session.cut,
-        storeRevision: session.storeRevision,
-        changes: coalesceEntityUpdates(changes),
-      }),
+      cut: cursor.cut,
+      storeRevision: cursor.storeRevision,
     };
-    for (const listener of session.listeners) listener(delta);
-    return delta;
+    const view = cursor.view;
+    if (view !== undefined && view.listeners.size > 0) {
+      const delta: ConversationWriterDelta = {
+        ...change,
+        bytes: encode({
+          schemaVersion: 2,
+          kind: 'delta',
+          sessionId,
+          cut: cursor.cut,
+          storeRevision: cursor.storeRevision,
+          changes: coalesceEntityUpdates(changes),
+        }),
+      };
+      for (const listener of view.listeners) listener(delta);
+    }
+    return change;
   }
 }

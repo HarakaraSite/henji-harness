@@ -23,6 +23,17 @@ export const encodedSessionSnapshot = (
 ): Uint8Array<ArrayBuffer> =>
   encodedEnvelope(JSON.stringify(control).slice(0, -1) + ',"conversation":', conversation, '}');
 
+export const encodedSessionSnapshotFrame = (
+  control: SessionControlSnapshot,
+  conversation: Uint8Array<ArrayBuffer>,
+): Uint8Array<ArrayBuffer> =>
+  encodedEnvelope(
+    '{"kind":"session.snapshot","snapshot":' + JSON.stringify(control).slice(0, -1) +
+      ',"conversation":',
+    conversation,
+    '}}',
+  );
+
 export const encodedSessionUpdate = (
   cursor: CoreCursor,
   previousRevision: number,

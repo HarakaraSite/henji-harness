@@ -55,7 +55,18 @@ Deno.test('Increment 170 S2 Data Worker reads fresh history, context and executi
       turnModels: [],
       turnExecutions: [],
     };
-    session.commit(sessionRecord);
+    session.saveMetadata({
+      sessionId: sessionRecord.sessionId,
+      workspaceRoot: sessionRecord.workspaceRoot,
+      agentChoice: sessionRecord.agentChoice,
+      createdAt: sessionRecord.createdAt,
+      updatedAt: sessionRecord.updatedAt,
+      title: sessionRecord.title,
+      stateRevision: sessionRecord.stateRevision,
+      nextTurn: sessionRecord.nextTurn,
+      activeModel: sessionRecord.activeModel,
+      modelChangesToAppend: sessionRecord.modelChanges,
+    });
     session.installCheckpoint({
       contextSchemaVersion: 1,
       sessionId: session.id,

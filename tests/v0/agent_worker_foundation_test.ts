@@ -301,6 +301,7 @@ Deno.test('Host keeps provider facts on the Agent Data path without retaining a 
           recorder.recordResponse({ status: 200 });
           input.requestCount(1, input.turnNumber);
           const transcript: Message[] = [
+            ...input.initialTranscript,
             {
               role: 'user',
               content: { kind: 'text', text: input.command.task },
@@ -562,6 +563,7 @@ Deno.test('terminal tool success flows through the Agent Data port and SQLite ar
         finalText: stored[0]?.outcome?.finalText,
         terminalKind: stored[0]?.outcome?.terminalKind,
         storeResult: stored[0]?.storeResult,
+        acknowledgement: stored[0]?.acknowledgement,
       },
       {
         outcome: 'final',
@@ -569,6 +571,7 @@ Deno.test('terminal tool success flows through the Agent Data port and SQLite ar
         finalText: '{"ok":true}',
         terminalKind: 'json_result',
         storeResult: 'committed',
+        acknowledgement: 'accepted_sent',
       },
     );
   } finally {
@@ -736,7 +739,10 @@ Deno.test('runtime CLI explains max-step failure on stderr and preserves exit co
   });
   assertEquals(exit, 1);
   assertEquals(stdout, '');
-  assertEquals(stderr, 'henji run: agent request limit reached: maximum model steps reached\n');
+  assertEquals(
+    stderr,
+    'henji run: agent request limit reached: maximum model steps reached\n',
+  );
 });
 
 Deno.test('headless development task uses the unified TypeScript entry', async () => {

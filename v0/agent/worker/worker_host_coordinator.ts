@@ -13,6 +13,7 @@ import type { SessionModelChange } from '../session/session_store.ts';
 import type {
   DataExecutionControlInput,
   DataSessionDescriptor,
+  DataSessionDescriptorUpdate,
   DataSessionTerminalResult,
 } from '../data/data_contract.ts';
 import { DataRecallSelectionError } from '../data/session_data_owner.ts';
@@ -149,6 +150,7 @@ export class ExecutionCoordinator {
   private activeExecution: ActiveExecution | undefined;
   private admissionCompletion: Promise<SmallOutcome> | undefined;
   private unsubscribeWatch: (() => void) | undefined;
+  private descriptorSequence = -1;
   private unsubscribeAgentEvents: (() => void) | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
@@ -203,11 +205,12 @@ export class ExecutionCoordinator {
   ): Promise<ExecutionCoordinator> {
     const coordinator = new ExecutionCoordinator(options);
     try {
-      const watch = await options.data.watchSession(
+      const watch = await options.data.watchSessionDescriptor(
         options.descriptor.id,
-        (update) => coordinator.acceptDescriptor(update.descriptor),
+        (update) => coordinator.acceptDescriptorUpdate(update),
       );
       coordinator.unsubscribeWatch = watch.unsubscribe;
+      coordinator.acceptDescriptorUpdate(watch.snapshot);
       await coordinator.supervisor.start();
       return coordinator;
     } catch (error) {
@@ -222,6 +225,12 @@ export class ExecutionCoordinator {
     if (descriptor.id !== this.sessionId) return;
     this.descriptorValue = structuredClone(descriptor);
     this.publishRuntimeState();
+  }
+
+  private acceptDescriptorUpdate(update: DataSessionDescriptorUpdate): void {
+    if (update.sequence <= this.descriptorSequence) return;
+    this.descriptorSequence = update.sequence;
+    this.acceptDescriptor(update.descriptor);
   }
 
   get agentChoice(): DataSessionDescriptor['agentChoice'] {

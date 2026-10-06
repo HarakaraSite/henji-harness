@@ -207,12 +207,23 @@ Deno.test('Increment 150 early-settled recovery releases the Session lock for ex
   };
   const id = crypto.randomUUID();
   try {
-    handle.commit(record);
     await owner.beginExecution({
       ...admission(id, handle.id),
       baseStateRevision: 1,
       canonicalSessionId: handle.id,
       sessionMode: 'persistent',
+      initialSession: {
+        sessionId: record.sessionId,
+        workspaceRoot: record.workspaceRoot,
+        agentChoice: record.agentChoice,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        title: record.title,
+        stateRevision: record.stateRevision,
+        nextTurn: record.nextTurn,
+        activeModel: record.activeModel,
+        modelChangesToAppend: record.modelChanges,
+      },
     });
     await settler.initialize();
     strictEqual(settler.readExecution(id).lifecycle, 'active');
@@ -226,7 +237,7 @@ Deno.test('Increment 150 early-settled recovery releases the Session lock for ex
     await recovery.initialize();
     strictEqual(recovery.readExecution(id).lifecycle, 'settled');
     const resumed = await settler.openExistingWorker(handle.id);
-    await resumed.close();
+    await resumed.handle.close();
   } finally {
     await handle.close();
     owner.close();

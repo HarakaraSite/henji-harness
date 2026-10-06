@@ -124,6 +124,7 @@ interface Increment170FoundationAgentTurnInput {
   readonly data: ReturnType<typeof createAgentDataPortClient>;
   readonly command: TurnCommand;
   readonly turnNumber: number;
+  readonly initialTranscript: readonly Message[];
   requestStarted(requestOrdinal: number, modelStep: number): void;
   requestCount(
     turnProviderRequestCount: number,
@@ -202,11 +203,14 @@ export class Increment170FoundationDataPortAgent implements WorkerHostCapsule {
     if (agentData === undefined || executionId === undefined) {
       throw new Error('Agent Data turn identity is unavailable');
     }
+    const basis = await agentData.generationContext(command.correlation);
     agentData.beginExecution(executionId, command.correlation);
+    this.turnNumber = basis.nextTurn;
     const proposal = await this.createProposal({
       data: agentData,
       command,
       turnNumber: this.turnNumber,
+      initialTranscript: basis.initialTranscript,
       requestStarted: (requestOrdinal, modelStep) => {
         this.emit({
           kind: 'request_started',

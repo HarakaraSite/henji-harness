@@ -521,7 +521,12 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
     assert(
       JSON.stringify(sourceRequests[1]).includes('use the new instruction'),
     );
-    store.settleNonCanonicalExecution({ ...input, outcome: failedOutcome });
+    const { transcript: messageSuffix, ...outcomeMetadata } = failedOutcome;
+    store.settleNonCanonicalExecution({
+      ...input,
+      messageSuffix,
+      outcome: outcomeMetadata,
+    });
 
     const journal = JSON.stringify(store.listExecutionEvents(SOURCE_ID));
     assert(journal.includes('provider replay detail'));
@@ -707,6 +712,10 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
     await seedCancelledSource(created, SOURCE_ID, '2026-09-12T00:00:01.000Z');
     await created.session.prepareRecall(SOURCE_ID);
     await reader.initialize();
+    assertEquals(
+      reader.readExecutionRecallFacts(SOURCE_ID).eventCount,
+      reader.listExecutionEvents(SOURCE_ID).length,
+    );
     const context = await resolveRecalledExecutionContext({
       sessionId,
       executionId: SOURCE_ID,

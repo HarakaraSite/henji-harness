@@ -74,7 +74,18 @@ try {
         canonicalSessionId: handle!.id,
         sessionMode: 'persistent',
         baseStateRevision: 1,
-        sessionRecord: record,
+        initialSession: {
+          sessionId: record.sessionId,
+          workspaceRoot: record.workspaceRoot,
+          agentChoice: record.agentChoice,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          title: record.title,
+          stateRevision: record.stateRevision,
+          nextTurn: record.nextTurn,
+          activeModel: record.activeModel,
+          modelChangesToAppend: record.modelChanges,
+        },
       });
     } else if (mode === 'append') {
       store.appendExecutionEvents([{
