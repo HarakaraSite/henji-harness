@@ -4,16 +4,15 @@
 
 ## 現在地（2026-10-06）
 
-[Increment 201](../docs/increments/increment-201.md)は利用者指示「git_inspectでいいと思うけど、親も使うことを
-前提にしてね」「Aで searchの拡張も行いたい」を受け、read-onlyのinspection
-toolを追加した。外部tool `git_inspect`（status/diff/log/show、固定argv・自由引数なし、`--no-ext-diff
---no-textconv`、`GIT_OPTIONAL_LOCKS=0`、行window）と、`search`の`entries` mode（type/bytes/modifiedAt、
-depth、既存modeは不変）をlocal実装・focused確認（201の2件＋関連で74件）・check/fmt/lint/diff
-check・provider-free readback（default agentのguideline 19行）まで完了。
-package/installのtool一覧へ追加し、常用config
-rootへ`tools/git_inspect`・`tools.json`binding・search更新・reviewer（revision
-3）を反映済み（`henji agent inspect --name reviewer`でrejectionsなし）。親（同梱default agent）での利用は
-binary再build後。commit/push・公式build・常用配置（binary）・実provider callは未実施。詳細は201を参照する。
+[Increment 200](../docs/increments/increment-200.md)と[201](../docs/increments/increment-201.md)は利用者指示
+「コミット、配置して」により、source commit `6f6f9a6a`・公式build（build ID
+`5bfcdbaa…`）・常用配置まで完了した。200は専用tool優先・出力の扱い・reviewerからbashを外す案内、
+201は外部tool `git_inspect`（read-onlyなstatus/diff/log/show、親・generic・reviewerで選択）と`search`の
+`entries` mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・search更新（`local-3`）・
+reviewer（revision 3）を反映済み。配置後の`agent inspect`はdefault／reviewerともrejections
+`[]`。旧binaryは`~/.local/bin/henji.previous`。pushと実provider
+callは未実施で、既存Core/TUIは再起動していない（新しい起動から適用）。配置binaryは親commitの199も含む。
+設計・検証の詳細は各文書を参照する。
 
 [Increment 200](../docs/increments/increment-200.md)は「agentがtool>
 bashを使いがち」という利用者指示を受け、第1段としてread/write/edit/search/run_typescriptをbashより

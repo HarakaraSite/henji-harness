@@ -14,7 +14,7 @@ while (($#)); do
     --replace-hooks) replace_hooks=true; shift ;;
     --help)
       printf '%s\n' 'Usage: install.sh [--bin-dir DIR] [--config-root DIR] [--replace-tools] [--replace-hooks]' \
-        'Installs the binary, registers search, web_search and web_fetch, and installs runtime-start-time.' \
+        'Installs the binary, registers search, git_inspect, web_search and web_fetch, and installs runtime-start-time.' \
         'Existing external folders are retained; the corresponding --replace option copies packaged files over them.'
       exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;

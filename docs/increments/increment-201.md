@@ -76,5 +76,16 @@ tool本体（read/write/edit/bash/bash_output/run_typescript）の入出力、�
 
 ## 承認境界・次の一手
 
-local実装・検証・外部tool配置は利用者指示の範囲で実施済み。commit/push、公式build、常用配置（binary）、
-実provider call、構想・architecture・roadmapの変更は未実施であり、利用者の指示を必要とする。
+local実装・検証・常用config rootへの外部tool配置は利用者指示の範囲で実施済み。
+利用者指示「コミット、配置して」（2026-10-06）で、source commit・公式build・常用配置まで完了した。
+
+- source commit: `6f6f9a6a`（Increment 200と201を同一commitに含む。親commitは199の`106bd581`）
+- 公式build: `henji:compile`、build ID `5bfcdbaa7268050620b62aa5c21db0ce7d9ed99720894b506ea1fe300a98393d`、
+  source `6f6f9a6a`、deno 2.9.7
+- package確認: `henji:package`の分離install（temp bin/config root）で4 toolのcopy・登録と
+  `agent inspect`のrejections `[]`を確認
+- 常用配置: `/home/agent/.local/bin/henji`（旧binaryは`henji.previous`、sha256 `e9ad24cd…`がdistと一致）
+- 配置後確認: `tool list`でsearch `local-3`・git_inspect `1`、default agent／reviewerともrejections `[]`
+- 未実施: push、実provider call。既存のCore／TUIは再起動していない（新しい起動から適用）
+- 留意: 配置したbinaryは親commitのIncrement 199（Data Worker最適化）も含む（同workstreamはcommit済み・
+gate済みだが、その配置判断は別途）

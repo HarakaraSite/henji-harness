@@ -106,9 +106,10 @@ revision 2・tools `read`・`search`（external、rejectionsなし）・`skill`�
 ## 承認境界・次の一手
 
 利用者指示（round 1: 優先tool案内、round 2: パイプ・出力の扱い、round 3: reviewerからbashを外す）の
-範囲でlocal実装・検証・常用config rootへのreviewer反映まで実施済み。commit/push、公式build、
-常用配置（binary）、外部tool folder（search・web_search）の更新、実provider call、
-構想・architecture・roadmapの変更は未実施であり、いずれも利用者の指示を必要とする。
+範囲でlocal実装・検証・常用config rootへのreviewer反映まで実施済み。
+利用者指示「コミット、配置して」（2026-10-06）により、Increment 201と同一のsource commit
+`6f6f9a6a`・公式build（build ID `5bfcdbaa…`）・常用配置まで完了した（詳細と配置後の確認は
+[201](increment-201.md)の「承認境界・次の一手」にまとめた）。pushと実provider callは未実施。
 
 未採用候補として通常利用メモへ残したもの: A30（tool間の結果連鎖）、A31（workspace外の読取・書込境界）、
 A6（web_searchの取得サイズ）。`process runner ended before command status`の障害観測は同メモのB12にあり、
