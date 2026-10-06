@@ -12,12 +12,18 @@ run_typescriptのconfig root読み取りを実装し、local検証・独立revie
 旧Coreが削除済みの旧pathを参照してSession `f040537a`の1 executionが失敗したが、利用者がTUIを再起動し
 （2026-10-06 20:37、配置済みbinary）、credentialが新rootのみに存在する状態で同Sessionのmodel requestが
 成立している。利用者は2026-10-06に実provider経路での確認を完了した。205（S34）は利用者指示で未着手。
+204の記録はcommit `d1a26f7c`・`2a95f72f`・`6276b2c9`・`34a67faa`・`71a86844`へ保存済み。
 
-利用者は本Sessionを終了する。A6・A28は利用者指示で完了とし、通常利用メモから除いた。
+利用者は本Session（`f040537a`）を終了する。次の一手は205（S34）の指示待ち。pushは未承認。
+利用者指示で`~/.config/henji-harness/instruction.md`へ3段落を追加した（operation別のtool選択、質問・
+状況報告へのtool call前の回答と長いターンの進捗報告、検査・検証結果の再利用）。反映は次のWorker
+generation（新SessionまたはCore/TUI再起動）から。
+
+前Session終了時に利用者指示でA6・A28を完了とし、通常利用メモから除いた。
 A6の判断・観測は[172](../docs/increments/increment-172.md)・[200](../docs/increments/increment-200.md)、
 A28の判断と原観測の移設先は[199](../docs/increments/increment-199.md)を参照する。
 この文書整理はhandoff・通常利用メモを204のdocs commit、172・194〜196・198〜200と新規
-`docs/increments/increment-199-a28-observations.md`を本commitへ保存した。runtime変更・追加配置はない。
+`docs/increments/increment-199-a28-observations.md`をそれぞれのdocs commitへ保存した。runtime変更・追加配置はない。
 既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`はどちらにも含めない。
 B5は再発時の原因調査待ち。原観測・未特定事項・再検討条件は
 [通常利用メモのB5](../docs/experience/normal-use-inbox.md#b5--commit-proposal-invalidの具体的な検証不合格理由を特定できない)を参照する。
