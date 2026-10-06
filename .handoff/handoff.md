@@ -7,7 +7,7 @@
 [Increment 200](../docs/increments/increment-200.md)と[201](../docs/increments/increment-201.md)は利用者指示
 「コミット、配置して」「プッシュして」により完了した。source commit `6f6f9a6a`（200・201合同）、
 公式build（build ID `5bfcdbaa…`）、常用配置（`~/.local/bin/henji`、旧binaryは`henji.previous`）、
-push（`f14a576f`まで）済み。200は専用tool優先・出力の扱い・reviewerからbashを外す案内、
+push（最新`70b22376`まで）済み。200は専用tool優先・出力の扱い・reviewerからbashを外す案内、
 201は外部tool `git_inspect`（read-onlyなstatus/diff/log/show、親・generic・reviewerで選択）と`search`の
 `entries` mode追加。常用config rootへ`tools/git_inspect`・`tools.json`binding・search更新（`local-3`）・
 reviewer（revision 3）を反映済み。`agent inspect`はdefault／reviewerともrejections `[]`。
