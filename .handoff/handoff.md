@@ -4,6 +4,14 @@
 
 ## 現在地（2026-10-06）
 
+[Increment 205](../docs/increments/increment-205.md)はS34（`search`の検索条件・`run_typescript`の
+生成コードの抜粋表示）を利用者承認済み計画で実装した。tool行のpreviewへsearchのmode/pattern/glob/pathと
+run_typescript先頭の一行`//`コメントを追加し、focused 27件・関連94件pass、type check/fmt/lint/
+`git diff --check`、独立review（findingなし）、隔離XDG/workspaceのcompiled production TUI確認
+（local provider、実provider 0回、pending→settledと保存Session再表示）まで完了した。
+`henji run --stream`のtool行（生JSON）は利用者確認のうえ対象外とした。通常利用メモのS34は採用済みとして
+205へ移設し、候補一覧から除いた。commit・公式build・常用配置・pushは未実施/未承認。
+
 [Increment 204](../docs/increments/increment-204.md)は利用者指示でcredential保存先の分離と
 run_typescriptのconfig root読み取りを実装し、local検証・独立review・公式build（build ID `7ecf58e9…`）・
 常用配置（`~/.local/bin/henji`、旧binaryは`henji.previous`）・実configの`run-typescript.json`配置・
@@ -11,10 +19,11 @@ run_typescriptのconfig root読み取りを実装し、local検証・独立revie
 要件・検証・review・移行記録・残る範囲は204を参照する。pushは未実施。
 旧Coreが削除済みの旧pathを参照してSession `f040537a`の1 executionが失敗したが、利用者がTUIを再起動し
 （2026-10-06 20:37、配置済みbinary）、credentialが新rootのみに存在する状態で同Sessionのmodel requestが
-成立している。利用者は2026-10-06に実provider経路での確認を完了した。205（S34）は利用者指示で未着手。
+成立している。利用者は2026-10-06に実provider経路での確認を完了した。
 204の記録はcommit `d1a26f7c`・`2a95f72f`・`6276b2c9`・`34a67faa`・`71a86844`へ保存済み。
 
-利用者は本Session（`f040537a`）を終了する。次の一手は205（S34）の指示待ち。pushは未承認。
+利用者は本Session（`f040537a`）を終了する。次の一手は205の利用者による通常利用確認と、
+commit・公式build・常用配置の指示。pushは未承認。
 利用者指示で`~/.config/henji-harness/instruction.md`へ3段落を追加した（operation別のtool選択、質問・
 状況報告へのtool call前の回答と長いターンの進捗報告、検査・検証結果の再利用）。反映は次のWorker
 generation（新SessionまたはCore/TUI再起動）から。
@@ -55,7 +64,8 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 続行Sessionのtool定義問題は[通常利用メモ](../docs/experience/normal-use-inbox.md)のA34に残る。
 利用者指示でA34の追加調査は行わず、202では切断原因とその修正を扱った。
 
-**次の一手**: 205（S34: search・run_typescriptの抜粋表示）は利用者指示待ち。
+**次の一手**: 205（S34: search・run_typescriptの抜粋表示）は実装・focused確認・独立review・
+隔離tmux確認まで完了し、利用者による通常利用確認とcommit・公式build・常用配置の指示待ち。
 204は実装・検証・review・配置・実環境移行・利用者の実provider確認まで完了した。
 pushは未承認。 B5の追加調査は再発または利用者の明示採用まで行わない。
 
@@ -161,6 +171,10 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
 
 ## 正本への入口
+
+- [Increment 205](../docs/increments/increment-205.md):
+  S34の採用要件・表示契約、現行経路のsource確認、実装・focused確認・独立review・
+  隔離production TUI確認、通常利用メモからの移設原記録、承認境界。
 
 - [Increment 199](../docs/increments/increment-199.md): Data
   Workerの処理最適化の要件・調査根拠・承認済みスライス計画・実装/検証/review結果・承認境界。

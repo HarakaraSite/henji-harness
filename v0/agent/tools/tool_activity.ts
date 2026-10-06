@@ -2,6 +2,13 @@ import { BASH_OUTPUT_DEFAULT_WINDOW_BYTES } from './bash_output.ts';
 
 const TOOL_PREVIEW_HEAD_BYTES = 96;
 const TOOL_NAME_BYTES = 64;
+/** Byte budgets for one `search` preview element; a possible ellipsis is included. */
+const SEARCH_MODE_BYTES = 8;
+const SEARCH_PATTERN_BYTES = 38;
+const SEARCH_GLOB_BYTES = 23;
+const SEARCH_PATH_BYTES = 22;
+/** Purpose comments are read from this prefix of generated code, never from the whole body. */
+const RUN_TYPESCRIPT_SCAN_BYTES = 2048;
 const encoder = new TextEncoder();
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -55,6 +62,57 @@ const firstLine = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
   const head = value.split('\n', 1)[0]?.trim() ?? '';
   return head.length === 0 ? undefined : head;
+};
+
+/** Keep one element inside its byte budget so the elements after it stay visible. */
+const boundedElement = (text: string, budget: number): string =>
+  encoder.encode(text).byteLength <= budget ? text : boundedHead(text, budget - 3);
+
+const quotedElement = (text: string, budget: number): string =>
+  `"${boundedElement(text, budget - 2)}"`;
+
+/** `mode` first, then the parameters that identify what is being searched. */
+const searchPreview = (args: Record<string, unknown>): string | undefined => {
+  const mode = firstLine(args.mode);
+  if (mode === undefined) return undefined;
+  const parts = [boundedElement(mode, SEARCH_MODE_BYTES)];
+  const pattern = firstLine(args.pattern);
+  if (pattern !== undefined) parts.push(quotedElement(pattern, SEARCH_PATTERN_BYTES));
+  const glob = firstLine(args.glob);
+  if (glob !== undefined) parts.push(`glob=${quotedElement(glob, SEARCH_GLOB_BYTES - 5)}`);
+  const path = firstLine(args.path);
+  if (path !== undefined) parts.push(boundedElement(path, SEARCH_PATH_BYTES));
+  return parts.join(' ');
+};
+
+/** The purpose comment of one scanned line, or undefined when the line is not a `//` comment. */
+const purposeComment = (line: string): string | undefined => {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('//')) return undefined;
+  const comment = trimmed.slice(2).trim();
+  return comment.length === 0 ? undefined : comment;
+};
+
+/** The leading purpose comment: the first non-blank line, and only when it is a `//` comment. */
+const runTypescriptPreview = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  let line = '';
+  let used = 0;
+  for (const character of value) {
+    const size = encoder.encode(character).byteLength;
+    if (used + size > RUN_TYPESCRIPT_SCAN_BYTES) break;
+    used += size;
+    if (character !== '\n') {
+      line += character;
+      continue;
+    }
+    if (line.trim().length === 0) {
+      line = '';
+      continue;
+    }
+    return purposeComment(line);
+  }
+  return line.trim().length === 0 ? undefined : purposeComment(line);
 };
 
 const bashPreview = (value: unknown): string | undefined => {
@@ -132,6 +190,12 @@ export const toolActivityPreview = (name: string, args: unknown): string => {
       break;
     case 'web_fetch':
       preview = firstLine(args.url);
+      break;
+    case 'search':
+      preview = searchPreview(args);
+      break;
+    case 'run_typescript':
+      preview = runTypescriptPreview(args.code);
       break;
     case 'skill':
       preview = firstLine(args.name);

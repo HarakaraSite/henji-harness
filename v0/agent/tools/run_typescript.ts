@@ -25,6 +25,7 @@ export const createRunTypescriptTool = (
   promptGuidelines: Object.freeze([
     'For JSON/JSONL/CSV aggregation, transformations and small calculations, execute code with run_typescript rather than bash and return only the needed result. Read input files directly in code instead of copying them into model context. Successful results are limited to 1 MiB of UTF-8, including a truncation marker; larger results may no longer be valid JSON. Write large results to a workspace or /tmp file and return its path and count; file sizes are unrestricted.',
     'Supply the body of an async function, not a complete module. Use await import() for Deno std, await for IO, workspace + "/relative/path" for workspace files, and return a JSON-serializable result.',
+    'Begin code with a one-line // comment stating the purpose in a short phrase; the tool row shows that comment.',
     'When the data to aggregate comes from another command, have that command write its output to a file (workspace scratch or /tmp) and read the file in code instead of copying excerpts through the model.',
   ]),
   inputSchema: {

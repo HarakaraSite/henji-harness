@@ -380,10 +380,251 @@ Deno.test('web_fetch preview truncates a long URL with ellipsis', () => {
   assert(new TextEncoder().encode(text).byteLength <= 64 + 1 + 96 + 1 + 3);
 });
 
+Deno.test('search preview shows mode, pattern, glob and path from call to result', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-1',
+      name: 'search',
+      arguments: { mode: 'content', pattern: 'toolActivityPreview', path: 'v0/' },
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'search content "toolActivityPreview" v0/ …');
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'search-1',
+      name: 'search',
+      text: 'result body must not leak',
+      outcome: 'success',
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'search content "toolActivityPreview" v0/ ✓');
+  assert(!state.log.entries[0].text.includes('result body'));
+});
+
+Deno.test('search preview shows glob and path for path listings and entries', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-1',
+      name: 'search',
+      arguments: { mode: 'paths', glob: '*.ts', path: 'tests/v0' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-2',
+      name: 'search',
+      arguments: { mode: 'entries', path: 'v0/tui', depth: 2 },
+    },
+  });
+  assertEquals(state.log.entries.map((entry) => entry.text), [
+    'search paths glob="*.ts" tests/v0 …',
+    'search entries v0/tui …',
+  ]);
+});
+
+Deno.test('search preview bounds each element and keeps the later elements visible', () => {
+  const pattern = 'a'.repeat(200);
+  const path = 'b'.repeat(200);
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'search-1', name: 'search', arguments: { mode: 'content', pattern, path } },
+  });
+  const text = state.log.entries[0].text;
+  assertEquals(
+    text,
+    `search content "${'a'.repeat(33)}…" ${'b'.repeat(19)}… …`,
+  );
+  assert(new TextEncoder().encode(text).byteLength <= 64 + 1 + 96 + 1 + 3);
+});
+
+Deno.test('search preview keeps one line and skips empty elements', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-1',
+      name: 'search',
+      arguments: { mode: 'content', pattern: 'first line\nsecond line' },
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'search content "first line" …');
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-2',
+      name: 'search',
+      arguments: { mode: 'content', pattern: '  ', path: 'v0/' },
+    },
+  });
+  assertEquals(state.log.entries[1].text, 'search content v0/ …');
+});
+
+Deno.test('search preview bounds an unexpected mode value', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-1',
+      name: 'search',
+      arguments: { mode: 'unexpected-very-long-mode' },
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'search unexp… …');
+});
+
+Deno.test('run_typescript preview shows its leading purpose comment and hides the body', () => {
+  const code = '// TUI関連7ファイルの配色を変更する\n' +
+    'const text = await Deno.readTextFile(workspace + "/x");\nreturn text;';
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'ts-1', name: 'run_typescript', arguments: { code } },
+  });
+  assertEquals(state.log.entries[0].text, 'run_typescript TUI関連7ファイルの配色を変更する …');
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'ts-1',
+      name: 'run_typescript',
+      text: '{"ok":true}',
+      outcome: 'success',
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'run_typescript TUI関連7ファイルの配色を変更する ✓');
+  assert(!state.log.entries[0].text.includes('readTextFile'));
+});
+
+Deno.test('run_typescript preview requires the first content line to be a comment', () => {
+  const cases: readonly (readonly [string, string])[] = [
+    ['\n\n   // 目的を記す\nconst a = 1;', '目的を記す'],
+    ['const a = 1;\n// 後方のコメント', ''],
+    ['//\nconst a = 1;', ''],
+    ['return 1;', ''],
+  ];
+  for (const [code, comment] of cases) {
+    let state = createUiState();
+    state = reduceUiEvent(state, {
+      kind: 'tool_call',
+      turn: 1,
+      call: { callId: 'ts-1', name: 'run_typescript', arguments: { code } },
+    });
+    assertEquals(
+      state.log.entries[0].text,
+      comment.length === 0 ? 'run_typescript …' : `run_typescript ${comment} …`,
+    );
+  }
+});
+
+Deno.test('run_typescript preview bounds a long comment and keeps the code hidden', () => {
+  const comment = 'あ'.repeat(100);
+  const code = `// ${comment}\nreturn 1;`;
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'ts-1', name: 'run_typescript', arguments: { code } },
+  });
+  const text = state.log.entries[0].text;
+  assert(text.startsWith('run_typescript あ'));
+  assert(text.endsWith('…'));
+  assert(!text.includes('return 1'));
+  assert(new TextEncoder().encode(text).byteLength <= 64 + 1 + 99 + 1 + 3);
+});
+
+Deno.test('search and run_typescript previews persist in saved entity rows', () => {
+  const searchArguments = { mode: 'content', pattern: 'needle', path: 'v0/' };
+  const codeArguments = { code: '// 目的を記す\nreturn 1;' };
+  const rows = conversationFixtureRows('search and run a script', [
+    {
+      kind: 'model_result',
+      semanticOccurrenceId: 'fixture-model-result-1',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 2,
+      request: { modelStep: 1 },
+      declaredCalls: [
+        { callId: 'search-1', name: 'search', arguments: searchArguments },
+        { callId: 'ts-1', name: 'run_typescript', arguments: codeArguments },
+      ],
+    },
+    {
+      kind: 'tool_call',
+      semanticOccurrenceId: 'fixture-tool-1',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 3,
+      request: { modelStep: 1 },
+      callIndex: 0,
+      callId: 'search-1',
+      name: 'search',
+      arguments: searchArguments,
+    },
+    {
+      kind: 'tool_call',
+      semanticOccurrenceId: 'fixture-tool-2',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 4,
+      request: { modelStep: 1 },
+      callIndex: 1,
+      callId: 'ts-1',
+      name: 'run_typescript',
+      arguments: codeArguments,
+    },
+    {
+      kind: 'tool_result',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 4,
+      request: { modelStep: 1 },
+      result: { callId: 'search-1', name: 'search', text: '{}', outcome: 'success' },
+    },
+    {
+      kind: 'tool_result',
+      executionId: fixtureExecutionId,
+      turn: 1,
+      eventOrdinal: 5,
+      request: { modelStep: 1 },
+      result: { callId: 'ts-1', name: 'run_typescript', text: '{}', outcome: 'success' },
+    },
+  ]);
+  assertEquals(rows.filter((entry) => entry.kind === 'tool').map((entry) => entry.text), [
+    'search content "needle" v0/ ✓',
+    'run_typescript 目的を記す ✓',
+  ]);
+});
+
 Deno.test('direct renderer seam uses the same semantic preview', () => {
   assertEquals(
     toolCallText('skill', { name: 'handoff-read' }),
     'skill handoff-read',
+  );
+  assertEquals(
+    toolCallText('search', { mode: 'count', pattern: 'TODO', path: 'scripts/' }),
+    'search count "TODO" scripts/',
+  );
+  assertEquals(
+    toolCallText('run_typescript', { code: '// 目的を記す\nreturn 1;' }),
+    'run_typescript 目的を記す',
   );
 });
 

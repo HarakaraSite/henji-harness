@@ -217,11 +217,11 @@ importは`jsr:@std/...`と`https://jsr.io/@std/...`のsourceと依存stdに限�
 moduleは拒否し、import制限を継承しない追加Workerの作成も不可とする。
 通常の`fetch()`とJavaScriptの`eval()`は引き続き使える。
 
-例えば次のtool引数でCSV inputを解析し、結果をfileへ保存できる。
+例えば次のtool引数でCSV inputを解析し、結果をfileへ保存できる。`code`の先頭の一行コメントはtool行に表示される。
 
 ```json
 {
-  "code": "const csv = await import('jsr:@std/csv'); const rows = csv.parse(input, { skipFirstRow: true }); await Deno.writeTextFile(workspace + '/rows.json', JSON.stringify(rows)); return rows;",
+  "code": "// CSV inputを解析して結果を保存する\nconst csv = await import('jsr:@std/csv'); const rows = csv.parse(input, { skipFirstRow: true }); await Deno.writeTextFile(workspace + '/rows.json', JSON.stringify(rows)); return rows;",
   "input": "name,value\na,42\n"
 }
 ```

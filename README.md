@@ -235,11 +235,12 @@ Deno CLI or bundling std at build time. Imports accept only `jsr:@std/...` and
 packages, Node built-ins, local file modules and additional Workers are
 unavailable. Ordinary `fetch()` and JavaScript `eval()` remain available.
 
-For example, the tool arguments below parse CSV input and save the result:
+For example, the tool arguments below parse CSV input and save the result. The
+code begins with the one-line purpose comment that the tool row shows:
 
 ```json
 {
-  "code": "const csv = await import('jsr:@std/csv'); const rows = csv.parse(input, { skipFirstRow: true }); await Deno.writeTextFile(workspace + '/rows.json', JSON.stringify(rows)); return rows;",
+  "code": "// Parse the CSV input and save the rows\nconst csv = await import('jsr:@std/csv'); const rows = csv.parse(input, { skipFirstRow: true }); await Deno.writeTextFile(workspace + '/rows.json', JSON.stringify(rows)); return rows;",
   "input": "name,value\na,42\n"
 }
 ```

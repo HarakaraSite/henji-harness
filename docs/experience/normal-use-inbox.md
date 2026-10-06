@@ -36,7 +36,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S29 | Surface        | `/edit`による外部エディタ起動                                        | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                     | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
 | S32 | Surface        | 入力履歴機能の削除                                                   | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
-| S34 | Surface        | `search`の検索条件・`run_typescript`の生成コードの抜粋表示           | tool行から検索対象や実行内容を把握したいとき。抜粋方法を選び、個別incrementへ採用するとき                              |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                            | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                             | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -182,69 +181,6 @@ Pi／OpenCode／Henjiの画面表示比較
   関連する記録・navigation処理、help記載、専用testの整理範囲は採用時に決める。
 - 再検討条件: 利用者が入力履歴の削除を個別incrementへ採用するとき。
 - 現行経路: `v0/tui/input_history.ts`、`v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
-
-### S34 — `search`の検索条件・`run_typescript`の生成コードの抜粋表示（未採用、検討メモ）
-
-- 利用者メモ（2026-10-05）: `tool> search`に検索パラメータの一部を表示したい。TypeScript
-  toolもAgentが組み立てたscriptの
-  一部を表示できるか検討したい。ただし先頭だけではimportしか見えない可能性がある。
-- 現行経路・実現性（同日source照合）: Agentのtool
-  call引数はDataがsemantic履歴へ保存し、Conversationのtool entityにも保持する。
-  TUIは`keyed_conversation_store.ts`から共通の`toolActivityPreview()`へ引数を渡し、実行中と完了後の
-  tool行を生成する。イベント表示の`state.ts`と直接表示の`terminal_text.ts`も同じ関数を使う。
-  現在その関数に`search`と`run_typescript`の分岐がないため名前だけになる。
-  引数は既に届いているので、抜粋表示は既存の表示経路で実現可能。新しい保存先やmodel
-  callは不要と見込む。
-- `search`の表示案:
-  外部toolの現行引数は`mode`、`path`、`glob`、`pattern`、`patternKind`、`caseSensitive`、`offset`、
-  `limit`。まず`mode`・検索語`pattern`・対象`path`を短く表示し、`paths`
-  modeでは`glob`を手掛かりにする。 例: `tool> search content "toolActivityPreview" v0/ …`、
-  `tool> search paths glob="*.ts" v0/ ✓`。どの補助条件まで含めるかと、長い検索語・pathの表示配分は未決。
-- `run_typescript`の表示案と限界: 引数`code`はasync
-  functionの本文で、std取得は`await import()`を使う。 Increment
-  191の配置確認artifactには、空行に続き
-  `const csv = await import('jsr:@std/csv@^1.0.6');`から始まる実例がある。
-  単純な先頭一行では空欄またはimportだけになり、利用者の懸念に該当する。
-  最初の案は、先頭の空行・コメント・import取得部分を飛ばし、その後の短い本文を表示すること。 例:
-  `tool> run_typescript const text: string = await Deno.readTextFile(workspace + …`。
-  ただし次も変数宣言やhelper定義なら処理目的までは分からない。
-  file読込・書込・fetch・return等を選ぶ案も可能だが、任意scriptの主要処理を一意に決められるとは限らない。
-  import部分の判定は複数行・分割代入にも関わるため、単純な行判定と構文解析のどちらを使うかは未決。
-  import自体が処理目的のcallもあるので、抜粋候補がなくなる場合の表示も採用時に決める。
-  modelによる要約や追加の説明引数は、この表示案の前提にしない。
-- 実利用を見た再検討（2026-10-05、Session `2bc2699f`）:
-  利用者は2〜3行の表示も許容すると述べ、このSessionを参照対象に指定した。 read-only history
-  detailで4回の`run_typescript` callを確認した。いずれもfile編集で、先頭に長い
-  置換dataを置く30行のscript、追加testをtemplate literalに置く51行のscript、一行に全処理を詰めた
-  script、各行が長い3行の文書編集scriptだった。importを飛ばして先頭数行を出すだけでは、書込処理や
-  編集対象を把握しにくい。
-  現時点の推奨案は、tool名・状態の一行と、コードの入口・操作箇所の二つの抜粋を合わせた計3行。
-  入口は空行・コメント・importを除いた最初の短い文、操作箇所はfile書込・通信等の呼出しを候補にし、
-  それがない場合は読込・return等を比較する。抜粋の順序は元codeの順に保ち、省略は`…`等で示す。
-  最初のcallなら入口の`const patches: Record<string, [string,string][]> = {`と、後半の
-  `await Deno.writeTextFile(workspace+'/'+path,text); changed.push(path);`が手掛かりになる。
-  一行に複数の文があるので物理行だけでなく文・呼出し単位の抜粋を検討する。 template
-  literal内の追加testにも呼出しに見える文字列があるため、文字列中のcodeを実行本文の操作と
-  誤認しない抽出方法が必要。これはコードの抜粋であり、実際に通った分岐や主要処理の保証ではない。
-  選択規則・構文解析方式・端末幅に応じた省略は未決で、表示案の採用・実装は未承認。
-- 利用者提案を受けた表示候補（2026-10-05）:
-  `run_typescript`のtool案内で、生成する`code`の先頭に処理目的を示す一行コメントを入れるよう案内する。
-  例: `// TUI関連7ファイルの配色とtool名の表示を変更する`。
-  表示側はそのコメント本文を短く出し、`tool> run_typescript TUI関連7ファイルの配色とtool名の表示を変更する ✓`
-  とする。端末幅による折返しで2〜3行になる表示も候補とする。
-  利用者の「うんいいね」により、先頭の一行コメントを表示する方針に合意した。
-  長いdata定義・import・一行に詰めたscriptに左右されず、
-  コードから主要処理を選ぶための構文解析を追加する必要がない。
-  コメントはAgentが記す処理意図であり、実行結果やcodeとの一致を保証するものではない。
-  コメントがないcallも実行できるままとし、不在時の表示は採用時に決める。
-  個別incrementへの採用・実装はまだ行っていない。
-- 未確認・採用時の確認: 抜粋方法と長さは未採用。現在の共通previewは96 UTF-8
-  bytesまでで、コード表示に適するかは実表示で判断する。
-  credential値・Authorizationの露出防止という既存要件を守る。実装を採用した場合は実行中・完了後・
-  保存Session再表示の同じ抜粋と、隔離XDGのproduction TUIで読みやすさを確認する。
-- 関連: `v0/agent/tools/tool_activity.ts`、`v0/tui/keyed_conversation_store.ts`、`v0/tui/state.ts`、
-  `v0/tui/terminal_text.ts`、`external-tools/search/index.ts`、`v0/agent/tools/run_typescript.ts`、
-  [Increment 191](../increments/increment-191.md)。
 
 ## Agent実行
 
