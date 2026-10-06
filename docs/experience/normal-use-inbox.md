@@ -49,6 +49,9 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A30 | Agent実行      | tool間の結果連鎖（tool resultを別toolの入力にできない）。利用者は安易なパイプ連結を希望しない | パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき                                  |
 | A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                      | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき               |
 | A34 | Agent実行      | 再起動後の続行セッションで新規toolがmodel定義に現れない疑い          | 新規セッションで再確認し、同じ現象なら定義更新の経路を調査するとき                                                       |
+| A35 | Agent実行      | 子agentの時間上限と期限での自動キャンセル                           | review等の時間上限をruntimeで実行したいとき                                                                             |
+| A36 | Agent実行      | `search`に`wc`相当のfile集計を追加                                  | 行数・単語数・バイト数の確認を専用toolで行いたいとき                                                                     |
+| A37 | Agent実行      | `search`・`git_inspect`の説明とtool選択案内の改善                    | 一覧・検索・Git差分でbashより専用toolを使わせたいとき                                                                    |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | tool candidateを生成・保存・採用するflowを設計する                                                                     |
@@ -541,6 +544,55 @@ Pi／OpenCode／Henjiの画面表示比較
   隔離XDGで起動したcompiled binaryのTUIではconfiguration rejectionのnoticeが出ず、Workerは`git_inspect`を
   読み込む（`search`の`entries`は続行セッションでも動作）。利用者判断でセッションを作り直して新規セッションで
   確認する。
+
+### A35 — 子agentの時間上限と期限での自動キャンセル（未採用、メモのみ）
+
+- 利用者の希望（2026-10-06）: reviewの時間上限を`spawn_subagent`の`task`へ書く方法を確認した後、
+  「キャンセル作りたいな、メモしておいて」と指示した。
+- 現行境界: `spawn_subagent`に時間上限の引数はなく、`task`内の時間指定はmodelへの指示に留まる。
+  `collect_subagent`にもtimeout引数はなく、子agentの終了を待つ。手動の`cancel_subagent`は既存。
+- 候補: 子agentに時間上限を設定し、期限に達したらruntimeから既存のキャンセル経路を呼ぶ。
+  親agentが`collect_subagent`で待機中でも期限で停止できるようにする。
+- 未決定: 設定方法・引数名、時間の起算点、期限による停止理由と途中結果の返し方。
+  個別incrementへの採用・実装はまだ行わない。
+- 再検討条件: 利用者がreview等の時間上限をruntimeで実行する機能の採用を指示するとき。
+- 関連: A24、`v0/agent/tools/async_agents.ts`、`v0/agent/worker/worker_host_children.ts`。
+
+### A36 — `search`に`wc`相当のfile集計を追加（未採用、メモのみ）
+
+- 利用者の希望（2026-10-06）: `search`の`count`が検索語の出現回数であり、`wc`相当の機能は
+  ないことを確認した。追加する価値を相談した後、「メモして」と指示した。
+- 現行境界: `count`は検索語の出現回数を返す。`entries`はfileのバイト数を返すが、行数・単語数は
+  返さない。行数・単語数は現状では`run_typescript`等で集計する。
+- 候補: `search`に`stats`等のmodeを追加し、fileの行数・単語数・バイト数を返す。
+  mode名と集計の具体的な契約は採用時に決め、検索の出現回数を返す`count`と区別する。
+- 便益: 特に行数を、読取範囲・分割方法の判断や編集前後の規模確認に使える。
+  この集計のためだけにbashを使う必要を減らす。
+- 案内: tool説明の先頭で「`wc`相当」と明示し、modelが普段のcommandと専用toolを対応付けやすくする。
+  機能追加だけでtool選択が改善するかは未確認。
+- 再検討条件: 利用者が専用toolによるfile集計の採用を指示するとき。
+- 関連: `external-tools/search/index.ts`。
+
+### A37 — `search`・`git_inspect`の説明とtool選択案内の改善（未採用、メモのみ）
+
+- 利用者の観測・希望（2026-10-06）: `search`があまり使われず、一覧確認や`git diff`でも専用toolを
+  使ってほしいと相談した。説明文の改善案について「説明文の改善もメモして」と指示した。
+- 現行の案内（同日source・常用config照合）: `search`の説明はmode紹介の後に仕様詳細が長く続く。
+  guidelineはfind・grep・rgより優先すると書くが、`ls`との対応を明示していない。
+  `git_inspect`はstatus・diff・log・showを明示するが、選択案内は`Prefer`という推奨表現である。
+  user instructionの`path/content lookup`も、一覧・件数確認を明示していない。
+- 候補: tool説明の先頭に用途と普段のcommandとの対応を短く置き、詳細仕様と分ける。
+  `search`は`ls`相当の直下一覧・metadata→`entries`、`find`・`rg --files`相当の再帰file一覧→`paths`、
+  一致file→`files`、一致行→`content`、出現回数→`count`を明示する。
+  file数は`paths`の`total`、一致file数は`files`の`total`で確認できることも案内する。
+- `git_inspect`の候補: 対応するworkspaceのstatus・diff・log・showでは同toolを使う指示にし、
+  通常diff、`staged: true`によるcached diff、`stat: true`によるdiffstatの対応を短い例で示す。
+  同toolで対応できる操作をbashで実行しないことを明示する。
+- 未確認: 説明文が実際のtool選択を左右した原因かは未確定。改善後は通常利用で選択を観測する。
+  A36の`wc`相当機能は未実装であり、現時点で対応済みと案内しない。
+- 再検討条件: 利用者が説明文・guideline・instructionの改善を採用するとき。
+- 関連: A36、`external-tools/search/index.ts`、`external-tools/git_inspect/index.ts`、
+  user-owned `instruction.md`。
 
 ## F24・自己改訂
 

@@ -16,8 +16,8 @@ runtime digest `43d10091…`）、常用配置（`~/.local/bin/henji`、直前bi
 （2026-10-06）により完了とし、通常利用確認待ちを閉じた（完了承認はincrement-205文書と本handoffへ記録済み）。
 起動中だったCore/TUIは置換前binaryのため、205は次に起動するCore/TUIから適用される。
 
-通常利用メモには別sessionが記録したA35メモ（子agentの時間上限）が未コミットで残る。
-205のcommitには含めていない。
+通常利用メモにある別session記録の未採用候補メモは、205のcommitとは別のdocs commitへ保存した。
+未追跡の`191-result.json`と`scripts/diagnostics/__pycache__/`は引き続きcommit対象外とする。
 
 [Increment 204](../docs/increments/increment-204.md)は利用者指示でcredential保存先の分離と
 run_typescriptのconfig root読み取りを実装し、local検証・独立review・公式build（build ID `7ecf58e9…`）・
