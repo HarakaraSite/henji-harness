@@ -86,6 +86,11 @@ local実装・検証・常用config rootへの外部tool配置は利用者指示
   `agent inspect`のrejections `[]`を確認
 - 常用配置: `/home/agent/.local/bin/henji`（旧binaryは`henji.previous`、sha256 `e9ad24cd…`がdistと一致）
 - 配置後確認: `tool list`でsearch `local-3`・git_inspect `1`、default agent／reviewerともrejections `[]`
+- 配置後確認（実経路、実provider call 0）: `henji:package`のinstall.shで隔離HOME/XDG
+  （`/tmp/henji-201-check`）へ入れたbinaryをtmux上で起動し、v0.9.0のTUIがreadyになったことを確認。
+  Worker起動時のconfiguration rejection（system notice）は表示されず、**外部tool `git_inspect`のimport
+  を含む起動経路がcompiled binaryで成立**した。終了はCtrl-Qで行い、隔離Core/TUIを残していない。
+  観測した起動画面とisolated XDGの状態は`.tools/increment-201/`へ保存した
 - 未実施: push、実provider call。既存のCore／TUIは再起動していない（新しい起動から適用）
 - 留意: 配置したbinaryは親commitのIncrement 199（Data Worker最適化）も含む（同workstreamはcommit済み・
 gate済みだが、その配置判断は別途）
