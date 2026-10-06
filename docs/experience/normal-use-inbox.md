@@ -8,6 +8,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。
 B12はIncrement 203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。
 A30へは保存Session `0cd5c22e`・`2bc2699f`の分析結果も追記した。
+2026-10-06にA19（requestごとの実行状況・日時・地域context）は利用者判断で不採用とし、
+候補一覧と本項目を削除した。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -41,7 +43,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                          | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                  | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A19 | Agent実行      | requestごとの実行状況・日時・地域context                             | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択              | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                         | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
@@ -301,43 +302,6 @@ Pi／OpenCode／Henjiの画面表示比較
   instructionの内容・粒度・与える場所（共通instruction、モデル別instruction、個々のtask）を
   検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
 - 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
-
-### A19 — requestごとの実行状況・日時・地域context
-
-- 観測（2026-09-27）: [A18の元観測](../increments/increment-185.md)のsession
-  `51b47299`では、maxSteps・現在step・turn経過時間を
-  modelへ自動通知していなかった。現行`Runtime facts`は作業directoryだけで、内部の`modelStep`は
-  診断・履歴用である。利用者は、turnを返す判断材料に加え、現在日時と地域の情報も有用と考えた。
-- 候補: Worker内のAgent loopが既存のmaxSteps・stepとturn開始時刻から実行状況を生成し、
-  request直前に最新の短いruntime contextを投影する。stepはtool呼出し数と区別し、残り回数が
-  今回のrequestを含むかを明示する。共有request budgetによる残り回数とmodel stepの関係は採用時に
-  定める。経過時間の基準は「今回のturn開始から」とし、現在日時にはrequest準備時点の日時・ UTC
-  offset・timezoneを含める。通知文面と、それを使った報告方針のinstructionは分ける。
-- 渡し方の案: request用コピーの末尾へ、runtime由来と明示したuser-role messageを一つ追加し、
-  毎requestで最新値に置き換える。canonical会話へ通知を積み重ねず、当時渡した内容と出所は既存の
-  context attributionで追跡できる形を検討する。通知だけでfinal回答が保証されるとは扱わない。
-  最終requestの回答強制、通知頻度、報告を促す時点は未決であり、今回の案から自動停止を導入しない。
-- 日時・地域の案: 現在日時とsystem timezoneを自動取得する。localeは言語・書式の設定として
-  所在地と区別する。このVMでの取得値は`Asia/Tokyo`／`en-US`／locale region `US`で、利用者は
-  localeを設定していないと述べた。利用者の居住地は大阪であり、timezoneだけでは大阪まで表せない。
-  任意の地域設定として`Osaka, Japan`や「大阪市、大阪府、日本」を指定し、情報の出所を示す案とする。
-  system timezone、locale、利用者指定の地域を一つの所在地へ混同しない。
-- 参照実装: DeepSeek Harnessの`time-context`（snapshot
-  `c291e7961a515f6d7af9304e7fd1d257929aef26`）は`agent/pre-step`でturn・step・時刻・
-  前回の観測からの経過時間をuser-role messageへ追加し、履歴にも保存する。Henji案のturn開始からの
-  経過時間・requestごとの最新値投影とは異なる。
-  [実装](../../_refs/deepseek-harness/packages/context/time-context/src/index.ts)。
-  OpenCodeの2026-09-27に取得した`dev` branchのV1経路は、最終stepで報告を促すassistant-role
-  messageをrequest末尾へ追加する。
-  [追加処理](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/prompt.ts)、
-  [通知文面](https://github.com/anomalyco/opencode/blob/dev/packages/core/src/session/runner/max-steps.ts)。
-  mechanismを比較する資料であり、そのまま採用するcontractではない。
-- 利用者指示（2026-09-27）: 今回はアイデアのメモのみ。runtime通知・地域設定の実装は未指示。
-- 再検討条件: 個別Incrementへ採用するとき。実際に通知が報告・作業継続の判断に使われるかを
-  通常利用で確認する。
-- 関連:
-  [A18（Increment 185）](../increments/increment-185.md)、A11、S4、E3、`v0/agent/core/loop.ts`、
-  `v0/agent/worker/worker_runtime.ts`のrequest projection・context attribution。
 
 ### A21 — 1ターン内でsteeringを複数回受け付ける
 
