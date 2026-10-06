@@ -213,5 +213,22 @@ asserted the pre-Increment-206 wording of the `search` and `git_inspect` guideli
 current adopted text; the focused re-run of both files passed 31 tests.
 
 The preparation dry run passed with the 59 configured files for `@henji/harness@0.10.0`, including
-both public entrypoints and slow-type checking. Publication and registry verification are in
-progress; results will be recorded here.
+both public entrypoints and slow-type checking, and the clean detached release worktree at the
+pushed commit passed the same dry run.
+
+The user approved browser authorization, and the waiting PTY command (an isolated tmux server,
+socket `jsr010`) reported `Authorization successful. Authenticated as HarakaraSite` and
+`Successfully published @henji/harness@0.10.0`.
+
+Registry metadata confirmed `latest: 0.10.0` with creation timestamp
+`2026-10-06T21:35:08.085714Z`. Outside the repository, `deno eval --no-config --no-lock
+--min-dep-age=0 --reload=jsr:@henji/harness` imported the exact version: the tool entrypoint loaded
+seven runtime exports, and the hooks entrypoint loaded `HOOK_API_CONTRACT` and `HOOK_PHASES`.
+`deno check` of `ToolFactory`, `ToolFactoryInput`, and `HookFactory` from the exact version passed.
+
+Removed the clean release worktree after verification. The accepted native binary remains the
+Increment 207 deployment (`henji 0.9.0`); this request published the JSR package.
+
+Verification logs are stored in the ignored `.tools/jsr-0.10.0/` directory (`gate.log`,
+`gate-home.log`, `gate-release.log`, `focused-tests.log`, `pre-dry-run-dirty.log`) and in
+`/tmp/henji-jsr-0.10.0-dry-run.log`.
