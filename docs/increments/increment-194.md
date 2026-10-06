@@ -98,7 +98,8 @@ writer、保存履歴、会話entity、表示Map、rendererの責務は今回変
 
 local修正と上記検証は完了した。source commit・常用配置は後述の追加指示により完了した。
 push・公開は未実施。 構想・architecture・roadmapと実Sessionの内容は変更していない。
-Core側等の追加調査は通常利用メモA28に残る。
+当時、Core側等の追加調査は通常利用メモA28に残した。後続の改善を経て、2026-10-06に利用者が
+A28全体を完了とした。完了判断と原観測の移設先は[Increment 199](increment-199.md)を参照する。
 
 ## Commit・常用配置（2026-10-05）
 

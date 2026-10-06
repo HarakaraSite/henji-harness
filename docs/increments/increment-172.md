@@ -1,9 +1,12 @@
 # Increment 172 — Exa検索への置き換えとweb_fetchのダウンロード
 
-更新日: 2026-10-03
+更新日: 2026-10-06
 
-ステータス: **local実装・focused検証・実Exa probe・常用配置・commit/push済み。
-人間によるproduction TUI受入と公開は未実施。**
+ステータス: **local実装・focused検証・実Exa probe・常用配置・commit/push済み。公開は未実施。**
+
+2026-10-03時点では人間によるproduction TUI受入は未確認だった。
+A6の完了判断は2026-10-06に利用者承認済み。後続200の案内追加と保存履歴の通常利用観測を含めた
+判断・旧候補の記録は末尾を参照する。
 
 利用者の「2段階でやる」「exa websearchを実装 sonarは置き換える」「web fetchの機能追加」により、
 第1段階を本incrementへ採用した。第2段階の共通credential登録は[Increment 173](increment-173.md)。
@@ -167,3 +170,35 @@ binaryを常用先へ配置した。build・配置先起動確認の記録は
 
 2026-10-03の利用者のcommit/push指示により、172〜176をまとめて`c9b5d9d6`へcommitし、
 `origin/main`へpushした。記録は[Increment 176](increment-176.md#commitpush2026-10-03)を参照する。
+
+### A6の通常利用観測・完了判断（2026-10-06）
+
+利用者の「A6は終わりでいいんじゃない？」と、完了扱い・文書整理の説明に対する「更新して」により、
+A6を完了とする。Exaへの置換、search/fetch分離、downloadは本incrementで実装・配置済み。
+credential登録は[Increment 173](increment-173.md)の共通`/login`経路を使い、
+取得量の案内は[Increment 200](increment-200.md)で追加した。通常利用メモのA6一覧・本文を本書へ移し、
+未採用候補として残さない。これはA6の完了判断であり、公開の実施を意味しない。
+
+移設した保存履歴の観測（2026-10-05 Session `2bc2699f`、2026-10-06にread-only分析）:
+
+- `web_search` 5件のresult bytesは1,349・2,152・18,218・19,758・**148,977**。最大のものは
+  `contents: {text: true}` + `numResults: 2`でghostty.orgのoption reference本文144,402 bytesを
+  1回のresultへ展開していた。指定どおりの取得でtoolの不具合ではない。
+- 同じexecution内の以降の2回は`contents: {highlights: {maxCharacters: 5000, query: …}}`へ
+  切り替えて1,349・2,152 bytesに収まった。schemaは`contents.text.maxCharacters`も持つ。
+  200でhighlights推奨、textの上限指定、長文の`web_fetch.save_to`とfile経由の読取を案内した。
+- 同5件のExa費用（responseの`costDollars`）はいずれも`total 0.007`（USD、neural search）。
+  この5件では`contents`指定によるExa課金差は見えず、149 KBの取得量はmodel context側の負担となる。
+  旧メモの約3.5–4万tokenという値は概算であり、実token usageの測定値ではない。
+
+旧A6にあった追加候補・再検討条件も記録として移設する。これらは未実装の必須作業として扱わず、
+現backendの品質・費用・取得範囲やsearch/fetchの使い分けに具体的な問題が出た場合に改めて採否を決める。
+
+- 取得内容とcitation/provider evidenceの相関、追加stepと経路の明示性を実taskで比較する。
+  filesystem探索、複数endpoint試行、shell quoting、temporary file、別commandでの再読込が
+  連なる発見・取得経路の品質・コストを観測する。
+- OpenAI Responses API built-in Web searchやOpenRouter `openrouter:web_search`と現行Exaを比較する。
+  必要なら`WebSearchBackend`境界への追加を検討し、同時公開するtoolには品質・費用・検索範囲等の
+  選択理由を説明できるcontractを持たせる。
+- Web searchを別Agent実行にする案は、conversation・prompt・model・tool利用を独立所有する必要が
+  出た場合だけ比較する。

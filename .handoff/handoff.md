@@ -16,9 +16,9 @@ run_typescriptのconfig root読み取りを実装し、local検証・独立revie
 利用者は本Sessionを終了する。A6・A28は利用者指示で完了とし、通常利用メモから除いた。
 A6の判断・観測は[172](../docs/increments/increment-172.md)・[200](../docs/increments/increment-200.md)、
 A28の判断と原観測の移設先は[199](../docs/increments/increment-199.md)を参照する。
-この文書整理のうちhandoff・通常利用メモは204のdocs commitへ保存済み。172・194〜196・198〜200と
-新規`docs/increments/increment-199-a28-observations.md`は未commit。runtime変更・追加配置はない。
-既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`は今回の変更に含めない。
+この文書整理はhandoff・通常利用メモを204のdocs commit、172・194〜196・198〜200と新規
+`docs/increments/increment-199-a28-observations.md`を本commitへ保存した。runtime変更・追加配置はない。
+既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`はどちらにも含めない。
 B5は再発時の原因調査待ち。原観測・未特定事項・再検討条件は
 [通常利用メモのB5](../docs/experience/normal-use-inbox.md#b5--commit-proposal-invalidの具体的な検証不合格理由を特定できない)を参照する。
 

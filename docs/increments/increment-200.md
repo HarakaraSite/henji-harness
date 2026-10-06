@@ -111,6 +111,15 @@ revision 2・tools `read`・`search`（external、rejectionsなし）・`skill`�
 `6f6f9a6a`・公式build（build ID `5bfcdbaa…`）・常用配置まで完了した（詳細と配置後の確認は
 [201](increment-201.md)の「承認境界・次の一手」にまとめた）。pushと実provider callは未実施。
 
-未採用候補として通常利用メモへ残したもの: A30（tool間の結果連鎖）、A31（workspace外の読取・書込境界）、
-A6（web_searchの取得サイズ）。`process runner ended before command status`の障害観測は同メモのB12にあり、
+local実装時に未採用候補として通常利用メモへ残したもの: A30（tool間の結果連鎖）、
+A31（workspace外の読取・書込境界）、A6（web_searchの取得サイズ）。
+後続のA6完了判断は下段を参照する。`process runner ended before command status`の障害観測は同メモのB12にあり、
 利用者判断で別途調査とする。A32（review用Agentのtool構成とinstruction）は本incrementへ採用・移設した。
+
+### A6の完了判断（2026-10-06）
+
+利用者の「A6は終わりでいいんじゃない？」と文書更新指示により、A6は完了扱いとする。
+本incrementの`web_search`案内（highlights推奨、textの`maxCharacters`指定、長文の
+`web_fetch.save_to`）を、172のExa検索・search/fetch分離・downloadと合わせて完了判断の根拠とした。
+保存履歴の通常利用観測・旧backend比較候補・完了判断は[Increment 172](increment-172.md)へ移設し、
+通常利用メモからA6を除いた。別backend比較は必要になった場合の再検討事項であり、A6の残作業としない。
