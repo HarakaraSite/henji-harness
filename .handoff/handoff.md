@@ -5,8 +5,10 @@
 ## 現在地（2026-10-06）
 
 [Increment 206](../docs/increments/increment-206.md)へA36・A37を採用し、file集計と専用toolの
-選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。新Worker generationから有効。
-実modelのtool選択は通常利用での観測待ち。採用契約・結果・承認境界は206を参照する。
+選択案内をlocal実装・検証し、常用外部tool・instructionへ反映した。source commit `3b84501f`、
+公式build（build ID `0723df62…`）・常用binary配置・隔離Core/TUIの配置後確認・pushまで完了。
+新Worker generationから有効。実modelのtool選択は通常利用での観測待ち。
+採用契約・結果・承認境界は206を参照する。
 
 [Increment 205](../docs/increments/increment-205.md)はS34（`search`の検索条件・`run_typescript`の
 生成コードの抜粋表示）を利用者承認済み計画で実装した。tool行のpreviewへsearchのmode/pattern/glob/pathと
@@ -78,7 +80,7 @@ Core `c6afea6d`はworkspace全体のsearch実行後にSIGTRAPで終了した。
 
 **次の一手**: 206のlocal実装・検証・常用外部tool/instructionへの反映は完了。
 新Worker generationでの通常利用から、search statsの使い勝手と専用toolの選択を観測する。
-206のcommit・公式build・常用配置・pushは利用者指示で承認済み、実施中。
+206のsource commit・公式build・常用配置・pushは利用者指示で完了。
 公開/release・実provider callは今回の対象外。
 205は利用者による完了承認済みで、残る作業はない。
 204は実装・検証・review・配置・実環境移行・利用者の実provider確認まで完了した。

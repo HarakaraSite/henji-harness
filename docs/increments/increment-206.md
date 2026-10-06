@@ -1,7 +1,8 @@
 # Increment 206 — A36・A37: file集計と専用toolの選択案内
 
 状態: 利用者の「A36、37をやろう」（2026-10-06）により採用。local実装・focused検証・常用外部toolと
-instructionへの反映を完了。実modelの自発的なtool選択は通常利用での観測待ち。
+instructionへの反映、source commit・公式build・常用配置・pushを完了。
+実modelの自発的なtool選択は通常利用での観測待ち。
 
 ## 利用者が必要とする動作と根拠
 
@@ -92,7 +93,41 @@ guidelinesへ合成されるため、 親とreviewerの両方へ実際に渡る�
   確認scriptの指定誤りである。
 - 実provider requestは全確認で**0回**。実modelの自発的なtool選択は未確認で、通常利用で観測する。
   外部source・instructionはWorker起動時に読み込むため、新しいWorker generationから有効となる。
-  binary/APIの変更はなく、再buildや起動中Core/TUIの停止・再起動は行っていない。
+  local実装段階ではbinary/APIの変更はなく、再buildや起動中Core/TUIの停止・再起動は行っていない。
+  後続の利用者指示による公式build・常用配置は下記を参照する。
+
+### Commit・公式build・常用配置・push結果（2026-10-06）
+
+利用者の「コミットプッシュ配置して」により実施した。
+
+- source commit: `3b84501fe2f9c7ad4d978faf274fdc2a7325645a`
+  （`feat: add file stats and clarify dedicated tool selection`）。206のsource/test・外部tool文書・
+  increment文書・handoff・A36/A37移設だけを含む。
+  既存の未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`は含めていない。
+- このcommitから公式`henji:compile`で0.9.0をbuildした（sourceDirty=false）。 build ID:
+  `0723df6207e5aa63aa369222f3626fd9b02910a7dbb9892912b1eefa457cf882`、 embedded runtime digest:
+  `43d10091dbd802daf765b64482b8ba8662a8a1055bc33f10788a67495c4355bc`。
+  外部toolの変更なので、embedded runtime digestは205の配置binaryと同じ。
+- `dist/henji`と常用`~/.local/bin/henji`を配置し、versionとSHA-256一致を確認した。 binary SHA-256:
+  `5e831c51bd0c369f1190fe457187dcc7e099cf0e9d2c5bf4d9e1d93b0aafe51d`。
+  常用先は同directoryの一時fileからatomic renameした。
+- 直前binaryを`~/.local/bin/henji.previous`と
+  `.tools/increment-206/deployment/henji.local.previous`へ保存し、元の`henji.previous`も
+  `henji.local.previous.pre206`へ保存した。旧常用binary
+  SHA-256は`704336a5a72c6800d04b32894644df2bf6ed150017722e19ed55afef9c280336`。
+- 常用外部toolはrepository sourceと一致し、`search: local-5`・`git_inspect: 2`を認識する。
+  前段で反映済みのuser-owned instructionと、編集可能なtool settingsは維持した。
+- 配置後、隔離HOME/XDG/workspaceで常用compiled binaryのCore＋TUIを起動し、`● ready`表示、
+  Ctrl-QによるTUI終了、Coreのexit 0を確認した。Core APIでsource commit・build ID・clean source・
+  runtime digestの一致を確認した。実provider request・task投入は0回。
+  起動中の常用Core/TUIは停止・再起動していない。
+- 配置scriptの最初のversion確認は、一時fileの書込descriptorを閉じ忘れたため`Text file busy`となった。
+  script終了でdescriptorが閉じた後、backupを上書きせず確認から再開し、version確認と配置smokeが成功した。
+  製品sourceの変更・buildのやり直しはない。
+- `origin/main`へ`e1157cf6..3b84501f`のpushが成功した。本配置記録のdocs commitも続けてpushする。
+  公開/release・実provider callは実施していない。
+- 証拠: `.tools/increment-206/build.log`、`deployment/deployment.json`、`deployment/smoke.json`、
+  `deployment/smoke-tui.txt`（いずれも同incrementのgit管理外artifact）。
 
 ### 反映したuser-owned instructionの段落
 
