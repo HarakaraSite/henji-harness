@@ -161,7 +161,7 @@ Deno.test('Increment 127 reviewer Worker composes read and search guidance witho
     const instruction = result.outcome.finalText ?? '';
     assert(instruction.includes('no general shell is available'));
     assert(instruction.includes('- read: For file inspection,'));
-    assert(instruction.includes('- search: Prefer search over bash find, grep, or rg'));
+    assert(instruction.includes('- search: Use search instead of bash ls, find, grep, rg, or wc'));
     assert(!instruction.includes('- bash:'));
     assert(!instruction.includes('- bash_output:'));
   } finally {
