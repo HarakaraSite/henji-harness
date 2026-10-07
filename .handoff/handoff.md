@@ -27,8 +27,9 @@
   各increment冒頭の現在状態を参照する。当時の実施・未実施記録は保持し、過去作業を再調査しない。
 - [Increment 208](../docs/increments/increment-208.md)は、実装・検証・常用配置・利用者受入・pushまで完了。
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
-- 常用binaryはHenji 0.11.0、source `f75087fb`、build `b68ee1a8…`。211・212とヘッダー修正は利用者受入済み。
-  push・公式build・常用配置・隔離tmux確認は完了。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
+- 常用binaryはHenji 0.11.0、source `b7a904ca`、build `316f06be…`。211・212とヘッダー修正は利用者受入済み。
+  公開後のTUI修正もcommit・公式build・常用配置・配置binaryの隔離tmux確認まで完了した。
+  今回のsourceのpush・追加公開は未実施。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
   JSR 0.11.0の公開・registryからのtool/hooks APIとpublic type確認・release worktree cleanupも完了。[公開記録](../docs/operations/jsr-publish.md#0110-publication--2026-10-07-jst)を参照する。
 - 正本の照合対応はcommit `071ec6ca`へ保存済み。
   反映範囲はarchitecture・roadmapのヘッダ、修正後の残候補は通常利用メモを参照する。
@@ -39,14 +40,9 @@
 ## 次の一手
 
 - v0.11.0のpush・JSR公開・常用配置は完了。今回の承認範囲に残作業はない。
-  S38の非エラーsystem通知の配色要望は212の公開後の追加修正へ採用した。
-  公開後の追加要望としてCtrl-LのようなTUI終了時の画面クリアをlocal実装・focused／隔離tmux確認済み。
-  scrollbackは保持する。footerのF4キーがDimだった局所修正もfocused／隔離tmux確認済み。
-  未観測のassistant／thinking本文置き換え対応の削除もlocal実装・focused／隔離tmux確認済み。
-  tool行とassistant／thinkingラベルを初回だけ出し、保存Session再表示では最新状態を出す変更も同様に確認済み。
-  system通知・thinking・tool・入力欄の配色と、折り返しを含む複数行入力の上下移動もlocal実装・
-  focused／隔離tmux確認済み。
-  これらのcommit・build・常用配置は未実施。詳細は212の追加記録を参照する。
+  S38を含む公開後のTUI修正は`b7a904ca`へcommitし、公式build・常用配置・配置binaryの隔離tmux確認まで完了。
+  新しいTUI起動から反映する。詳細は212の追加記録と配置記録を参照する。
+  今回のsourceのpush・追加公開は利用者未指示で、実施していない。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。

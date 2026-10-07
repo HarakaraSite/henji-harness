@@ -460,3 +460,14 @@ footerのキー認識がF1〜F3に限られており、211で移したF4が説�
 
 確認記録（git対象外）: `.tools/tui-colors-editor/tmux_probe.py`、`result.json`、`styled.txt`、
 `editor-top.txt`、`editor-bottom.txt`、`editor-edited-bottom.txt`、`cancelled.txt`、`restored.txt`。
+
+
+## 公開後の追加修正のcommit・常用配置（2026-10-07）
+
+利用者の指示により、上記の画面clear・F4・出力重複抑止・配色・複数行editor修正を
+source commit `b7a904ca57a39d0be344a22f3841723b3f9be66d`へ保存した。
+公式build・常用配置と配置binaryの隔離tmux確認を完了した。
+build IDは`316f06be431b4613e83196c2f151b5caafff776afd08c990c9dc55cbc0e02ed7`、sourceDirtyはfalse。
+要件どおりの表示・上下移動・保存Session再表示・終了時clear／scrollback保持を確認した。
+詳細とbackup・hash・確認記録は[配置記録](../operations/native-0.11.0-deployment.md)を参照する。
+稼働中のCore/TUIは再起動しておらず、新しいTUI起動から反映する。push・追加公開は未実施。
