@@ -70,6 +70,7 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
   };
   const registry = new Registry([{
     name: 'read',
+    fileAccess: 'none' as const,
     description: 'read source',
     inputSchema: {},
     execute: () => {
@@ -313,6 +314,7 @@ Deno.test('Increment 38 projects recall for one Worker turn without transcript a
   let newDispatches = 0;
   const registry = new Registry([{
     name: 'source_tool',
+    fileAccess: 'none' as const,
     description: 'source tool',
     inputSchema: {},
     execute: () => {
@@ -321,6 +323,7 @@ Deno.test('Increment 38 projects recall for one Worker turn without transcript a
     },
   }, {
     name: 'new_tool',
+    fileAccess: 'none' as const,
     description: 'new tool',
     inputSchema: {},
     execute: () => {
@@ -445,6 +448,7 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
     };
     const registry = new Registry([{
       name: 'read',
+      fileAccess: 'none' as const,
       description: 'read source',
       inputSchema: {},
       execute: () => {

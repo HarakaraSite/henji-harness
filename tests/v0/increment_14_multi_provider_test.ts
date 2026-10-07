@@ -1180,6 +1180,7 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
     model,
     new Registry([{
       name: 'read',
+      fileAccess: 'none' as const,
       description: 'Read a file.',
       inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
       execute: () => '# Henji',

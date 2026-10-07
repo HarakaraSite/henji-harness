@@ -433,7 +433,7 @@
 - 実provider probe（利用者許可、2026-09-18）: isolated XDGの`henji run`（stdin task）でbundled Sonar
   web_searchが回答＋直接source URLを返し`I69_PROBE_OK`、exit 0。
 - 次: architecture/roadmap正本とcommitは完了（別項目）。残作業なし。
-- 正本: `docs/increments/increment-69.md`（結果まで反映済み。architecture/roadmapも更新・commit済み）。
+- 正本: `docs/history/increments/increment-69.md`（結果まで反映済み。architecture/roadmapも更新・commit済み）。
 - 注意: 既存testの期待を新契約へ更新済み（artifact schema v6→v7、web_searchのDefinition提供）。
   非Host経路（legacy `runtime.ts`・直接`createDeclaredRegistry`）には、backend/requestProviderからの
   web_search互換bridgeを残した（productionはHost提供bundled tool Definitionが優先）。
@@ -459,7 +459,7 @@
 - 実provider probe（利用者許可、2026-09-18）: isolated XDGの`henji run`でmodelが`web_fetch`を呼び
   `https://example.com/`を取得。status 200・`text/html`・本文抽出・`truncated:false`、`I70_PROBE_OK`でexit 0。
 - 次: 他work toolのDefinition化とtool Definition transport（後続increment）。
-- 正本: `docs/increments/increment-70.md`。architecture（`henji-host-agent-worker.md`）とroadmapを本incrementへ
+- 正本: `docs/history/increments/increment-70.md`。architecture（`henji-host-agent-worker.md`）とroadmapを本incrementへ
   更新済み。
 - 注意: 追加toolを使うには、それを宣言したAgent Definition（bundled defaultまたはexternal）と、tool Definition
   のinstall/bindが必要。bundled moduleが無いidentityはexternal binding必須（無ければtyped failure）。
@@ -479,7 +479,7 @@
   `increment_33`はmanaged tool Definitionを`tools.json`で`tool:read`へbind、`current_code_test`は
   `input.toolDefinitions`差し替え）。`v0:check`／`fmt`／`lint`／`v0:gate` exit 0。
 - 次: tool Definition transportと任意kindの一般化（後続increment）。
-- 正本: `docs/increments/increment-71.md`。architecture（`henji-host-agent-worker.md`）とroadmapへ反映済み。
+- 正本: `docs/history/increments/increment-71.md`。architecture（`henji-host-agent-worker.md`）とroadmapへ反映済み。
 
 ### Increment 72 — named subagentの一般化（実装完了、実provider probe受入済み）
 
@@ -496,7 +496,7 @@
   `delegate_to_researcher`を呼び、subagentの返答を`I72_PROBE_OK`付きで出力、exit 0。
 - 次: tool Definition transportは**tool Definitionを通常利用で安定させた後に別incrementで実装**する（決定:
   2026-09-18。roadmapに反映済み）。他kind候補は`docs/experience/normal-use-inbox.md` E2で管理する。
-- 正本: `docs/increments/increment-72.md`。
+- 正本: `docs/history/increments/increment-72.md`。
 - 注意: 子lane provider evidenceのmodel selectionはplanner既定のまま（named subagent固有selectionのevidence
   属性はfollow-up。Definitionは`createModel('planner', selection)`で自モデルを選べる）。他候補は
   `docs/experience/normal-use-inbox.md`のE2に記録。
@@ -511,7 +511,7 @@
   frame（3種）を観測、`BLINK_SGR`は出力に現れなかった。
 - 正本更新: `docs/roadmap.md` F01関連を`working`＋spinnerへ、`docs/experience/normal-use-inbox.md`のS6を採用済み
   として削除（increment-73へ移管）。
-- 正本: `docs/increments/increment-73.md`。
+- 正本: `docs/history/increments/increment-73.md`。
 
 ### Increment 74 — TUI表示凍結の修正（実装完了、tmux検証済み）
 
@@ -525,7 +525,7 @@
 - B2（`/sessions`）: 別原因を特定し、**increment-75で修正済み**（下記）。
 - B3（PageUp履歴）: `a75bd052`は2 turn/24 messageのみで表示上限未到達。加えて利用者情報（2026-09-18）では
   「再現したりしなかったりする」＝間欠的。欠落の決定的証拠は未取得で、再現条件が必要。
-- 正本: `docs/increments/increment-74.md`（実装・検証・B2/B3結果まで反映済み）。inbox B1〜B3更新済み。
+- 正本: `docs/history/increments/increment-74.md`（実装・検証・B2/B3結果まで反映済み）。inbox B1〜B3更新済み。
 
 ### Increment 75 — `/sessions`一覧の耐性（実装完了）
 
@@ -539,7 +539,7 @@
   5件が一覧され`session list unavailable`が出ないことを確認。
 - 残観測（対象外）: 一覧5件は保存Definition digestが現行`builtin/default`（`e28fe12a…`）と異なりpickerで
   `unavailable`表示（exact revision契約による既知挙動）。過去build Sessionを削除するかは別途利用者判断。
-- 正本: `docs/increments/increment-75.md`。inbox B2更新済み。
+- 正本: `docs/history/increments/increment-75.md`。inbox B2更新済み。
 - B4（新規、利用者判断待ち）: `/sessions`は開くが既存Sessionのresumeが`session resume failed`。保存Definition
   digestが現行`builtin/default`と不一致で、roadmap F18（revision transition）未実装のため。原因は「履歴閲覧」と
   「Worker起動による継続」が同じ入口に混在し、`WorkerHostSession`先頭でref一致を要求していること
@@ -561,7 +561,7 @@
   なる（Worker generation 0個）。transcript/position/model/historyはrecordから返し、submit等のlive操作で初めて
   現行Definitionのgenerationを起動する。startup `--session`/`--continue`と`createNew`はeager。read-only閲覧
   overlay（`v`）はlazyとは別に残す。
-- 正本: `docs/increments/increment-76.md`（設計・正本変更・実装状況）。roadmap F18/architecture適用済み。
+- 正本: `docs/history/increments/increment-76.md`（設計・正本変更・実装状況）。roadmap F18/architecture適用済み。
   inbox B4更新済み。
 - 次: 利用者判断待ちなし。digest範囲変更はIncrement 77提案（下記）でHuman Gate待ち。
 
@@ -577,7 +577,7 @@
 - closure境界（#1）: externalと同様に`@henji/agent`（`worker_agent_api.ts`）をcontract境界として辿らず、
   type-only edgeを除外。builtin defaultのclosureはwrapperのみ、toolは自身の実装helperのみ。revisionは
   artifact identityでありbehavior変更の根拠にはしない（behaviorは観測）。
-- 正本: `docs/increments/increment-77.md`。roadmap F07とarchitecture適用済み。
+- 正本: `docs/history/increments/increment-77.md`。roadmap F07とarchitecture適用済み。
 - 次: 利用者判断待ちなし。
 
 ### Increment 79 — product正本とdelegation契約の整合（実装・検証完了）
@@ -588,7 +588,7 @@
   `v0:lint`、`git diff --check`はpass。変更はcommit済み。
 - 次: 利用者から明示依頼があればpushする。runtime protocolとprovider requestは不変で、installed binaryの
   rebuild・配置は未実施。
-- 正本: `docs/increments/increment-79.md`。
+- 正本: `docs/history/increments/increment-79.md`。
 - 注意: conceptの意味、通常利用メモ、live provider、実TTYは今回変更・検証していない。
 
 
@@ -602,7 +602,7 @@
   increment-79の「fmt pass」記載と不一致）と判明。利用者承認を得てdeno fmtで整形（意味変更なし）。
 - 次: なし。変更はcommit・push済み（`f3f22934`）。compiled binaryをclean treeからrebuildし`~/.local/bin/henji`へ
   原子的に配置済み（build `a2300b1d…`、source `f3f22934…`、version `0.2.1`）。
-- 正本: `docs/increments/increment-80.md`。inbox S7は削除済み。
+- 正本: `docs/history/increments/increment-80.md`。inbox S7は削除済み。
 - 注意: runtime protocol、provider request、Session/Definition schemaは不変（binaryはTUI表示変更を含むためrebuild）。
   roadmap F01への取得URL表示追記は未実施（roadmap変更は別承認）。
 
@@ -614,7 +614,7 @@
   91件pass。roadmap F01／F10／TUI節、architecture Surface記述、`v0/agent/README.md`も3行へ更新。
 - 次: なし。commit・push済み（`830fcc51`＝S8メモ、`69abbd2d`＝footer3行化）。compiled binaryをclean treeから
   rebuildし`~/.local/bin/henji`へ原子的に配置済み（build `f89e4500…`、source `69abbd2d…`、version `0.2.1`）。
-- 正本: `docs/increments/increment-81.md`。inbox S8（startup header表示候補）記録済み。
+- 正本: `docs/history/increments/increment-81.md`。inbox S8（startup header表示候補）記録済み。
 - 注意: Worker protocol、Presentation contract、Session schemaは不変。実TTYでの表示確認は未実施。
 
 ### Increment 82 — startup headerのbase instruction表記・skills複数行・時刻TZ追従（実装・検証・配置完了）
@@ -626,7 +626,7 @@
   更新日時を統一。focused test pass（JSTと`TZ=UTC`）。
 - 次: なし。commit・push済み（`c7ab8503`）。compiled binaryをclean treeからrebuildし`~/.local/bin/henji`へ原子的に
   配置済み（build `53bc1270…`、source `c7ab8503…`、version `0.2.1`）。
-- 正本: `docs/increments/increment-82.md`。inbox S8は未採用のMCP欄予約のみへ縮小。
+- 正本: `docs/history/increments/increment-82.md`。inbox S8は未採用のMCP欄予約のみへ縮小。
 - 注意: MCP欄は表示対象resourceが未採用のため実装しない。`/history export`・JSONL exportはISO UTCのまま
   （data artifact）。Worker protocol、Presentation contract、Session schemaは不変。実TTY確認は未実施。
 
@@ -638,7 +638,7 @@
 - 次: なし（Phase A完了）。commit・push済み（`9fce3c89`）。compiled binaryをclean treeからrebuildし
   `~/.local/bin/henji`へ原子的に配置済み（build `66d29bec…`、source `9fce3c89…`、version `0.2.1`）。次は
   Phase B（assistant本文レイアウト＋Markdownタグ着色、`**bold**`はSGR1）をIncrement 84で進める（利用者承認済み）。
-- 正本: `docs/increments/increment-83.md`。
+- 正本: `docs/history/increments/increment-83.md`。
 - 注意: 最終frameでstyleを注入する境界、canonical transcript、Presentation contractは不変。実TTY確認は未実施。
 
 ### Increment 84 — assistant本文の読みやすいレイアウトとMarkdownタグ着色（実装・検証・配置完了）
@@ -653,7 +653,7 @@
   rebuildし`~/.local/bin/henji`へ原子的に配置済み（build `72b073f0…`、source `1a472e19…`、version `0.2.1`）。
   実機で本文レイアウト・表・タグ着色を確認する。**roadmap F01/F10/TUI節、architecture Surface記述、
   `v0/agent/README.md`の正本更新は別承認**（increment-84計画に明記）。
-- 正本: `docs/increments/increment-84.md`。参照実装調査は`docs/research/terminal-markdown-rendering-comparison.md`
+- 正本: `docs/history/increments/increment-84.md`。参照実装調査は`docs/research/terminal-markdown-rendering-comparison.md`
   （parser外部ライブラリ化は未決メモ）。
 - 注意: 会話logのみ対象で、canonical transcript・`/history`・export・Presentation contractはplainのまま。
   長履歴での毎frame再parse性能は未確認。
@@ -667,7 +667,7 @@
 - 次: なし。commit・push済み（`d86c716e`＝inbox候補、`6a1b51e5`＝Increment 85）。compiled binaryをclean treeから
   rebuildし`~/.local/bin/henji`へ原子的に配置済み（build `d29f7b8e…`、source `6a1b51e5…`、version `0.2.1`）。
   実機でrecoverable表示（自動復元しない）と180秒deadlineを確認する。
-- 正本: `docs/increments/increment-85.md`。
+- 正本: `docs/history/increments/increment-85.md`。
 - 注意: `commit proposal invalid`の恒久diagnosticは未実装（B5）。Host runtime tunablesのconfig化はE3、recovery
   lane削除はS9、入力履歴のセッション横断保存/snippetはS10で別increment。隔離再現環境`/tmp/opencode/henji-repro`
   （credentialコピー0600を含む）が残っている。
@@ -684,7 +684,7 @@
 - 次: commit・push済み（`04efd19b`＝B6記録、`a2e7300d`＝Increment 86）。binaryは`a2e7300d`から配置済み。
   **残存課題**: 約`01:11`で16秒のstallが1回（同時刻は最大358件/秒のprovider観測バースト）。batchflushでは説明
   できず原因未特定。CPU profile等での追跡は未実施。tmux session `henjiv`（isolated XDG）は起動したまま。
-- 正本: `docs/increments/increment-86.md`（第三者レビュー結果と実product確認を記載）。
+- 正本: `docs/history/increments/increment-86.md`（第三者レビュー結果と実product確認を記載）。
 - 注意: 観測行のcoalesce（B）とTUI render別thread化（C）は対象外。B6は残存stallのため未クローズ（部分クローズ）。
 
 ### Increment 92 — auxiliary exact capture欠落とjournal failure停止の根本修正
@@ -696,7 +696,7 @@
   focused回帰と唯一のauthoritative `v0:gate`はexit 0。実provider compiled-CLI E2Eもexit 0で、root→web_search→root
   の3 request startと3 exact streams（auxiliary 491 bytes）がv6で対応し、executionはcompletedまでsettleした。
 - 次: 利用者によるIncrement完了判断。必要なら別途、binary build／配置を指示する。
-- 正本: `docs/increments/increment-92.md`（原因、review済み計画、実装結果、検証結果）。
+- 正本: `docs/history/increments/increment-92.md`（原因、review済み計画、実装結果、検証結果）。
 - 注意: E2E用一時binaryだけを`/tmp/henji-i92-e2e-build-qKNSjg`へbuildし、配置済みbinaryは変更していない。
   E2E証拠は`/tmp/henji-i92-e2e-run-vuszI7`。no-session settlement後のack journalがsettled v6 executionに拒否され、
   保存済みcontext manifestがあるのにartifactが`contextCapture: failed`へ上書きされる別問題を観測した。今回の停止は
@@ -722,7 +722,7 @@
   削除を明示許可した。state treeから`history-v4.sqlite3`／`history-v5.sqlite3`／`history-v6.sqlite3`（各-wal／-shm）
   と`locks-v4`／`locks-v5`／`locks-v6`を削除した（releaseは未実施）。
 - 次: なし。v7常用で具体的な利用上の観測が生じたら通常利用メモまたは新incrementへの採否を判断する。
-- 正本: `docs/increments/increment-94.md`（Slice A〜Gの実装結果、計測、Go判断、未確認範囲、完了・旧DB削除）。
+- 正本: `docs/history/increments/increment-94.md`（Slice A〜Gの実装結果、計測、Go判断、未確認範囲、完了・旧DB削除）。
 - 注意: v7は`history-v7.sqlite3`／`locks-v7`を使い、v6 migration、dual-read/write、fallbackを作らない。
   Human Gate 2は未発動で実provider diagnostic E2Eは未確認。今回確認した`e284da25`は`normal-v1`の1 turnであり、
   長期Sessionの処理量契約を単独で追加実証するものではない。通常review修正後のauthoritative `v0:gate`初回は追加test
@@ -743,7 +743,7 @@
 - 配置: `scripts/build_henji.ts`の`EXPECTED_DENO`を2.9.7へ変更（commit `70972d37`）し、clean commit
   `70972d37`からDeno 2.9.7で`dist/henji`をbuildして`~/.local/bin/henji`へ原子的に配置済み（build `3b202074…`、
   source `70972d37…`、SHA-256 `aa80dbf7…`、embedded runtime `44c6c625…`）。commit・push済み。
-- 正本: `docs/increments/increment-95.md`。inbox B3は本incrementへ採用し削除済み。
+- 正本: `docs/history/increments/increment-95.md`。inbox B3は本incrementへ採用し削除済み。
 - 注意: 履歴ビュー（`/history`、pickerの`v`）は`wrap`経由で元から正常で変更していない。roadmap／architectureは
   未変更。検証中に実stateへ作成した一時Sessionは削除済み（残存は`e284da25`／`db175b53`のみ）。
 
@@ -762,7 +762,7 @@
   rendering）は利用者判断で完了としinboxから削除。次increment候補はinboxの未採用一覧を参照。
 - 配置: commit `c3bfb157`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
   （build `3ff6f3c0…`、source `c3bfb157…`、SHA-256 `bf44b2c3…`、embedded runtime `eeccc928…`）。commit・push済み。
-- 正本: `docs/increments/increment-96.md`。
+- 正本: `docs/history/increments/increment-96.md`。
 - 注意: 履歴ビュー（`/history`）とPresentation contractは不変。table header cellの`bold` toneは維持。inbox S11／
   S12（`/history`の可読性・別プロセス参照viewer）は未採用候補として記録済み。
 
@@ -779,7 +779,7 @@
 - 次: 利用者によるIncrement完了判断。実TTY目視は未実施。
 - 配置: commit `053b60b0`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
   （build `c28c32f3…`、source `053b60b0…`、SHA-256 `4d85043c…`、embedded runtime `fb680c75…`）。commit・push済み。
-- 正本: `docs/increments/increment-97.md`。inbox S9は採用し削除済み。
+- 正本: `docs/history/increments/increment-97.md`。inbox S9は採用し削除済み。
 - 注意: 未消費steering／follow-upの救済は対象外（必要時に別途設計）。decoderの`unknownAfterBareEscape`で
   bare Esc直後の1回目のarrowがunknownになる挙動は既知で対象外。
 
@@ -801,7 +801,7 @@
   実provider確認は承認必須。
 - 配置: commit `fc81813d`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
   （build `e0472268…`、source `fc81813d…`、SHA-256 `6e2b0a8a…`、embedded runtime `b5b908dd…`）。commit・push済み。
-- 正本: `docs/increments/increment-98.md`。
+- 正本: `docs/history/increments/increment-98.md`。
 - 注意: list marker・table・見出し・強調の着色は維持。履歴ビュー（`/history`）は対象外。
 
 ### Increment 99 — `/history`廃止と`henji history` CLI統一（S11/S12統合、実装・検証完了）
@@ -819,7 +819,7 @@
   （build `73e5a7ae…`、source `3679b16b…`、SHA-256 `547415dd…`、embedded runtime `9dab6947…`）。installed binaryで
   `henji history --latest --view session|canonical|detail`、`--session e8e99332`（短縮ID prefix）、空XDGで
   `# no history` exit 0を確認。commit・push済み。`--session`は完全UUIDまたは8文字hex短縮IDのprefixを受け付ける。
-- 正本: `docs/increments/increment-99.md`（実装結果・検証を記載）。inbox S11／S12は本計画へ採用し削除済み。
+- 正本: `docs/history/increments/increment-99.md`（実装結果・検証を記載）。inbox S11／S12は本計画へ採用し削除済み。
 - 注意: `DenoHistoryExporter`／`DenoHumanHistoryExporter`クラスは残置（production未使用）。non-canonicalの
   人間可読viewは将来項目。F10の陳腐化更新は別承認。
 
@@ -838,7 +838,7 @@
 - 次: 利用者によるIncrement完了判断。実provider確認は未実施（承認必要）。
 - 配置: commit `2beb6351`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
   （build `2cf73932…`、source `2beb6351…`、SHA-256 `976d2e2c…`、embedded runtime `5d028555…`）。commit・push済み。
-- 正本: `docs/increments/increment-100.md`（原因・決定・修正・検証）。
+- 正本: `docs/history/increments/increment-100.md`（原因・決定・修正・検証）。
 - 注意: 実provider callは利用者承認が必要。Increment 99とは別。
 
 ### 環境・配置（再開時の注意）

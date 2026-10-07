@@ -246,6 +246,7 @@ export const createBashTool = (
   seams: BashToolSeams = {},
 ): Tool => ({
   name: 'bash',
+  fileAccess: 'unmanaged',
   description:
     "Run one Bash command in a fresh shell starting in the current workspace directory shown in Runtime facts. Shell state does not persist to later bash calls. The parent process environment is not inherited at startup; only PATH, LANG, and LC_ALL are set. If HOME or other variables are needed, specify them within that bash call's command. timeoutMs must be an integer from 1 to 120000 ms; default 30000 ms. An invalid arguments result means the command was not executed. Check the input schema and correct the arguments before retrying. stdout and stderr are captured separately. Truncated output can be continued with bash_output.",
   promptGuidelines: Object.freeze([

@@ -20,7 +20,7 @@ const scratch = `${scratchRoot}/scratch.txt`;
 const processes = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
 const registry = new Registry([
   createRunTypescriptTool({ root: workspaceRoot }, processes, {
-    allowedPaths: [],
+    allowedPaths: [workspaceRoot, '/tmp'],
     deniedPaths: [],
   }),
 ]);

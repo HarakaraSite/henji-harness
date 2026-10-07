@@ -36,8 +36,7 @@ deno task --config deno.v0.json henji:package
 ```
 
 packageは編集可能な`search`、`git_inspect`、`web_search`、`web_fetch`のtool folderと
-`runtime-start-time`
-hookを含む。package内の`install.sh`でbinaryの配置、tool登録、既定hookの有効化を
+`runtime-start-time` hookを含む。package内の`install.sh`でbinaryの配置、tool登録、既定hookの有効化を
 行う。本文検索はrgを優先し、不在時にgrepを使う。`git_inspect`はworkspaceのrepositoryを
 read-onlyで調べる。既存の外部sourceは対応する
 `--replace-tools`または`--replace-hooks`を指定しない限り維持する。配置先等は
@@ -59,8 +58,7 @@ sign-inもこの一覧にあり、認証情報（`chatgpt/`配下のtokenを含�
 `web_search`用のExaもこの一覧に含まれる。
 
 外部toolは`$henji_config_dir/credentials/*.json`へservice登録のmetadataを追加できる（宣言は
-非secretで、値はcredential root側に保存される）。たとえばBrave
-toolは次のように宣言する。
+非secretで、値はcredential root側に保存される）。たとえばBrave toolは次のように宣言する。
 
 ```json
 {
@@ -199,25 +197,22 @@ Agent JSONは`name`、任意の`revision`、`instruction`、`tools`、`agents`�
 （名前付きの`default`を含む）を選ぶ。`generic` childは同梱設定を自分の名前で使い、名前付きAgentの
 instructionを継承しない。設定fileはWorker起動ごとに読み直すため、編集は新しく開始する仕事へ反映される。
 
-同梱default/genericは6つの標準work
-tool、`read`、`write`、`edit`、`bash`、`bash_output`、
+同梱default/genericは6つの標準work tool、`read`、`write`、`edit`、`bash`、`bash_output`、
 `run_typescript`を選ぶ。明示したAgentの`tools`一覧で使うには`run_typescript`を加える。空配列は空のままとする。
 
-`run_typescript`はHenjiに埋め込んだDeno runtimeで、async
-TypeScript関数の本文を実行する。 呼出しごとに同じHenji
-binaryの子processを使い、取消時は同期計算中でもprocessの停止・清算を待つ。
+`run_typescript`はHenjiに埋め込んだDeno runtimeで、async TypeScript関数の本文を実行する。
+呼出しごとに同じHenji binaryの子processを使い、取消時は同期計算中でもprocessの停止・清算を待つ。
 `input`は任意JSON（省略時`null`）、`workspace`はworkspaceの絶対pathである。workspaceと`/tmp`の
-read/write、code自身のnetwork利用を許可する。code
-Workerのenv/run/sys/ffiは無効とする。
-JSON値を`return`して結果を返す。returnがなければ`null`となる。Deno
-stdと依存moduleは `await import()`から実行時に取得し、外部Deno
-CLIの導入やstdの事前同梱を要求しない。
+read/write、code自身のnetwork利用を許可する。code Workerのenv/run/sys/ffiは無効とする。
+JSON値を`return`して結果を返す。returnがなければ`null`となる。Deno stdと依存moduleは
+`await import()`から実行時に取得し、外部Deno CLIの導入やstdの事前同梱を要求しない。
 importは`jsr:@std/...`と`https://jsr.io/@std/...`のsourceと依存stdに限定する。
 他package、Node組込み、local file
 moduleは拒否し、import制限を継承しない追加Workerの作成も不可とする。
 通常の`fetch()`とJavaScriptの`eval()`は引き続き使える。
 
-例えば次のtool引数でCSV inputを解析し、結果をfileへ保存できる。`code`の先頭の一行コメントはtool行に表示される。
+例えば次のtool引数でCSV
+inputを解析し、結果をfileへ保存できる。`code`の先頭の一行コメントはtool行に表示される。
 
 ```json
 {
@@ -225,7 +220,6 @@ moduleは拒否し、import制限を継承しない追加Workerの作成も不�
   "input": "name,value\na,42\n"
 }
 ```
-
 
 ```sh
 henji agent list
@@ -326,6 +320,7 @@ import type { ToolFactory } from 'jsr:@henji/harness@0.11.0';
 
 const marker: ToolFactory = ({ workspace }) => ({
   name: 'marker',
+  fileAccess: 'none',
   description: `Mark files in ${workspace.root}`,
   inputSchema: { type: 'object' },
   execute: () => 'ok',
@@ -335,7 +330,8 @@ export default marker;
 ```
 
 `ToolFactory`と`ToolFactoryInput`は`jsr:@henji/harness@0.11.0`からimportする。単体binaryは既定の
-Agentとcore toolを同梱する。`search`、`git_inspect`、`web_search`、`web_fetch`はpackageの編集可能なfolderを
+Agentとcore
+toolを同梱する。`search`、`git_inspect`、`web_search`、`web_fetch`はpackageの編集可能なfolderを
 installerで登録する。名前付きのAgentとtool fileはconfig directoryから選択する。
 
 ## Links

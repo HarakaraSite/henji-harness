@@ -12,14 +12,6 @@ export interface TypescriptSandboxPaths {
   readonly configRoot?: string;
 }
 
-const uniquePaths = (...groups: readonly (readonly string[])[]): string[] => {
-  const paths: string[] = [];
-  for (const group of groups) {
-    for (const path of group) if (!paths.includes(path)) paths.push(path);
-  }
-  return paths;
-};
-
 interface WorkerReply {
   readonly ok: boolean;
   readonly result?: string;
@@ -90,8 +82,8 @@ export const executeTypescriptBody = async (
   context?: ToolContext,
 ): Promise<string> => {
   assertRunTypescriptCodeAllowed(code, sandbox.deny);
-  const readPaths = uniquePaths([workspace.root, '/tmp'], sandbox.read);
-  const writePaths = uniquePaths([workspace.root, '/tmp'], sandbox.write);
+  const readPaths = [...sandbox.read];
+  const writePaths = [...sandbox.write];
   const cache = await Deno.makeTempDir({
     dir: '/tmp',
     prefix: 'henji-typescript-',
@@ -184,7 +176,8 @@ export const executeTypescriptBody = async (
         type: 'module',
         deno: {
           permissions: {
-            read: readPaths,
+            // Module replies and std sources are internal IO for this call, not user-file roots.
+            read: [...new Set([...readPaths, cache])],
             write: writePaths,
             net: true,
             env: false,

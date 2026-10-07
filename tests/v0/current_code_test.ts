@@ -184,6 +184,7 @@ Deno.test('agent loop retains one terminal request-count snapshot beyond sixteen
     },
     new Registry([{
       name: 'continue',
+      fileAccess: 'none' as const,
       description: 'Continue to the next model step',
       inputSchema: {},
       execute: () => 'continued',
@@ -252,6 +253,7 @@ Deno.test('event sink mutation stays isolated from tool input and transcript', a
     },
     new Registry([{
       name: 'observe',
+      fileAccess: 'none' as const,
       description: 'Observe the supplied value',
       inputSchema: {},
       execute: (argumentsValue) => {
@@ -528,6 +530,7 @@ Deno.test('Worker composition materializes the configured tool implementation', 
       readMaterializations += 1;
       return {
         name: 'read',
+        fileAccess: 'none' as const,
         description: 'Configured read replacement',
         inputSchema: {
           type: 'object',

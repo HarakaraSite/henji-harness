@@ -1,5 +1,10 @@
 # Increment 40 — destructive SQLite canonical history cutover
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 ステータス: **完了（計画承認、実装、test、production受入、差分review済み）**
 
 基準commit: `b41346ab`

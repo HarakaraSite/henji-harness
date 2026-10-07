@@ -1,5 +1,10 @@
 # 通常利用 increment 6 — recoverable inputとwork tool component化
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 ステータス: 完了。local実装後のproduction利用で見つかったidle Ctrl-Cの端末設定不備を2026-09-07に修正し、
 focused verification、実端末経路、bounded review、authoritative offline gate、production retained TUI
 human gate、ユーザー受入を同日に完了。

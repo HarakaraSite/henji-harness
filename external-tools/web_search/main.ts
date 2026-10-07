@@ -32,6 +32,7 @@ const parseArguments = (value: JsonValue): WebSearchRequest => {
 
 const createWebSearchTool = (requestProvider: ProviderRequestFn): Tool => ({
   name: 'web_search',
+  fileAccess: 'none',
   description:
     'Search the public web with Exa. Return ordered source URLs, titles, page text or highlights, metadata, and optional synthesized output. Defaults to auto search with highlights.',
   inputSchema: EXA_SEARCH_INPUT_SCHEMA,

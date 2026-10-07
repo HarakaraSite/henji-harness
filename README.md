@@ -40,19 +40,17 @@ deno task --config deno.v0.json henji:package
 # Run install.sh in the package directory printed by the command above.
 ```
 
-The package includes editable `search`, `git_inspect`, `web_search`, and `web_fetch` tool folders and
-the
-`runtime-start-time` hook. Run its `install.sh` to install the binary, register the tools, and
-enable the default hook. Local search prefers rg and uses grep when rg is unavailable, and
-`git_inspect` inspects the workspace repository read-only. Existing
-external source edits are retained unless the corresponding `--replace-tools` or `--replace-hooks`
-option is specified. See the [package instructions](external-tools/README.md) for installation
-options.
+The package includes editable `search`, `git_inspect`, `web_search`, and `web_fetch` tool folders
+and the `runtime-start-time` hook. Run its `install.sh` to install the binary, register the tools,
+and enable the default hook. Local search prefers rg and uses grep when rg is unavailable, and
+`git_inspect` inspects the workspace repository read-only. Existing external source edits are
+retained unless the corresponding `--replace-tools` or `--replace-hooks` option is specified. See
+the [package instructions](external-tools/README.md) for installation options.
 
 Use `henji --help` and `henji COMMAND --help` to see the available commands and options.
 
-Save the OpenRouter API key for the default provider in a file readable only by its owner. Credential
-values live in the credential root under the state directory, not in the config root.
+Save the OpenRouter API key for the default provider in a file readable only by its owner.
+Credential values live in the credential root under the state directory, not in the config root.
 
 ```sh
 henji_credential_dir="${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/credentials"
@@ -66,8 +64,8 @@ tokens under `chatgpt/`) are saved in the same credential root. Exa is included 
 `web_search`.
 
 External tools can add service registration metadata in `$henji_config_dir/credentials/*.json`. The
-declarations are non-secret; values are stored in the credential root. For
-example, a Brave tool can declare:
+declarations are non-secret; values are stored in the credential root. For example, a Brave tool can
+declare:
 
 ```json
 {
@@ -216,27 +214,24 @@ root default; an explicit name selects that named catalog entry, including a nam
 Agent's instruction. Configuration files are read again when a new Worker starts, so edits apply to
 newly started work.
 
-The bundled default and generic Agents select six standard work tools: `read`,
-`write`, `edit`, `bash`, `bash_output`, and `run_typescript`. Explicit Agent
-`tools` lists must include `run_typescript` to use it; an empty list remains
-empty.
+The bundled default and generic Agents select six standard work tools: `read`, `write`, `edit`,
+`bash`, `bash_output`, and `run_typescript`. Explicit Agent `tools` lists must include
+`run_typescript` to use it; an empty list remains empty.
 
-`run_typescript` runs the body of an async TypeScript function with the Deno
-runtime embedded in Henji. Each call runs in a child process of the same Henji
-binary. Cancellation stops and settles that process, including synchronous
-computation, before the next task continues. `input` is optional JSON (default
-`null`); `workspace` is the absolute workspace root. Read/write access covers
-the workspace and `/tmp`, and code can access the network. Environment,
-subprocess, system and FFI permissions are disabled inside the code Worker.
-Return a JSON value; omitting `return` produces `null`. Use `await import()` to
-acquire Deno std and its dependencies at runtime, without installing an external
-Deno CLI or bundling std at build time. Imports accept only `jsr:@std/...` and
-`https://jsr.io/@std/...` sources, including their std dependencies. Other
-packages, Node built-ins, local file modules and additional Workers are
-unavailable. Ordinary `fetch()` and JavaScript `eval()` remain available.
+`run_typescript` runs the body of an async TypeScript function with the Deno runtime embedded in
+Henji. Each call runs in a child process of the same Henji binary. Cancellation stops and settles
+that process, including synchronous computation, before the next task continues. `input` is optional
+JSON (default `null`); `workspace` is the absolute workspace root. Read/write access covers the
+workspace and `/tmp`, and code can access the network. Environment, subprocess, system and FFI
+permissions are disabled inside the code Worker. Return a JSON value; omitting `return` produces
+`null`. Use `await import()` to acquire Deno std and its dependencies at runtime, without installing
+an external Deno CLI or bundling std at build time. Imports accept only `jsr:@std/...` and
+`https://jsr.io/@std/...` sources, including their std dependencies. Other packages, Node built-ins,
+local file modules and additional Workers are unavailable. Ordinary `fetch()` and JavaScript
+`eval()` remain available.
 
-For example, the tool arguments below parse CSV input and save the result. The
-code begins with the one-line purpose comment that the tool row shows:
+For example, the tool arguments below parse CSV input and save the result. The code begins with the
+one-line purpose comment that the tool row shows:
 
 ```json
 {
@@ -244,7 +239,6 @@ code begins with the one-line purpose comment that the tool row shows:
   "input": "name,value\na,42\n"
 }
 ```
-
 
 ```sh
 henji agent list
@@ -334,7 +328,8 @@ For detailed design and implementation status, see the
 [`@henji/harness`](https://jsr.io/@henji/harness) exposes the TypeScript tool factory API. Native
 binaries are not distributed from JSR. To use the CLI, build it from a repository checkout.
 
-The `jsr:@henji/harness@0.11.0/hooks` entrypoint exposes `HookFactory` and the hook lifecycle contract.
+The `jsr:@henji/harness@0.11.0/hooks` entrypoint exposes `HookFactory` and the hook lifecycle
+contract.
 
 In 0.x, APIs and contracts may change incompatibly, so specify an exact version.
 
@@ -347,6 +342,7 @@ import type { ToolFactory } from 'jsr:@henji/harness@0.11.0';
 
 const marker: ToolFactory = ({ workspace }) => ({
   name: 'marker',
+  fileAccess: 'none',
   description: `Mark files in ${workspace.root}`,
   inputSchema: { type: 'object' },
   execute: () => 'ok',
@@ -357,9 +353,8 @@ export default marker;
 
 Import `ToolFactory` or `ToolFactoryInput` from `jsr:@henji/harness@0.11.0`. The standalone binary
 bundles its default Agent and core tools. `search`, `git_inspect`, `web_search`, and `web_fetch` are
-supplied as
-editable folders in the package and registered by its installer. Named Agent and tool files are
-selected from the config directory.
+supplied as editable folders in the package and registered by its installer. Named Agent and tool
+files are selected from the config directory.
 
 ## Links
 

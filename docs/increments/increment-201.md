@@ -1,5 +1,10 @@
 # Increment 201 — 読み取り専用のinspection tool（git_inspect新設・search entries拡張）
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 状態: local実装・検証・常用config rootへの外部tool配置・commit・公式build・常用配置・pushまで完了
 （2026-10-06）。公式build（`henji:compile`）と常用配置は利用者指示で実施した。
 

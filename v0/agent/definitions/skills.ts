@@ -382,6 +382,7 @@ export const createSkillTool = (catalog: SkillCatalog): Tool => {
   const lookup = new Map(catalog.skills.map((skill) => [skill.name, skill.toolResult]));
   return {
     name: 'skill',
+    fileAccess: 'none',
     description: 'Load the saved instructions for one project skill listed in the system manifest.',
     inputSchema: {
       type: 'object',

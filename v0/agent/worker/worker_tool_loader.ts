@@ -18,21 +18,21 @@ import {
 } from '../tools/work_tools.ts';
 import { createBashOutputTool } from '../tools/bash_output.ts';
 import { createRunTypescriptTool } from '../tools/run_typescript.ts';
-import { loadRunTypescriptSandbox } from '../tools/run_typescript_sandbox.ts';
+import { loadToolPathsConfiguration, type ToolPathsConfiguration } from '../tools/tool_paths.ts';
 import { createAgentResourceIdentity } from '../definitions/resource_identity.ts';
 
-const bundledTool = async (
+const bundledTool = (
   name: string,
   input: ToolFactoryInput,
   configRoot: string | undefined,
-): Promise<Tool> => {
+): Tool => {
   switch (name) {
     case 'read':
-      return createReadTool(input.workspace);
+      return createReadTool({ ...input.workspace, pathPolicy: input.pathPolicy });
     case 'write':
-      return createWriteTool(input.workspace, input.workTools);
+      return createWriteTool({ ...input.workspace, pathPolicy: input.pathPolicy }, input.workTools);
     case 'edit':
-      return createEditTool(input.workspace, input.workTools);
+      return createEditTool({ ...input.workspace, pathPolicy: input.pathPolicy }, input.workTools);
     case 'bash':
       if (input.processExecutor === undefined) throw new Error('process executor is unavailable');
       return createBashTool(
@@ -45,11 +45,10 @@ const bundledTool = async (
       return createBashOutputTool(input.bashOutputStore);
     case 'run_typescript': {
       if (input.processExecutor === undefined) throw new Error('process executor is unavailable');
-      const sandbox = await loadRunTypescriptSandbox(configRoot);
       return createRunTypescriptTool(input.workspace, input.processExecutor, {
         ...(configRoot === undefined ? {} : { configRoot }),
-        allowedPaths: sandbox.allowedPaths,
-        deniedPaths: sandbox.deniedPaths,
+        allowedPaths: input.pathPolicy.allowedPaths,
+        deniedPaths: input.pathPolicy.auditDeniedPaths,
       });
     }
     case 'skill':
@@ -87,12 +86,16 @@ const validateTool = (value: unknown, name: string): Tool => {
     (!Array.isArray(tool.promptGuidelines) ||
       tool.promptGuidelines.some((text) => typeof text !== 'string'))
   ) throw new Error('Tool.promptGuidelines must be strings');
+  if (!['none', 'read', 'read-write', 'unmanaged'].includes(tool.fileAccess as string)) {
+    throw new Error('Tool.fileAccess must be none, read, read-write, or unmanaged');
+  }
   if (tool.terminal !== undefined && typeof tool.terminal !== 'boolean') {
     throw new Error('Tool.terminal must be a boolean');
   }
   // Retain one startup declaration together with its executor; later edits cannot mutate it.
   return Object.freeze({
     name: tool.name,
+    fileAccess: tool.fileAccess as Tool['fileAccess'],
     description: tool.description,
     inputSchema: structuredClone(tool.inputSchema),
     ...(tool.promptGuidelines === undefined
@@ -106,17 +109,23 @@ const validateTool = (value: unknown, name: string): Tool => {
 export interface LoadedWorkerTool {
   readonly selection: ToolSelection;
   readonly tool: Tool;
+  readonly pathPolicy: ToolFactoryInput['pathPolicy'];
 }
 
 /** Imported modules/factories and Tools never cross the Host/Worker boundary. */
 export const loadWorkerTools = async (
   selections: readonly ToolSelection[],
-  input: ToolFactoryInput,
-  bundled: { readonly configRoot?: string } = {},
+  input: Omit<ToolFactoryInput, 'pathPolicy'>,
+  bundled: { readonly configRoot?: string; readonly credentialRoot?: string } = {},
 ): Promise<{
   readonly accepted: readonly LoadedWorkerTool[];
   readonly rejections: readonly ConfigurationRejection[];
+  readonly pathConfiguration: ToolPathsConfiguration;
 }> => {
+  const pathConfiguration = await loadToolPathsConfiguration({
+    workspaceRoot: input.workspace.root,
+    ...bundled,
+  });
   const accepted: LoadedWorkerTool[] = [];
   const rejections: ConfigurationRejection[] = [];
   for (const selection of selections) {
@@ -127,6 +136,8 @@ export const loadWorkerTools = async (
       input.skillCatalog.skills.length === 0
     ) continue;
     try {
+      const pathPolicy = pathConfiguration.forTool(selection.name);
+      const factoryInput: ToolFactoryInput = { ...input, pathPolicy };
       let tool: unknown;
       if (selection.source === 'external') {
         if (selection.entry === undefined) throw new Error('external tool entry is unavailable');
@@ -134,16 +145,26 @@ export const loadWorkerTools = async (
         if (typeof module.default !== 'function') {
           throw new Error('module default export must be a tool factory');
         }
-        tool = await module.default(input);
+        tool = await module.default(factoryInput);
       } else {
-        tool = await bundledTool(selection.name, input, bundled.configRoot);
+        tool = bundledTool(selection.name, factoryInput, bundled.configRoot);
       }
-      accepted.push(Object.freeze({ selection, tool: validateTool(tool, selection.name) }));
+      const validated = validateTool(tool, selection.name);
+      const configured = validated.fileAccess === 'read' || validated.fileAccess === 'read-write'
+        ? Object.freeze({
+          ...validated,
+          description: validated.description + '\n\nFile access: allow ' +
+            JSON.stringify(pathPolicy.allowedPaths) + '; common deny ' +
+            JSON.stringify(pathPolicy.deniedPaths) + '.',
+        })
+        : validated;
+      accepted.push(Object.freeze({ selection, tool: configured, pathPolicy }));
     } catch (error) {
       rejections.push(configurationRejection('tool', selection.name, error, selection.entry));
     }
   }
   return Object.freeze({
+    pathConfiguration,
     accepted: Object.freeze(accepted),
     rejections: Object.freeze(rejections),
   });

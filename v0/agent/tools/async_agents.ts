@@ -171,6 +171,7 @@ export const createAsyncAgentTools = (
   }. Use openai-chatgpt for a ChatGPT account route; model IDs are selected separately.`;
   const spawn: Tool = {
     name: 'spawn_subagent',
+    fileAccess: 'none',
     description:
       'Start one async child agent run for an explicit task and return its runId immediately. The child runs in a separate execution; it does not share this conversation. Call collect_subagent to read its result.',
     inputSchema: {
@@ -274,6 +275,7 @@ export const createAsyncAgentTools = (
   };
   const status: Tool = {
     name: 'subagent_status',
+    fileAccess: 'none',
     description:
       'Read one async child run by runId: lifecycle state, agent name, latest observed model/tool activity and update time. This is a snapshot, not the final answer or a periodic report. Keep doing independent work before calling collect_subagent, which waits for completion.',
     inputSchema: {
@@ -299,6 +301,7 @@ export const createAsyncAgentTools = (
   };
   const collect: Tool = {
     name: 'collect_subagent',
+    fileAccess: 'none',
     description:
       'Wait for one async child run to reach a terminal state and return its result. The result enters this conversation only through this tool result.',
     inputSchema: {
@@ -318,6 +321,7 @@ export const createAsyncAgentTools = (
   };
   const cancel: Tool = {
     name: 'cancel_subagent',
+    fileAccess: 'none',
     description: 'Cancel one async child run by runId.',
     inputSchema: {
       type: 'object',

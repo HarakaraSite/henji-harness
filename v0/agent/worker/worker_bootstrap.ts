@@ -523,6 +523,7 @@ const createGeneration = async (
   const configured = await createConfiguredWorkerComposition(selection, {
     workspace,
     configRoot,
+    credentialRoot,
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,

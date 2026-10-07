@@ -1,4 +1,5 @@
 import {
+  createToolPathPolicy,
   type JsonValue,
   type ProviderRequestFn,
   type Tool,
@@ -37,7 +38,11 @@ export const createProviderFreeWebSearchBackend = (): WebSearchBackend => ({
 });
 
 export const createWebSearchToolWithProvider = (requestProvider: ProviderRequestFn): Tool =>
-  webSearchFactory({ requestProvider } as unknown as ToolFactoryInput);
+  webSearchFactory({
+    requestProvider,
+    workspace: { root: Deno.cwd() },
+    pathPolicy: createToolPathPolicy(Deno.cwd(), [], []),
+  } as unknown as ToolFactoryInput);
 
 /** Adapter for focused tests that want a deterministic result without HTTP dispatch. */
 export const createWebSearchTool = (backend: WebSearchBackend): Tool =>

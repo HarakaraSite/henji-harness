@@ -100,14 +100,14 @@
 | [26](increments/increment-26.md) | Compaction provider failure diagnostic | 104 | アーカイブ済み | **完了** | — |
 | [27](increments/increment-27.md) | Retained TUI描画への一本化 | 129 | アーカイブ済み | **完了** | — |
 | [28](increments/increment-28.md) | Busy経過時間とSession識別情報 | 89 | アーカイブ済み | **完了** | — |
-| [29](../increments/increment-29.md) | 自動context変換の停止 | 89 | 現在位置に保留 | **完了** | [docs/experience/normal-use-inbox.md:250](../experience/normal-use-inbox.md) |
+| [29](increments/increment-29.md) | 自動context変換の停止 | 89 | 現在位置に保留 | **完了** | [docs/experience/normal-use-inbox.md:250](../experience/normal-use-inbox.md) |
 | [30](increments/increment-30.md) | 履歴表示の一貫性と検索試行の取り下げ | 82 | アーカイブ済み | **完了** | — |
 | [31](increments/increment-31.md) | セッション開始時のヘッダー充実 | 95 | アーカイブ済み | **完了** | — |
 | [32](increments/increment-32.md) | standalone executableとexternalization共通境界 | 364 | アーカイブ済み | **完了 — 2026-09-11** | [docs/roadmap-inputs/increment-32-33-initial-plan-review.md:17](../roadmap-inputs/increment-32-33-initial-plan-review.md) |
 | [33](increments/increment-33.md) | local managed Agent Definition revision | 383 | アーカイブ済み | **利用者確認済み・完了（2026-09-12）** | [docs/roadmap-inputs/increment-32-33-initial-plan-review.md:17](../roadmap-inputs/increment-32-33-initial-plan-review.md) |
 | [34](increments/increment-34.md) | Definition revision transport | 234 | アーカイブ済み | **完了 — 利用者確認済み（2026-09-12）** | — |
 | [35](increments/increment-35.md) | TUI `/new` Session creation | 183 | アーカイブ済み | **完了** | [docs/increments/increment-133.md:183](../increments/increment-133.md) |
-| [37](../increments/increment-37.md) | 外部情報調査のtool・source選択instruction | 177 | 現在位置に保留 | **完了（Human Gate実施・context課題を分離）** | [docs/experience/normal-use-inbox.md:294](../experience/normal-use-inbox.md) |
+| [37](increments/increment-37.md) | 外部情報調査のtool・source選択instruction | 177 | 現在位置に保留 | **完了（Human Gate実施・context課題を分離）** | [docs/experience/normal-use-inbox.md:294](../experience/normal-use-inbox.md) |
 | [38](increments/increment-38.md) | stopped execution recall | 316 | アーカイブ済み | **完了（2026-09-12）** | — |
 | [39](increments/increment-39.md) | cancellation stream settlement | 97 | アーカイブ済み | **完了** | — |
 | [40](increments/increment-40.md) | destructive SQLite canonical history cutover | 354 | アーカイブ済み | **完了（計画承認、実装、test、production受入、差分review済み）** | [docs/roadmap-inputs/durable-history-and-context-rebuild.md:298](../roadmap-inputs/durable-history-and-context-rebuild.md) |

@@ -20,6 +20,7 @@ Deno.test('Worker composition materializes and dispatches a selected tool', asyn
       materializations += 1;
       return {
         name: 'custom_fetch',
+        fileAccess: 'none' as const,
         description: 'custom fetch',
         inputSchema: { type: 'object' },
         execute: () => 'custom fetch result',

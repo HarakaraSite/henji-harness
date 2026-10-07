@@ -2,10 +2,11 @@ import {
   CancellationCleanupError,
   type ToolFactory,
   ToolInputError,
+  type ToolPathPolicy,
   TurnCancelledError,
 } from '@henji/tool';
 import type { JsonValue, ProcessOperation, Tool } from '@henji/tool';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import {
   GREP_EXECUTABLE,
   RIPGREP_EXECUTABLE,
@@ -76,7 +77,7 @@ const searchSchema = {
     path: {
       type: 'string',
       description:
-        'Workspace file or directory, relative or absolute inside the workspace; defaults to the workspace root.',
+        'File or directory under the search tool allowed paths. Relative paths are workspace-based; the default allow is /. Common-denied paths are excluded.',
     },
     glob: {
       type: 'string',
@@ -196,14 +197,19 @@ const parseArguments = (value: JsonValue): SearchArguments => {
   };
 };
 
-const within = (root: string, target: string): boolean => {
-  const fromRoot = relative(root, target);
-  return fromRoot === '' ||
-    (fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot));
-};
-
 const workspaceRelative = (root: string, target: string): string =>
   relative(root, target).split(sep).join('/');
+
+const searchScopePath = async (
+  scopePath: string,
+  pathPolicy: ToolPathPolicy,
+): Promise<string> => {
+  // The lexical result expands ~ and retains symlink aliases for reported paths.
+  const absolute = await pathPolicy.resolve(scopePath, { followSymlinks: false });
+  // Default resolution also checks that an existing symlink's actual target is allowed.
+  await pathPolicy.resolve(scopePath);
+  return absolute;
+};
 
 const globRegExp = (glob: string): RegExp => {
   let source = '^';
@@ -237,14 +243,11 @@ const globRegExp = (glob: string): RegExp => {
 };
 
 const enumerateFiles = async (
-  workspaceRoot: string,
   scopePath: string,
+  pathPolicy: ToolPathPolicy,
   signal?: AbortSignal,
 ): Promise<string[]> => {
-  const absolute = resolve(workspaceRoot, scopePath);
-  if (!within(workspaceRoot, absolute)) {
-    throw new ToolInputError('path must stay within the workspace');
-  }
+  const absolute = await searchScopePath(scopePath, pathPolicy);
   const scopeInfo = await Deno.stat(absolute);
   const files: string[] = [];
   if (scopeInfo.isFile) return [absolute];
@@ -260,6 +263,7 @@ const enumerateFiles = async (
       for await (const entry of Deno.readDir(directory)) {
         if (signal?.aborted) throw new TurnCancelledError();
         const child = resolve(directory, entry.name);
+        if (!await pathPolicy.allows(child)) continue;
         let info: Deno.FileInfo;
         try {
           info = await Deno.stat(child);
@@ -305,12 +309,10 @@ const enumerateEntries = async (
   workspaceRoot: string,
   scopePath: string,
   depth: number,
+  pathPolicy: ToolPathPolicy,
   signal?: AbortSignal,
 ): Promise<EntryRecord[]> => {
-  const absolute = resolve(workspaceRoot, scopePath);
-  if (!within(workspaceRoot, absolute)) {
-    throw new ToolInputError('path must stay within the workspace');
-  }
+  const absolute = await searchScopePath(scopePath, pathPolicy);
   const scopeInfo = await Deno.lstat(absolute);
   if (!scopeInfo.isDirectory) {
     throw new ToolInputError('path must name a directory for the entries mode');
@@ -326,6 +328,7 @@ const enumerateEntries = async (
       for await (const entry of Deno.readDir(directory)) {
         if (signal?.aborted) throw new TurnCancelledError();
         const child = resolve(directory, entry.name);
+        if (!await pathPolicy.allows(child)) continue;
         let info: Deno.FileInfo;
         try {
           info = await Deno.lstat(child);
@@ -941,8 +944,9 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
   }
   return {
     name: 'search',
+    fileAccess: 'read',
     description: [
-      'List, find, search, and count workspace files without bash. Use entries for ls-style directory listings with type, bytes, and modification time; paths for recursive file lists (find or rg --files); files for matching file paths (rg -l); content for matching lines (grep or rg); count for pattern occurrences; stats for wc-style line, word, and byte counts per file. paths and files return the file count in total. Examples: {"mode":"entries","path":"src"}, {"mode":"stats","path":"README.md"}, {"mode":"content","path":"src","pattern":"TODO"}.',
+      'List, find, search, and count files under the configured search paths without bash. The default allow is /. Common-denied paths are skipped during traversal; directly targeting a denied path is rejected. Use entries for ls-style directory listings with type, bytes, and modification time; paths for recursive file lists (find or rg --files); files for matching file paths (rg -l); content for matching lines (grep or rg); count for pattern occurrences; stats for wc-style line, word, and byte counts per file. paths and files return the file count in total. Examples: {"mode":"entries","path":"src"}, {"mode":"stats","path":"README.md"}, {"mode":"content","path":"src","pattern":"TODO"}.',
       'stats accepts a file or recursively lists a directory, applies glob, and returns records with path, lines, words, and bytes. Lines count LF newlines (a trailing partial line is not counted). Words are nonempty UTF-8 sequences separated by Unicode White_Space, independent of locale; invalid UTF-8 is decoded with replacement characters. stats reads all selected files, including databases and binary files, without the content-search exclusions.',
       'Content searches exclude database files and NUL-containing binary blobs. Use run_typescript or database tooling for database/blob contents; stats can still count these files. Hidden, ignored, and dependency text files are included. File and directory symlinks are followed; a directory cycle is visited only once on its current traversal path. entries reports symlinks without following symlinked directories.',
       'Optional glob is a Henji path filter, not an rg argument: without a slash it matches a basename at any depth; with a slash it matches the workspace-relative path. * matches within a component, ** crosses components, and ? matches one character. A leading ! is not an exclusion.',
@@ -951,7 +955,7 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
     ].join('\n\n'),
     inputSchema: searchSchema,
     promptGuidelines: [
-      'Use search instead of bash ls, find, grep, rg, or wc for supported workspace listing, discovery, text search, and file counts. Use entries for direct directory children and metadata; paths for recursive file lists; files for matching file paths; content for matching lines; count for pattern occurrences; stats for file line, word, and byte counts.',
+      'Use search instead of bash ls, find, grep, rg, or wc for supported file listing, discovery, text search, and file counts, including paths outside the workspace within the configured allow. Use entries for direct directory children and metadata; paths for recursive file lists; files for matching file paths; content for matching lines; count for pattern occurrences; stats for file line, word, and byte counts.',
       'Read total from paths for the number of files, or from files for the number of matching files; do not pipe a listing into wc. count returns matchCount (occurrences), not file lines or words. stats returns per-file lines, words, and bytes.',
       'Choose the smallest relevant path/glob for the question. glob is a Henji include filter; leading ! exclusions are not supported. Refine the scope when truncated is true; do not treat a partial count or totalIsExact:false as the full total.',
     ],
@@ -963,13 +967,14 @@ const createSearchTool = (input: Parameters<ToolFactory>[0]): Tool => {
           root,
           args.path,
           args.depth ?? 1,
+          input.pathPolicy,
           context?.signal,
         );
         return pagePayload(args, filterEntries(entries, args.glob), undefined);
       }
       const candidates = filterFiles(
         root,
-        await enumerateFiles(root, args.path, context?.signal),
+        await enumerateFiles(args.path, input.pathPolicy, context?.signal),
         args.glob,
       );
       if (args.mode === 'stats') {

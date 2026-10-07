@@ -1,3 +1,4 @@
+import type { ToolFileAccess } from './tool_paths.ts';
 import { captureFailureDetails } from '../core/failure_details.ts';
 import type { BashOutputStore } from './bash_output.ts';
 import {
@@ -22,6 +23,7 @@ import {
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../resource_limits.ts';
 
 export interface Tool {
+  readonly fileAccess: ToolFileAccess;
   readonly name: string;
   readonly description: string;
   readonly inputSchema: JsonValue;
@@ -231,6 +233,7 @@ const MAX_JSON_RESULT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 
 export const createJsonResultSubmissionTool = (): Tool => ({
   name: 'submit_json_result',
+  fileAccess: 'none',
   description: SUBMIT_JSON_RESULT_DESCRIPTION,
   terminal: true,
   inputSchema: {
@@ -284,6 +287,7 @@ export const createJsonResultSubmissionTool = (): Tool => ({
 
 export const createFixtureTool = (): Tool => ({
   name: 'uppercase_text',
+  fileAccess: 'none',
   description: 'Convert one input text to uppercase.',
   inputSchema: {
     type: 'object',
@@ -305,6 +309,7 @@ export const createFixtureTool = (): Tool => ({
 
 export const createCharacterCountTool = (): Tool => ({
   name: 'character_count',
+  fileAccess: 'none',
   description: 'Count Unicode code points in one input text.',
   inputSchema: {
     type: 'object',
@@ -334,6 +339,7 @@ export const createJsonObjectKeysTool = (
   options: JsonObjectKeysToolOptions,
 ): Tool => ({
   name: 'list_json_object_keys',
+  fileAccess: 'read',
   description: 'List the sorted keys of one object in an explicitly allowed local JSON file.',
   inputSchema: {
     type: 'object',
@@ -383,6 +389,7 @@ export const createJsonObjectKeysTool = (
 
 export const createJsonArrayCountTool = (): Tool => ({
   name: 'count_json_array_items',
+  fileAccess: 'none',
   description: 'Count the items in one JSON array string.',
   inputSchema: {
     type: 'object',

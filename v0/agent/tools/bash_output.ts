@@ -633,6 +633,7 @@ const isObject = (value: JsonValue): value is Record<string, JsonValue> =>
 
 export const createBashOutputTool = (store: BashOutputStore): Tool => ({
   name: 'bash_output',
+  fileAccess: 'none',
   description:
     'Read a saved stdout or stderr window from a prior truncated bash result. Reuse its exact outputId, stream, and nextOffset until complete is true.',
   promptGuidelines: Object.freeze([

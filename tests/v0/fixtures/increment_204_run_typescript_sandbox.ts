@@ -30,7 +30,7 @@ const processes = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
 const registry = new Registry([
   createRunTypescriptTool({ root: workspaceRoot }, processes, {
     configRoot,
-    allowedPaths: [extraRoot],
+    allowedPaths: [workspaceRoot, '/tmp', configRoot, extraRoot],
     deniedPaths: [
       `${configRoot}/denied-by-config.txt`,
       '~/.config/henji-harness/denied-by-config.txt',

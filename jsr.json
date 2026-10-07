@@ -55,6 +55,7 @@
       "v0/agent/tools/bash_tool.ts",
       "v0/agent/tools/file_tools.ts",
       "v0/agent/tools/tools.ts",
+      "v0/agent/tools/tool_paths.ts",
       "v0/agent/tools/work_tool_contract.ts",
       "v0/agent/tools/work_tool_file_io.ts",
       "v0/agent/tools/work_tool_value.ts",

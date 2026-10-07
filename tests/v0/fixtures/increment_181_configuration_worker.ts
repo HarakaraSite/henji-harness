@@ -43,6 +43,7 @@ scope.onmessage = async ({ data }) => {
       processes = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
       configured = await createConfiguredWorkerComposition(selected, {
         workspace,
+        configRoot: data.configRoot,
         agentInstructions: instructions?.formatted,
         skillCatalog: await discoverSkills(workspace.root, undefined, {}),
         physicalIo: { ...createProviderFreePhysicalIo(), processExecutor: processes },

@@ -2,18 +2,31 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-07（source `68ab5dd0`。S20・A34・B5の現行境界を追加照合）。 基盤の照合:
+更新日: 2026-10-07（source `68ab5dd0`。S20・B5の現行境界を追加照合）。 基盤の照合:
 2026-10-05、source `a78c2076`・Increment 182まで。S26はIncrement 183、A18はIncrement
 185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設。
-2026-10-06にA30・A31を追加し、A32・A33はIncrement 200・201へ採用・移設（A32: review用Agentの
+2026-10-06にA31を追加し、A32・A33はIncrement 200・201へ採用・移設（A32: review用Agentの
 tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。 B12はIncrement
-203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。 A30へは保存Session
-`0cd5c22e`・`2bc2699f`の分析結果も追記した。
+203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。
 2026-10-06にA19（requestごとの実行状況・日時・地域context）は利用者判断で不採用とし、
 候補一覧と本項目を削除した。
-
 2026-10-07にS32・S37は[Increment 211](../increments/increment-211.md)、S36は
-[Increment 212](../increments/increment-212.md)へ採用・移設した。S35は利用者方針により取り下げた。
+[Increment 212](../increments/increment-212.md)へ採用・移設した。順序は211の実表示・操作確認後に212。
+同日にS35はS36を進める方針のため取り下げ、候補一覧と本項目を削除した。
+同日にA34（再起動後の続行Sessionで新規toolがmodel定義に現れない疑い）は、利用者が対応しないと決定し、
+候補一覧と本項目を削除した。追加調査・修正は行わない。
+同日にA36（非同期の書記官subagentへメモ・handoff更新を任せる案）を、後で試すためのメモとして追加した。
+同日にA35とsubagentの制御・待機に関する相談をA24へ統合した。人間による子の個別キャンセルは当面対象外。
+同日にS4（`/reload`によるinstruction・Agent設定・toolの再読込）は、Core再起動で更新を反映する
+運用で足りるため利用者判断で不採用とし、候補一覧と本項目を削除した。
+同日にA9（Sessionと関連履歴の保存期間・一括整理、旧P7を統合）は利用者判断で不採用とし、
+候補一覧と本項目を削除した。Sessionと関連履歴は人間が自発的に個別削除しない限り保持する。
+保存期限・自動削除・専用の一括整理機能は設けず、大量整理が必要になった場合は、その都度人間が
+AgentへDB操作を依頼する。
+同日にA30（tool間の結果連鎖）は現時点では不要との利用者判断で取り下げ、候補一覧・本項目・
+関連参照を削除した。
+同日にA31（workspace外のファイルアクセス境界）は[Increment 213](../increments/increment-213.md)へ
+採用・移設した。共通deny、tool別allow、外部toolへの共通API、bashの対象外扱いを実装する。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -35,7 +48,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 
 | ID  | 領域           | 候補                                                                                          | 再検討の主な契機                                                                                                       |
 | --- | -------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                                           | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
 | S20 | Surface        | 巨大表示領域での画面サイズ・frame上限の見直し                                                 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                                               | browserから通常利用する画面が必要になるとき                                                                            |
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                                       | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
@@ -44,16 +56,12 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                                     | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                                                      | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                                    | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
-| A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                                   | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
 | A11 | Agent実行      | instructionの与え方                                                                           | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                                         | 実行中に追加の指示を続けて送りたいとき                                                                                 |
-| A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                                       | 利用者が起動判断の検討を再開するとき                                                                                   |
+| A24 | Agent実行      | subagentの委譲と実行中の制御・待機（旧A35を統合）                                            | 利用者が委譲・進捗・追加指示・時間管理・待機方法の改善を個別incrementへ採用するとき                                   |
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                                  | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback                                       | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
-| A30 | Agent実行      | tool間の結果連鎖（tool resultを別toolの入力にできない）。利用者は安易なパイプ連結を希望しない | パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき                                             |
-| A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                                               | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき              |
-| A34 | Agent実行      | 再起動後の続行セッションで新規toolがmodel定義に現れない疑い                                   | 新規セッションで再確認し、同じ現象なら定義更新の経路を調査するとき                                                     |
-| A35 | Agent実行      | 子agentの時間上限と期限での自動キャンセル                                                     | review等の時間上限をruntimeで実行したいとき                                                                            |
+| A36 | Agent実行      | 非同期の書記官subagentによるメモ・handoff更新                                                 | 利用者が既存subagent経路で試すことを指示するとき。今回はメモのみ                                                       |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                                    | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                                            | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                                             | tool candidateを生成・保存・採用するflowを設計する                                                                     |
@@ -71,29 +79,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                                                  | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
 
 ## Surface
-
-### S4 — `/reload`によるinstruction・Agent設定・toolの再読込（F01、F03、F08、F10、F11、F27）
-
-- 現行の観測（2026-10-04、source照合）: workspace instructionとskill本文はWorker起動時に
-  snapshot化され、toolも起動時に読み込まれる。稼働中Workerへの明示的な再読込操作はない。
-- 利用者方針（2026-10-03、個別incrementへの採用・実装は未実施）:
-  操作名を`/rebuild`から`/reload`へ変更する。
-  Agent設定・tool管理の簡素化、revisionの扱い、新DBへの整理は
-  [Increment 181](../increments/increment-181.md)の現在file読込み・snapshot方式を前提にし、S4の再読込操作とは区別する。
-- 候補:
-  起動時の読込・検証・構成と共通の経路を人間の`/reload`から使い、instruction・Agent設定・toolの
-  現在内容を同じSessionの後続executionへ適用する。canonical
-  conversation、未送信draft、過去executionと そのattributionを維持する。
-- 未決事項:
-  最初の再読込対象、実行間の適用手順、読込失敗時の扱い、現在のWorkerとの接続を個別incrementで
-  定める。2026-09-13の`AGENTS.md`と個々のnative Skillの有効・無効選択の希望についても、保存scope、
-  既定状態、操作との関係は未確定である。
-- 再検討条件: `/reload`を個別incrementへ採用するとき、または通常利用で同じSessionへ
-  編集内容を反映する必要が出ること。
-- 関連: A2、R4、E1、[Increment 181](../increments/increment-181.md)、
-  [`terminal-markdown-rendering-comparison.md`](../research/terminal-markdown-rendering-comparison.md)、
-  [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
-  [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
 
 ### S20 — 巨大表示領域での画面サイズ・frame上限の見直し（F01）
 
@@ -168,6 +153,7 @@ Pi／OpenCode／Henjiの画面表示比較
   Increment 128／130の履歴閲覧・履歴位置表示と整合しない。描画コストも本質的には変わらない
   （Piもdocument全体を毎frame計算）。 再検討条件:
   履歴閲覧の要求が現行window方式で満たせなくなったとき。
+  2026-10-07の利用者による再検討は[Increment 212](../increments/increment-212.md)へ移設した。上記は調査当時の見送り理由である。
 - message jump（Pi／OpenCodeのmessage単位移動）: 利用者判断でP2として除外済み（PageUpの方が手軽）。
   調査記録に残す。
 - テーマ／256 color／truecolor:
@@ -199,7 +185,6 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: AIがSession列挙・詳細取得・選択、またはreloadを実taskで必要とすること。
   またはAgentが後続turnのmodelを自分で変える必要が実taskで現れること。UIだけに意味があるcommandや
   人間の明示選択が目的のcommandまで一律にtool化しない。
-- 関連: S4。
 
 ### A3 — Context Strategyの外部化（F02、F06、将来のF24候補）
 
@@ -224,7 +209,7 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 長期Sessionの実token usage、provider/model
   context契約、turn中/間checkpointを比較できる 利用証拠が得られること。
 - 正本:
-  [`increment-29.md`](../increments/increment-29.md)は既に停止した挙動と維持するcheckpoint境界を定める。
+  [`increment-29.md`](../history/increments/increment-29.md)は既に停止した挙動と維持するcheckpoint境界を定める。
 
 ### A5 — ambient情報のinstruction化（repository context・実行環境）（F02、F06）
 
@@ -268,30 +253,8 @@ Pi／OpenCode／Henjiの画面表示比較
 - 状態（2026-09-22）: 利用者判断で継続して要観察。trigger未発火のため実装しない。
 - 統合記録: 旧A16「bash
   tool実行のambient情報をinstructionで持つ」（2026-09-26記録）はこの項目へ統合。
-- 正本: [`increment-37.md`](../increments/increment-37.md)が観測した実行証拠と完了判断を保持する。
+- 正本: [`increment-37.md`](../history/increments/increment-37.md)が観測した実行証拠と完了判断を保持する。
 - 関連: A11（instructionの与え方）、R3、E3、`v0/agent/tools/bash_tool.ts`、AGENTS.md「実行環境」。
-
-### A9 — Sessionと関連履歴の保存・削除（旧P7を統合、未採用）
-
-- 現行境界: Increment 121で常設raw診断記録を廃止し、短いrequest
-  factをsemantic履歴の一部として保存する。
-  `henji sessions delete --session ID --yes`による個別削除は実装済みで、Sessionに紐づくexecution、
-  semantic履歴・request fact、recall参照関係も同じtransactionで削除する。
-- 利用者判断（2026-09-27）: 診断記録の保存期間と旧P7 `sessions prune`を一つの検討事項へ統合する。
-  Sessionと関連履歴を一体の保存・削除単位として扱う。診断factだけを消すと履歴の詳細表示や`/recall`の
-  失敗原因の手掛かりが欠け、Sessionだけを消して関連履歴を残すと、一覧からの削除と実際の保存状態が
-  食い違うため、両者を別々の保存期間で整理する方針は採らない。
-- 候補: 残すSessionと削除対象の選び方、一括整理（`sessions prune`）、保存期間を
-  まとめて検討する。期限による自動削除を提供するかは別途判断し、現時点で期間や自動削除は決めない。
-- 手動個別削除のTUI操作は[Increment 161](../increments/increment-161.md)へ採用した。
-  本項目の残候補は保存方針と一括整理である。
-- 旧P7の利用者判断（2026-09-22）: 一括整理は将来採用見込み。採用時に削除対象の確認（`--dry-run`）と
-  明示confirmを設計する。今回の統合は候補の整理であり、採用・実装や既存dataの削除を意味しない。
-- 再検討条件:
-  古いSessionの整理や、Sessionと関連履歴をいつまで残すかを決める必要が通常利用で出たとき。
-- 関連: [`increment-121.md`](../increments/increment-121.md)、
-  [`pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)（旧P7の調査）、
-  `v0/agent/cli/session_cli.ts`、`v0/agent/history/sqlite_history_store.ts`の`delete`。
 
 ### A11 — instructionの与え方
 
@@ -319,19 +282,78 @@ Pi／OpenCode／Henjiの画面表示比較
 - 関連: [Increment 175](../increments/increment-175.md)、`v0/agent/core/steering.ts`、
   `v0/agent/core/loop.ts`、`v0/tui/remote_session.ts`。
 
-### A24 — subagent起動の判断とprovider・model・effort・toolの選択（未採用）
+### A24 — subagentの委譲と実行中の制御・待機（旧A35を統合、未採用）
 
-- 観測（2026-09-28、workspace `/home/agent`、session `6e5dbddd`の保存履歴照合）:
+- 統合方針（2026-10-07、利用者指示）: A24の起動判断・構成選択、A35の時間上限・自動キャンセルと、
+  今回相談したキャンセル・追加指示・進捗把握・非同期の回答待ちを一つのテーマとして扱う。
+  人間による子の個別キャンセル操作は当面不要とし、対象外にする。今回は検討メモの統合だけで、
+  個別incrementへの採用・実装には着手しない。
+
+#### 観測と利用者の意向
+
+- 起動時の原観測（2026-09-28、workspace `/home/agent`、Session `6e5dbddd`の保存履歴照合）:
   README日英比較で`generic`を3件起動した（run `8739f50c`、`7796828a`、`6a6acd8b`）。
   起動引数は`agent`と`task`だけで、3件とも親の
   `openrouter-responses / xiaomi/mimo-v2.6-flash / auto`を引き継いだ。`tools`未指定により
   `read`、`write`、`edit`、`bash`、`bash_output`、`web_fetch`、`web_search`、`submit_json_result`が
   有効だった。「ファイルを変更しない」はtask内の指示で、toolを制限する指定ではなかった。
-- 利用者判断（2026-09-28）: この辺りのsubagent起動の判断をどうするかは今後検討する。今回はメモだけ。
-- 検討候補: どのtaskを親自身で扱い、どのtaskを子へ任せるか、任せる際のAgent選択と
-  provider・model・effort・toolの選び方を検討する。親設定の継承と明示指定を使い分ける基準も未決である。
-- 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
-- 関連: [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
+  当時、利用者は起動判断と構成選択を今後検討する方針をメモした。
+- 時間制限の原意向（2026-10-06、旧A35）: reviewの時間上限を`spawn_subagent`のtaskへ書く方法を
+  確認した後、「キャンセル作りたいな、メモしておいて」と指示した。10分などの上限を検討する。
+- 今回の利用者観測（2026-10-07）: Henjiでsubagent起動後にすぐstateを参照し、ほんの少し後に
+  回答待ちへ入って親がじっと待つ。modelの性質かもしれないが、キャンセル・時間制限・追加指示・
+  何をしているかの把握・回答待ちを改善したい。実行履歴による頻度やmodelごとの差は未確認。
+
+#### 現行動作（2026-10-07、source確認）
+
+- 子は別Worker・別executionで動く。`spawn_subagent`は実行完了を待たずrunIdを返すが、
+  `collect_subagent`は子の終了まで返らない。runtime/Core/TUIは非同期で動き続けても、親のagent
+  loopはtool resultをawaitするため、その間に親modelは別作業や`cancel_subagent`を発行できない。
+  statusのtool説明には独立作業を続けてからcollectする案内が既にある。
+- `cancel_subagent`は既存。時間上限のspawn引数、collectのtimeout引数、子への追加指示操作はない。
+- `subagent_status`はstate・agent名に加え、phase、model step、request順、最後のtool名・実行状態・
+  outcome、更新日時を返す。tool引数／対象path、作業内容の要約、経過時間・残り時間は返さない。
+- 時間経過がmodelへ自動で供給される仕組みはない。時刻をtoolで取得できれば確認できるが、現行の
+  同梱reviewerはread/search/git_inspect/skillだけで、taskへ「10分」と書くだけでは停止を保証しない。
+- 子のlifetimeは親executionに紐づき、親の終了時に未完了の子もcleanup・cancel対象になる。
+
+#### 改善候補
+
+- 委譲判断と構成: 何を親が扱い、何を子へ任せるか。Agent・provider・model・effort・toolの選択と、
+  親設定の継承／明示指定の使い分け。起動後に親が進める独立作業と、結果が必要になる時点も整理する。
+- 親による子のキャンセル: 既存cancelを使える場面と、親がcollect待機中に制御できない問題を扱う。
+- 時間管理: 「10分を目安に途中結果をまとめる」指示と「10分でruntimeが停止する」上限を区別する。
+  経過時間・期限のmodelへの供給、runtimeからの期限キャンセルを比較する。上限の起算点、停止理由、
+  途中結果の返し方は未決で、親が待機中でもruntimeの期限制御は動く案を含める。
+- 追加指示: 起動済みの子へ親から指示を送る操作と、その取込み時点・結果への反映を検討する。
+- 進捗把握: 現行のphase・最後のtoolに加え、対象や短い作業状況を把握できる情報を検討する。
+- 待機方法: collectが一定時間で「実行中」を返す等、親が結果待ちだけに拘束されない方法を検討する。
+  親が待つ時間の上限と、子の実行時間上限・キャンセルは別の操作として扱う。
+- 追加相談（2026-10-07、メモのみ）: statusで子の中間報告・findingを読む経路と、実行中の子への
+  追加指示を優先候補とする。子が通常本文として出した報告は子の実行履歴に残るため、既存履歴を
+  statusから取得する案を検討する。親が取得した報告はstatusのtool resultとして親の履歴に残す。
+  中間報告の専用送信toolを必須とせず、報告しながら調査を続ける指示と、前回確認後の新しい報告の
+  読み方を検討する。追加指示は、statusで状況を読んでから別toolで送る案が素直だが、契約は未決。
+
+#### 外部ツール化の検討順序
+
+- 外部ツール化の検討順序（同日、今回の助言を記録）: status拡張と追加指示を先に成立させ、
+  実利用で操作が固まった後に外部化を検討する。現行subagent操作は通常toolと同じRegistryへ入るが、
+  専用の組込み生成経路であり、外部tool APIには子を操作する接続口がない。外部化しても中間履歴取得・
+  追加指示にはCore側の対応が必要になるため、先行外部化を今回の前提にしない。変更時はCoreの操作と
+  toolの説明・引数・結果の整形を分け、既存RPCの分担を活かす。Henji自身が本体の再ビルドなしで
+  statusの返し方や待機方法を改善したくなった時点を、外部化の再検討理由とする。採用・実装は未指示。
+
+#### 未決事項と再検討条件
+
+- 未決事項: 上記の具体的な操作契約と、指示・tool説明で改善する範囲／runtimeで支える範囲。
+  親の最終回答後も子を継続するlifetime変更は未採用であり、A36の書記官用途と合わせて必要性を判断する。
+- 再検討条件: 利用者がこのテーマを個別incrementへ採用するとき。
+- 関連: [A36](#a36--非同期の書記官subagentによるメモhandoff更新未採用メモのみ)（書記官用途）、
+  [E1](#e1--agent設定tool以外のresource外部化)（外部化全般）、[Increment 131](../increments/increment-131.md)（model・tool指定）、
+  `v0/agent/tools/async_agents.ts`、`v0/agent/core/loop.ts`、
+  `v0/agent/worker/worker_host_children.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
+  `v0/agent/worker_agent_api.ts`、`v0/agent/tool_api.ts`、`v0/agent/worker/worker_tool_loader.ts`。
 
 ### A27 — providerの一時的な応答中断に対する自動再試行（未採用）
 
@@ -386,158 +408,28 @@ Pi／OpenCode／Henjiの画面表示比較
   [OpenAI Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)、
   [Chat Completions公式仕様](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)。
 
-### A30 — tool間の結果連鎖（tool resultを別toolの入力にできない）（未採用、メモのみ）
+### A36 — 非同期の書記官subagentによるメモ・handoff更新（未採用、メモのみ）
 
-- 観測（2026-10-06、[Increment 200](../increments/increment-200.md)の実装・検証作業中の通常利用）:
-  専用toolへ寄せられない合成処理がbash
-  pipelineに残る。実例は、test結果の要約（`deno test … |
-  grep -E … | tail`）、`search`結果の`cut`・`head`整形、`git diff | grep`、`cat … | head`。
-- 現行境界: `run_typescript`の`input`はmodelが用意するJSONで、直前のtool
-  result（bashのstdout、`search`結果）を機械的に受け取る経路がない。大きい出力はmodel
-  contextへcopyすることになり、`run_typescript`の「fileを直接読む」案内は実行結果には使えない。
-  `bash_output`は出力を`outputId`で保持するが、consumerは`bash_output`
-  tool自身のwindow表示で、他のtoolから参照できない。
-- 候補: 直前または指定したtool resultを`run_typescript`実行へ参照渡しする。例として、保持出力やtool
-  resultを実行側（workspace配下または`/tmp`）へmaterializeしてcodeから読めるpathと識別子を渡す、
-  `input`へ参照idを渡す。保持件数・大きい出力・取消・保存境界は採用時に決め、常設のraw保存は増やさない。
-- 利用者意向（2026-10-06、実装は未指示）: 「安易にパイプでの連結はしてほしくない」。
-  トークン効率が下がる可能性は許容する。合成のためのbash pipelineより、明示的なstepと専用toolの
-  利用を優先する。
-- 実測（2026-10-06、現行環境）: 1回のbash内で完結するpipelineはtool間の連鎖ではないが、別の理由でも
-  望ましくない。bashは`/bin/bash --noprofile --norc -c`で実行され`pipefail`が無いため、 失敗がexit
-  statusから消える（`false | tail -1`と`deno eval … Deno.exit(7) | tail -1`がともexit 0）。
-  今回のtest要約（`deno test … | grep … | tail`）も同じ形で、失敗runでもbash
-  toolのexitCodeは0だった。
-- 既存の代替経路（新機構なしで成立、実測）:
-  コマンド出力をfileへredirectし（workspace内のscratchまたは
-  `/tmp`）、`run_typescript`がそのfileを読んで集計する。bashの`/tmp`書込と`run_typescript`の`/tmp`
-  読取は今回の環境で確認した。中間出力をmodel contextへ出さないため、pipelineでtailへ絞る場合より
-  context消費が増えるとは限らず、増えるのはstep数である。
-- 候補の見直し: 上記の代替経路があるため、参照渡しの新機構は「保持済みの出力を後段で使う」場合の
-  小さい形（例: `bash_output`の保持streamを`web_fetch`の`save_to`と同様にfileへ書き出し、
-  `run_typescript`/`read`の入力にする）から検討する。tool result全般の参照storeは役割・寿命・上限・
-  清掃を新たに定義するため優先度を下げる。
-- 案内候補（実装は未指示）: 上記意向を`promptGuidelines`へ入れる案。例: bashへ「要約のための安易な
-  pipe（grep/head/tail）を避け、集計が必要なら出力をfileへ書いて`run_typescript`に渡す」、
-  `run_typescript`へ「他commandの出力を集計するときはfile経由で読む」。[Increment 200](../increments/increment-200.md)の
-  文面へ追加するかは未定。
-- 当該作業でのpipe使用の分類（2026-10-06）:
-  観測したpipeはすべて「modelが読むための要約・整形」目的で、
-  command自体がstream処理を目的とする必須pipeは0件だった。代替は、一覧/検索→`search`、file閲覧→`read`、
-  test出力→redirect+`run_typescript`または`bash_output`の末尾offset、JSON整形→`run_typescript`。
-  2件はpipe後も4 KiBを超えてtruncateされた（7,318と4,654 bytes）ため、pipeは可視性問題を解決しない。
-- 案内の形:
-  「pipeを避ける」だけでは、代替（file経由/末尾offset/専用tool）を使えない場合に失敗の見逃しや
-  step増を招く。「要約はpipeではなくredirect+file+`run_typescript`、打ち切られた末尾は`bash_output`の
-  offset」のように置換先を指定し、pipeが本当にcommandの目的である場合と、どうしても使う場合の
-  `set -o pipefail`（実測で有効）を例外として残す。
-- baseline観測（2026-10-06、保存Session `0cd5c22e`・13 turn・tool call 139件の
-  read-only分析、Increment 200の案内配置前）: bash 113件（81%）に対しread 15・edit 9・write 1・
-  web_search 1で、`run_typescript`・`search`・`bash_output`は0件。bashの内訳はcd 111（98%）、 pipe
-  81（72%、うちhead 68）、`sed -n 'A,Bp'` 33、grep系 68、ls/find 22、echo区切り 72、 `> /dev/null`
-  17、実書込redirect 1。結果は11件がtruncate/spoolされ、`bash_output`
-  でのreadbackは0件。同一fileの再訪が多い（`worker_runtime.ts` 26回等）。
-  つまりbashが閲覧・検索・head整形の代用になっており、pipeはdata連鎖ではなく表示の切詰めが主。
-  証拠は`.tools/tool-trend-0cd5c22e/`（詳細JSONLと集計summary.json）にある。
-- 再検討条件: パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき。
-- 利用者提案（2026-10-06）: `read xxx.md | run_typescript`、`search xxx | read`のようなtool間の
-  受け渡し。実装は未指示。
-- 実装ルートの整理（2026-10-06、source確認）: 新文法/新pipeline
-  toolは表示・step・失敗・型のsurfaceを 増やすため最後の候補とする。明示的な参照渡し（tool
-  resultのidと後続toolの参照）なら既存contractの 延長で済む。大きいdataはrequest上限（会話1
-  MiB等）があるためargumentsでなくfile渡しが妥当。
-  - core変更なしのprobe: 外部hookで成立する。`after_tool`で結果とidを保持し、`before_tool`で参照を
-    file path等の小さい引数へ置換、`runtime_start`のcontext additionで案内を追加する。hook contextの
-    transcriptはcommitted済みの過去turnのみ（当turnの結果は見えない）ためhook自身が保持する。
-    引数書換時はloopがeffective arguments全文をresultへ付記するため、注入はpath等に限る。
-  - core最小形: 結果artifact（file materialize・id・上限・清掃）と`run_typescript`等への参照引数。
-    既存precedentは`web_fetch`の`save_to`と`bash`のredirect。
-- どのルートでも決めること: 参照可能な範囲（当turn/実行/Worker世代）、上限・eviction・清掃、
-  credentialをworkspaceやDataへ書かないこと、参照元のsidecar/attribution、不在・期限切れの明示error、
-  TUIの参照表示。
-- 可視サイズの実測（2026-10-06）: bashのmodel可視出力はstreamあたり4,096
-  bytes（`MAX_CAPTURE_BYTES`）で 打ち切られ、残りはspoolへ保持される（32 MiB/command、128
-  MiB/registry）。`bash_output`は`totalBytes`と 任意offset（UTF-8境界）を受け、49,152 bytes
-  windowで末尾も読める。readは64 KiB/call、searchは既定100件/page。 今回の実測は`deno test`（2
-  file・41 test）4,998 bytes、`git status --porcelain` 2,502 bytes、`grep -rn` 1,565 bytes、
-  `cat .handoff/handoff.md` 12,239 bytes（可視4 KiB＋readback）。
-- 効果の見込み（再評価）:
-  打ち切られた結果を後段へ渡す需要より、「打ち切られず全部読めるfileを作り、集計だけを
-  contextへ返す」需要が実態に合う。`web_fetch`は`save_to`（workspaceまたは`/tmp`、既存fileは拒否）で
-  本文をfile化し、結果は`Saved: <path> … Bytes:`の小さいtextだけになる。同じ形を`bash`のredirectでも
-  使えるため、新機構の優先度は下げ、既存primitiveの案内と`bash_output`の末尾offset利用を先にする。
-  `read→run_typescript`はrun_typescriptが既にfileを読めるため利得小。本命だった`bash`/`search`→
-  `run_typescript`も、上記のfile経路と末尾readbackで多くは足りる。
-- pipe回避の既存実例（2026-10-05 Session `2bc2699f`、2026-10-06にread-only分析）:
-  `… > log 2>&1; result=$?; tail -n 8 log; exit "$result"`の形が39件あり、対象実行では非0 exit
-  10件が
-  正しく伝播していた（pipeでtailへ絞る場合と違い失敗が見える）。file化＋尾の表示＋exit再送は、
-  新しい機構なしで成立する代替の実例である。
-- 関連: [Increment 200](../increments/increment-200.md)、`v0/agent/tools/run_typescript.ts`、
-  `v0/agent/tools/bash_output.ts`、R2、R3。
-
-### A31 — workspace外（config/state/tmp）の読取・書込境界（未採用、メモのみ）
-
-- 観測（2026-10-06）: 専用toolはworkspace内に限定される（`checkedPath`、`run_typescript`実行Workerの
-  permissionはworkspaceと`/tmp`）。workspace外の確認はbashが必要で、実際に今回はAgent自身の実効
-  instructionを確認するためconfig rootの`instruction.md`をbashの`cat`で読んだ（`read`は 「path must
-  stay within workspace」で拒否）。
-- 採用済み（2026-10-06、[Increment 204](../increments/increment-204.md)）: `run_typescript`はconfig
-  rootを
-  read/writeでき、`henjiConfigRoot`変数を受け取る。credential値はstate配下の専用rootへ分離し、
-  同toolからread/writeとも不可（`deny`監査は設定可能）。採用した要件・前提・残る範囲は204を参照する。
-- 残る候補: workspace外のHost-owned root（config/state）を`read`・`search`等の専用toolでも明示pathで
-  読めるようにする案と、現状どおりbash併用を案内で明示する案を比較する。広げる場合は対象root、
-  credential fileの扱い、表示・履歴への波及を採用時に決める。
-- 再検討条件: 通常利用でworkspace外の確認・一時file作成が繰り返し必要になり、bash併用の使い分けが
-  負担・誤用の原因になるとき。
-- 関連:
-  A5、A30、204、`v0/agent/tools/work_tool_workspace.ts`、`v0/agent/tools/run_typescript_executor.ts`、E1。
-
-### A34 — 再起動後の続行セッションで新規toolがmodel定義に現れない疑い（未確認）
-
-- 観測（2026-10-06、Session `91cb1f45`）: Core/TUIを再起動（新binary build `5bfcdbaa`・source
-  `6f6f9a6a`、Core `c6afea6d`、`henji tui --continue`）した。
-  - config側: `tool list`に`git_inspect`、`agent inspect`はdefault・reviewerともrejections `[]`
-  - 実行側: `search`の`entries`
-    mode（local-3）は**このセッションで動作**した（type/bytes/modifiedAtを返した）
-  - しかし新規tool名`git_inspect`は**このセッションのtool呼び出しとして発行できなかった**（複数回試行したがbashへ
-    落ちた）。
-- 追試（2026-10-06、利用者指示により実行を試行）:
-  同じセッション・同じWorkerで`git_inspect`の呼び出しを発行できなかった
-  （複数回試行、いずれも発行不能。同じWorkerの`search`は`entries`
-  modeが動作した）。config側のrejections `[]`と 呼出し不能の観測だけでは、当該requestのmodel-facing
-  tool定義に`git_inspect`が無かったとは確定できない。
-- 当時の仮説（未確認）: model-facing
-  tool定義がSession開始時のbinaryで固定され、`--continue`では新しいtool名が
-  追加されない可能性を考えた。同名toolの新機能が使えたことは観測だが、定義の固定を証明するものではない。
-- 現行source照合（2026-10-07）: `core/loop.ts`は各model
-  requestへ現在の`registry.definitions()`を渡す。
-  Worker起動時は現在fileからtoolを構成し、保存Sessionの過去snapshotを現在のtool定義として使う契約ではない。
-  当該実WorkerのRegistryとmodelへ実提示した定義は未取得であり、原因と仮説の成立は未確認のままである。
-- 利用者影響:
-  再起動しても、新規追加toolを既存セッションの続きでは使えない可能性がある。新規セッションなら
-  使える見込み（未確認）。
-- 次の確認: 新規Sessionと続行Sessionのtool提示・呼出しを比較し、再観測時は当該Workerの構成とmodelへ
-  実提示したtool名を確認する。実provider callを伴う追試は別途明示承認を得る。
-- 再検討条件: 利用者が新規セッションで確認するとき、または同現象が再観測されるとき。
-- 追加確認（2026-10-06）: Core API（`/api/v1/*`）には実行中Workerのtool一覧を読む経路がない。
-  隔離XDGで起動したcompiled binaryのTUIではconfiguration rejectionのnoticeが出なかった。
-  `search`の`entries`は続行Sessionでも動作したが、当該実Workerの`git_inspect`提示確認とは分ける。
-  利用者判断でSessionを作り直して新規Sessionで確認する方針とした。本項目にはその確認結果の記録がない。
-
-### A35 — 子agentの時間上限と期限での自動キャンセル（未採用、メモのみ）
-
-- 利用者の希望（2026-10-06）: reviewの時間上限を`spawn_subagent`の`task`へ書く方法を確認した後、
-  「キャンセル作りたいな、メモしておいて」と指示した。
-- 現行境界: `spawn_subagent`に時間上限の引数はなく、`task`内の時間指定はmodelへの指示に留まる。
-  `collect_subagent`にもtimeout引数はなく、子agentの終了を待つ。手動の`cancel_subagent`は既存。
-- 候補: 子agentに時間上限を設定し、期限に達したらruntimeから既存のキャンセル経路を呼ぶ。
-  親agentが`collect_subagent`で待機中でも期限で停止できるようにする。
-- 未決定: 設定方法・引数名、時間の起算点、期限による停止理由と途中結果の返し方。
-  個別incrementへの採用・実装はまだ行わない。
-- 再検討条件: 利用者がreview等の時間上限をruntimeで実行する機能の採用を指示するとき。
-- 関連: A24、`v0/agent/tools/async_agents.ts`、`v0/agent/worker/worker_host_children.ts`。
+- 利用者の観測・意向（2026-10-07）: handoff変更時の複数段階の手順が体感時間を長くしているため、
+  SQLite化や専用tool化を相談した。Henjiでは専用subagentを「書記官」として置き、メモも含めて
+  非同期に整理・更新させたい。既存subagent経路を使えば後で試せる案として、今回はメモだけを指示した。
+- 候補: 主agentは利用者への回答や作業を続け、書記官subagentが確定した事実・判断を既存記録と照合し、
+  通常利用メモ、個別increment、handoff等の担当保存先へ反映する。主agentからは利用者の発言、対象ID、
+  判断に必要な短いcontext、根拠への参照を渡し、文章の整理は書記官が担う。
+- 役割案: 方針・採用・実装の判断は主agentと利用者が担い、書記官は確定した判断の記録を担う。
+  「候補を取り下げる」「複数候補を同時に扱うが未着手」「作業結果と現在地を更新する」等を対象にする。
+  正本ごとの役割と変更承認の境界は維持する。
+- 体感時間の狙い: 主agentの文書読取・patch作成・保存確認を非同期へ回し、利用者の待ち時間を減らす。
+  保存処理自体の高速化とは別で、処理全体の時間やmodel呼出し量が減るとはまだ確認していない。
+- 未決事項: 起動契機、渡すcontext、更新の順序、再開時に最新の更新が保存済みかを確認する方法。
+  記録依頼と保存完了を区別し、保存前に「記録済み」と扱わない案。専用read/update toolの併用と、
+  Markdown／SQLiteの保存方式は別に判断し、試行の前提としてSQLite化や新しいruntimeを要求しない。
+- 現行lifetimeの補足（2026-10-07、source確認）: 親executionが終了すると未完了の子も停止する。
+  既存経路で試せるのは親の実行中の並行更新であり、最終回答後も更新を続けるにはlifetime変更が必要。
+  その採否は[A24](#a24--subagentの委譲と実行中の制御待機旧a35を統合未採用)の制御・待機テーマと合わせて検討する。
+- 再検討条件: 利用者がHenjiの既存subagent経路で書記官を試すことを指示するとき。
+  今回はagent設定・tool・runtime・作業規則を変更せず、試行も行わない。
+- 関連: A24、R4、`v0/agent/tools/async_agents.ts`、`v0/agent/worker/worker_host_children.ts`。
 
 ## F24・自己改訂
 
@@ -621,11 +513,10 @@ Pi／OpenCode／Henjiの画面表示比較
   現在fileとsnapshotで足りるか、独立revision保存や複数component選択が必要かは対象動作から決める。
   合成順・競合・使用内容のattributionを維持し、旧managed
   loader/promotion/bindingを必須方式にしない。
-  /reloadで現在内容を取り込むことと候補を人間が採用することを同じoperationにするかも未決である。
 - 再検討条件: instructionまたはworkflowを自己改訂対象として選ぶとき。
 - 正本: [構想](../concepts/experience-driven-self-revision.md)、
   [Host/Worker architecture](../architecture/henji-host-agent-worker.md)、[181 contract](../increments/increment-181-contract.md)。
-- 関連: S4、E1。
+- 関連: E1。
 
 ## 配布・外部化
 
@@ -636,6 +527,8 @@ Pi／OpenCode／Henjiの画面表示比較
   provider/credential宣言を利用できる。model一覧・お気に入り・effort、
   APIキーとChatGPT認証も既存ownerが持つ。旧managed Agent/tool store、closure install、exact
   selectorとtransportは廃止済み。
+- 個別の検討: subagent操作toolの外部化は[A24](#a24--subagentの委譲と実行中の制御待機旧a35を統合未採用)へ記録する。
+  status拡張・追加指示の実利用を先に確認し、外部化は操作が固まった後の候補として扱う。
 - 残る対象: instruction複数component、任意context/loop strategy、MCP、Surfaceのload/置換、
   resource固有のmutable stateや移送等は、具体的な動作を採用するときに境界を定める。
   provider宣言の追加や現在tool folderの読込み自体を未実装候補として重複計上しない。
@@ -798,7 +691,7 @@ Pi／OpenCode／Henjiの画面表示比較
   `contract_failure`／`commit proposal invalid`で停止し、成果がcanonical採用されなかった。
   同日の隔離XDG・実provider確認では別原因のprovider timeoutとなり、commit却下は再現しなかった。
   詳細なDB観測、自動復元の由来、再現試行は
-  [`increment-85.md`](../increments/increment-85.md#b5の原観測と切り分け2026-09-19)へ移した。
+  [`increment-85.md`](../history/increments/increment-85.md#b5の原観測と切り分け2026-09-19)へ移した。
 - 現行境界（2026-10-07、source照合）: [Increment 170](../increments/increment-170.md)で
   record組立て・保存はAgent
   Data側へ移り、[Increment 199](../increments/increment-199.md)で採用portを 新message
@@ -820,8 +713,8 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件:
   commit却下が通常利用で再観測される、または却下理由の記録・原因調査を個別incrementへ採用するとき。
 - 関連:
-  [`increment-85.md`](../increments/increment-85.md)、[`increment-94.md`](../increments/increment-94.md)、
-  [`increment-97.md`](../increments/increment-97.md)、[Increment 170](../increments/increment-170.md)、
+  [`increment-85.md`](../history/increments/increment-85.md)、[`increment-94.md`](../history/increments/increment-94.md)、
+  [`increment-97.md`](../history/increments/increment-97.md)、[Increment 170](../increments/increment-170.md)、
   [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
   `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
   `v0/agent/history/sqlite_history_store.ts`。

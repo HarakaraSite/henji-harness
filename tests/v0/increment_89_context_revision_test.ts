@@ -59,6 +59,7 @@ Deno.test('Increment 89 sends one initial context revision and suffix-only delta
   };
   const echo = {
     name: 'echo',
+    fileAccess: 'none' as const,
     description: 'return a fixed result',
     inputSchema: {
       type: 'object',
@@ -214,6 +215,7 @@ Deno.test('Increment 89 keeps direct provider fact sequences for default and pla
       model,
       registry: new Registry([{
         name: 'read',
+        fileAccess: 'none' as const,
         description: 'return a note',
         inputSchema: { type: 'object' },
         execute: () => 'note',

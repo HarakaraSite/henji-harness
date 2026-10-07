@@ -246,6 +246,7 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
     const externalSearchComponent = component(searchIdentity, () => {
       const tool: Tool = {
         name: 'external_research',
+        fileAccess: 'none' as const,
         description: declaredSearchTool.description,
         inputSchema: declaredSearchTool.inputSchema,
         execute: (argumentsValue, context) => {
@@ -259,6 +260,7 @@ Deno.test('Increment 170 S1 producer fixes tool attribution before an auxiliary 
     });
     const externalReadComponent = component(readIdentity, () => ({
       name: 'bespoke_marker_reader',
+      fileAccess: 'none' as const,
       description: 'Read the marker after research.',
       inputSchema: { type: 'object' },
       execute(_argumentsValue, context) {

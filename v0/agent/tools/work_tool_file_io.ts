@@ -4,8 +4,13 @@ import {
   throwIfCancelled,
 } from '../core/cancellation.ts';
 import { ToolInputError } from './tools.ts';
-import type { Workspace, WorkToolSeams } from './work_tool_contract.ts';
-import { type CheckedPath, checkedPath, ensureParent } from './work_tool_workspace.ts';
+import type { WorkToolSeams } from './work_tool_contract.ts';
+import {
+  type CheckedPath,
+  checkedPath,
+  ensureParent,
+  type FileAccessWorkspace,
+} from './work_tool_workspace.ts';
 import { encoder, MAX_EDIT_FILE_BYTES, MAX_TEXT_BYTES } from './work_tool_value.ts';
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -60,7 +65,7 @@ const decodeText = (bytes: Uint8Array): string => {
 };
 
 export const readTarget = async (
-  workspace: Workspace,
+  workspace: FileAccessWorkspace,
   input: unknown,
   toolName: string,
   signal?: AbortSignal,
@@ -97,7 +102,7 @@ export const readTarget = async (
 };
 
 export const readWindow = async (
-  workspace: Workspace,
+  workspace: FileAccessWorkspace,
   input: unknown,
   offset: number,
   limit: number | undefined,
@@ -211,7 +216,7 @@ export const readWindow = async (
 };
 
 export const atomicReplace = async (
-  workspace: Workspace,
+  workspace: FileAccessWorkspace,
   checked: CheckedPath,
   bytes: Uint8Array,
   mode: number,

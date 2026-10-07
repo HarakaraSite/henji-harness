@@ -1,5 +1,10 @@
 # Increment 164 — Markdown見出しをcyanで表示
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 更新日: 2026-10-01
 
 ステータス: **完了（2026-10-01、利用者がIncrement 168まで完了と明示）。**
@@ -53,7 +58,7 @@ providerのassistant本文
 付ける。heading level別の新しいtoneや配色は追加しない。最小変更はstandard cyan定数をterminal表示層へ追加し、
 `SPAN_SGR.heading`だけをblueからcyanへ切り替えることである。
 
-[Increment 96](increment-96.md)は見出し行全体をblueにする当時の仕様と結果を保持する。本incrementは
+[Increment 96](../history/increments/increment-96.md)は見出し行全体をblueにする当時の仕様と結果を保持する。本incrementは
 全行着色と折返しspanを維持したまま、その色指定だけをcyanへ置き換える。
 
 ## 計画レビュー結果

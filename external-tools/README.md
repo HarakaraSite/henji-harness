@@ -146,3 +146,41 @@ deno task --config deno.v0.json henji:package
 
 Packaging creates a directory and a `.tar.gz` archive under `dist/`, with a manifest identifying the
 executable build and the shipped tool and hook files. It does not install, publish or activate them.
+
+## Shared file access policy
+
+Every `Tool` declares `fileAccess`: `none`, `read`, `read-write`, or `unmanaged`. This runtime
+metadata is not sent to the model as a tool schema. web_search is `none`; bash is `unmanaged`.
+write/edit include the reads required to perform their writes. Host authentication, history, and
+tool-code loading are outside the scope of target-file operations.
+
+The Worker loader reads `tool-paths.json` once and provides `ToolFactoryInput.pathPolicy` for the
+selected tool name. Its `allowedPaths` and `deniedPaths` are immutable. Call
+`await input.pathPolicy.resolve(path)` before accessing a target; it expands workspace-relative
+paths and `~`, checks allow and deny, and resolves existing symlinks. An absent suffix is retained
+for file creation. `allows(path)` supports skipping excluded paths during recursive enumeration. Use
+`{ followSymlinks: false }` when the implementation rejects symlinks itself, as the bundled
+read/write/edit tools do. A tool that follows links must check the actual destination as well.
+
+Declare file access in the same returned Tool for both bundled and external implementations:
+
+```ts
+import type { ToolFactory } from '@henji/tool';
+
+const factory: ToolFactory = (input) => ({
+  name: 'note_reader',
+  fileAccess: 'read',
+  description: 'Read a note.',
+  inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+  async execute(args) {
+    const path = await input.pathPolicy.resolve((args as { path: string }).path);
+    return await Deno.readTextFile(path);
+  },
+});
+export default factory;
+```
+
+File-access tools with no configured allow list default to the current workspace. Their API must be
+used at each target-file operation; fileAccess is a declaration, not an OS sandbox around arbitrary
+external TypeScript or subprocess code. The existing run_typescript deny audit continues to inspect
+code text, while its allow roots are enforced by Deno permissions.

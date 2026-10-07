@@ -1,3 +1,4 @@
+import type { ToolPathPolicy } from './tools/tool_paths.ts';
 import type { ProcessExecutor } from './runtime/process_contract.ts';
 import type { Workspace, WorkToolSeams } from './tools/work_tools.ts';
 import type { BashOutputStore } from './tools/bash_output.ts';
@@ -12,6 +13,8 @@ export const TOOL_API_CONTRACT = 'henji-tool/v1';
 export interface ToolFactoryInput {
   readonly processExecutor?: ProcessExecutor;
   readonly workspace: Workspace;
+  /** Tool-specific allow and common deny, resolved once at Worker startup. */
+  readonly pathPolicy: ToolPathPolicy;
   readonly workTools: WorkToolSeams;
   readonly bashOutputStore: BashOutputStore;
   readonly skillCatalog: SkillCatalog;
@@ -41,3 +44,6 @@ export type {
 } from './runtime/process_contract.ts';
 export type { Workspace } from './tools/work_tools.ts';
 export type { ProviderRequestFn } from './provider/auxiliary_request.ts';
+
+export { createToolPathPolicy } from './tools/tool_paths.ts';
+export type { ToolFileAccess, ToolPathOptions, ToolPathPolicy } from './tools/tool_paths.ts';

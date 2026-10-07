@@ -40,4 +40,4 @@ Observed control result:
 The expected synthetic flow makes three requests. The observed correlation did not isolate Deno
 from Henji's then-current history contract and therefore did not establish the claimed runtime
 cause. The authoritative cause, offline replay, fix, and verification are recorded in
-`docs/increments/increment-92.md`.
+`docs/history/increments/increment-92.md`.

@@ -1,3 +1,4 @@
+import type { ToolPathPolicy } from './tool_paths.ts';
 import { throwIfCancelled } from '../core/cancellation.ts';
 import { ToolInputError } from './tools.ts';
 import type { Workspace } from './work_tool_contract.ts';
@@ -11,6 +12,10 @@ export const resolveWorkspace = async (
   if (!info.isDirectory) throw new Error('workspace root is not a directory');
   return { root: canonical };
 };
+
+export interface FileAccessWorkspace extends Workspace {
+  readonly pathPolicy?: ToolPathPolicy;
+}
 
 const invalidPath = (): ToolInputError => new ToolInputError('path must stay within workspace');
 const invalidSymlink = (): ToolInputError => new ToolInputError('path must not contain a symlink');
@@ -48,7 +53,7 @@ export interface CheckedPath {
 }
 
 export const checkedPath = async (
-  workspace: Workspace,
+  workspace: FileAccessWorkspace,
   input: unknown,
   allowMissingTarget: boolean,
   signal?: AbortSignal,
@@ -58,14 +63,17 @@ export const checkedPath = async (
     throw invalidPath();
   }
   const path = input;
-  const absolute = normalizeAbsolute(
-    path.startsWith('/') ? path : `${workspace.root}/${path}`,
-  );
-  if (!isWithin(workspace.root, absolute)) throw invalidPath();
-  const components = splitAbsolute(absolute).slice(
-    splitAbsolute(workspace.root).length,
-  );
-  let current = workspace.root;
+  const absolute = workspace.pathPolicy === undefined
+    ? normalizeAbsolute(
+      path.startsWith('/') ? path : `${workspace.root}/${path}`,
+    )
+    : await workspace.pathPolicy.resolve(path, { followSymlinks: false });
+  if (workspace.pathPolicy === undefined && !isWithin(workspace.root, absolute)) {
+    throw invalidPath();
+  }
+  const boundary = workspace.pathPolicy === undefined ? workspace.root : '/';
+  const components = splitAbsolute(absolute).slice(splitAbsolute(boundary).length);
+  let current = boundary;
   for (const component of components) {
     current = current === '/' ? `/${component}` : `${current}/${component}`;
     try {
@@ -93,26 +101,29 @@ export const checkedPath = async (
   }
   return {
     absolute,
-    relative: relativePath(workspace.root, absolute),
+    relative: isWithin(workspace.root, absolute)
+      ? relativePath(workspace.root, absolute)
+      : absolute,
     parent,
     targetInfo,
   };
 };
 
 export const ensureParent = async (
-  workspace: Workspace,
+  workspace: FileAccessWorkspace,
   path: string,
   create: boolean,
   signal?: AbortSignal,
 ): Promise<void> => {
   throwIfCancelled(signal);
-  if (!isWithin(workspace.root, path)) throw invalidPath();
-  const rootParts = splitAbsolute(workspace.root);
+  if (workspace.pathPolicy === undefined && !isWithin(workspace.root, path)) throw invalidPath();
+  const boundary = workspace.pathPolicy === undefined ? workspace.root : '/';
+  const rootParts = splitAbsolute(boundary);
   const parts = splitAbsolute(path);
   if (parts.length < rootParts.length) throw invalidPath();
-  let current = workspace.root;
+  let current = boundary;
   for (const part of parts.slice(rootParts.length)) {
-    current = `${current}/${part}`;
+    current = normalizeAbsolute(`${current}/${part}`);
     try {
       const info = await Deno.lstat(current);
       throwIfCancelled(signal);
@@ -127,9 +138,9 @@ export const ensureParent = async (
     }
   }
   // Re-check after mkdir so an ordinary race cannot turn the sibling into a link.
-  let verify = workspace.root;
+  let verify = boundary;
   for (const part of parts.slice(rootParts.length)) {
-    verify = `${verify}/${part}`;
+    verify = normalizeAbsolute(`${verify}/${part}`);
     const info = await Deno.lstat(verify);
     throwIfCancelled(signal);
     if (info.isSymlink) throw invalidSymlink();

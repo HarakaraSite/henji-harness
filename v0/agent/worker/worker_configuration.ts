@@ -41,12 +41,15 @@ export interface WorkerConfigurationSnapshot {
   readonly source: ConfigurationSource;
   readonly systemInstruction: string;
   readonly instructionComponents: readonly InstructionComponent[];
+  readonly toolPaths: { readonly source?: string; readonly deny: readonly string[] };
   readonly tools: readonly {
     readonly name: string;
     readonly revision: string;
     readonly source: 'bundled' | 'external';
     readonly entry?: string;
     readonly contract: ToolDefinition;
+    readonly fileAccess: import('../tools/tool_paths.ts').ToolFileAccess;
+    readonly paths: { readonly allow: readonly string[]; readonly deny: readonly string[] };
   }[];
   readonly hooks: readonly WorkerHookRegistrationSnapshot[];
   readonly rejections: readonly ConfigurationRejection[];
@@ -88,6 +91,7 @@ export const createConfiguredWorkerComposition = async (
       credentialAvailability: input.physicalIo.credentialAvailability,
     }, {
       ...(input.configRoot === undefined ? {} : { configRoot: input.configRoot }),
+      ...(input.credentialRoot === undefined ? {} : { credentialRoot: input.credentialRoot }),
     });
     const loadedHooks = await loadWorkerHooks(selection.hooks, {
       workspace: input.workspace,
@@ -159,10 +163,20 @@ export const createConfiguredWorkerComposition = async (
       source: structuredClone(selection.agent.source),
       systemInstruction: composition.systemInstruction ?? '',
       instructionComponents: structuredClone(composition.instructionComponents ?? []),
+      toolPaths: {
+        ...(loaded.pathConfiguration.source === undefined
+          ? {}
+          : { source: loaded.pathConfiguration.source }),
+        deny: [...loaded.pathConfiguration.deniedPaths],
+      },
       tools: composition.registry.definitions().map((contract) => {
-        const selected = loaded.accepted.find(({ tool }) => tool.name === contract.name)?.selection;
+        const accepted = loaded.accepted.find(({ tool }) => tool.name === contract.name);
+        const selected = accepted?.selection;
+        const policy = accepted?.pathPolicy ?? loaded.pathConfiguration.forTool(contract.name);
         return Object.freeze({
           name: contract.name,
+          fileAccess: composition.registry.resolve(contract.name)!.fileAccess,
+          paths: { allow: [...policy.allowedPaths], deny: [...policy.deniedPaths] },
           source: selected?.source ?? 'bundled',
           revision: selected?.revision ?? '1',
           ...(selected?.entry === undefined ? {} : { entry: selected.entry }),

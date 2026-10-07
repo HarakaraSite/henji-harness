@@ -4,8 +4,8 @@ import {
   ToolInputError,
   TurnCancelledError,
 } from '@henji/tool';
-import type { JsonValue, ProcessOperation, Tool, ToolContext } from '@henji/tool';
-import { resolve } from 'node:path';
+import type { JsonValue, ProcessOperation, Tool, ToolContext, ToolPathPolicy } from '@henji/tool';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { GIT_EXECUTABLE, GIT_LANG, GIT_LC_ALL, GIT_PATH } from './settings.ts';
 
 type Operation = 'status' | 'diff' | 'log' | 'show';
@@ -260,6 +260,7 @@ const runGit = async (
   args: readonly string[],
   cwd: string,
   signal: AbortSignal | undefined,
+  captureBytes = MAX_CAPTURE_BYTES,
 ): Promise<ProcessResult<{ readonly bytes: Uint8Array; readonly truncated: boolean }>> => {
   if (signal?.aborted) throw new TurnCancelledError();
   const operation: ProcessOperation = executor.start({
@@ -276,7 +277,7 @@ const runGit = async (
     },
   });
   const completion = Promise.all([
-    readBounded(operation.stdout, MAX_CAPTURE_BYTES),
+    readBounded(operation.stdout, captureBytes),
     readBounded(operation.stderr, MAX_STDERR_BYTES),
     operation.status,
     operation.closed,
@@ -339,9 +340,9 @@ const runGit = async (
   return result!;
 };
 
-const buildArgs = (args: InspectArguments): string[] => {
+const buildArgs = (args: InspectArguments, pathspecs: readonly string[]): string[] => {
   const global = ['--no-pager'];
-  const paths = args.paths === undefined ? [] : ['--', ...args.paths];
+  const paths = pathspecs.length === 0 ? [] : ['--', ...pathspecs];
   switch (args.op) {
     case 'status':
       return [...global, 'status', '--porcelain=v1', '--branch', ...paths];
@@ -390,6 +391,90 @@ const splitLines = (text: string): string[] => {
 
 const firstLine = (text: string): string => text.split('\n', 1)[0]?.trim() ?? '';
 
+const excludedPathspecs = (
+  repositoryRoot: string,
+  deniedPaths: readonly string[],
+): string[] =>
+  deniedPaths.flatMap((deniedPath) => {
+    const fromRoot = relative(repositoryRoot, deniedPath);
+    if (
+      fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)
+    ) return [];
+    return [`:(top,exclude,literal)${fromRoot.split(sep).join('/') || '.'}`];
+  });
+
+const containsPath = (root: string, target: string): boolean => {
+  const fromRoot = relative(root, target);
+  return fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
+};
+
+const repositoryPathspec = ':(top)';
+const literalPathspec = (path: string): string => `:(top,literal)${path}`;
+
+/** Git pathspecs form a union; listing allow and requested paths together broadens access. */
+const allowedPathspecs = async (
+  repositoryRoot: string,
+  policy: ToolPathPolicy,
+): Promise<string[]> => {
+  const paths: string[] = [];
+  for (const root of policy.allowedPaths) {
+    let actual: string;
+    try {
+      actual = await policy.resolve(root);
+    } catch (error) {
+      if (error instanceof ToolInputError) continue;
+      throw error;
+    }
+    if (containsPath(actual, repositoryRoot)) return [repositoryPathspec];
+    if (containsPath(repositoryRoot, actual)) {
+      paths.push(literalPathspec(relative(repositoryRoot, actual).split(sep).join('/')));
+    }
+  }
+  return [...new Set(paths)];
+};
+
+/** Ask Git to match its own globs, including deleted paths in the selected history. */
+const selectionArgs = (args: InspectArguments): string[][] => {
+  let command: string[];
+  switch (args.op) {
+    case 'status':
+      command = ['ls-files', '--full-name', '-z', '--cached', '--others', '--exclude-standard'];
+      break;
+    case 'diff':
+      if (args.staged === true) {
+        command = ['diff', '--cached', '--no-renames', '--name-only', '-z'];
+        if (args.rev !== undefined) command.push(args.rev);
+      } else {
+        // Index/tree names avoid reading excluded worktree contents while selecting paths.
+        command = ['ls-files', '--full-name', '-z', '--cached'];
+        if (args.rev !== undefined) command.push(`--with-tree=${args.rev}`);
+      }
+      break;
+    case 'show':
+      command = [
+        'show',
+        '--format=',
+        '--no-renames',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--name-only',
+        '-z',
+        args.rev!,
+      ];
+      break;
+    case 'log':
+      command = ['log', '--format=', '--no-renames', '--name-only', '-z'];
+      if (args.rev !== undefined) command.push(args.rev);
+      break;
+  }
+  const commands = [command];
+  if (args.op === 'status') {
+    // Staged deletions have left the index, but still belong in status.
+    commands.push(['diff', '--cached', '--no-renames', '--name-only', '-z']);
+  }
+  return commands.map((command) => ['--no-pager', ...command, '--', ...args.paths!]);
+};
+
 const payloadFor = (
   args: InspectArguments,
   result: ProcessResult<{ readonly bytes: Uint8Array; readonly truncated: boolean }>,
@@ -437,6 +522,7 @@ const createGitInspectTool = (input: Parameters<ToolFactory>[0]): Tool => {
   const executor = input.processExecutor;
   return {
     name: 'git_inspect',
+    fileAccess: 'read',
     description:
       'Use this tool instead of bash for workspace git status, git diff, git log, and git show. Examples: {"op":"status"}, {"op":"diff"} for unstaged changes, {"op":"diff","staged":true} for git diff --cached, {"op":"diff","stat":true} for git diff --stat, {"op":"diff","paths":["src"]} to limit paths, {"op":"log"}, and {"op":"show","rev":"HEAD"}. status returns porcelain worktree state, diff compares the worktree, staged index, or a revision, log returns oneline history, and show displays one revision. Paths are workspace-relative and limit the operation; revisions accept HEAD, HEAD~N, or a commit hash. Output is paged with offset and limit: for log they select commits, otherwise output lines. The tool never writes to the repository, index, or working tree, and it fails with a distinct error when git or the repository is unavailable.',
     inputSchema: inspectSchema,
@@ -445,17 +531,82 @@ const createGitInspectTool = (input: Parameters<ToolFactory>[0]): Tool => {
     ]),
     async execute(argumentsValue, context?: ToolContext) {
       const args = parseArguments(argumentsValue);
+      // Repository discovery is internal metadata IO; allow applies to the Git target files.
+      const workspaceRoot = input.workspace.root;
       const executable = await findExecutable(GIT_EXECUTABLE);
       if (executable === undefined) {
         throw new Error(
           `git_inspect could not find ${GIT_EXECUTABLE} in its PATH (${GIT_PATH})`,
         );
       }
+      const repository = await runGit(
+        executor,
+        executable,
+        ['rev-parse', '--show-toplevel'],
+        workspaceRoot,
+        context?.signal,
+      );
+      const repositoryError = decoder.decode(repository.stderr);
+      if (repository.status.exitCode !== 0) {
+        if (repositoryError.includes('not a git repository')) {
+          throw new Error('git_inspect: the workspace is not a git repository');
+        }
+        const detail = firstLine(repositoryError);
+        throw new Error(
+          `git_inspect ${args.op} failed with exit code ${repository.status.exitCode}${
+            detail.length === 0 ? '' : `: ${detail}`
+          }`,
+        );
+      }
+      const repositoryRoot = decoder.decode(repository.stdout.bytes).trim();
+      let selectedPaths = await allowedPathspecs(repositoryRoot, input.pathPolicy);
+      if (args.paths !== undefined && selectedPaths.length > 0) {
+        if (selectedPaths.includes(repositoryPathspec)) {
+          selectedPaths = [...args.paths];
+        } else {
+          const names = new Set<string>();
+          for (const command of selectionArgs(args)) {
+            const selection = await runGit(
+              executor,
+              executable,
+              command,
+              workspaceRoot,
+              context?.signal,
+              Infinity,
+            );
+            if (selection.status.exitCode !== 0) {
+              throw new Error(
+                `git_inspect path selection failed: ${firstLine(decoder.decode(selection.stderr))}`,
+              );
+            }
+            for (const path of decoder.decode(selection.stdout.bytes).split('\0')) {
+              if (path) names.add(path);
+            }
+          }
+          selectedPaths = [];
+          for (const path of names) {
+            if (await input.pathPolicy.allows(`${repositoryRoot}/${path}`)) {
+              selectedPaths.push(literalPathspec(path));
+            }
+          }
+        }
+      }
+      if (selectedPaths.length === 0) {
+        return JSON.stringify(payloadFor(args, {
+          stdout: { bytes: new Uint8Array(), truncated: false },
+          stderr: new Uint8Array(),
+          status: { exitCode: 0, signal: null },
+        }));
+      }
+      const deniedPaths = [
+        ...input.pathPolicy.deniedPaths,
+        ...await input.pathPolicy.canonicalDeniedPaths(),
+      ];
       const result = await runGit(
         executor,
         executable,
-        buildArgs(args),
-        input.workspace.root,
+        buildArgs(args, [...selectedPaths, ...excludedPathspecs(repositoryRoot, deniedPaths)]),
+        workspaceRoot,
         context?.signal,
       );
       const stderr = decoder.decode(result.stderr);

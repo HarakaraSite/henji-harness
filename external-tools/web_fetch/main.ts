@@ -1,10 +1,12 @@
 import {
+  createToolPathPolicy,
   type JsonValue,
   throwIfCancelled,
   type Tool,
   type ToolContext,
   type ToolFactoryInput,
   ToolInputError,
+  type ToolPathPolicy,
   TurnCancelledError,
   type Workspace,
 } from '@henji/tool';
@@ -132,6 +134,7 @@ const parseArguments = (value: JsonValue): WebFetchArguments => {
 
 interface WebFetchOptions {
   readonly workspace?: Workspace;
+  readonly pathPolicy?: ToolPathPolicy;
 }
 
 const writeDownloadedBody = async (
@@ -183,105 +186,90 @@ const throwIfFetchAborted = (
 export const createWebFetchTool = (
   fetcher: typeof fetch = fetch,
   options: WebFetchOptions = {},
-): Tool => ({
-  name: 'web_fetch',
-  description:
-    'Fetch one http/https URL and return its HTTP status, final URL, content type, and decoded text body (HTML is converted to plain text). Set save_to to download the original response bytes to the Session workspace or /tmp.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      url: { type: 'string' },
-      save_to: { type: 'string' },
+): Tool => {
+  const pathPolicy = options.pathPolicy ?? createToolPathPolicy(
+    options.workspace?.root ?? '/tmp',
+    options.workspace === undefined ? ['/tmp'] : [options.workspace.root, '/tmp'],
+    [],
+  );
+  return {
+    name: 'web_fetch',
+    fileAccess: 'read-write',
+    description:
+      'Fetch one http/https URL and return its HTTP status, final URL, content type, and decoded text body (HTML is converted to plain text). Set save_to to download the original response bytes to a path allowed for web_fetch; the default allow is the Session workspace and /tmp.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        save_to: { type: 'string' },
+      },
+      required: ['url'],
+      additionalProperties: false,
     },
-    required: ['url'],
-    additionalProperties: false,
-  },
-  promptGuidelines: [
-    'Use web_fetch only for a specific URL or public API endpoint that is already known. Do not guess or enumerate endpoints. When the canonical source is not known, use web_search first. Treat the returned body as sourced material, cite the final URL for claims taken from it, and label inference instead of presenting it as verified fact.',
-    'When save_to fails because the destination already exists, choose another save_to path and retry.',
-  ],
-  async execute(
-    argumentsValue: JsonValue,
-    context?: ToolContext,
-  ): Promise<string> {
-    const { url, saveTo } = parseArguments(argumentsValue);
-    const downloadTarget = saveTo === undefined
-      ? undefined
-      : await resolveWebDownloadTarget(saveTo, options.workspace);
-    throwIfCancelled(context?.signal);
-    const signal = context?.signal === undefined
-      ? AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS)
-      : AbortSignal.any([
-        context.signal,
-        AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS),
-      ]);
-    let response: Response;
-    try {
-      response = await fetcher(url, {
-        method: 'GET',
-        redirect: 'follow',
-        signal,
-        headers: {
-          accept: downloadTarget === undefined
-            ? 'text/*, application/json, application/xml;q=0.9, */*;q=0.1'
-            : '*/*',
-          'user-agent': USER_AGENT,
-        },
-      });
-    } catch (error) {
-      if (signal.aborted) {
-        throw new Error(
-          downloadTarget === undefined
-            ? 'web_fetch request timed out or was cancelled'
-            : `web_fetch download failed for ${downloadTarget.path}: request timed out or was cancelled`,
-        );
-      }
-      throw new Error(
-        downloadTarget === undefined
-          ? `web_fetch request failed: ${error instanceof Error ? error.message : String(error)}`
-          : `web_fetch download failed for ${downloadTarget.path}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-      );
-    }
-    // Own the body from acquisition through status checks, decoding, and result construction.
-    const reader = response.body?.getReader();
-    try {
-      const finalUrl = response.url.length > 0 ? response.url : url;
-      const contentType = response.headers.get('content-type') ?? '';
-      if (!(response.status >= 200 && response.status < 300)) {
-        throw new Error(
-          downloadTarget === undefined
-            ? `web_fetch request failed (${response.status}) for ${finalUrl}`
-            : `web_fetch download failed for ${downloadTarget.path} (${response.status}) for ${finalUrl}`,
-        );
-      }
-      if (downloadTarget !== undefined) {
-        try {
-          await Deno.mkdir(downloadTarget.parent, { recursive: true });
-        } catch (error) {
+    promptGuidelines: [
+      'Use web_fetch only for a specific URL or public API endpoint that is already known. Do not guess or enumerate endpoints. When the canonical source is not known, use web_search first. Treat the returned body as sourced material, cite the final URL for claims taken from it, and label inference instead of presenting it as verified fact.',
+      'When save_to fails because the destination already exists, choose another save_to path and retry.',
+    ],
+    async execute(
+      argumentsValue: JsonValue,
+      context?: ToolContext,
+    ): Promise<string> {
+      const { url, saveTo } = parseArguments(argumentsValue);
+      const downloadTarget = saveTo === undefined
+        ? undefined
+        : await resolveWebDownloadTarget(saveTo, pathPolicy, options.workspace !== undefined);
+      throwIfCancelled(context?.signal);
+      const signal = context?.signal === undefined
+        ? AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS)
+        : AbortSignal.any([
+          context.signal,
+          AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS),
+        ]);
+      let response: Response;
+      try {
+        response = await fetcher(url, {
+          method: 'GET',
+          redirect: 'follow',
+          signal,
+          headers: {
+            accept: downloadTarget === undefined
+              ? 'text/*, application/json, application/xml;q=0.9, */*;q=0.1'
+              : '*/*',
+            'user-agent': USER_AGENT,
+          },
+        });
+      } catch (error) {
+        if (signal.aborted) {
           throw new Error(
-            `web_fetch download failed for ${downloadTarget.path}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-            { cause: error },
+            downloadTarget === undefined
+              ? 'web_fetch request timed out or was cancelled'
+              : `web_fetch download failed for ${downloadTarget.path}: request timed out or was cancelled`,
           );
         }
-        const cancelReader = () => {
-          void reader?.cancel(signal.reason).catch(() => {});
-        };
-        signal.addEventListener('abort', cancelReader, { once: true });
-        try {
-          let byteCount: number;
+        throw new Error(
+          downloadTarget === undefined
+            ? `web_fetch request failed: ${error instanceof Error ? error.message : String(error)}`
+            : `web_fetch download failed for ${downloadTarget.path}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+        );
+      }
+      // Own the body from acquisition through status checks, decoding, and result construction.
+      const reader = response.body?.getReader();
+      try {
+        const finalUrl = response.url.length > 0 ? response.url : url;
+        const contentType = response.headers.get('content-type') ?? '';
+        if (!(response.status >= 200 && response.status < 300)) {
+          throw new Error(
+            downloadTarget === undefined
+              ? `web_fetch request failed (${response.status}) for ${finalUrl}`
+              : `web_fetch download failed for ${downloadTarget.path} (${response.status}) for ${finalUrl}`,
+          );
+        }
+        if (downloadTarget !== undefined) {
           try {
-            byteCount = await writeDownloadedBody(
-              reader,
-              downloadTarget.path,
-              signal,
-              context?.signal,
-            );
+            await Deno.mkdir(downloadTarget.parent, { recursive: true });
           } catch (error) {
-            if (error instanceof TurnCancelledError) throw error;
             throw new Error(
               `web_fetch download failed for ${downloadTarget.path}: ${
                 error instanceof Error ? error.message : String(error)
@@ -289,43 +277,66 @@ export const createWebFetchTool = (
               { cause: error },
             );
           }
-          return [
-            `Saved: ${downloadTarget.path}`,
-            `URL: ${finalUrl}`,
-            `Status: ${response.status}`,
-            `Content-Type: ${contentType.length > 0 ? contentType : 'unknown'}`,
-            `Bytes: ${byteCount}`,
-          ].join('\n');
-        } finally {
-          signal.removeEventListener('abort', cancelReader);
+          const cancelReader = () => {
+            void reader?.cancel(signal.reason).catch(() => {});
+          };
+          signal.addEventListener('abort', cancelReader, { once: true });
+          try {
+            let byteCount: number;
+            try {
+              byteCount = await writeDownloadedBody(
+                reader,
+                downloadTarget.path,
+                signal,
+                context?.signal,
+              );
+            } catch (error) {
+              if (error instanceof TurnCancelledError) throw error;
+              throw new Error(
+                `web_fetch download failed for ${downloadTarget.path}: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+                { cause: error },
+              );
+            }
+            return [
+              `Saved: ${downloadTarget.path}`,
+              `URL: ${finalUrl}`,
+              `Status: ${response.status}`,
+              `Content-Type: ${contentType.length > 0 ? contentType : 'unknown'}`,
+              `Bytes: ${byteCount}`,
+            ].join('\n');
+          } finally {
+            signal.removeEventListener('abort', cancelReader);
+          }
+        }
+        const { bytes, truncated } = await readBoundedBody(reader);
+        const textual = isTextualContentType(contentType);
+        const raw = textual ? new TextDecoder('utf-8').decode(bytes) : '';
+        const body = contentType.toLowerCase().includes('text/html') ? htmlToText(raw) : raw;
+        const meta = [
+          `URL: ${finalUrl}`,
+          `Status: ${response.status}`,
+          `Content-Type: ${contentType.length > 0 ? contentType : 'unknown'}`,
+          `truncated: ${truncated}`,
+        ].join('\n');
+        if (!textual) return meta;
+        return `${meta}\n\n${body}${truncated ? '\n\n[body truncated]' : ''}`;
+      } finally {
+        if (reader !== undefined) {
+          try {
+            await reader.cancel('web_fetch finished');
+          } catch {
+            // A fully consumed or aborted body is already settled.
+          } finally {
+            reader.releaseLock();
+          }
         }
       }
-      const { bytes, truncated } = await readBoundedBody(reader);
-      const textual = isTextualContentType(contentType);
-      const raw = textual ? new TextDecoder('utf-8').decode(bytes) : '';
-      const body = contentType.toLowerCase().includes('text/html') ? htmlToText(raw) : raw;
-      const meta = [
-        `URL: ${finalUrl}`,
-        `Status: ${response.status}`,
-        `Content-Type: ${contentType.length > 0 ? contentType : 'unknown'}`,
-        `truncated: ${truncated}`,
-      ].join('\n');
-      if (!textual) return meta;
-      return `${meta}\n\n${body}${truncated ? '\n\n[body truncated]' : ''}`;
-    } finally {
-      if (reader !== undefined) {
-        try {
-          await reader.cancel('web_fetch finished');
-        } catch {
-          // A fully consumed or aborted body is already settled.
-        } finally {
-          reader.releaseLock();
-        }
-      }
-    }
-  },
-});
+    },
+  };
+};
 
 /** Worker factory used by the current external tool folder binding. */
 export default (input: ToolFactoryInput): Tool =>
-  createWebFetchTool(fetch, { workspace: input.workspace });
+  createWebFetchTool(fetch, { workspace: input.workspace, pathPolicy: input.pathPolicy });

@@ -163,7 +163,7 @@ const externalTool = async (root: string, marker: string): Promise<void> => {
     `${folder}/index.ts`,
     "import { ToolInputError, type ToolFactory } from '@henji/tool';\n" +
       "import { marker } from './helper.ts';\n" +
-      "const factory: ToolFactory = (input) => { let calls = 0; return { name:'marker', description:marker, inputSchema:{type:'object'}, promptGuidelines:[marker], async execute(args) { if (args === null) throw new ToolInputError('marker arguments'); await Deno.writeTextFile(input.workspace.root+'/executed', marker); return marker+':'+(++calls); } }; };\nexport default factory;\n",
+      "const factory: ToolFactory = (input) => { let calls = 0; return { name:'marker', fileAccess:'none', description:marker, inputSchema:{type:'object'}, promptGuidelines:[marker], async execute(args) { if (args === null) throw new ToolInputError('marker arguments'); await Deno.writeTextFile(input.workspace.root+'/executed', marker); return marker+':'+(++calls); } }; };\nexport default factory;\n",
   );
 };
 

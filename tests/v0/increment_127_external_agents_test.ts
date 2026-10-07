@@ -103,6 +103,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
         identity: createAgentResourceIdentity('tool:search'),
         materialize: () => ({
           name: 'search',
+          fileAccess: 'read' as const,
           description: 'Search workspace paths and contents.',
           inputSchema: { type: 'object' },
           execute: () => '{}',
@@ -112,6 +113,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
         identity: createAgentResourceIdentity('tool:git_inspect'),
         materialize: () => ({
           name: 'git_inspect',
+          fileAccess: 'read' as const,
           description: 'Inspect the repository read-only.',
           inputSchema: { type: 'object' },
           execute: () => '{}',

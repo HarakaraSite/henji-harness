@@ -1,5 +1,10 @@
 # Increment 113 — codebase構造の単純化review
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 ## 状態
 
 **Slice 1とterminal artifact bridge、Slice 2〜18完了。authoritative `v0:gate`成功**

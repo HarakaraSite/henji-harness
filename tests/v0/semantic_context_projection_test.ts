@@ -87,6 +87,7 @@ Deno.test('Model steps retain a tool result larger than 64 KiB for the next requ
     },
     new Registry([{
       name: 'large_tool',
+      fileAccess: 'none' as const,
       description: 'Return one large observed result',
       inputSchema: { type: 'object', additionalProperties: false },
       execute: () => resultText,

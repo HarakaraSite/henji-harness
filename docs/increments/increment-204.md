@@ -1,5 +1,10 @@
 # Increment 204 — credential保存先の分離とrun_typescriptのconfig root読み取り
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 状態: 実装・検証・独立review・常用配置・実環境移行まで完了（2026-10-06、利用者指示）。source commit
 `d1a26f7c`、review対応`2a95f72f`、公式build `7ecf58e9…`を常用配置済み。実configへの
 `run-typescript.json`配置と旧credential fileの削除も実施済み。削除直後に旧Coreが旧保存先を参照して

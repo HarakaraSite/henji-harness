@@ -118,6 +118,7 @@ Deno.test('Increment 189 applies turn and tool hooks through WorkerGeneration', 
     };
     const registry = new Registry([{
       name: 'write_marker',
+      fileAccess: 'read-write' as const,
       description: 'write a marker file',
       inputSchema: {},
       execute: async (argumentsValue) => {
@@ -127,6 +128,7 @@ Deno.test('Increment 189 applies turn and tool hooks through WorkerGeneration', 
       },
     }, {
       name: 'fail',
+      fileAccess: 'none' as const,
       description: 'return a tool execution error',
       inputSchema: {},
       execute: () => {
@@ -134,6 +136,7 @@ Deno.test('Increment 189 applies turn and tool hooks through WorkerGeneration', 
       },
     }, {
       name: 'submit_json_result',
+      fileAccess: 'none' as const,
       description: 'finish with a JSON result',
       inputSchema: {},
       terminal: true,
@@ -399,6 +402,7 @@ Deno.test('Increment 189 before_tool failure becomes a tool error without dispat
     };
     const registry = new Registry([{
       name: 'write_marker',
+      fileAccess: 'read-write' as const,
       description: 'write a file',
       inputSchema: {},
       execute: async (args) => {

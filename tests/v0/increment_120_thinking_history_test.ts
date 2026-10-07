@@ -92,6 +92,7 @@ Deno.test('Increment 120 keeps each completed model step before its tool and ans
     },
     new Registry([{
       name: 'lookup',
+      fileAccess: 'none' as const,
       description: 'Return marker',
       inputSchema: { type: 'object' },
       execute: () => 'marker',

@@ -11,6 +11,7 @@ export const workerConfigurationFixture = (
   source: { kind: 'bundled' },
   systemInstruction: 'Data-port fixture instruction',
   instructionComponents: [],
+  toolPaths: { deny: [] },
   tools: [],
   hooks: [],
   rejections: [],

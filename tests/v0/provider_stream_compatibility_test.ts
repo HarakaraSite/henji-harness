@@ -931,6 +931,7 @@ Deno.test('OpenRouter mixed assistant text and tool calls remain visible and con
     model,
     new Registry([{
       name: 'read',
+      fileAccess: 'none' as const,
       description: 'Read the current source.',
       inputSchema: { type: 'object' },
       execute: () => '# current source',

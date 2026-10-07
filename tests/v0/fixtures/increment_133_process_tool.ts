@@ -3,6 +3,7 @@ import type { ToolFactory } from '../../../v0/agent/tool_api.ts';
 /** External JSON-configured tool for exercising Host-owned physical process lifetime. */
 const processProbe: ToolFactory = (input) => ({
   name: 'process_probe',
+  fileAccess: 'unmanaged' as const,
   description: 'Increment 133 physical process lifetime probe',
   inputSchema: { type: 'object', properties: { mode: { type: 'string' } } },
   execute: async (value, context) => {

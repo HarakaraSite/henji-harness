@@ -1,5 +1,10 @@
 # Increment 192 — openai-chat同梱routeの廃止
 
+現在の状態: **完了（2026-10-07、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は当時の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 状態: local実装・検証済み（2026-10-05）。常用配置と利用者の通常利用による完了確認は未実施。
 
 ## 利用者が必要とする動作
@@ -20,7 +25,7 @@ adapterを残す方針に同意した後、「では次のインクリメント�
   `b1b4879f-75f4-4314-8023-7989236da1e2`とruntime outcomeをread-onlyで確認した。
 - 同日11:18 JSTのexecution `60c346bf-f085-4637-be27-be965adc8b4d`は、同じprovider/modelの effort
   `none`でcompletedし、toolを1回実行した。model単体の利用不能ではなく、APIとeffortの組合せによる制約である。
-- [Increment 68](increment-68.md)でもこの制約を実APIで観測し、`openai-chat`の既定effortを`none`にしていた。
+- [Increment 68](../history/increments/increment-68.md)でもこの制約を実APIで観測し、`openai-chat`の既定effortを`none`にしていた。
   [Increment 190](increment-190.md)では6.1-solだけをmodel一覧から除外したが、今回はroute全体を廃止する。
 - 2026-10-05の[OpenAI公式移行ガイド](https://developers.openai.com/api/docs/guides/migrate-to-responses)の
   調査で、Chat Completionsのサポート継続、新規projectへのResponses推奨、GPT-5.4以降はChat

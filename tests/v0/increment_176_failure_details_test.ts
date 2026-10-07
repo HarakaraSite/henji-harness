@@ -234,6 +234,7 @@ Deno.test('Increment 176 keeps Chat SSE API metadata, reader causes and parser f
 Deno.test('Increment 176 adds tool exception facts to the existing result and commit exception facts to the existing diagnostic', async () => {
   const registry = new Registry([{
     name: 'broken',
+    fileAccess: 'none' as const,
     description: '',
     inputSchema: {},
     execute() {
