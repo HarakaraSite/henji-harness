@@ -181,6 +181,11 @@ recordを組み立ててprepare tokenを返す。Core/headless Hostは取消状�
 DataはCOMMIT後に会話stateへ一度applyし、変更entityとencoded snapshot/deltaを返す。
 Coreはdata/controlの更新へ単一public revisionを付けて合成し、API Workerへ渡す。
 Dataの保存版と公開cursorは区別し、通常の更新で過去全履歴の再読取・全会話のparse/再encodeを行わない。
+保存Sessionのdescriptor・context・request読取は必要なsemantic dataだけをその時点で導出し、full
+recordは明示readで正本から再構成する。会話viewは初回read/watchまでlazyに生成し、無購読の更新では
+encode・配信を行わない。生成済みopen Sessionのviewは利用期間中保持し、closed Sessionは実consumerの
+利用終了で解放する。canonical採用portは変更分だけを扱い、過去turnのattribution再組立てと二重Session
+writeを行わない。処理再構成の採用結果は[Increment 199](../increments/increment-199.md)を参照する。
 offline `henji history`はread-only DB adapterと同じ更新器で参照する。
 配置・保存と公開の契約は[Increment 170](../increments/increment-170.md)を参照する。
 
@@ -221,6 +226,13 @@ runのprocess宛signalに新しいgraceful保存保証は追加しない。
   group所有と清算を行う。
 
 ### Agent Worker が所有するもの
+
+標準run_typescriptの呼出しごとに同じHenjiの子processを既存Host ProcessExecutorが所有し、
+同期計算中の取消もprocess停止・清算へ接続する。子process内のcode Worker・module取得Workerは
+Tool実装が所有する。既存Registry・semantic履歴を使い、async本文、workspaceと/tmpのread/write、
+networkと実行時std取得を提供する。importはstdのみ許可し、通常fetchは維持する。
+codeのenv/run/sys/ffiは無効とし、追加Worker作成は許可しない。
+実装・確認・全体gate通過・常用配置結果は[Increment 191](../increments/increment-191.md)を参照する。
 
 - 共通factoryによるJSON設定、model/effort、実際のTool、native instruction/skill、runtime
   factsのcomposition構築。
@@ -305,12 +317,44 @@ dispatchに使い、function/内部stateをpostMessageしない。
 JSONのtoolsが空ならskill/submit_json_resultを自動追加しない。native
 skillは実catalogと選択toolがあるとき提示する。
 
-同梱default/genericはread/write/edit/bash/bash_output、search/web_search/web_fetch、
+同梱default/genericはread/write/edit/bash/bash_output/run_typescript、search/web_search/web_fetch、
 skill/submit_json_resultを選ぶ。searchと二つのweb toolはpackageに含む外部sourceを使い、
 executableへ実装を埋め込まない。明示toolsを持つnamed Agentは必要な名前を宣言する。 child操作はAgent
 JSONのagentsから別に構成し、child Workerには再帰spawn toolを提示しない。 rejectされたtool/named
 entryは提示とdispatchの両方から除き、理由を最終instructionとSurfaceへ渡す。
 Agent/catalog構成が成立しなければtaskをadmitせず、Core/TUIと履歴閲覧・認証・設定操作は維持する。
+
+#### 外部hookとbuiltinの呼出境界
+
+Agent Workerはruntime_start、runtime_stop、before_turn、after_turn、before_tool、after_toolの
+六つのbuiltin呼出点を持つ。共通runnerは登録順のawaitと結果の受渡しを担当し、Agent側が
+context・tool値への適用とsemantic記録を担当する。環境情報の挿入等の具体処理は外部TSに置き、
+Worker-local HookFactoryへ公開specifier `@henji/hooks`、contract `henji-hooks/v1`を提供する。
+Data Workerのhookはこのincrementでは追加しない。
+
+現在のhooks.jsonがcatalogと共通defaultを選ぶ。Agentのhooks省略はdefault、明示一覧は置換、
+空一覧は無効化であり、root/named/genericへ同じ規則を使う。factoryとclosureはWorkerごとに独立し、
+編集は新Workerから反映する。外部TSにはroot/child、Agent名、Session/Worker/Executionと
+親execution等の識別情報を渡し、子を処理するかは定義側で決める。runtimeはWorkerの寿命であり、
+開始hookの寄与をready前の構成snapshotに含める。正常closeは進行中turnと終了hookを待って
+process/registry/Data portを清算する。正常hook待機へ既存5秒応答期限を適用せず、
+明示取消とWorker喪失は既存終了経路へ接続する。
+
+外部TSへ渡すcontextはlive stateではなくreadonly snapshotであり、canonical turnから
+checkpointと最近のturnのviewを導出し、元履歴とprojectionを別々に全量copyしない。
+before_turnの寄与はそのturnだけに適用する。before_toolは実効引数だけを変え、モデルの
+元callと双方の値・出所を記録する。after_toolは本文だけを変え、outcome/callId/terminal
+finalTextを保持する。
+
+after_turnはDataの採用・保存確定後に実行し、確定したterminal reasonと完成draftを渡す。summaryと保持境界の返却はData ownerの
+既存checkpoint保存へ接続し、保存ack後にturn完了と次task/子result公開へ進む。
+canonical履歴は残し、子の更新は子自身のcontextへ適用する。確定後のhook効果・例外・
+短いprovider request factはsealed executionの通常受付とは別の保存経路へ残し、
+hook失敗で採用済み結果を再失敗にしない。189ではcompaction用の外部定義の要約処理・閾値は実装しない。
+
+配布packageはruntime-start-time定義を同梱する。これはWorker開始時のDateを一度取得し、
+UTC offsetとtimezone名付きで開始日時を挿入する。installerは初回catalog/defaultを作り、
+既存catalogと編集済み定義を保持する。配布定義の置換は明示的な--replace-hooksで行う。
 
 #### 非同期childの操作と清算
 
@@ -390,8 +434,9 @@ snapshotとcall/resultはSession/evidenceへ
 #### Provider設定の外部化
 
 Provider routeはdata-only declarationのprovider ID、API protocol、endpoint、auth profileで表す。
-binary同梱は`openrouter-chat`、`openrouter-responses`、`openai-chat`、`openai-responses`、`openai-chatgpt`の
-五routeである。external `providers/*.json`は新しいprovider
+binary同梱は`openrouter-chat`、`openrouter-responses`、`openai-responses`、`openai-chatgpt`の
+四routeである。Increment 192で同梱`openai-chat`を廃止した。共有Chat Completions adapterは
+OpenRouterと外部provider用に維持する。external `providers/*.json`は新しいprovider
 IDを追加し、built-in同名宣言はrouteを維持して catalog/defaultsをoverrideする。既定はHost
 configの`default-selection.json`から選び、未設定時は `openrouter-chat`を使う。
 
@@ -422,9 +467,15 @@ bindingの詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing
 
 外部searchはpaths（file名一覧）、files（本文が一致するfile）、content（一致行）、count（出現数）を提供する。
 共通列挙したfileを明示引数として渡し、rgを優先して不在時だけgrepへfallbackする。hidden/ignore対象も
-同じ範囲へ含める。regexpの方言とゼロ幅一致の扱いはbackendに従う。paths/files/contentは完全なrecord単位で
-offset/limitと続き情報を持ち、contentのtotalは一致行数である。countは同じ検索条件で選択対象全体の
-非重複の一致数をmatchCountへ合算し、offset/limitを適用しない。
+同じ範囲へ含める。regexpの方言とゼロ幅一致の扱いはbackendに従う。files/content/countはtext検索であり、
+`.db`・`.sqlite`・`.sqlite3`・`.blob`と対応する`-wal`/`-shm`を除外し、その他のfileは64 KiB単位で内容を
+読みながらNULをbinaryとして除外する（UTF-16 BOM付きtextは維持し、encoded NULではなくcode unitの
+U+0000を判定する）。paths/files/contentは完全なrecord単位でoffset/limitと続き情報を持ち、contentのtotalは
+一致行数である。countは同じ検索条件で選択対象全体の非重複の一致数をmatchCountへ合算し、
+offset/limitを適用しない。backend出力のcaptureはstdout合計8 MiB・stderr 64 KiBまでとし、超過時は
+processを停止して取得済み範囲を返し、不完全recordを除く。tool返却JSONは1 MiBまでで、超過する
+matching textはprefix化する。部分結果は`truncated:true`・`totalIsExact:false`で明示し、
+hasMore/nextOffsetは取得済みrecord内のpagingに限る。
 
 外部web_searchはExa APIを使い、非modelの検索requestとしてauthProfile `exa-api-key`を解決する。
 親modelのcredentialやmodel request budgetを使わず、tool semantic履歴とprovider=exa/api=exa-searchの
@@ -498,6 +549,8 @@ systemはmagenta、失敗語はred、Markdown見出しは256色のblue系、list
 marker・emphasis・readyはcyanである。terminal styleは最終frameにだけ加え、保存本文・API・model
 contextへANSIを混入させない。
 rendererはgrapheme幅、変更entryの再利用、更新の合流、行差分とsynchronized outputを使う。
+会話表示は保存本文の可視rangeを起点に構築し、viewport位置・幅変更・Page/resize・followを同じ経路で
+処理する。Core/Dataは表示幅に依存せず、幅と表示操作のownerはTUIである。
 長時間通常利用の入力遅延やGhosttyのちらつき等の未再現観測は、これらの実装だけで解消済みとしない。
 
 通常文のEnterはidle時にtaskを送信し、working中はdraftを保持する。F2は成功後の次task予約、F3は現在の
@@ -505,7 +558,9 @@ executionへの一回のsteeringである。最終回答を受けた時点でも
 次model requestへ一度取り込み、元のfinalだけで終了しない。受付可否はCore
 operationsから導く。Ctrl-Cは通常入力のclear、
 Alt-Enterは改行、区別可能なShift／Ctrl-Enterも改行として扱う。
-PageUp／PageDownは実行中も履歴を移動する。履歴中のEscはlatestへ戻り、latestで実行中のEscだけがcancelを
+PageUp／PageDownは実行中も履歴を移動する。mouse wheelは同じ履歴移動（1イベント＝1ページ）として働き、
+TUIは会話表示中にmouse trackingを要求するため、端末標準のドラッグ選択はShift+ドラッグ（terminal側）または
+tmuxのキーボードcopy-modeで行う。履歴中のEscはlatestへ戻り、latestで実行中のEscだけがcancelを
 要求する。pickerのEscはその画面を閉じ、cancelへ流さない。入力と過去表示位置はsnapshot更新で保持する。
 
 F1または`/sessions`はSession一覧を開く。Enterは閲覧、R／rは再開、D／dは個別削除確認、

@@ -170,7 +170,7 @@ commit・公式build・常用配置・配置後確認を完了した。
 同じ保存入力での新版実測を確認した利用者が「今回の対応は完了とする」と完了承認した。198のpendingなし。
 常用binaryのsourceは
 `a3312284`。採用要件・結果・実測・利用者の判断は198、前段の根拠は[処理案](../docs/research/a28-alternate-screen-viewport-plan.md)。
-新しい実provider call、構想・architecture・roadmapの正本反映は未承認。
+新しい実provider callは未承認。198の記述は2026-10-07の正本変更指示でarchitectureへ追記済み。
 
 [Increment 197](../docs/increments/increment-197.md)は利用者指定の配色追加調整として、
 tool>＋ツール名とthinking系ラベルを緑＋dim（SGR 32;2）にした。local実装・focused確認70件pass・
@@ -216,8 +216,14 @@ bash結果のexitCodeで捕捉、Jev等のAI判定は実provider承認が前提�
 
 ## 次の一手と承認境界
 
+構想・architecture・roadmap: 利用者指示（2026-10-07）で189・191・192の記録済みpatchと202の追記、
+198・199の記述追記を適用した。構想は変更なし。変更は`docs/architecture/henji-host-agent-worker.md`・
+`docs/architecture/multi-provider-routing-and-auth.md`・`docs/roadmap.md`で、roadmapヘッダに反映範囲を
+記録した。
+
 199は利用者による完了承認済みで、source commitまで完了。採用範囲にpendingなし。
-常用配置・push・公開/release・実provider call・構想/architecture/roadmap正本変更は未承認。
+常用配置・push・公開/release・新しい実provider callは未承認（199のarchitecture/roadmap記述は
+2026-10-07の正本変更指示で適用済み）。
 最初のgateの容量不足/obsolete fixture切分けと再実行理由・全結果は199に記録した。
 
 198は利用者による完了承認済み。継続的な処理最適化についての利用者の判断は198末尾を参照する。
@@ -235,12 +241,12 @@ A28は利用者の「A28も完了でいい」により完了とし、通常利�
 完了判断と原観測・旧候補の移設先は199を参照する。195後のmetadata読取候補は196へ採用・移設した。
 類似問題reviewで見つかったcontext読取・終了後artifact更新・recall/診断読取の候補は、199の計画対象へ移設した。
 
-192のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
+192のarchitecture/roadmap案は2026-10-07の正本変更指示で適用済み（architecture 2文書・roadmap）。
 192の追加指示はarchitecture/roadmap正本変更、push、公開/release、
 旧実データの削除・移行の承認を含まない。実provider callを計画上の必須確認にしない。
-191のarchitecture/roadmap案は未適用patchに留め、正本反映は別承認対象である。
+191のarchitecture/roadmap案は2026-10-07の正本変更指示で適用済み。
 その他の未採用候補は通常利用メモを参照し、個別採用前に実装しない。
-architecture/roadmapの189案は未適用patchに留め、正本反映は別承認対象。 今回のJSR公開と手順内のsource
+architecture/roadmapの189案は2026-10-07の正本変更指示で適用済み（191・192・202のpatch反映と、198・199の記述追記も同時）。 今回のJSR公開と手順内のsource
 pushは承認済み。後続指示でnative binaryのbuild・常用配置も承認済み。
 必要最小限の実provider利用は承認済み。使用前に対象・回数・保存先を提示する。
 旧実データの削除・移行は未承認。S4の`/reload`も別候補として残る。
@@ -289,17 +295,17 @@ pushは承認済み。後続指示でnative binaryのbuild・常用配置も承�
 - [Increment 192](../docs/increments/increment-192.md):
   `openai-chat`廃止の採用要件、実行記録・公式契約、 現行利用経路、実装・gate・compiled
   TUI確認・commit・常用配置結果、利用者確認・完了承認、承認境界。
-  [正本変更案](../docs/increments/increment-192-authority-proposal.patch)は未適用。
+  [正本変更案](../docs/increments/increment-192-authority-proposal.patch)は2026-10-07に適用済み。
 
 - [Increment 191](../docs/increments/increment-191.md): A23の要件、各スライスの実装・確認結果、645
   testのgate通過、commit・常用配置結果、承認境界。
   [実Agent・スパイク記録](../docs/research/a23-agent-generated-code-probe-2026-10-05.md)、
-  [正本変更案](../docs/increments/increment-191-authority-proposal.patch)。
+  [正本変更案](../docs/increments/increment-191-authority-proposal.patch)は2026-10-07に適用済み。
 
 - [Increment 190](../docs/increments/increment-190.md): B11の採用範囲、一覧フィルタと確認結果。
 
 - [Increment 189](../docs/increments/increment-189.md):
-  A26の要件、6スライス結果、最終compiled/実provider証拠、完了判定と未適用正本変更案。
+  A26の要件、6スライス結果、最終compiled/実provider証拠、完了判定と正本変更案（2026-10-07適用）。
 
 - [Increment 188](../docs/increments/increment-188.md): edit対象file 1
   MiB拡張、実装・確認結果と承認境界。

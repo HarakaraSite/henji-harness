@@ -23,7 +23,7 @@ adapterへ接続した。
   `web_search`を同じturnで利用できる。
 - parentとsubagentが異なるproviderでも、各model requestは自分に指定されたprovider・model・effort・
   認証profileを使う。credential値を親から子へ渡さない。model省略時は親の実効selection・認証参照を使う。
-- ChatGPT契約枠を使う`openai-chatgpt`とPlatform API keyの`openai-chat`／`openai-responses`は、
+- ChatGPT契約枠を使う`openai-chatgpt`とPlatform API keyの`openai-responses`は、
   同じ公開API endpointを使う場合もauth profile、account binding、catalog、replay identityを分ける。
 - providerを切り替えてもHenji Sessionとsemantic transcriptは継続する。一turnの途中でroot
   routeは変えない。
@@ -93,11 +93,10 @@ identityとする。
 | ---------------------- | -------------------------------------------------- | ----------------------------- | -------------- |
 | `openrouter-chat`      | OpenRouter Chat Completions互換API                 | `openrouter-api-key`          | 14、ID整列は68 |
 | `openrouter-responses` | OpenRouter Responses API                           | `openrouter-api-key`          | 58             |
-| `openai-chat`          | 公開OpenAI Chat Completions API                    | `openai-api-key`              | 64、ID整列は68 |
 | `openai-responses`     | 公開OpenAI Responses API                           | `openai-api-key`              | 14、ID整列は68 |
 | `openai-chatgpt`       | 公開OpenAI Responses APIを使うChatGPT契約枠のroute | `openai-chatgpt`（OAuth登録） | 163            |
 
-`openai-chat`／`openai-responses`と`openai-chatgpt`は同じvendor・modelでも別providerである。
+`openai-responses`と`openai-chatgpt`は同じvendor・modelでも別providerである。
 共通Responses protocolへ接続しつつ、認証、account登録、model一覧、provider
 replayのidentityを区別する。 旧feasibility案の`openai-codex`を現行provider IDやaliasとして扱わない。
 
@@ -106,9 +105,9 @@ profileを新しいroute branchと adapterとして加える。Increment
 14〜17では未確認のendpoint、認証、provider stateを先回りして共通仕様化しない。
 
 同じvendorと同じcredentialでもAPI surfaceは別routeである。OpenRouterのChat CompletionsとResponsesは
-`openrouter-chat`／`openrouter-responses`として併設し、OpenAI
-directも`openai-chat`／`openai-responses`を 区別する。旧ID `openrouter`／`openai`はIncrement
-68でaliasやmigrationなしに廃止した。
+`openrouter-chat`／`openrouter-responses`として併設する。OpenAI directは`openai-responses`を使う。
+Increment 192で同梱`openai-chat`を廃止し、共有Chat Completions protocolとadapterはOpenRouter・
+外部provider用に維持する。旧ID `openrouter`／`openai`はIncrement 68でaliasやmigrationなしに廃止した。
 
 current selectionは次の構造を持つ。`provider`はprovider ID、`api`はeffective
 protocol/surfaceであり、 credential値やendpointは含めない。
