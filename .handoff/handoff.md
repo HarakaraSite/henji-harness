@@ -11,9 +11,9 @@
   212はlocal実装・focused確認・隔離tmux実表示／操作確認と独立reviewを完了し、sourceは
   commit `894aeb0b`へ保存済み。利用者指示により公式build・常用配置・配置後smokeまで完了した。
   詳細と検証結果は212を参照する。常用環境での利用者確認は211・212をまとめて行う。
-  配置後の利用者観測で`/new`のヘッダー重複を再現・修正し、focused／隔離tmux確認を完了した。
-  先行修正は`e1ac27ea`へcommit済み・未配置。その後の利用者指示でヘッダーを表示開始時の情報へ
-  固定し、保存Session再表示で最新状態を出す修正を検証・再配置中。詳細は212の追加記録を参照する。
+  配置後の利用者観測と指示により、ヘッダーを表示開始時の情報へ固定し、保存Session再表示で
+  最新状態を出す修正を`afc75e0b`へcommit・build・再配置した。focused／配置binaryの隔離tmuxで
+  RENAME時の再出力抑止・連続`/new`・保存Sessionの最新title表示を確認済み。詳細は212を参照する。
   pushは未実施。
   順序は211の実表示・操作確認後に212。要件と確認方針は各incrementを参照する。
 - [Increment 210](../docs/increments/increment-210.md)は、Coreの重複照会・再投影のlocal改善と検証を完了した。
@@ -27,7 +27,7 @@
   各increment冒頭の現在状態を参照する。当時の実施・未実施記録は保持し、過去作業を再調査しない。
 - [Increment 208](../docs/increments/increment-208.md)は、実装・検証・常用配置・利用者受入・pushまで完了。
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
-- 常用binaryはHenji 0.10.0、source `894aeb0b`、build `4c7f0dcf…`（`--version`で確認）。
+- 常用binaryはHenji 0.10.0、source `afc75e0b`、build `8a1a9e4c…`（`--version`で確認）。
   現行の配置は212、常用環境の利用者確認は211・212で待つ。
   JSR公開は[公開記録](../docs/operations/jsr-publish.md#0100-publication--2026-10-07-jst)を参照する。
 - 正本の照合対応はcommit `071ec6ca`へ保存済み。
@@ -38,7 +38,7 @@
 
 ## 次の一手
 
-- 212のヘッダー重複修正をcommit・再配置し、新しいCore/TUIで利用者確認へ進む。pushは未承認。
+- 新しいCore/TUIで、211・212とヘッダー表示固定の常用環境での利用者確認へ進む。pushは未承認。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。

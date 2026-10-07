@@ -252,7 +252,7 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
 ## 配置後の新規Sessionヘッダー重複修正（2026-10-07）
 
 利用者の「新規でセッション開始した時、ヘッダーが重複して表示される」を受け、
-既承認の212配置に対する不具合対応として修正・検証し、commitと再配置を進める。
+既承認の212配置に対する不具合対応として修正・検証した。後続の表示固定指示を含め、commit・再配置まで完了した。
 
 - 配置済みbinary・隔離HOME/XDG・local固定provider・tmuxで`/new`を再現した。
   初回`/new`でヘッダー数が1→3となり、旧Sessionの`new (autosave)`に続いて同じIDの
@@ -269,8 +269,7 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
   ヘッダー数が1→2→3と新Sessionごとに1回だけ増えた。複数行editorとF4／EscもPASS。
   source確認記録は`.tools/increment-212/header-fixed-source/`、修正前の再現記録は`header-fix/`。
 
-修正のcommit・build・再配置結果は以下へ記録する。実provider call・push・公開は含めない。
-
+先行修正をcommit・build後、以下の追加指示を反映して再配置した。実provider call・push・公開は含めない。
 
 ### ヘッダーを表示開始時の情報へ固定（2026-10-07）
 
@@ -283,4 +282,25 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
 - 旧remote header更新testは、最新状態の保存Sessionを開く動作へ修正した。
   RENAMEとcontext・skills更新が出力を増やさず、再表示で更新情報を出すfocused regressionも追加した。
 - focused test 16 pass／0 fail。変更箇所とCLIのtype check、format・lint、diff checkを完了した。
-- 隔離tmuxでのRENAME・保存Session再表示、公式build・再配置結果は以下へ記録する。
+- source commit `afc75e0bb1d80a9070880ba6161d14d9bdf16927`から公式`henji:compile`で再buildし、
+  `dist/henji`と`/home/agent/.local/bin/henji`へatomic renameで再配置した。versionとSHA-256は一致する。
+  build ID: `8a1a9e4cfd5d738df1734cf4057bfff88c9bb2c9edb93834c11aedb33c53bc01`。
+  runtime SHA-256: `ed9f40278d06e4f5081e3a403c066c47f91be1e0f3006f393b44b3c2c564ed2d`。
+  binary SHA-256: `99d2b87b3ba113ac4a6100bae038c6f5b57e77f24723e5afdf335c688d9d512a`。
+- 直前の212配置binary（source `894aeb0b`）は`henji.previous`と記録directoryへ保存した。
+  その前の`henji.previous`も`henji.local.previous.pre-header-fix`へ保存し、旧binaryを保持した。
+- 配置binaryのcompiled Core/TUIを隔離HOME/XDG・外部DenoのないPATH・tmuxで確認した。
+  `/rename`でAPI保存titleが更新されても、ヘッダー数は1→1で増えない。
+  続く2回の`/new`では1→2→3。F4 pickerから旧Sessionを開き直すと3→4で、最新titleを表示した。
+  複数行editorとUp/Home、F4／Escのdraft保持、active Sessionへ戻ってCtrl-Q終了もPASS。
+  Coreのsource一致・sourceDirty=false、normal screen・mouse off、Core exit 0を確認した。
+  task投入・実provider callは0回。
+- 初回smokeはdriverがRENAME完了前の省略可能なtitleを直接参照し、中断した。
+  pollingを省略可能なtitleに合わせて修正し、再実行PASS。production変更・再buildはない。
+- 常用環境の稼働Core/TUIは再起動していない。新しいCore/TUI起動から適用する。
+  利用者による常用環境確認は引き続き待つ。push・公開は実施していない。
+
+記録（git対象外）: `.tools/increment-212/header-fixed-build.log`、
+`.tools/increment-212/header-fixed/deployment/deployment.json`、`header_deploy_smoke.py`、
+`smoke.json`、`after-rename.txt`、`header-history.txt`、`saved-restored.txt`。
+この結果記録のcommitは文書変更だけであり、binaryのsourceは`afc75e0b`を指す。
