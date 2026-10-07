@@ -1,11 +1,7 @@
 import type { SessionSnapshot } from '../api/contract.ts';
 import type { SessionClientState } from '../api/reducer.ts';
 import { freezeUiLogEntry, presentationFailureReason, type UiLogEntry } from './state.ts';
-import {
-  KeyedConversationStore,
-  type KeyedNoticePlacement,
-  type KeyedNoticeUpdate,
-} from './keyed_conversation_store.ts';
+import { KeyedConversationStore, type KeyedNoticePlacement } from './keyed_conversation_store.ts';
 
 interface RetainedNotice {
   entry: UiLogEntry;
@@ -28,7 +24,6 @@ interface NoticeSyncResult {
   readonly changed: boolean;
   readonly changedIds: ReadonlySet<string>;
   readonly structureChanged: boolean;
-  readonly previousIds?: readonly string[];
 }
 
 const steeringKey = (executionId: string, text: string): string =>
@@ -158,23 +153,19 @@ export class RemoteSystemNotices {
 
     const changedIds = new Set<string>();
     let structureChanged = false;
-    let previousIds: readonly string[] | undefined;
     if (options.reset === true) {
       store.replaceNotices([...state.notices.values()].map(placementOf));
       for (const id of state.notices.keys()) changedIds.add(id);
       structureChanged = state.notices.size > 0;
       state.dirtyNoticeIds.clear();
     } else {
-      const capturePreviousIds = options.structureChanged !== true;
       for (const id of state.dirtyNoticeIds) {
         const notice = state.notices.get(id);
         const update = notice === undefined
-          ? store.removeNotice(id, capturePreviousIds)
-          : store.upsertNotice(placementOf(notice), capturePreviousIds);
-        this.collectNoticeUpdate(update, id, changedIds, (value) => {
-          structureChanged ||= value.structureChanged;
-          previousIds ??= value.previousIds;
-        });
+          ? store.removeNotice(id)
+          : store.upsertNotice(placementOf(notice));
+        if (update.changed) changedIds.add(id);
+        structureChanged ||= update.structureChanged;
       }
       state.dirtyNoticeIds.clear();
     }
@@ -183,7 +174,6 @@ export class RemoteSystemNotices {
       changed: changedIds.size > 0,
       changedIds,
       structureChanged,
-      ...(previousIds === undefined ? {} : { previousIds }),
     });
   }
 
@@ -195,23 +185,19 @@ export class RemoteSystemNotices {
     }
     const changedIds = new Set<string>();
     let structureChanged = false;
-    let previousIds: readonly string[] | undefined;
     for (const id of state.dirtyNoticeIds) {
       const notice = state.notices.get(id);
       const update = notice === undefined
         ? store.removeNotice(id)
         : store.upsertNotice(placementOf(notice));
-      this.collectNoticeUpdate(update, id, changedIds, (value) => {
-        structureChanged ||= value.structureChanged;
-        previousIds ??= value.previousIds;
-      });
+      if (update.changed) changedIds.add(id);
+      structureChanged ||= update.structureChanged;
     }
     state.dirtyNoticeIds.clear();
     return Object.freeze({
       changed: changedIds.size > 0,
       changedIds,
       structureChanged,
-      ...(previousIds === undefined ? {} : { previousIds }),
     });
   }
 
@@ -328,16 +314,6 @@ export class RemoteSystemNotices {
         }
       }
     }
-  }
-
-  private collectNoticeUpdate(
-    update: KeyedNoticeUpdate,
-    id: string,
-    changedIds: Set<string>,
-    onStructuralChange: (update: KeyedNoticeUpdate) => void,
-  ): void {
-    if (update.changed) changedIds.add(id);
-    if (update.structureChanged) onStructuralChange(update);
   }
 
   private addAppliedSteering(

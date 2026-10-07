@@ -39,10 +39,8 @@ const terminal: TerminalPort = {
   setRaw: () => {},
   read: () => Promise.resolve(null),
   drainAndCloseInput: () => Promise.resolve(),
-  write: () => {},
-  writeFrame: (_frame, receipt) => {
+  write: () => {
     draws++;
-    receipt?.();
   },
   addSignal: () => {},
   removeSignal: () => {},
@@ -51,15 +49,9 @@ const renderer = new TuiRenderer(terminal, { setTimeout: () => 0, clearTimeout: 
 let previousView: unknown;
 const apply = () => {
   const projected = projector.project(state, 'saved-replay');
-  renderer.setKeyedConversationStore(
-    projected.store,
-    projected.reset,
-    projected.structureChanged,
-    projected.previousIds,
-    projected.changedIds,
-  );
+  renderer.setKeyedConversationStore(projected.store);
   renderer.flushRender();
-  const view = renderer.layoutSnapshot().viewport;
+  const view = renderer.layoutSnapshot().log.map((row) => row.text).join('\n');
   if (view === previousView) unchangedViews++;
   previousView = view;
 };

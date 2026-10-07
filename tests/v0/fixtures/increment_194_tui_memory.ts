@@ -2,14 +2,16 @@ import { strictEqual } from 'node:assert';
 import { buildManifest } from '../../../v0/agent/runtime/build_manifest.ts';
 import type { SessionStreamFrame } from '../../../v0/api/contract.ts';
 import { runRemoteTui } from '../../../v0/tui/remote_session.ts';
-import type { ScreenFrame, TerminalPort } from '../../../v0/tui/terminal.ts';
+import type { TerminalPort } from '../../../v0/tui/terminal.ts';
 import { conversationPosition, tuiSnapshot } from '../tui_entity_fixture.ts';
+import { TerminalScreen } from '../terminal_screen_fixture.ts';
 
 const gc = (globalThis as unknown as { gc: () => void }).gc;
 const encoder = new TextEncoder();
 const initial = tuiSnapshot();
 let subscriptionSnapshot = initial;
 let latest = '';
+const display = new TerminalScreen(80, 24);
 let inputResolve: ((bytes: Uint8Array | null) => void) | undefined;
 let acquired = false;
 let stream!: ReadableStreamDefaultController<Uint8Array>;
@@ -25,10 +27,11 @@ const terminal: TerminalPort = {
     inputResolve = undefined;
     return Promise.resolve();
   },
-  write() {},
-  writeFrame: (frame: ScreenFrame, onWritten?: () => void) => {
-    latest = frame.rows.join('\n');
-    onWritten?.();
+  write: (bytes) => {
+    display.write(bytes);
+    latest = display.frame().rows.join('\n');
+    // Keep this benchmark focused on Henji's heap, not the fake host's scrollback.
+    display.history.length = 0;
   },
   addSignal: (name, handler) => {
     signals.set(name, handler);

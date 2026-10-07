@@ -52,8 +52,7 @@ Deno.test('Increment 170 S4 applies each body revision synchronously and coalesc
     setRaw() {},
     read: () => Promise.resolve(null),
     async drainAndCloseInput() {},
-    write() {},
-    writeFrame: (frame) => frames.push(frame),
+    write: () => frames.push(renderer.renderScreenFrame()),
     addSignal() {},
     removeSignal() {},
   };
@@ -66,7 +65,7 @@ Deno.test('Increment 170 S4 applies each body revision synchronously and coalesc
     },
     clearTimeout: (id) => timers.delete(id as number),
   });
-  renderer.setKeyedConversationStore(first.store, true, true);
+  renderer.setKeyedConversationStore(first.store);
   renderer.setEditorSnapshot({ text: 'draft', cursorScalar: 5, byteLength: 5 });
   renderer.renderReadOnlyHelp(['help']);
 
@@ -92,20 +91,19 @@ Deno.test('Increment 170 S4 applies each body revision synchronously and coalesc
   };
 
   const second = next('second', 1);
-  renderer.setKeyedConversationStore(second.store, false, false);
+  renderer.setKeyedConversationStore(second.store);
   strictEqual(
     renderer.stateSnapshot().keyedConversation?.get('conversation:answer')?.text,
     'second',
   );
   const third = next('third', 2);
-  renderer.setKeyedConversationStore(third.store, false, false);
+  renderer.setKeyedConversationStore(third.store);
   strictEqual(
     renderer.stateSnapshot().keyedConversation?.get('conversation:answer')?.text,
     'third',
   );
   equal(scheduled, 1);
   equal(frames.length, 0);
-  strictEqual(renderer.stateSnapshot().scroll.kind, 'followLatest');
   equal(renderer.stateSnapshot().editor.text, 'draft');
   equal(renderer.stateSnapshot().overlay.kind, 'readOnlyHelp');
 

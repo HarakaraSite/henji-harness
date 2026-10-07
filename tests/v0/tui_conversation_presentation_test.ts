@@ -1,4 +1,4 @@
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import { cellWidth } from '../../v0/tui/terminal_text.ts';
 import {
   createUiState,
@@ -33,7 +33,7 @@ const projectEntities = (
     tuiClientState(tuiSnapshot(entities, order)),
     'presentation-test',
   );
-  renderer.setKeyedConversationStore(update.store, true, update.structureChanged);
+  renderer.setKeyedConversationStore(update.store);
 };
 
 const rendererEntries = (renderer: TuiRenderer) => {
@@ -80,12 +80,11 @@ class FakeTerminal implements TerminalPort {
     return Promise.resolve();
   }
 
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
-  }
-
+  private readonly screen = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.screen.resize(size.columns, size.rows);
+    this.screen.write(bytes);
     this.writes.push(new TextDecoder().decode(bytes));
   }
 
@@ -163,7 +162,7 @@ Deno.test('thinking preserves plain text and paragraph breaks with mechanical ce
     message: { role: 'assistant', content: { kind: 'text', text: 'The READMEs match.' } },
   });
 
-  const view = layoutUi(state, 80, 24).viewport!;
+  const view = { rows: layoutUi(state, 80, 24).log };
   const thoughts = view.rows.filter((row) => row.entryId?.includes('thinking'));
   const firstThought = state.log.entries.find((entry) => entry.kind === 'thinking')!;
   assertEquals(
@@ -826,7 +825,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
 
   const layout = layoutUi(state, 80, 24);
   assertEquals(state.log.entries.length, 6);
-  assertEquals(layout.viewport!.rows.map((row) => row.text), [
+  assertEquals(layout.log.map((row) => row.text), [
     'user> first',
     '',
     'tool> read README.md lines 1–200 ✓',
@@ -901,7 +900,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   };
   const renderer = new TuiRenderer(new FakeTerminal());
   projectEntities(renderer, entities, ['first', 'read', 'bash', 'answer']);
-  assertEquals(layoutUi(renderer.stateSnapshot(), 80, 24).viewport!.rows.map((row) => row.text), [
+  assertEquals(layoutUi(renderer.stateSnapshot(), 80, 24).log.map((row) => row.text), [
     'user> first',
     '',
     'tool> read README.md lines 1–200 ✓',

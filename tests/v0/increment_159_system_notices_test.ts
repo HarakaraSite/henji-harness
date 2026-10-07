@@ -10,6 +10,7 @@ import { freezeUiLogEntry, type UiLogEntry } from '../../v0/tui/state.ts';
 import { TuiRenderer } from '../../v0/tui/tui_renderer.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { conversationPosition, tuiClientState, tuiSnapshot } from './tui_entity_fixture.ts';
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 
 const executionId = 'execution-a';
 const executionMetadata = (
@@ -87,15 +88,11 @@ const apply = (
   scope = 'core/session-a',
 ) => {
   const projected = projector.project(client, scope);
-  const noticeUpdate = notices.sync(client, projected.store, {
+  notices.sync(client, projected.store, {
     reset: projected.reset,
     structureChanged: projected.structureChanged,
   });
-  return {
-    ...projected,
-    structureChanged: projected.structureChanged || noticeUpdate.changed,
-    previousIds: projected.previousIds ?? noticeUpdate.previousIds,
-  };
+  return projected;
 };
 
 Deno.test('Increment 166 failure and cancellation notices follow their keyed execution rows', () => {
@@ -172,8 +169,7 @@ Deno.test('Increment 159 local, queue and steering notices remain keyed by recei
   const initial = tuiSnapshot({ 'task-a': task }, ['task-a']);
   const first = apply(projector, notices, tuiClientState(initial));
   notices.retain(initial.session.id, 'command-one', 'REJECTED · draft kept · busy', 'REJECTED');
-  const previousIds = notices.refresh(initial.session.id, first.store);
-  ok(previousIds);
+  notices.refresh(initial.session.id, first.store);
   const local = rows(first.store);
   strictEqual(local.at(-1)?.text, 'REJECTED · draft kept · busy');
   strictEqual(local.at(-1)?.kind, 'system');
@@ -263,6 +259,7 @@ Deno.test('Increment 159 local, queue and steering notices remain keyed by recei
 });
 
 Deno.test('Increment 159 normal system text is neutral and failure color stops after its short word', () => {
+  const screen = new TerminalScreen(100, 24);
   const terminal: TerminalPort = {
     stdinIsTerminal: () => true,
     stdoutIsTerminal: () => true,
@@ -272,8 +269,9 @@ Deno.test('Increment 159 normal system text is neutral and failure color stops a
       return Promise.resolve(null);
     },
     async drainAndCloseInput() {},
-    write() {},
-    writeFrame() {},
+    write(bytes) {
+      screen.write(bytes);
+    },
     addSignal() {},
     removeSignal() {},
   };
@@ -303,9 +301,14 @@ Deno.test('Increment 159 normal system text is neutral and failure color stops a
   );
   store.replaceSemanticOrder(['notice', 'failure']);
   const renderer = new TuiRenderer(terminal);
-  renderer.setKeyedConversationStore(store, true);
-  const frame = renderer.renderFrame(100, 24);
-  ok(frame.includes('system> RESERVED · next task'));
-  ok(frame.includes('\x1b[31msystem> FAILED\x1b[0m · provider response invalid · try /recall'));
+  renderer.setKeyedConversationStore(store);
+  renderer.flushRender();
+  const frame = renderer.renderScreenFrame(100, 24);
+  const frameText = frame.rows.join('\n');
+  const visibleText = screen.frame().rows.join('\n');
+  ok(frameText.includes('system> RESERVED · next task'));
+  ok(frameText.includes('\x1b[31msystem> FAILED\x1b[0m · provider response invalid · try /recall'));
+  ok(visibleText.includes('system> RESERVED · next task'));
+  ok(visibleText.includes('FAILED · provider response invalid · try /recall'));
   renderer.close();
 });

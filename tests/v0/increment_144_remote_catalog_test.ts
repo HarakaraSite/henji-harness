@@ -1,5 +1,6 @@
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import { stripVTControlCharacters } from 'node:util';
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
+import { type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { ApiSelection, CoreOperationName, SessionSnapshot } from '../../v0/api/contract.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
@@ -177,13 +178,13 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.frames.push(frame);
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
-  }
 
+  private readonly screen = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.screen.resize(size.columns, size.rows);
+    this.screen.write(bytes);
+    this.frames.push(this.screen.frame());
     this.output.push(new TextDecoder().decode(bytes));
   }
   addSignal(

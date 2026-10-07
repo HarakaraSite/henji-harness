@@ -1,10 +1,4 @@
-import {
-  CoalescingWriter,
-  encodeScreenFrame,
-  type ScreenFrame,
-  TerminalLifecycle,
-  type TerminalPort,
-} from '../../v0/tui/terminal.ts';
+import { OrderedWriter, TerminalLifecycle, type TerminalPort } from '../../v0/tui/terminal.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -21,14 +15,6 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 
 const decoder = new TextDecoder();
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
-const frame = (text: string): ScreenFrame => ({
-  rows: [text],
-  cursor: { row: 0, cell: 0 },
-  size: { columns: 80, rows: 1 },
-  scope: 'core/session',
-  geometryGeneration: 0,
-});
-
 const deferred = (): { readonly promise: Promise<void>; readonly resolve: () => void } => {
   let resolve!: () => void;
   const promise = new Promise<void>((settle) => {
@@ -37,9 +23,9 @@ const deferred = (): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve };
 };
 
-Deno.test('coalescing writer preserves chunk order', async () => {
+Deno.test('ordered writer preserves chunk order', async () => {
   const written: string[] = [];
-  const writer = new CoalescingWriter((bytes) => {
+  const writer = new OrderedWriter((bytes) => {
     written.push(decoder.decode(bytes));
     return Promise.resolve();
   });
@@ -50,55 +36,11 @@ Deno.test('coalescing writer preserves chunk order', async () => {
   assertEquals(written, ['a', 'b', 'c']);
 });
 
-Deno.test('coalescing writer replaces only a pending retained frame', async () => {
-  const gate = deferred();
-  const written: string[] = [];
-  let first = true;
-  const writer = new CoalescingWriter(async (bytes) => {
-    if (first) {
-      first = false;
-      await gate.promise;
-    }
-    written.push(decoder.decode(bytes));
-  });
-  writer.enqueue(encode('start'));
-  writer.enqueueFrame(frame('F1'));
-  writer.enqueueFrame(frame('F2'));
-  gate.resolve();
-  await writer.flush();
-  assertEquals(written, ['start', decoder.decode(encodeScreenFrame(frame('F2')))]);
-});
-
-Deno.test('coalescing writer keeps raw control bytes between retained frames', async () => {
-  const gate = deferred();
-  const written: string[] = [];
-  let first = true;
-  const writer = new CoalescingWriter(async (bytes) => {
-    if (first) {
-      first = false;
-      await gate.promise;
-    }
-    written.push(decoder.decode(bytes));
-  });
-  writer.enqueue(encode('start'));
-  writer.enqueueFrame(frame('F1'));
-  writer.enqueue(encode('control'));
-  writer.enqueueFrame(frame('F2'));
-  gate.resolve();
-  await writer.flush();
-  assertEquals(written, [
-    'start',
-    decoder.decode(encodeScreenFrame(frame('F1'))),
-    'control',
-    decoder.decode(encodeScreenFrame(frame('F2'))),
-  ]);
-});
-
 Deno.test('coalescing writer flush drains chunks enqueued while flushing', async () => {
   const gate = deferred();
   const written: string[] = [];
   let first = true;
-  const writer = new CoalescingWriter(async (bytes) => {
+  const writer = new OrderedWriter(async (bytes) => {
     if (first) {
       first = false;
       await gate.promise;
@@ -117,16 +59,16 @@ Deno.test('coalescing writer reports a failed frame and still sends later restor
   const written: string[] = [];
   let failures = 0;
   let rejectFrame = true;
-  const writer = new CoalescingWriter((bytes) => {
+  const writer = new OrderedWriter((bytes) => {
     const value = decoder.decode(bytes);
-    if (rejectFrame && value.startsWith('\x1b[?2026h')) {
+    if (rejectFrame && value === 'append') {
       rejectFrame = false;
       throw new Error('frame write failed');
     }
     written.push(value);
     return Promise.resolve();
   }, () => failures += 1);
-  writer.enqueueFrame(frame('failed'));
+  writer.enqueue(encode('append'));
   writer.enqueue(encode('\x1b[?2004l'));
   writer.enqueue(encode('\x1b[?1049l'));
   let failed = false;
@@ -169,10 +111,6 @@ class FlushTerminal implements TerminalPort {
 
   write(bytes: Uint8Array): void {
     this.writes.push(decoder.decode(bytes));
-  }
-
-  writeFrame(frame: ScreenFrame): void {
-    this.write(encodeScreenFrame(frame));
   }
 
   flush(): Promise<void> {

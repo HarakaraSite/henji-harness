@@ -75,52 +75,6 @@ Deno.test('Keymap decodes a new arrow after a timed bare Escape', () => {
   assertEquals(decoder.feed(new Uint8Array([0x1b, 0x5b, 0x41]), 83), [{ kind: 'up' }]);
 });
 
-Deno.test('Keymap decodes SGR mouse wheel and consumes legacy mouse reports', () => {
-  const decoder = new InputDecoder();
-  assertEquals(
-    feedOne(decoder, [0x1b, 0x5b, 0x3c, 0x36, 0x34, 0x3b, 0x31, 0x30, 0x3b, 0x35, 0x4d]),
-    'wheel_up',
-  );
-  assertEquals(
-    feedOne(decoder, [0x1b, 0x5b, 0x3c, 0x36, 0x35, 0x3b, 0x31, 0x30, 0x3b, 0x35, 0x4d]),
-    'wheel_down',
-  );
-  // Button press/release and other buttons stay unsupported input, never draft text.
-  assertEquals(
-    feedOne(decoder, [0x1b, 0x5b, 0x3c, 0x30, 0x3b, 0x31, 0x30, 0x3b, 0x35, 0x4d]),
-    'unknown',
-  );
-  assertEquals(
-    feedOne(decoder, [0x1b, 0x5b, 0x3c, 0x30, 0x3b, 0x31, 0x30, 0x3b, 0x35, 0x6d]),
-    'unknown',
-  );
-  // A report split across reads still decodes as one event (explicit timestamps stay inside the
-  // escape timeout regardless of test scheduling).
-  assertEquals(decoder.feed(new Uint8Array([0x1b, 0x5b, 0x3c, 0x36]), 1_000), []);
-  assertEquals(
-    decoder.feed(new Uint8Array([0x34, 0x3b, 0x31, 0x30, 0x3b, 0x35, 0x4d]), 1_010),
-    [{ kind: 'wheel_up' }],
-  );
-  // Legacy (X10) reports are consumed as one event so their payload never becomes draft text.
-  assertEquals(
-    decoder.feed(new Uint8Array([0x1b, 0x5b, 0x4d, 0x60, 0x21, 0x25])),
-    [{ kind: 'wheel_up' }],
-  );
-  assertEquals(
-    decoder.feed(new Uint8Array([0x1b, 0x5b, 0x4d, 0x61, 0x21, 0x25])),
-    [{ kind: 'wheel_down' }],
-  );
-  assertEquals(
-    decoder.feed(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0x21, 0x25])),
-    [{ kind: 'unknown' }],
-  );
-  assertEquals(decoder.feed(new Uint8Array([0x61])), [{
-    kind: 'printable',
-    text: 'a',
-    codePoint: 0x61,
-  }]);
-});
-
 const edit = (text: string, cursor: number): TuiEditor => {
   const editor = new TuiEditor();
   assert(editor.insert(text));

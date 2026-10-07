@@ -1,10 +1,11 @@
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import { stripVTControlCharacters } from 'node:util';
 import { ok, strictEqual } from 'node:assert';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/api_worker_client.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
-import { encodeScreenFrame, type ScreenFrame, type TerminalPort } from '../../v0/tui/terminal.ts';
+import { type ScreenFrame, type TerminalPort } from '../../v0/tui/terminal.ts';
 
 class ShutdownTerminal implements TerminalPort {
   readonly output: string[] = [];
@@ -44,13 +45,13 @@ class ShutdownTerminal implements TerminalPort {
     this.pendingRead = undefined;
     return Promise.resolve();
   }
+  private readonly screen = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.screen.resize(size.columns, size.rows);
+    this.screen.write(bytes);
+    this.frames.push(this.screen.frame());
     this.output.push(new TextDecoder().decode(bytes));
-  }
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.frames.push(frame);
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
   }
   addSignal(): void {}
   removeSignal(): void {}
@@ -158,7 +159,8 @@ for (const control of ['slash', 'shortcut'] as const) {
       strictEqual(await main, 0);
       await server.finished;
       strictEqual(terminal.raw, false);
-      ok(terminal.output.join('').includes('\x1b[?1049l'));
+      ok(terminal.output.join('').includes('\x1b[?25h'));
+      strictEqual(terminal.output.join('').includes('\x1b[?1049h'), false);
       // A separate client keeps its terminal until its user detaches.
       strictEqual(observer.raw, true);
       observer.push('/detach\r\r');

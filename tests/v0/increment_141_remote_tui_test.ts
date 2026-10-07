@@ -1,4 +1,5 @@
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
+import { TerminalScreen } from './terminal_screen_fixture.ts';
+import { type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type {
   ConversationSnapshot,
@@ -256,13 +257,13 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.frames.push(frame);
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
-  }
 
+  private readonly screen = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.screen.resize(size.columns, size.rows);
+    this.screen.write(bytes);
+    this.frames.push(this.screen.frame());
     const text = new TextDecoder().decode(bytes);
     this.output.push(text);
     this.onWrite?.(text);
@@ -582,7 +583,7 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with F1 and detach
   }
 });
 
-Deno.test('Increment 156 busy history Escape returns latest without cancelling and preserves draft and stream updates', async () => {
+Deno.test('212 Escape and Session picker preserve a busy draft while new conversation enters scrollback', async () => {
   let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
   let cancellations = 0;
   let current = snapshot({
@@ -660,7 +661,6 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
   };
-  const hasHistoryStatus = (): boolean => /history (?:start|\d+\/\d+)/u.test(screen());
   let driver: Promise<void> | undefined;
   let driverError: unknown;
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 5_000);
@@ -675,9 +675,8 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
           driver = (async () => {
             terminal.pushInput('S15 draft kept');
             await waitFor(() => screen().includes('> S15 draft kept'));
-            terminal.pushInput('\x1b[5~');
-            await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
-            strictEqual(screen().includes('F1 cancel'), true);
+            terminal.pushInput('\x1b');
+            await new Promise((resolve) => setTimeout(resolve, 80));
             strictEqual(cancellations, 0);
 
             current = snapshot({
@@ -697,40 +696,14 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
               },
             });
             sendSnapshot(streamController!, current);
-            await waitFor(() => screen().includes('history 1/2'));
-            strictEqual(screen().includes('Esc latest'), true);
+            await waitFor(() => terminal.output.join('').includes('S15 stream update'));
             terminal.pushInput('\x1b[14~');
             await waitFor(() => screen().includes('session picker'));
             terminal.pushInput('\x1b');
-            await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
+            await waitFor(() => !screen().includes('session picker'));
             strictEqual(cancellations, 0);
-
-            terminal.pushInput('\x1b');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
-            strictEqual(cancellations, 0);
-            strictEqual(screen().includes('S15 stream update'), true);
             strictEqual(screen().includes('> S15 draft kept'), true);
-
-            terminal.pushInput('\x1b[5~');
-            await waitFor(() => screen().includes('Esc latest'));
-            terminal.pushInput('\x1b[6~');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
-            strictEqual(cancellations, 0);
-
-            // Mouse wheel paging uses the same history position as PageUp/PageDown.
-            terminal.pushInput('\x1b[<64;10;5M');
-            await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
-            strictEqual(cancellations, 0);
-            terminal.pushInput('\x1b[<65;10;5M');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
-            strictEqual(cancellations, 0);
-            terminal.pushInput('\x1b[5~');
-            await waitFor(() => hasHistoryStatus() && screen().includes('F1 cancel'));
-            terminal.pushInput('\x1b');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
-            strictEqual(cancellations, 0);
-            terminal.pushInput('\x1b[5~');
-            await waitFor(() => hasHistoryStatus() && screen().includes('F1 cancel'));
+            strictEqual(terminal.output.join('').includes('S15 stream update'), true);
             terminal.pushInput('\x1bOP');
             await waitFor(() => cancellations === 1);
             terminal.pushInput('\x04');

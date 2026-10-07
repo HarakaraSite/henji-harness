@@ -500,15 +500,14 @@ const renderSnapshot = (
   renderer: TuiRenderer,
   client: SessionClientState,
   workspace: string,
-  preserveScroll: boolean,
+  preserveModal: boolean,
   projector: SnapshotConversationProjector,
   notices: RemoteSystemNotices,
   cancellingExecutionId?: string,
 ): void => {
   const snapshot = client.snapshot;
-  if (!preserveScroll) {
+  if (!preserveModal) {
     renderer.clearModal();
-    renderer.latest();
   }
   renderSessionOrientation(renderer, snapshot, workspace, cancellingExecutionId);
   const scope = JSON.stringify([
@@ -517,18 +516,11 @@ const renderSnapshot = (
   ]);
   renderer.setDisplayScope(scope);
   const projected = projector.project(client, scope);
-  const noticeUpdate = notices.sync(client, projected.store, {
+  notices.sync(client, projected.store, {
     reset: projected.reset,
     structureChanged: projected.structureChanged,
   });
-  const structureChanged = projected.structureChanged || noticeUpdate.structureChanged;
-  renderer.setKeyedConversationStore(
-    projected.store,
-    !preserveScroll || projected.reset,
-    structureChanged,
-    projected.previousIds ?? noticeUpdate.previousIds,
-    new Set([...projected.changedIds, ...noticeUpdate.changedIds]),
-  );
+  renderer.setKeyedConversationStore(projected.store);
 };
 
 const isEditorTextMutation = (event: InputEvent): boolean =>
@@ -807,13 +799,7 @@ export const runRemoteTui = async (
       if (store !== undefined) {
         const noticeUpdate = systemNotices.refresh(sessionId, store);
         if (noticeUpdate.changedIds.size > 0) {
-          renderer.setKeyedConversationStore(
-            store,
-            false,
-            noticeUpdate.structureChanged,
-            noticeUpdate.previousIds,
-            noticeUpdate.changedIds,
-          );
+          renderer.setKeyedConversationStore(store);
         }
       }
       renderer.redraw();
@@ -1047,10 +1033,6 @@ export const runRemoteTui = async (
       commandId: command.commandId,
       ...(command.cursor === undefined ? {} : { cursor: command.cursor }),
     };
-    if (
-      submission.kind === 'task' &&
-      renderer.stateSnapshot().scroll.kind !== 'followLatest'
-    ) renderer.latest(false);
     pendingSubmission = undefined;
     acceptedSubmission = accepted;
     finishDraft(submission, true);
@@ -2234,18 +2216,7 @@ export const runRemoteTui = async (
             updateStatus();
             continue;
           }
-          if (event.kind === 'page_up' || event.kind === 'wheel_up') {
-            renderer.scrollPage('up');
-          } else if (event.kind === 'page_down' || event.kind === 'wheel_down') {
-            renderer.scrollPage('down');
-          } else if (event.kind === 'escape') {
-            if (renderer.stateSnapshot().scroll.kind !== 'followLatest') {
-              renderer.latest();
-            } else {
-              renderer.clearModal();
-              renderer.latest();
-            }
-          } else if (event.kind === 'f1') {
+          if (event.kind === 'f1') {
             if (activeExecutionId() !== undefined && !cancellationRequested) {
               cancelActiveExecution();
             }

@@ -7,8 +7,10 @@
 
 - [Increment 211](../docs/increments/increment-211.md)へS32＋S37、
   [Increment 212](../docs/increments/increment-212.md)へS36を採用した。211はlocal実装・focused test・
-  隔離tmux実表示／操作確認・独立reviewを完了し、sourceは今回のcommitへ保存する。
-  212は実装着手が承認された。常用環境での利用者確認は212の後にまとめる。
+  隔離tmux実表示／操作確認・独立reviewを完了し、sourceはcommit `ac59f0d0`へ保存済み。
+  212はlocal実装・focused確認・隔離tmux実表示／操作確認と独立reviewを完了し、sourceは未commit。
+  利用者が212のcommit・公式build・常用配置を承認したため、これを実施中。
+  詳細と検証結果は212を参照する。常用環境での利用者確認は211・212をまとめて行う。
   常用build・配置・pushは未実施。
   順序は211の実表示・操作確認後に212。要件と確認方針は各incrementを参照する。
 - [Increment 210](../docs/increments/increment-210.md)は、Coreの重複照会・再投影のlocal改善と検証を完了した。
@@ -18,6 +20,8 @@
 - [Increment 209](../docs/increments/increment-209.md)は、利用者指定のHTTP APIについて不要な処理を整理し、
   local実装・検証を完了し、sourceはcommit `24e9e357`へ保存済み。常用build・配置、pushは未実施。
   結果は209を参照する。
+- 既存incrementは、履歴へ退避済みのものも含め、2026-10-07の利用者判断で一律完了とした。
+  各increment冒頭の現在状態を参照する。当時の実施・未実施記録は保持し、過去作業を再調査しない。
 - [Increment 208](../docs/increments/increment-208.md)は、実装・検証・常用配置・利用者受入・pushまで完了。
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
 - 常用binaryはHenji 0.10.0、source `c39e39a6`、build `a4f8394f…`（`--version`で確認）。
@@ -30,9 +34,8 @@
 
 ## 次の一手
 
-- 212の詳細設計・local実装・focused確認と、実表示／操作確認を進める。
-  常用環境での利用者確認は211と212をまとめて行う。
-  architectureの旧入力履歴・キー割当の更新案は211に記録し、正本変更への別途明示承認を待つ。
+- 212のcommit・公式build・常用配置を完了させ、211と212の常用環境での利用者確認へ進む。pushは未承認。
+  architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   209・210の常用build・配置等は利用者の指示待ち。未採用候補は
   [通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。
@@ -48,8 +51,9 @@
   責務・状態所有・境界。
 - [roadmap](../docs/roadmap.md): 必要機能・実装状態・未実装範囲。
 - [通常利用メモ](../docs/experience/normal-use-inbox.md):
-  未採用候補と再検討条件。S35・A34・B5等もここを参照する。
-- [個別increment](../docs/increments/): 採用要件・計画・実装・検証・受入結果。
+  未採用候補と再検討条件。B5等もここを参照する。S32・S36・S37の採用要件は211・212へ移設した。
+- [個別increment索引](../docs/increments/README.md): 採用要件・計画・実装・検証・受入結果とアーカイブへの入口。
+  100までの既存文書は`docs/history/increments/`へ退避済み。通常の場所には101以降を保持する。
   旧incrementの完了詳細や当時の承認境界を現在地へ重複転記しない。
 
 ## 承認境界

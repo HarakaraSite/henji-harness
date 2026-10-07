@@ -21,7 +21,6 @@ import { truncateText } from './terminal_text.ts';
 import type { KeyedConversationStore } from './keyed_conversation_store.ts';
 
 const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
-const UI_MAX_NEW_BELOW = 512;
 
 type UiLogKind =
   | 'user'
@@ -94,18 +93,6 @@ export type UiOverlay =
     }
   >;
 
-type UiScroll =
-  | Readonly<{ readonly kind: 'followLatest' }>
-  | Readonly<{ readonly kind: 'oldest' }>
-  | Readonly<
-    {
-      readonly kind: 'anchored';
-      readonly entryId: string;
-      readonly sourceUtf16Offset: number;
-      readonly part?: 'separator' | 'label' | 'body';
-    }
-  >;
-
 /** Display facts supplied by the remote controller, independent of conversation notices. */
 export interface UiFooter {
   readonly activity: 'ready' | 'working' | 'cancelling' | 'READ-ONLY' | 'DISCONNECTED';
@@ -133,8 +120,6 @@ export interface UiState {
   readonly turnAttemptOrdinal: number;
   readonly editor: EditorSnapshot;
   readonly pending?: PendingMetadataSnapshot;
-  readonly scroll: UiScroll;
-  readonly newBelowCount: number;
   readonly overlay: UiOverlay;
   readonly status: string;
   readonly busyElapsedSeconds?: number;
@@ -152,9 +137,6 @@ type UiAction =
   | Readonly<{
     readonly kind: 'keyed_conversation';
     readonly store: KeyedConversationStore;
-    readonly resetScroll?: boolean;
-    readonly structureChanged?: boolean;
-    readonly previousIds?: readonly string[];
   }>
   | Readonly<
     {
@@ -186,8 +168,6 @@ type UiAction =
     { readonly kind: 'position'; readonly position: PresentationPosition }
   >
   | Readonly<{ readonly kind: 'session_title'; readonly title: string }>
-  | Readonly<{ readonly kind: 'scroll'; readonly mode: UiScroll }>
-  | Readonly<{ readonly kind: 'latest' }>
   | Readonly<{ readonly kind: 'overlay'; readonly overlay: UiOverlay }>;
 
 const encoder = new TextEncoder();
@@ -393,25 +373,8 @@ const removeLiveEntries = (
 ): UiState => {
   const entries = state.log.entries.filter((entry) => !entry.live || keep(entry));
   if (entries.length === state.log.entries.length) return state;
-  let scroll = state.scroll;
-  let status = state.status;
-  if (scroll.kind === 'anchored') {
-    const anchorId = scroll.entryId;
-    if (!entries.some((entry) => entry.id === anchorId)) {
-      const priorIndex = state.log.entries.findIndex((entry) => entry.id === anchorId);
-      const successor = entries[Math.min(Math.max(0, priorIndex), entries.length - 1)];
-      scroll = successor === undefined ? Object.freeze({ kind: 'followLatest' }) : Object.freeze({
-        kind: 'anchored',
-        entryId: successor.id,
-        sourceUtf16Offset: 0,
-      });
-      status = 'live output cleared; showing nearest retained entry';
-    }
-  }
   return Object.freeze({
     ...state,
-    status,
-    scroll,
     log: Object.freeze({ ...state.log, entries: Object.freeze(entries) }),
   });
 };
@@ -737,8 +700,6 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           checkpoint: event.position.checkpoint,
           ...(event.modelSelection === undefined ? {} : { model: event.modelSelection }),
         }),
-        scroll: Object.freeze({ kind: 'followLatest' as const }),
-        newBelowCount: 0,
         overlay: Object.freeze({ kind: 'none' }),
       });
     case 'model_selection_changed':
@@ -808,8 +769,6 @@ export const createUiState = (
     activeToolIds: Object.freeze([]),
     turnAttemptOrdinal: 0,
     editor: Object.freeze({ ...editor }),
-    scroll: Object.freeze({ kind: 'followLatest' }),
-    newBelowCount: 0,
     overlay: Object.freeze({ kind: 'none' }),
     status: projection?.lifecycle === 'idle' ? 'ready' : 'starting',
     slashCommandCandidates: Object.freeze([]),
@@ -820,59 +779,17 @@ export const createUiState = (
 export const reduceUiEvent = (
   state: UiState,
   event: PresentationEvent,
-): UiState => {
-  const next = eventLog(state, snapshot(event));
-  if (
-    next.scroll.kind !== 'followLatest' &&
-    next.log.entries !== state.log.entries
-  ) {
-    return Object.freeze({
-      ...next,
-      newBelowCount: Math.min(UI_MAX_NEW_BELOW, state.newBelowCount + 1),
-    });
-  }
-  return next;
-};
+): UiState => eventLog(state, snapshot(event));
 
 const applyKeyedConversation = (
   state: UiState,
   action: Extract<UiAction, { readonly kind: 'keyed_conversation' }>,
 ): UiState => {
   const store = action.store;
-  const reset = action.resetScroll === true;
-  let scroll = reset ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
-  const previous = action.previousIds;
-  if (
-    action.structureChanged && previous !== undefined && scroll.kind === 'anchored' &&
-    scroll.entryId !== '@startup' && store.indexOf(scroll.entryId) < 0
-  ) {
-    const oldIndex = previous.indexOf(scroll.entryId);
-    const successor = previous.slice(Math.max(0, oldIndex + 1)).find((id) =>
-      store.indexOf(id) >= 0
-    ) ??
-      previous.slice(0, Math.max(0, oldIndex)).reverse().find((id) => store.indexOf(id) >= 0);
-    scroll = successor === undefined ? Object.freeze({ kind: 'oldest' }) : Object.freeze({
-      kind: 'anchored',
-      entryId: successor,
-      sourceUtf16Offset: 0,
-    });
-  }
-  let newBelowCount = state.newBelowCount;
-  if (action.structureChanged && previous !== undefined && scroll.kind !== 'followLatest') {
-    const old = new Set(previous);
-    const boundary = scroll.kind === 'anchored' ? store.indexOf(scroll.entryId) : -1;
-    for (const id of store.ids()) {
-      if (!old.has(id) && store.indexOf(id) > boundary) newBelowCount += 1;
-    }
-  }
   return Object.freeze({
     ...state,
     log: Object.freeze({ entries: Object.freeze([]), omittedCount: store.omitted }),
     keyedConversation: store,
-    scroll,
-    newBelowCount: reset || scroll.kind === 'followLatest'
-      ? 0
-      : Math.min(UI_MAX_NEW_BELOW, newBelowCount),
   });
 };
 
@@ -962,18 +879,6 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
             title: safeText(action.title),
           }),
         }),
-      });
-    case 'scroll':
-      return Object.freeze({
-        ...state,
-        scroll: Object.freeze(action.mode),
-        newBelowCount: action.mode.kind === 'followLatest' ? 0 : state.newBelowCount,
-      });
-    case 'latest':
-      return Object.freeze({
-        ...state,
-        scroll: Object.freeze({ kind: 'followLatest' }),
-        newBelowCount: 0,
       });
     case 'overlay':
       return Object.freeze({

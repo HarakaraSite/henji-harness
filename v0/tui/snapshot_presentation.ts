@@ -43,7 +43,6 @@ interface KeyedConversationUpdate {
   readonly structureChanged: boolean;
   readonly reset: boolean;
   readonly revision: number;
-  readonly previousIds?: readonly string[];
 }
 
 /** Applies each reducer revision to keyed UI rows before scheduling any terminal redraw. */
@@ -62,14 +61,12 @@ export class SnapshotConversationProjector {
     const snapshot = state.snapshot;
     const changedIds = new Set<string>();
     let presenceChanged = false;
-    let previousIds = !reset && state.structureChanged ? [...this.store.ids()] : undefined;
     for (const entityId of state.dirtyEntityIds) {
       const entity = snapshot.conversation.entities[entityId];
       const rowId = `conversation:${entityId}`;
       const previous = this.store.get(rowId);
       if (entity === undefined) {
         if (previous !== undefined) {
-          previousIds ??= [...this.store.ids()];
           this.store.delete(rowId);
           presenceChanged = true;
           changedIds.add(rowId);
@@ -79,14 +76,12 @@ export class SnapshotConversationProjector {
       const entry = mapConversationEntity(entity, previous);
       if (entry === undefined) {
         if (previous !== undefined) {
-          previousIds ??= [...this.store.ids()];
           this.store.delete(rowId);
           presenceChanged = true;
           changedIds.add(rowId);
         }
       } else {
         if (previous === undefined) {
-          previousIds ??= [...this.store.ids()];
           presenceChanged = true;
         }
         if (entry !== previous) {
@@ -109,7 +104,6 @@ export class SnapshotConversationProjector {
       structureChanged,
       reset,
       revision: this.revision,
-      ...(previousIds === undefined ? {} : { previousIds }),
     });
   }
 }

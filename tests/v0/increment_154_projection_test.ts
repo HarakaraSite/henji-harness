@@ -186,14 +186,12 @@ Deno.test('Increment 154 reused source ids remain distinct across turns and rese
   );
 });
 
-Deno.test('Increment 154 keyed conversation action preserves editor, modal and scroll anchor', () => {
+Deno.test('Increment 154 keyed conversation updates preserve editor and modal', () => {
   const projector = new SnapshotConversationProjector();
   const projected = projector.project(tuiClientState(base), 'core-a/session-a');
   let state = reduceUiAction(createUiState(), {
     kind: 'keyed_conversation',
     store: projected.store,
-    resetScroll: true,
-    structureChanged: projected.structureChanged,
   });
   state = reduceUiAction(state, {
     kind: 'editor',
@@ -202,11 +200,6 @@ Deno.test('Increment 154 keyed conversation action preserves editor, modal and s
   state = reduceUiAction(state, {
     kind: 'overlay',
     overlay: { kind: 'readOnlyHelp', lines: ['help'] },
-  });
-  const anchor = state.keyedConversation!.entryAt(0)!;
-  state = reduceUiAction(state, {
-    kind: 'scroll',
-    mode: { kind: 'anchored', entryId: anchor.id, sourceUtf16Offset: 4 },
   });
   const updated = projector.project(
     tuiClientState(
@@ -248,72 +241,8 @@ Deno.test('Increment 154 keyed conversation action preserves editor, modal and s
   state = reduceUiAction(state, {
     kind: 'keyed_conversation',
     store: updated.store,
-    structureChanged: updated.structureChanged,
   });
-  deepEqual(state.scroll, { kind: 'anchored', entryId: anchor.id, sourceUtf16Offset: 4 });
+  strictEqual(state.keyedConversation, updated.store);
   deepEqual(state.overlay, { kind: 'readOnlyHelp', lines: ['help'] });
   equal(state.editor.text, 'draft');
-});
-
-Deno.test('Increment 154 deleted scroll anchors move to the nearest surviving row', () => {
-  const projector = new SnapshotConversationProjector();
-  const initial: Record<string, ConversationEntity> = {};
-  for (const [index, id] of ['first', 'anchor', 'last'].entries()) {
-    initial[id] = {
-      kind: 'message',
-      id,
-      executionId: `execution-${id}`,
-      turn: index + 1,
-      version: 0,
-      position: conversationPosition(index, -1, -1),
-      role: 'user',
-      text: id,
-      complete: true,
-    };
-  }
-  const first = projector.project(
-    tuiClientState(tuiSnapshot(initial, ['first', 'anchor', 'last'])),
-    'core/anchor',
-  );
-  let state = reduceUiAction(createUiState(), {
-    kind: 'keyed_conversation',
-    store: first.store,
-    resetScroll: true,
-    structureChanged: true,
-  });
-  state = reduceUiAction(state, {
-    kind: 'scroll',
-    mode: { kind: 'anchored', entryId: 'conversation:anchor', sourceUtf16Offset: 7 },
-  });
-
-  const remaining = { first: initial.first!, last: initial.last! };
-  const updated = projector.project(
-    tuiClientState(
-      tuiSnapshot(remaining, ['first', 'last'], {
-        cursor: { coreEpoch: 'tui-core', sessionId: 'tui-entity-session', revision: 2 },
-        conversation: {
-          schemaVersion: 2,
-          sessionId: 'tui-entity-session',
-          cut: 2,
-          storeRevision: 2,
-          entities: remaining,
-          order: ['first', 'last'],
-        },
-      }),
-      new Set(['anchor']),
-      true,
-    ),
-    'core/anchor',
-  );
-  state = reduceUiAction(state, {
-    kind: 'keyed_conversation',
-    store: updated.store,
-    structureChanged: true,
-    previousIds: updated.previousIds,
-  });
-  deepEqual(state.scroll, {
-    kind: 'anchored',
-    entryId: 'conversation:last',
-    sourceUtf16Offset: 0,
-  });
 });

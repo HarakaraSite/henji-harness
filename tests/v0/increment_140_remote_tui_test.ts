@@ -1,4 +1,4 @@
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { ConversationEntity } from '../../v0/conversation/model.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
@@ -129,15 +129,15 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
-  }
 
+  private readonly screen = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.screen.resize(size.columns, size.rows);
+    this.screen.write(bytes);
     const text = new TextDecoder().decode(bytes);
     this.output.push(text);
-    this.onWrite?.(text);
+    this.onWrite?.(this.screen.frame().rows.join('\n'));
   }
   addSignal(
     signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP',
@@ -213,7 +213,7 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
       terminal.pushInput('\x1b');
     } else if (
       interaction === 2 &&
-      text.includes('The note says remote history is available.')
+      text.includes('READ-ONLY') && !text.includes('help · PageUp/Down scroll · Esc return')
     ) {
       interaction = 3;
       terminal.pushInput('/detach\r\r');
@@ -248,7 +248,7 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
         'What is in the saved note?',
         'The note says remote history is available.',
         'READ-ONLY',
-        'List sessions │ /sessions │ F1',
+        'List sessions │ /sessions │ F4',
         'PageUp/Down scroll',
         'help · PageUp/Down scroll · Esc return',
         'Ctrl-D',
@@ -261,7 +261,8 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
     }
     strictEqual(terminal.raw, false);
     strictEqual(terminal.signals.size, 0);
-    strictEqual(rendered.includes('\x1b[?1049l'), true);
+    strictEqual(rendered.includes('\x1b[?1049h'), false);
+    strictEqual(rendered.includes('\x1b[?1049l'), false);
     deepStrictEqual(requests, [
       { method: 'GET', path: '/api/v1/core' },
       { method: 'GET', path: `/api/v1/sessions/${sessionId}/events` },

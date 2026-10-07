@@ -36,7 +36,6 @@ Deno.test('Increment 170 notice body updates keep keyed order identity and only 
   const updated = notices.refresh(sessionId, projected.store);
   deepEqual([...updated.changedIds], [noticeId]);
   equal(updated.structureChanged, false);
-  equal(updated.previousIds, undefined);
   strictEqual(projected.store.ids(), order);
   strictEqual(projected.store.semanticIds(), semanticOrder);
   strictEqual(projected.store.get(`conversation:${task.id}`), taskRow);
@@ -70,31 +69,26 @@ Deno.test('Increment 170 keyed notice reanchor splices before its target and upd
     live: false,
   });
   store.upsertNotice({ entry: firstEntry, anchor: 'last' });
-  const beforeReanchor = [...store.ids()];
 
   const movedEntry = freezeUiLogEntry({ ...firstEntry, text: 'moved' });
   const moved = store.upsertNotice({ entry: movedEntry, anchor: 'first' });
   equal(moved.structureChanged, true);
-  deepEqual(moved.previousIds, beforeReanchor);
   deepEqual(store.ids(), ['first', noticeId, 'middle', 'last']);
   equal(store.indexOf(noticeId), 1);
   equal(store.indexOf('middle'), 2);
   equal(store.indexOf('last'), 3);
 
   const stableOrder = store.ids();
-  const beforeRemoval = [...stableOrder];
   const bodyOnly = store.upsertNotice({
     entry: freezeUiLogEntry({ ...movedEntry, text: 'body only' }),
     anchor: 'first',
   });
   equal(bodyOnly.structureChanged, false);
-  equal(bodyOnly.previousIds, undefined);
   strictEqual(store.ids(), stableOrder);
   equal(store.get(noticeId)?.text, 'body only');
 
   const removed = store.removeNotice(noticeId);
   equal(removed.structureChanged, true);
-  deepEqual(removed.previousIds, beforeRemoval);
   deepEqual(store.ids(), semanticIds);
 });
 

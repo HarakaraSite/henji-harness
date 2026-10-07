@@ -1,12 +1,15 @@
 # Increment 212 — S36: TUIの会話履歴表示を端末scrollbackへ任せる
 
-状態: 個別incrementへ採用・要件整理済み（2026-10-07）。詳細設計・実装・検証は未着手。
+状態: local実装・検証完了（2026-10-07）。常用環境での211・212の利用者確認待ち。
 
 ## 目的・採用と承認範囲
 
 利用者の「では、1と2をそれぞれインクリメントとする」により、提案した第二段階のS36を採用した。
-第一段階の[Increment 211](increment-211.md)で入力履歴とキー操作を整理し、実表示・操作確認を終えて
-から本incrementへ進む。今回の指示は分割・採用と文書化として扱い、実装は開始していない。
+第一段階の[Increment 211](increment-211.md)を`ac59f0d0`へcommit済み。
+利用者の「コミットして、確認は212のあとにする 212に着手しよう」でlocal実装・検証を開始した。
+利用者による常用環境での確認は212後にまとめる。provider call・build配置・pushは含めない。
+後続の「了解です コミットと配置をお願いします」により、212のsource commit・公式build・常用配置が
+承認された。配置結果は本書へ記録する。新しい実provider call・push・公開は含めない。
 
 Henji独自の会話履歴スクロールを端末scrollbackへ移し、スクロール・検索・選択・コピーを端末へ任せる。
 Henjiは入力と実行操作、生成中表示、会話の保存とSession再開時の再出力を担う。
@@ -45,7 +48,7 @@ Henjiは入力と実行操作、生成中表示、会話の保存とSession再�
 
 ## 現行product経路・影響範囲
 
-2026-10-07のsource確認:
+着手前（2026-10-07）のsource確認:
 
 - API snapshot/update → reducerと会話投影 → `tui_renderer.ts` → layout・`screen_frame.ts` → 端末出力。
 - `TerminalLifecycle`はalternate screenとmouse trackingを要求する。`screen_frame.ts`は画面内の行を
@@ -72,7 +75,143 @@ Henjiは入力と実行操作、生成中表示、会話の保存とSession再�
 - 実provider callが必要なら、対象・回数・保存先について別途明示承認を得る。full gateは要求しない。
   メモリ削減率・描画速度の改善率を本incrementの受入条件にしない。
 
+## 採用したlocal設計
+
+- 通常画面へ確定会話をCRLFで追記し、末尾の生成中表示・editor・footer・overlayだけを相対cursor移動と各行のELで更新する。
+  alternate screenとmouse trackingは要求しない。
+- Session表示scopeごとに出力済み位置を持つ。scope変更時は保存会話を再出力し、同scopeのsnapshot再同期で確定会話を重複させない。
+- tool開始・更新・結果は順次追記する。本文・thinkingは末尾を更新し、画面を超える部分は先頭から確定して追記する。
+  実行終了時にはcomplete=falseで残ったsemantic entityも表示確定する。
+- resize時は既に表示したlive本文を、その場で確定する。端末がreflowして履歴へ移した本文を再追記せず、
+  以後の累積更新は新しいsource部分を追記する。editor・footerは新しいサイズで引き続き操作できる。
+- 本文が変わらないeditor・footer更新では、同じ先頭行を保持して変更された末尾だけを描画する。
+  resize検知前の旧geometryの再描画が物理resizeと重なっても、既出本文を再出力しない。
+- 起動時のcontext・skills・Session情報が変わったときは、新しいヘッダーを追記する。
+  resizeやcommittedTurnだけの変更でヘッダーを再追記しない。
+- Markdown tableなど、追記によって既出行の内部配置が変わるblockは全体を確定し、後続sourceだけを追記する。
+  queue notice後の本文継続とthinkingの確定label変更も、既出本文prefixを再追記しない。
+- 旧viewportとHenji内の会話PageUp/Down・wheel処理・history footerは撤去する。help overlayのPageUp/Downは残す。
+
+端末制御の参照: [xterm control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)。
+
+tmux実測では、画面先頭からED0で末尾を消すと`scroll-on-clear`によって直前の画面が履歴へ追加され、
+生成中本文が再描画のたびに増えた。各行のELへ変更した理由はこの観測である。
+該当条件は[tmux screen-write.c](https://github.com/tmux/tmux/blob/master/screen-write.c)の
+`screen_write_clearendofscreen`も参照した。端末設定自体は変更しない。
+
+## 正本変更案（未反映・別途承認待ち）
+
+architectureのTUI説明には旧viewport、input history、alternate screen、会話履歴キーが残る。
+211の入力履歴撤去・F1 cancel／F4 Sessionと、212の端末scrollback・表示scopeの出力receipt・
+通常画面のmutable tailへ更新する案である。SQLite semantic履歴を正本とし、Core/API/Dataの所有境界は維持する。
+対象は`docs/architecture/henji-host-agent-worker.md`のTUI／入力／会話表示の記述。
+構想・architecture・roadmapは今回変更していない。
+
 ## 現在の未実施事項
 
-211の先行実施、本incrementの詳細設計・local実装・focused確認・実表示と操作確認。
-commit・常用build・配置・pushは今回実施していない。
+Ghostty単独の実機挙動・211と212の常用環境での利用者確認は未実施。
+212のcommit・常用build・配置・pushは今回実施していない。
+
+## local実経路確認（2026-10-07）
+
+隔離HOME/XDGと一時workspaceで、source CLIのproduction TUIをtmux上に起動した。
+実CoreとData／Agent／API Workerを使用し、provider-free child taskとlocal bash toolで確認した。
+provider callは0回。端末設定・実config・実dataは変更していない。
+
+- 通常画面を使用し、alternate screen・mouse trackingがoffであることを確認。
+  保存した10turnの会話が順番に履歴へ入り、tmux copy-modeで先頭へ移動・選択・コピーできた。
+- F4 Session pickerとEscでの復帰、複数行editorのUp/Down、旧入力履歴を呼ばない動作、
+  実行中EscでcancelされずF1でcancelできる動作、F2 follow-up／F3 steeringを確認。
+- 80行の日本語入り生成中本文と6行draftを表示し、140×30→90×20→140×30へresizeした。
+  狭い状態でdraft末尾への追記・Up/Homeから前行の編集ができた。
+  本文各行の履歴内出現数はresize前・後・実行完了後とも2回（user入力と進捗表示各1回）で、
+  再描画やresizeによる既出本文の再追記は発生しなかった。
+- local bashの開始`…`と結果`✓`が履歴へ順次追記され、実stdoutを後続assistant表示で確認。
+- `/new`の後、F4 pickerから保存Sessionをviewで開き直した。保存会話をsemantic順で再出力し、
+  先頭の保存user行は再表示1回分だけ増えた。長い本文・tool結果・最終回答も再表示された。
+- helpの211キー案内と旧操作案内の撤去、Ctrl-Dでのdetachを確認。
+
+再確認可能なlocal evidence（git対象外）: `.tools/increment-212/tmux-result.json`、
+`tmux_probe.py`、`core_probe.ts`、`tui-raw.log`。
+Ghostty単独はこの環境に実機がなく未確認。通常利用の確認は利用者の指示どおり211・212をまとめて行う。
+
+resizeと旧geometry再描画が重なる問題を観測したため、修正後の同じprobeを3回実行した。
+3回とも上記11操作群がPASS、provider callは0回、本文80行の出現数は前・後・完了後とも各2回。
+結果は`.tools/increment-212/tmux-result-1.json`〜`tmux-result-3.json`へ保持した。
+
+## focused検証・review結果
+
+- 変更されたTUI経路のfocused testは最終候補で128 pass／0 fail。
+  順次出力、長い本文の確定、thinking確定、F2後の累積更新、Markdown table追記、resize、
+  tool開始／結果、211入力、picker、Session切替、header更新、shutdownと出力順序を確認した。
+  廃止したviewport／retained frame専用testは撤去し、継続するproduct動作は残した。
+- 変更された39 TSファイルとsource CLIのtype check、39 TSのformat・lint、`git diff --check`はPASS。
+  旧`writeFrame`／`ConversationViewport`／`CoalescingWriter`と旧order-copy補助処理の参照残存はない。
+  full gate・メモリbenchmarkは実行していない。
+- 独立reviewでthinking label／F2 notice後の本文重複、Markdown tableの既出cell重複、廃止キーのhelp残存を
+  P2として採用し修正。一回の限定re-reviewで3件の解消とresizeのreceipt／writer接続を確認した。
+  追加findingなし。review後のheader更新と旧geometry再描画の局所修正は親agentが確認し、
+  最終focused testと上記tmux実測で検証した。
+
+最終候補の記録: `.tools/increment-212/focused.log`、`static.log`。
+通常会話の保存・Core/API/provider契約と非TUIの`run --stream`は変更していない。
+
+## 保存履歴1万行の追加測定（2026-10-07）
+
+利用者の「1万行くらいのテストはできない？」により、隔離HOME/XDG・一時workspaceの
+production TUI／実Core／Data・Agent・API Workerで追加測定した。production sourceは変更していない。
+provider-free task 20turnを保存し、userとassistant各250行／turn、計10,000行・60 entityを用意した。
+保存後にCoreとWorkerを終了して再起動し、別の新規SessionからF4 pickerで保存Sessionを開いた。
+初回表示前に再起動後のCoreから対象Session本文をreadしていない。OSのfile cacheはflushしていない。
+
+測定用tmuxは140×30、history-limit 100,000行（隔離tmux serverの設定のみ）。
+表示時間はpickerの対象を選択済みの状態から、決定キー送信→最後の本文行・対象Session footerが
+表示されたcaptureまでのwall time。tmux command／captureと10ms間隔のpollを含む概測である。
+
+| 操作 | 所要時間 |
+| --- | ---: |
+| Core再起動後の初回view | 294ms |
+| 2回目view | 247ms |
+| 3回目view | 251ms |
+| view中央値 | 251ms |
+| F4 picker読込 | 31〜42ms |
+| 表示後の入力→editor表示 | 21〜24ms |
+| Rによるresume→本文・Enter submit表示 | 220ms |
+| resume後の追加task→回答・ready表示 | 146ms |
+
+初回は本文10,000行、header・label等を含む端末出力10,084行。
+5,000種類の番号付き行がuserとassistantへ各1回ずつ出現し、semantic順も一致した。
+viewを3回、resumeを1回行った後の履歴でも、各再表示分のみ増えて計40,000本文行となり、
+欠落・意図しない重複・順序変更はなかった。resume後の追加taskで新しい回答を確認し、
+CoreのactiveSessionIdが保存Sessionであることも確認した。provider callは0回。
+
+このVM／tmuxでのsource TUI測定であり、Ghostty実機や旧実装との速度比較は行っていない。
+記録（git対象外）: `.tools/increment-212/large-session-result.json`、`large-run.log`、
+`large_core_probe.ts`、`large_session_probe.py`、`large-view-1.txt`〜`large-view-3.txt`。
+
+## tmux履歴上限2,000行の確認（2026-10-07）
+
+利用者の「同じ1万行の履歴で、tmuxの表示を2000行にして直近の履歴だけ表示されているのを確認して」
+に従い、同じ内容の20turn・10,000本文行を隔離環境で保存し、Core再起動後にproduction TUIの
+F4からviewで開き直した。隔離tmux serverは140×30、`history-limit 2000`をpane作成前に設定した。
+通常tmuxの設定、production source、既存の保存dataは変更していない。provider callは0回。
+
+- 実際の`history_limit`は2,000、`history_size`は1,854行。
+  表示中30行を合わせたcaptureは1,884行で、そのうち番号付き本文は1,867行。
+- 残った本文番号列は、前回の履歴上限100,000行で取得した10,000本文行の末尾と完全一致した。
+  最古の残存行は`212-load-04133 日本語の保存会話 17`、最後の行は`212-load-04999`。
+  古い先頭`212-load-00000`は端末履歴に残らず、最新行は通常画面で表示された。
+- copy-modeでhistory-topへ移動し、さらにscroll-upしても位置は先頭のまま
+  （scroll_position=1,854、copy_cursor_y/x=0/0）。その行を実際に選択・copyし、bufferの内容が
+  最古の残存行と一致した。`capture-pane`はcopy-modeの表示画面そのものとして扱わなかった。
+- その後HTTP APIで保存Sessionのsemantic本文をreadし、10,000行の番号と順序が元の履歴に完全一致する
+  ことを確認した。端末履歴上限によって保存会話は削られていない。再表示は約279ms。
+
+tmux 3.5aは上限へ達すると最古の10%（この設定では200行）をまとめて落とすため、
+履歴保持数は常にちょうど2,000行ではない。
+参照: [tmux 3.5a grid_collect_history](https://github.com/tmux/tmux/blob/3.5a/grid.c#L325-L350)、
+[capture-paneの対象grid](https://github.com/tmux/tmux/blob/3.5a/cmd-capture-pane.c#L98-L120)。
+
+記録（git対象外）: `.tools/increment-212/large-scrollback-2000-result.json`、
+`large-2000-run.log`、`large_scrollback_2000_probe.py`、`large-scrollback-2000-history.txt`、
+`large-scrollback-2000-screen.txt`、`large-scrollback-2000-copied-oldest.txt`。

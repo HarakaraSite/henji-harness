@@ -1,8 +1,8 @@
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { SessionSnapshot } from '../../v0/api/contract.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
@@ -97,11 +97,11 @@ class FakeTerminal implements TerminalPort {
       resolve(bytes);
     } else this.input.push(bytes);
   }
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
-  }
+  private readonly display = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.display.resize(size.columns, size.rows);
+    this.display.write(bytes);
     this.output.push(new TextDecoder().decode(bytes));
   }
   addSignal(): void {}
@@ -113,7 +113,7 @@ class FakeTerminal implements TerminalPort {
     return plain(this.output.join(''));
   }
   screen(): string {
-    return plain(this.output.at(-1) ?? '');
+    return this.display.frame().rows.join('\n');
   }
 }
 

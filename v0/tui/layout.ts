@@ -1,6 +1,6 @@
-import { type ConversationView, ConversationViewport } from './conversation_viewport.ts';
+import { conversationRows } from './conversation_flow.ts';
 import { type EditorSnapshot } from './input.ts';
-import { uiConversationCount, uiConversationIndexOf, type UiState } from './state.ts';
+import type { UiState } from './state.ts';
 import { type AssistantSpan, type ConversationLabelTone } from './conversation_renderer.ts';
 import {
   cellWidth,
@@ -45,7 +45,6 @@ export interface UiLayout {
   readonly rows: number;
   readonly degraded: boolean;
   readonly log: readonly LayoutRow[];
-  readonly viewport?: ConversationView;
   readonly overlay: readonly LayoutRow[];
   readonly beforeInput: readonly LayoutRow[];
   readonly input: readonly LayoutRow[];
@@ -200,28 +199,6 @@ const remoteExecutionResult = (status: string): readonly string[] => {
   return status.split(' · ').filter((part) => known.has(part));
 };
 
-type HistoryViewport =
-  | { readonly kind: 'start' }
-  | {
-    readonly kind: 'entry';
-    readonly entry: number;
-    readonly totalEntries: number;
-  };
-
-const historyViewport = (
-  state: UiState,
-  view: ConversationView,
-): HistoryViewport => {
-  if (view.atStart) return { kind: 'start' };
-  const entryId = view.cursors.find((cursor) => cursor.entryId !== '@startup')?.entryId;
-  const entryIndex = entryId === undefined ? -1 : uiConversationIndexOf(state, entryId);
-  return entryIndex < 0 ? { kind: 'start' } : {
-    kind: 'entry',
-    entry: entryIndex + 1,
-    totalEntries: uiConversationCount(state),
-  };
-};
-
 const footerPrimaryText = (state: UiState, columns: number): string => {
   const primary = safeDisplay(
     state.footer?.activity ?? footerStatusParts(footerStatus(state)).primary,
@@ -257,7 +234,6 @@ const footerPrimaryText = (state: UiState, columns: number): string => {
 const footerStatusText = (
   state: UiState,
   columns: number,
-  history?: HistoryViewport,
   primaryInSession = false,
 ): Readonly<{
   readonly text: string;
@@ -289,22 +265,14 @@ const footerStatusText = (
       : overlay.kind === 'choicePicker'
       ? overlay.controls ?? ['Esc close']
       : state.footer.controls;
-    const historySegments = history === undefined ? [] : [
-      history.kind === 'start'
-        ? 'history start'
-        : `history ${history.entry}/${history.totalEntries}`,
-      ...(state.newBelowCount > 0 ? [`new ${state.newBelowCount}`] : []),
-      'Esc latest',
-    ];
     const segments = [
-      ...historySegments,
       ...(state.footer.hint === undefined || overlay.kind !== 'none'
         ? []
         : [safeDisplay(state.footer.hint, false)]),
       ...controls,
     ];
     while (
-      segments.length > Math.max(1, historySegments.length) &&
+      segments.length > 1 &&
       width(renderSegments(segments)) > columns
     ) {
       segments.pop();
@@ -318,7 +286,6 @@ const footerStatusText = (
   const pendingSegment = pending.length === 0
     ? undefined
     : `pending ${pending.map((lane) => `${lane.kind}:${lane.byteCount}B`).join(',')}`;
-  const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
   const statusControls = remoteFooterControls(state.status);
   const remoteControls = statusControls;
@@ -330,17 +297,6 @@ const footerStatusText = (
   const cancelSegment = state.lifecycle === 'busy' && remoteControls.length === 0
     ? 'F1 cancel'
     : undefined;
-  const historyHint = 'Esc latest';
-  const historyFull = history === undefined
-    ? undefined
-    : history.kind === 'start'
-    ? `history start · ${historyHint}`
-    : `history record ${history.entry} of ${history.totalEntries} · ${historyHint}`;
-  const historyRequired = historyFull === undefined
-    ? undefined
-    : width(historyFull) <= columns
-    ? historyFull
-    : `history · ${historyHint}`;
   const resultText = remoteResult.length === 0 ? undefined : safeDisplay(
     remoteResult.filter((part) => part !== status.primary).join(' · '),
     false,
@@ -351,18 +307,12 @@ const footerStatusText = (
     !controlSet.has(part) && !resultSet.has(part)
   ).join(' · ');
   const fixed = [
-    ...(historyRequired === undefined ? [] : [historyRequired]),
     ...(primaryInSession
       ? details === undefined || details.length === 0 ? [] : [safeDisplay(details, false)]
-      : historyRequired === undefined
-      ? [displayedPrimary]
-      : []),
+      : [displayedPrimary]),
     ...(commandSegment === undefined ? [] : [safeDisplay(commandSegment, false)]),
   ];
   const optional = [
-    ...(historyRequired === undefined || primaryInSession
-      ? []
-      : [{ kind: 'primary', text: displayedPrimary }]),
     ...(status.credential === undefined
       ? []
       : [{ kind: 'credential', text: safeDisplay(status.credential, false) }]),
@@ -372,9 +322,6 @@ const footerStatusText = (
     ...(pendingSegment === undefined
       ? []
       : [{ kind: 'pending', text: safeDisplay(pendingSegment, false) }]),
-    ...(belowSegment === undefined
-      ? []
-      : [{ kind: 'below', text: safeDisplay(belowSegment, false) }]),
     ...(cancelSegment === undefined
       ? []
       : [{ kind: 'cancel', text: safeDisplay(cancelSegment, false) }]),
@@ -853,7 +800,7 @@ export const layoutUi = (
   state: UiState,
   columns = state.terminalSize.columns,
   rows = state.terminalSize.rows,
-  conversation = new ConversationViewport(),
+  conversation: readonly LayoutRow[] = conversationRows(state, columns),
 ): UiLayout => {
   const {
     widthLimit,
@@ -913,21 +860,14 @@ export const layoutUi = (
       ];
     })()
     : overlay.rows.slice(overlayStart, overlayStart + logHeight);
-  const view = overlay.rows.length > 0
-    ? undefined
-    : conversation.view(state, widthLimit, logHeight, heightLimit);
-  const visibleLog = view === undefined ? visibleOverlay : view.rows;
-  const paddedLog = [...visibleLog];
-  while (paddedLog.length < logHeight) {
-    paddedLog.unshift({ text: '', kind: 'log' });
-  }
-  const history = state.scroll.kind !== 'followLatest' && view !== undefined
-    ? historyViewport(state, view)
-    : undefined;
+  const visibleLog = overlay.rows.length > 0
+    ? visibleOverlay
+    : logHeight === 0
+    ? []
+    : conversation.slice(-logHeight);
   const statusFooter = footerStatusText(
     state,
     Math.max(1, footerContentColumns(widthLimit)),
-    history,
     sessionFooter !== undefined && footerCount >= 2 &&
       (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
       ['busy', 'cancelling'].includes(
@@ -951,15 +891,14 @@ export const layoutUi = (
     columns: widthLimit,
     rows: heightLimit,
     degraded,
-    log: Object.freeze(paddedLog),
-    viewport: view,
+    log: Object.freeze(visibleLog),
     overlay: Object.freeze(overlay.rows),
     beforeInput: Object.freeze(beforeInput),
     input: Object.freeze(editor.rows),
     afterInput: Object.freeze(afterInput),
     footer: Object.freeze(footer.map((row) => Object.freeze(row))),
     cursor: Object.freeze({
-      row: logHeight + beforeInput.length + editor.cursorRow,
+      row: visibleLog.length + beforeInput.length + editor.cursorRow,
       cell: Math.min(widthLimit, editor.cursorCell + 2),
     }),
   });

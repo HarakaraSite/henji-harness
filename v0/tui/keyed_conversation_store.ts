@@ -98,7 +98,6 @@ export interface KeyedNoticePlacement {
 export interface KeyedNoticeUpdate {
   readonly changed: boolean;
   readonly structureChanged: boolean;
-  readonly previousIds?: readonly string[];
 }
 
 /**
@@ -203,10 +202,7 @@ export class KeyedConversationStore {
   }
 
   /** Update one notice row in place; only placement changes splice the order index. */
-  upsertNotice(
-    placement: KeyedNoticePlacement,
-    capturePreviousIds = true,
-  ): KeyedNoticeUpdate {
+  upsertNotice(placement: KeyedNoticePlacement): KeyedNoticeUpdate {
     const { id } = placement.entry;
     const previous = this.notices.get(id);
     const samePlacement = previous !== undefined &&
@@ -221,7 +217,6 @@ export class KeyedConversationStore {
       return { changed: true, structureChanged: false };
     }
 
-    const previousIds = capturePreviousIds ? [...this.displayOrder] : undefined;
     if (previous !== undefined) {
       const existingIndex = this.indexById.get(id);
       if (existingIndex !== undefined) {
@@ -240,7 +235,6 @@ export class KeyedConversationStore {
     return {
       changed: true,
       structureChanged: true,
-      ...(previousIds === undefined ? {} : { previousIds }),
     };
   }
 
@@ -259,9 +253,8 @@ export class KeyedConversationStore {
     this.rebuildDisplayOrder();
   }
 
-  removeNotice(id: string, capturePreviousIds = true): KeyedNoticeUpdate {
+  removeNotice(id: string): KeyedNoticeUpdate {
     if (!this.notices.has(id)) return { changed: false, structureChanged: false };
-    const previousIds = capturePreviousIds ? [...this.displayOrder] : undefined;
     this.notices.delete(id);
     this.noticeOrdinalById.delete(id);
     this.rows.delete(id);
@@ -274,7 +267,6 @@ export class KeyedConversationStore {
     return {
       changed: true,
       structureChanged: true,
-      ...(previousIds === undefined ? {} : { previousIds }),
     };
   }
 

@@ -52,7 +52,8 @@ import {
   type UiLayout,
 } from './layout.ts';
 import { type AssistantSpanTone, type ConversationLabelTone } from './conversation_renderer.ts';
-import { ConversationViewport } from './conversation_viewport.ts';
+import { ConversationFlow } from './conversation_flow.ts';
+import { ScrollbackWriter } from './scrollback_writer.ts';
 import { startupHelpLines } from './startup_render.ts';
 import { cellWidth, encoder, segmentTerminalText } from './terminal_text.ts';
 
@@ -130,7 +131,11 @@ const renderLayoutRow = (row: LayoutRow, columns: number): string => {
     });
   }
   for (const span of row.footerSpans ?? []) {
-    ranges.push({ start: span.start, length: span.length, sgr: FOOTER_SGR[span.tone] });
+    ranges.push({
+      start: span.start,
+      length: span.length,
+      sgr: FOOTER_SGR[span.tone],
+    });
   }
   if (
     row.blinkScalarStart !== undefined && row.blinkScalarLength !== undefined &&
@@ -189,7 +194,7 @@ const boundedStyledRow = (text: string, maxBytes: number): string => {
   return styled ? `${output}${RESET_SGR}` : output;
 };
 
-/** Retained renderer for the production TUI and its injected test seams. */
+/** Normal-screen conversation flow and mutable editor/overlay renderer. */
 export class TuiRenderer implements TerminalRendererGate {
   private closing = false;
   private lastSize = { columns: 80, rows: 24 };
@@ -215,17 +220,20 @@ export class TuiRenderer implements TerminalRendererGate {
   private lastRenderStarted: number | undefined;
   private displayScope = 'local';
   private geometryGeneration = 0;
-  private displayedLayout: UiLayout | undefined;
-  private navigationGeneration = 0;
-  private displayedNavigationGeneration = 0;
-  private readonly conversation = new ConversationViewport();
-  private readonly styledRows = new WeakMap<LayoutRow, { columns: number; text: string }>();
+  private readonly conversation = new ConversationFlow();
+  private readonly scrollback: ScrollbackWriter;
+  private liveConversationRows = 0;
+  private readonly styledRows = new WeakMap<
+    LayoutRow,
+    { columns: number; text: string }
+  >();
   private readonly renderFailureHandlers = new Set<() => void>();
 
   constructor(
     private readonly terminal: TerminalPort,
     options: TuiRendererOptions = {},
   ) {
+    this.scrollback = new ScrollbackWriter(terminal);
     this.now = options.now ?? Date.now;
     this.scheduleInterval = options.setInterval ??
       ((callback, milliseconds) => globalThis.setInterval(callback, milliseconds));
@@ -243,10 +251,6 @@ export class TuiRenderer implements TerminalRendererGate {
         ));
   }
 
-  get usesAlternateScreen(): boolean {
-    return true;
-  }
-
   get isClosing(): boolean {
     return this.closing;
   }
@@ -256,7 +260,7 @@ export class TuiRenderer implements TerminalRendererGate {
     return this.ui;
   }
 
-  /** Pure layout of the current retained screen; no terminal I/O is performed. */
+  /** Pure layout inspection; production draws only the uncommitted tail. */
   layoutSnapshot(
     columns = this.lastSize.columns,
     rows = this.lastSize.rows,
@@ -265,7 +269,11 @@ export class TuiRenderer implements TerminalRendererGate {
       this.ui,
       columns,
       rows,
-      this.conversation,
+      this.conversation.preview(
+        this.ui,
+        columns,
+        measureUi(this.ui, columns, rows).logHeight,
+      ),
     );
   }
 
@@ -302,7 +310,7 @@ export class TuiRenderer implements TerminalRendererGate {
       ...layout.afterInput.map((line) => line.text),
       ...layout.footer.map((row) => this.renderRow(row, layout.columns)),
     ];
-    // Reserve positioning/sync controls. Keep row coordinates fixed when omitting content.
+    // Keep editor/footer coordinates stable when bounding visible styled content.
     let available = Math.max(0, MAX_FRAME_BYTES - rendered.length * 32 - 128);
     for (let index = rendered.length - 1; index >= 0; index -= 1) {
       const line = rendered[index];
@@ -373,6 +381,7 @@ export class TuiRenderer implements TerminalRendererGate {
     if (this.renderTimer !== undefined) this.cancelTimeout(this.renderTimer);
     this.renderTimer = undefined;
     this.stopBusyElapsed();
+    this.scrollback.close();
     this.closing = true;
   }
 
@@ -453,12 +462,7 @@ export class TuiRenderer implements TerminalRendererGate {
         Number.isSafeInteger(size.columns) && size.columns > 0 &&
         Number.isSafeInteger(size.rows) && size.rows > 0
       ) {
-        this.lastSize = { columns: size.columns, rows: size.rows };
-        this.ui = reduceUiAction(this.ui, {
-          kind: 'resize',
-          columns: size.columns,
-          rows: size.rows,
-        });
+        this.resize(size.columns, size.rows, false);
       }
     } catch {
       // Keep the last known size when the terminal cannot report dimensions.
@@ -649,32 +653,22 @@ export class TuiRenderer implements TerminalRendererGate {
     this.ui = reduceUiAction(this.ui, { kind: 'position', position });
   }
 
-  /** Notify the retained layout of a UI-local resize without crossing into the core. */
+  /** Apply a UI-local resize without crossing into the core. */
   resize(columns: number, rows: number, redraw = true): void {
+    if (
+      this.ui.terminalSize.columns !== columns ||
+      this.ui.terminalSize.rows !== rows
+    ) {
+      if (this.liveConversationRows > 0) this.conversation.sealVisibleTail();
+      this.scrollback.retainPrefix(this.liveConversationRows);
+      this.liveConversationRows = 0;
+    }
     this.geometryGeneration += 1;
-    const oldLayout = this.displayedLayout;
-    const oldAnchor = this.ui.scroll.kind === 'anchored' && oldLayout !== undefined &&
-        this.navigationGeneration === this.displayedNavigationGeneration
-      ? oldLayout.viewport?.cursors[0]
-      : undefined;
     this.lastSize = {
       columns: Number.isSafeInteger(columns) && columns > 0 ? columns : this.lastSize.columns,
       rows: Number.isSafeInteger(rows) && rows > 0 ? rows : this.lastSize.rows,
     };
     this.ui = reduceUiAction(this.ui, { kind: 'resize', columns, rows });
-    if (
-      oldAnchor?.entryId !== undefined && this.ui.scroll.kind === 'anchored'
-    ) {
-      this.ui = reduceUiAction(this.ui, {
-        kind: 'scroll',
-        mode: {
-          kind: 'anchored',
-          entryId: oldAnchor.entryId,
-          sourceUtf16Offset: oldAnchor.sourceUtf16Offset,
-          part: oldAnchor.part,
-        },
-      });
-    }
     if (
       this.ui.overlay.kind === 'startupHelp' && this.startupState !== undefined
     ) {
@@ -704,32 +698,6 @@ export class TuiRenderer implements TerminalRendererGate {
       overlay: { kind: 'none' },
     });
     this.redraw();
-  }
-
-  /** Page from the displayed position, accumulating operations not yet written. */
-  scrollPage(direction: 'up' | 'down'): void {
-    const geometry = measureUi(this.ui, this.lastSize.columns, this.lastSize.rows);
-    const displayed = this.navigationGeneration === this.displayedNavigationGeneration &&
-        this.displayedLayout?.columns === geometry.widthLimit &&
-        this.displayedLayout.rows === geometry.heightLimit
-      ? this.displayedLayout.viewport
-      : undefined;
-    const mode = this.conversation.page(
-      this.ui,
-      geometry.widthLimit,
-      geometry.logHeight,
-      direction,
-      displayed,
-    );
-    this.navigationGeneration += 1;
-    this.ui = reduceUiAction(this.ui, { kind: 'scroll', mode });
-    this.redraw();
-  }
-
-  latest(redraw = true): void {
-    this.navigationGeneration += 1;
-    this.ui = reduceUiAction(this.ui, { kind: 'latest' });
-    if (redraw) this.redraw();
   }
 
   renderSessionPicker(
@@ -778,7 +746,10 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  renderChoicePicker(lines: readonly string[], controls?: readonly string[]): void {
+  renderChoicePicker(
+    lines: readonly string[],
+    controls?: readonly string[],
+  ): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
@@ -847,28 +818,17 @@ export class TuiRenderer implements TerminalRendererGate {
   setDisplayScope(scope: string): void {
     if (scope === this.displayScope) return;
     this.displayScope = scope;
-    this.displayedLayout = undefined;
     this.conversation.reset();
     this.clearModal();
-    this.latest();
   }
 
   setKeyedConversationStore(
     store: import('./keyed_conversation_store.ts').KeyedConversationStore,
-    resetScroll = false,
-    structureChanged = false,
-    previousIds?: readonly string[],
-    changedIds: ReadonlySet<string> = new Set(store.ids()),
   ): void {
     if (this.closing) return;
-    if (resetScroll) this.navigationGeneration += 1;
-    this.conversation.changed(changedIds, structureChanged || resetScroll);
     this.ui = reduceUiAction(this.ui, {
       kind: 'keyed_conversation',
       store,
-      resetScroll,
-      structureChanged,
-      ...(previousIds === undefined ? {} : { previousIds }),
     });
     this.redraw();
   }
@@ -916,19 +876,30 @@ export class TuiRenderer implements TerminalRendererGate {
     ) {
       this.resize(this.lastSize.columns, this.lastSize.rows, false);
     }
-    const layout = this.layoutSnapshot(
+    const geometry = measureUi(
+      this.ui,
       this.lastSize.columns,
       this.lastSize.rows,
     );
+    const output = this.conversation.drain(
+      this.ui,
+      geometry.widthLimit,
+      geometry.logHeight,
+    );
+    const layout = layoutUi(
+      this.ui,
+      this.lastSize.columns,
+      this.lastSize.rows,
+      output.live,
+    );
     const frame = this.frameFromLayout(layout);
-    const navigationGeneration = this.navigationGeneration;
-    const geometryGeneration = this.geometryGeneration;
-    this.terminal.writeFrame(frame, () => {
-      if (frame.scope === this.displayScope && geometryGeneration === this.geometryGeneration) {
-        this.displayedLayout = layout;
-        this.displayedNavigationGeneration = navigationGeneration;
-      }
+    this.scrollback.write({
+      committedRows: output.committed.map((row) => this.renderRow(row, layout.columns)),
+      liveRows: frame.rows,
+      cursor: frame.cursor,
+      size: frame.size,
     });
+    this.liveConversationRows = this.ui.overlay.kind === 'none' ? layout.log.length : 0;
   }
 }
 

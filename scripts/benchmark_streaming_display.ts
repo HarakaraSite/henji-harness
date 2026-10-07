@@ -5,7 +5,7 @@
  * `deno task --config deno.v0.json agent:increment-132-measure [m1|m2|all]`
  */
 import { TuiRenderer } from '../v0/tui/tui_renderer.ts';
-import { encodeScreenFrame, type TerminalPort } from '../v0/tui/terminal.ts';
+import type { TerminalPort } from '../v0/tui/terminal.ts';
 import type { ConversationEntity } from '../v0/conversation/model.ts';
 import { initialSessionClientState } from '../v0/api/reducer.ts';
 import type { SessionSnapshot } from '../v0/api/contract.ts';
@@ -52,10 +52,6 @@ const makeTerminal = (): { terminal: TerminalPort; writtenBytes: () => number } 
     drainAndCloseInput: () => Promise.resolve(),
     write: (bytes: Uint8Array) => {
       written += bytes.byteLength;
-    },
-    writeFrame: (frame, onWritten) => {
-      written += encodeScreenFrame(frame).byteLength;
-      onWritten?.();
     },
     addSignal: () => {},
     removeSignal: () => {},
@@ -161,7 +157,7 @@ const projectEntities = (
     initialSessionClientState(snapshot),
     'benchmark',
   );
-  renderer.setKeyedConversationStore(update.store, true, update.structureChanged);
+  renderer.setKeyedConversationStore(update.store);
 };
 
 const m1 = (): void => {
@@ -182,7 +178,6 @@ const m1 = (): void => {
     const liveText = `streaming body\n${'line of streamed text\n'.repeat(20)}`;
     const progressSamples: number[] = [];
     const editorSamples: number[] = [];
-    const scrollSamples: number[] = [];
     for (let round = 0; round < 30; round += 1) {
       progressSamples.push(measure(() =>
         renderer.eventSink({
@@ -192,15 +187,10 @@ const m1 = (): void => {
         })
       ));
       editorSamples.push(measure(() => renderer.setEditor(`typed ${round}`)));
-      scrollSamples.push(measure(() => {
-        renderer.scrollPage('up');
-        renderer.scrollPage('down');
-      }));
     }
     report[`entries=${entries},fatTail=${fatTail},fatBytes=${fatBytes}`] = {
       progressEvent: stats(progressSamples),
       keystroke: stats(editorSamples),
-      scrollPageRoundTrip: stats(scrollSamples),
       frameBytes: writtenBytes(),
     };
     renderer.renderFrame();

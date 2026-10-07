@@ -1,6 +1,3 @@
-import { encodeScreenFrame, type ScreenFrame } from './screen_frame.ts';
-
-export { encodeScreenFrame } from './screen_frame.ts';
 export type { ScreenFrame } from './screen_frame.ts';
 
 /**
@@ -15,7 +12,6 @@ export interface TerminalPort {
   read(): Promise<Uint8Array | null>;
   drainAndCloseInput(maxMs: number, idleMs: number): Promise<void>;
   write(bytes: Uint8Array): void;
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void;
   /** Optional: resolve after all accepted output has been handed to the host. */
   flush?(): Promise<void>;
   /** Optional notification when an asynchronous output write fails. */
@@ -35,15 +31,9 @@ const BRACKETED_PASTE_OFF = '\x1b[?2004l';
 // explicit modifier, so Shift+Enter reaches the editor as its own event instead of plain CR.
 const EXTENDED_KEYS_ON = '\x1b[>4;1m';
 const EXTENDED_KEYS_OFF = '\x1b[>4;0m';
-// Mouse tracking: normal tracking (1000) reports wheel and button events, and SGR (1006) keeps
-// the button code and coordinates unambiguous. Only the wheel events are used, for history paging.
-const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1006h';
-const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1000l';
 const EDITOR_CURSOR_STYLE = '\x1b[6 q';
 export const DEFAULT_CURSOR_STYLE = '\x1b[0 q';
 export const SHOW_CURSOR = '\x1b[?25h';
-export const ENTER_ALTERNATE_SCREEN = '\x1b[?1049h';
-export const EXIT_ALTERNATE_SCREEN = '\x1b[?1049l';
 export const ERASE_LINE = '\x1b[2K';
 export const RESET_SGR = '\x1b[0m';
 export const BLINK_SGR = '\x1b[5m';
@@ -63,41 +53,21 @@ export const staticBytes = (text: string): Uint8Array => encoder.encode(text);
 
 type ChunkWriter = (bytes: Uint8Array) => void | number | Promise<void | number>;
 
-type OutputItem = { readonly kind: 'bytes'; readonly bytes: Uint8Array } | {
-  readonly kind: 'frame';
-  readonly frame: ScreenFrame;
-  readonly onWritten?: () => void;
-};
-
-/**
- * Ordered, non-blocking sink for terminal output. Writes are delivered one at a time so a slow
- * terminal consumer cannot block the caller; the last queued ScreenFrame is replaced by newer
- * display state while raw control bytes retain their position in the output order.
- */
-export class CoalescingWriter {
-  private readonly queue: OutputItem[] = [];
+/** Ordered, non-blocking terminal sink. Every accepted append and control is delivered. */
+export class OrderedWriter {
+  private readonly queue: Uint8Array[] = [];
   private pump: Promise<void> | null = null;
   private failed = false;
-  private completedFrame: ScreenFrame | undefined;
 
   constructor(
     private readonly writeChunk: ChunkWriter,
     private readonly onFailure?: () => void,
   ) {}
 
-  /** Queue a raw terminal control/data write. It invalidates the display comparison baseline. */
+  /** Queue terminal control/data bytes in their accepted order. */
   enqueue(bytes: Uint8Array): void {
     if (bytes.byteLength === 0) return;
-    this.queue.push({ kind: 'bytes', bytes });
-    if (this.pump === null) this.startPump();
-  }
-
-  /** Queue a retained frame, replacing only a pending frame after the last control write. */
-  enqueueFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    const last = this.queue[this.queue.length - 1];
-    const item: OutputItem = { kind: 'frame', frame, onWritten };
-    if (last?.kind === 'frame') this.queue[this.queue.length - 1] = item;
-    else this.queue.push(item);
+    this.queue.push(bytes);
     if (this.pump === null) this.startPump();
   }
 
@@ -122,28 +92,16 @@ export class CoalescingWriter {
       while (this.queue.length > 0) {
         const item = this.queue.shift();
         if (item === undefined) break;
-        const bytes = item.kind === 'bytes'
-          ? item.bytes
-          : encodeScreenFrame(item.frame, this.completedFrame);
-        if (bytes.byteLength === 0) {
-          this.completedFrame = item.kind === 'frame' ? item.frame : undefined;
-          item.kind === 'frame' && item.onWritten?.();
-          continue;
-        }
+        const bytes = item;
         try {
           await this.writeAll(bytes);
-          this.completedFrame = item.kind === 'frame' ? item.frame : undefined;
         } catch {
-          // A partial frame or raw control may already have reached the terminal. The next frame
-          // must repaint the screen from scratch, and a failed frame is never the baseline.
-          this.completedFrame = undefined;
           if (!this.failed) {
             this.failed = true;
             this.onFailure?.();
           }
           continue;
         }
-        if (item.kind === 'frame') item.onWritten?.();
       }
     } finally {
       this.pump = null;
@@ -172,7 +130,7 @@ export class DenoTerminal implements TerminalPort {
   private draining = false;
   private outputFailed = false;
   private readonly outputFailureHandlers = new Set<() => void>();
-  private readonly output = new CoalescingWriter(
+  private readonly output = new OrderedWriter(
     (bytes) => Deno.stdout.write(bytes),
     () => {
       this.outputFailed = true;
@@ -285,10 +243,6 @@ export class DenoTerminal implements TerminalPort {
     this.output.enqueue(bytes);
   }
 
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.output.enqueueFrame(frame, onWritten);
-  }
-
   flush(): Promise<void> {
     return this.output.flush();
   }
@@ -319,8 +273,6 @@ export class DenoTerminal implements TerminalPort {
 export interface TerminalRendererGate {
   close(): void;
   clearLiveLine(): void;
-  /** The TUI renderer owns an isolated terminal screen. */
-  readonly usesAlternateScreen?: boolean;
 }
 
 type SignalName = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
@@ -332,8 +284,6 @@ export class TerminalLifecycle {
   private raw = false;
   private paste = false;
   private extendedKeys = false;
-  private mouse = false;
-  private alternateScreen = false;
   private restoring: Promise<void> | null = null;
   private restoreFailed = false;
   private readonly signals = new Map<SignalName, SignalHandler>();
@@ -392,26 +342,18 @@ export class TerminalLifecycle {
 
   async acquire(): Promise<void> {
     try {
-      // Enter the retained screen before any startup frame can be emitted. Mark the mode before
-      // writing so a partial host write still receives the best-effort matching restore sequence.
-      if (this.renderer?.usesAlternateScreen === true) {
-        this.alternateScreen = true;
-        this.terminal.write(staticBytes(ENTER_ALTERNATE_SCREEN));
-      }
       // Mark raw as needing restoration before invoking the host operation: setRaw may partially
       // change terminal state before reporting an error.
       this.raw = true;
-      // Ctrl-C is a Host-local input action while the retained TUI is idle. Keep signal
+      // Ctrl-C is a Host-local input action while the TUI is idle. Keep signal
       // generation disabled so the terminal delivers byte 0x03 through InputDecoder; external
       // SIGINT still arrives through the separately installed signal listener.
       this.terminal.setRaw(true, { cbreak: false });
       this.acquired = true;
       this.paste = true;
       this.extendedKeys = true;
-      this.mouse = true;
       this.terminal.write(staticBytes(BRACKETED_PASTE_ON));
       this.terminal.write(staticBytes(EXTENDED_KEYS_ON));
-      this.terminal.write(staticBytes(MOUSE_TRACKING_ON));
       this.terminal.write(staticBytes(EDITOR_CURSOR_STYLE));
     } catch (error) {
       await this.restore();
@@ -454,20 +396,10 @@ export class TerminalLifecycle {
     // Composition/startup can fail before terminal acquisition. Remove any signal hooks but do
     // not emit terminal controls or touch stdin when no terminal state was acquired.
     if (
-      !this.raw && !this.acquired && !this.paste && !this.extendedKeys && !this.mouse &&
-      !this.alternateScreen
+      !this.raw && !this.acquired && !this.paste && !this.extendedKeys
     ) {
       this.removeSignals();
       return;
-    }
-    if (this.mouse) {
-      try {
-        this.terminal.write(staticBytes(MOUSE_TRACKING_OFF));
-      } catch {
-        this.restoreFailed = true;
-        // Continue all remaining restore operations.
-      }
-      this.mouse = false;
     }
     if (this.paste) {
       try {
@@ -499,9 +431,7 @@ export class TerminalLifecycle {
       this.restoreFailed = true;
       // Continue with static controls and raw restore.
     }
-    const controls = this.alternateScreen
-      ? [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE]
-      : [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR];
+    const controls = [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR];
     for (const sequence of controls) {
       try {
         this.terminal.write(staticBytes(sequence));
@@ -518,22 +448,6 @@ export class TerminalLifecycle {
         // No further restoration is possible through this port.
       }
       this.raw = false;
-    }
-    if (this.alternateScreen) {
-      try {
-        this.terminal.write(staticBytes(EXIT_ALTERNATE_SCREEN));
-      } catch {
-        this.restoreFailed = true;
-      } finally {
-        this.alternateScreen = false;
-      }
-      // Show the cursor after returning to the user's original screen. This preserves the
-      // existing lifecycle contract for normal exit while ensuring the restored screen is usable.
-      try {
-        this.terminal.write(staticBytes(SHOW_CURSOR));
-      } catch {
-        this.restoreFailed = true;
-      }
     }
     // Deliver every queued output (including the control sequences above) before the host exits,
     // since process exit does not wait for pending asynchronous terminal writes.

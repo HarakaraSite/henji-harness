@@ -1,4 +1,4 @@
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import {
   createUiState,
   reduceUiAction,
@@ -20,8 +20,6 @@ import {
   BLINK_SGR,
   BLUE_SGR,
   DIM_SGR,
-  ENTER_ALTERNATE_SCREEN,
-  EXIT_ALTERNATE_SCREEN,
   RESET_SGR,
   TerminalLifecycle,
   type TerminalPort,
@@ -59,7 +57,7 @@ const projectEntities = (
     tuiClientState(tuiSnapshot(entities, order)),
     'retained-terminal-test',
   );
-  renderer.setKeyedConversationStore(update.store, true, update.structureChanged);
+  renderer.setKeyedConversationStore(update.store);
 };
 
 const rendererEntries = (renderer: TuiRenderer) => {
@@ -103,12 +101,11 @@ class RecordingTerminal implements TerminalPort {
     return Promise.resolve();
   }
 
-  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
-    this.write(encodeScreenFrame(frame));
-    onWritten?.();
-  }
-
+  private readonly screen = new TerminalScreen();
   write(bytes: Uint8Array): void {
+    const size = this.consoleSize();
+    this.screen.resize(size.columns, size.rows);
+    this.screen.write(bytes);
     this.writes.push(new TextDecoder().decode(bytes));
   }
 
@@ -117,93 +114,8 @@ class RecordingTerminal implements TerminalPort {
   removeSignal(): void {}
 }
 
-const fillConversation = (renderer: TuiRenderer): void => {
-  for (let turn = 1; turn <= 6; turn += 1) {
-    renderer.eventSink({
-      kind: 'user_message',
-      turn,
-      message: {
-        role: 'user',
-        content: { kind: 'text', text: `question ${turn}` },
-      },
-    });
-    renderer.eventSink({
-      kind: 'assistant_message',
-      turn,
-      message: {
-        role: 'assistant',
-        content: { kind: 'text', text: `answer ${turn}` },
-      },
-    });
-  }
-};
-
 const indexOfWrite = (writes: readonly string[], value: string): number =>
   writes.findIndex((write) => write.includes(value));
-
-Deno.test('retained rendering isolates redraws in the alternate screen', async () => {
-  const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-
-  await lifecycle.acquire();
-  renderer.setEditor('draft');
-  renderer.eventSink({
-    kind: 'user_message',
-    turn: 1,
-    message: { role: 'user', content: { kind: 'text', text: 'inspect' } },
-  });
-  renderer.eventSink({
-    kind: 'tool_progress',
-    turn: 1,
-    callId: 'read-1',
-    name: 'read',
-    text: 'running',
-  });
-  renderer.eventSink({
-    kind: 'assistant_progress',
-    turn: 1,
-    text: 'working',
-  });
-
-  const enter = indexOfWrite(terminal.writes, ENTER_ALTERNATE_SCREEN);
-  const exitBeforeRestore = indexOfWrite(
-    terminal.writes,
-    EXIT_ALTERNATE_SCREEN,
-  );
-  assert(enter >= 0);
-  assertEquals(exitBeforeRestore, -1);
-  assert(
-    terminal.writes.slice(0, enter).every((write) => !write.includes('\x1b[?2026h')),
-    'a retained frame was written before alternate-screen entry',
-  );
-  assert(
-    terminal.writes.slice(enter + 1).some((write) => write.includes('\x1b[?2026h')),
-    'screen frames should be synchronized inside the alternate screen',
-  );
-
-  await lifecycle.restore();
-  const exit = indexOfWrite(terminal.writes, EXIT_ALTERNATE_SCREEN);
-  assert(exit > enter);
-  assert(
-    terminal.writes.slice(enter + 1, exit).some((write) => write.includes('\x1b[?2026h')),
-  );
-  assertEquals(terminal.rawModes, [true, false]);
-  assertEquals(terminal.rawCbreaks, [false, true]);
-  assertEquals(
-    terminal.writes.filter((write) => write.includes(EXIT_ALTERNATE_SCREEN))
-      .length,
-    1,
-  );
-  assertEquals(terminal.writes.at(-1), '\x1b[?25h');
-
-  await lifecycle.restore();
-  assertEquals(
-    terminal.writes.filter((write) => write.includes(EXIT_ALTERNATE_SCREEN))
-      .length,
-    1,
-  );
-});
 
 Deno.test('terminal lifecycle requests extended keys and restores the previous mode', async () => {
   const terminal = new RecordingTerminal();
@@ -237,43 +149,6 @@ Deno.test('terminal lifecycle requests extended keys and restores the previous m
   );
   assertEquals(
     terminal.writes.filter((write) => write === '\x1b[>4;0m').length,
-    1,
-  );
-});
-
-Deno.test('terminal lifecycle requests mouse tracking and restores the previous mode', async () => {
-  const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-
-  await lifecycle.acquire();
-  assertEquals(
-    terminal.writes.filter((write) => write === '\x1b[?1000h\x1b[?1006h').length,
-    1,
-  );
-  assert(
-    indexOfWrite(terminal.writes, '\x1b[>4;1m') < indexOfWrite(terminal.writes, '\x1b[?1000h'),
-    'mouse tracking should be requested after extended keys',
-  );
-
-  await lifecycle.restore();
-  assertEquals(
-    terminal.writes.filter((write) => write === '\x1b[?1006l\x1b[?1000l').length,
-    1,
-  );
-  assert(
-    indexOfWrite(terminal.writes, '\x1b[?1006l') <
-      indexOfWrite(terminal.writes, EXIT_ALTERNATE_SCREEN),
-    'mouse tracking should be restored before leaving the alternate screen',
-  );
-
-  await lifecycle.restore();
-  assertEquals(
-    terminal.writes.filter((write) => write === '\x1b[?1000h\x1b[?1006h').length,
-    1,
-  );
-  assertEquals(
-    terminal.writes.filter((write) => write === '\x1b[?1006l\x1b[?1000l').length,
     1,
   );
 });
@@ -601,380 +476,6 @@ Deno.test('retained layout keeps fullwidth form cells consistent through edit an
   assertEquals(halfwidthLayout.cursor.cell, 5); // prompt (2) + fullwidth 2 + halfwidth 1
 });
 
-Deno.test('retained PageUp at the oldest boundary shows the startup header', () => {
-  const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const startup: PresentationStartupState = {
-    productVersion: '0.1.2',
-    workspace: '/tmp/henji-ui',
-    agentId: 'default',
-    model: {
-      provider: 'openrouter-chat',
-      profileId: 'test',
-      modelId: 'deepseek/deepseek-v4-pro-0813',
-      effort: 'high',
-    },
-    sessionMode: { kind: 'new' },
-    instructions: { loaded: false, source: 'none' },
-    skills: { count: 0, names: [], omitted: 0 },
-    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
-    credentialVerification: 'before_each_provider_request',
-  };
-  const startupPosition = {
-    sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
-    createdAt: '2026-09-11T12:34:56.000Z',
-    agent: 'default' as const,
-    committedTurn: 0,
-    messageCount: 0,
-  };
-  renderer.renderCompactStartup(startup, startupPosition);
-  assertEquals(renderer.stateSnapshot().startup?.position, startupPosition);
-  const wideHeader = renderer.layoutSnapshot(80, 24).viewport!.rows.map((row) => row.text);
-  assertEquals(wideHeader.length, 9);
-  const expectedCreated = (() => {
-    const date = new Date('2026-09-11T12:34:56.000Z');
-    const pad = (value: number) => String(value).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-      `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  })();
-  assert(wideHeader[0].includes('Henji Harness v0.1.2'));
-  assert(wideHeader.some((line) => line.includes(expectedCreated)));
-  assert(wideHeader.some((line) => line.includes('· untitled')));
-  assert(!wideHeader.some((line) => line.includes('12:34Z')));
-  assert(wideHeader.some((line) => line.includes('new (autosave) · fc419637')));
-  assert(wideHeader.some((line) => line.includes('runtime:')));
-  terminal.size = { columns: 80, rows: 10 };
-  renderer.resize(80, 10);
-  for (let turn = 1; turn <= 6; turn += 1) {
-    renderer.eventSink({
-      kind: 'user_message',
-      turn,
-      message: {
-        role: 'user',
-        content: { kind: 'text', text: `question ${turn}` },
-      },
-    });
-    renderer.eventSink({
-      kind: 'assistant_message',
-      turn,
-      message: {
-        role: 'assistant',
-        content: { kind: 'text', text: `answer ${turn}` },
-      },
-    });
-  }
-  for (let page = 0; page < 4; page += 1) renderer.scrollPage('up');
-  const oldest = renderer.stateSnapshot().scroll;
-  assertEquals(oldest, { kind: 'oldest' });
-  assertEquals(renderer.layoutSnapshot(80, 10).viewport?.cursors[0]?.sourceUtf16Offset ?? 0, 0);
-  assert(
-    renderer.layoutSnapshot(80, 10).log.some((row) => row.text.includes('Henji Harness')),
-  );
-  assert(
-    renderer.layoutSnapshot(80, 10).footer[0].text.includes('history start'),
-  );
-  assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('Esc latest'));
-
-  renderer.setStatus(
-    `unknown command /${'x'.repeat(100)}, try: /help, /sessions, /detach`,
-  );
-  assert(
-    renderer.layoutSnapshot(80, 10).footer[0].text.startsWith(' history start'),
-  );
-
-  renderer.renderStartupHelp();
-  assert(
-    !renderer.layoutSnapshot(80, 10).footer[0].text.includes('Esc latest'),
-  );
-  assert(
-    renderer.layoutSnapshot(80, 10).overlay[0].text.includes('Esc return'),
-  );
-  renderer.clearModal();
-  assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('Esc latest'));
-
-  for (let page = 0; page < 4; page += 1) renderer.scrollPage('down');
-  assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
-});
-
-Deno.test('PageUp reaches a short oldest history window without returning to latest', () => {
-  const terminal = new RecordingTerminal();
-  terminal.size = { columns: 94, rows: 48 };
-  const renderer = new TuiRenderer(terminal);
-  renderer.resize(94, 48);
-  renderer.renderCompactStartup({
-    productVersion: '0.6.0',
-    workspace: '/tmp/henji-ui',
-    agentId: 'default',
-    model: {
-      provider: 'openrouter-chat',
-      profileId: 'test',
-      modelId: 'm',
-      effort: 'high',
-    },
-    sessionMode: { kind: 'continue' },
-    instructions: { loaded: false, source: 'none' },
-    skills: { count: 0, names: [], omitted: 0 },
-    trust: { hardSandbox: false, osUserTools: ['bash'] },
-    credentialVerification: 'before_each_provider_request',
-  }, {
-    sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
-    createdAt: '2026-09-25T12:00:00.000Z',
-    agent: 'default',
-    committedTurn: 30,
-    messageCount: 60,
-  });
-  const entities: Record<string, ConversationEntity> = {};
-  const order: string[] = [];
-  for (let index = 0; index < 30; index += 1) {
-    const executionId = `execution-${index}`;
-    const userId = `question-${index}`;
-    const answerId = `answer-${index}`;
-    entities[userId] = {
-      kind: 'message',
-      id: userId,
-      executionId,
-      turn: index + 1,
-      version: 0,
-      position: conversationPosition(index, -1, -1),
-      role: 'user',
-      text: `question ${index}`,
-      complete: true,
-    };
-    entities[answerId] = {
-      kind: 'message',
-      id: answerId,
-      executionId,
-      turn: index + 1,
-      version: 0,
-      position: conversationPosition(index, 1, 1),
-      role: 'assistant',
-      text: index < 6 ? `answer ${index}` : `answer ${index}: ${'detail '.repeat(35)}`,
-      complete: true,
-    };
-    order.push(userId, answerId);
-  }
-  projectEntities(renderer, entities, order);
-  const entryCount = uiConversationCount(renderer.stateSnapshot());
-  assert(renderer.layoutSnapshot().viewport?.atStart === false);
-
-  let previousEntry = entryCount;
-  for (let page = 0; page < 80; page += 1) {
-    renderer.scrollPage('up');
-    const footer = renderer.layoutSnapshot().footer[0].text;
-    const position = footer.match(/history record (\d+) of (\d+)/);
-    if (position !== null) {
-      assertEquals(Number(position[2]), entryCount);
-      assert(
-        Number(position[1]) <= previousEntry,
-        'PageUp moved toward newer entries',
-      );
-      assert(!footer.includes('record line'));
-      previousEntry = Number(position[1]);
-    }
-    const state = renderer.stateSnapshot();
-    if (state.scroll.kind === 'oldest') {
-      break;
-    }
-  }
-  const oldest = renderer.layoutSnapshot();
-  assertEquals(renderer.layoutSnapshot().viewport?.atStart, true);
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
-  assert(
-    oldest.viewport?.atStart === true,
-    'the oldest source position should be visible',
-  );
-  assert(oldest.log.some((row) => row.text.includes('Henji Harness')));
-  assert(oldest.footer[0].text.includes('history start'));
-  renderer.scrollPage('up');
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
-  assert(renderer.layoutSnapshot().footer[0].text.includes('history start'));
-
-  for (let page = 0; page < 80; page += 1) {
-    if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
-    renderer.scrollPage('down');
-  }
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-});
-
-Deno.test('retained PageDown advances through a large assistant entry after oldest', () => {
-  const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal);
-  renderer.resize(80, 10);
-  const body = Array.from({ length: 200 }, (_, index) => `- item ${index}`)
-    .join('\n');
-  renderer.eventSink({
-    kind: 'assistant_message',
-    turn: 1,
-    message: { role: 'assistant', content: { kind: 'text', text: body } },
-  });
-  const assistantRows = renderer.layoutSnapshot(80, 10).log.filter((row) =>
-    row.entryId !== undefined
-  );
-  assert(
-    assistantRows.length > 2,
-    'assistant entry did not span multiple rows',
-  );
-  for (let index = 1; index < assistantRows.length; index += 1) {
-    assert(
-      (assistantRows[index].sourceUtf16Offset ?? 0) >
-        (assistantRows[index - 1].sourceUtf16Offset ?? 0),
-      'assistant rows reuse the same source scalar offset',
-    );
-  }
-  for (let page = 0; page < 100; page += 1) {
-    if (renderer.stateSnapshot().scroll.kind === 'oldest') break;
-    renderer.scrollPage('up');
-  }
-  assertEquals(renderer.stateSnapshot().scroll, { kind: 'oldest' });
-  const starts: number[] = [];
-  for (let page = 0; page < 100; page += 1) {
-    renderer.scrollPage('down');
-    if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
-    starts.push(renderer.layoutSnapshot(80, 10).viewport?.cursors[0]?.sourceUtf16Offset ?? 0);
-  }
-  assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
-  assert(starts.length > 1, 'PageDown stopped inside the assistant entry');
-  for (let index = 1; index < starts.length; index += 1) {
-    assert(
-      starts[index] > starts[index - 1],
-      'PageDown did not advance monotonically',
-    );
-  }
-});
-
-Deno.test('retained assistant viewport stays on the same list item after resize', () => {
-  const terminal = new RecordingTerminal();
-  terminal.size = { columns: 80, rows: 24 };
-  const renderer = new TuiRenderer(terminal);
-  renderer.resize(80, 24);
-  const body = Array.from(
-    { length: 300 },
-    (_, index) => `- item-${index} ${'long explanation '.repeat(8)}`,
-  ).join('\n');
-  renderer.eventSink({
-    kind: 'assistant_message',
-    turn: 1,
-    message: { role: 'assistant', content: { kind: 'text', text: body } },
-  });
-  for (let page = 0; page < 20; page += 1) {
-    renderer.scrollPage('up');
-    if (/item-\d+/.test(renderer.layoutSnapshot(80, 24).log[0].text)) break;
-  }
-  const before = renderer.layoutSnapshot(80, 24).log[0];
-  assert(before.sourceUtf16Offset !== undefined);
-  const item = before.text.match(/item-\d+/)?.[0];
-  assert(item !== undefined);
-  terminal.size = { columns: 160, rows: 24 };
-  renderer.resize(160, 24);
-  const after = renderer.layoutSnapshot(160, 24).log;
-  assert(after[0].sourceUtf16Offset! <= before.sourceUtf16Offset!);
-  assert(after[0].text.includes(item));
-});
-
-Deno.test('table and paragraph history still page through after resize', () => {
-  const bodies = [
-    [
-      '| Name | Detail |',
-      '| --- | --- |',
-      ...Array.from(
-        { length: 90 },
-        (_, index) => `| record-${index} | ${'detail '.repeat(8)} |`,
-      ),
-    ].join('\n'),
-    Array.from(
-      { length: 90 },
-      (_, index) => `paragraph-${index} ${'word '.repeat(25)}`,
-    ).join('\n'),
-  ];
-  for (const body of bodies) {
-    const terminal = new RecordingTerminal();
-    terminal.size = { columns: 80, rows: 10 };
-    const renderer = new TuiRenderer(terminal);
-    renderer.resize(80, 10);
-    renderer.eventSink({
-      kind: 'assistant_message',
-      turn: 1,
-      message: { role: 'assistant', content: { kind: 'text', text: body } },
-    });
-    for (let page = 0; page < 3; page += 1) renderer.scrollPage('up');
-    terminal.size = { columns: 120, rows: 10 };
-    renderer.resize(120, 10);
-    for (let page = 0; page < 200; page += 1) {
-      if (renderer.stateSnapshot().scroll.kind === 'oldest') break;
-      renderer.scrollPage('up');
-    }
-    assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
-    let lastStart = -1;
-    for (let page = 0; page < 200; page += 1) {
-      renderer.scrollPage('down');
-      if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
-      const start = renderer.layoutSnapshot(120, 10).viewport?.cursors[0]?.sourceUtf16Offset ?? 0;
-      assert(start > lastStart);
-      lastStart = start;
-    }
-    assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  }
-});
-
-Deno.test('retained PageUp reaches oldest across the startup header', () => {
-  const terminal = new RecordingTerminal();
-  terminal.size = { columns: 100, rows: 45 };
-  const renderer = new TuiRenderer(terminal);
-  renderer.resize(100, 45);
-  renderer.renderCompactStartup({
-    productVersion: '0.3.0',
-    workspace: '/tmp/henji-ui',
-    agentId: 'default',
-    model: {
-      provider: 'openrouter-chat',
-      profileId: 'test',
-      modelId: 'm',
-      effort: 'high',
-    },
-    sessionMode: { kind: 'continue' },
-    instructions: { loaded: true, source: 'AGENTS.md' },
-    skills: { count: 1, names: ['s'], omitted: 0 },
-    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
-    credentialVerification: 'before_each_provider_request',
-  }, {
-    sessionId: 'e8e99332-1999-4443-8e7f-8d18d57104f2',
-    createdAt: '2026-09-21T06:00:00.000Z',
-    agent: 'default',
-    committedTurn: 5,
-    messageCount: 10,
-  });
-  for (let turn = 1; turn <= 40; turn += 1) {
-    renderer.eventSink({
-      kind: 'user_message',
-      turn,
-      message: {
-        role: 'user',
-        content: { kind: 'text', text: `question ${turn}` },
-      },
-    });
-    renderer.eventSink({
-      kind: 'assistant_message',
-      turn,
-      message: {
-        role: 'assistant',
-        content: { kind: 'text', text: `answer ${turn}` },
-      },
-    });
-  }
-  for (let page = 0; page < 200; page += 1) {
-    renderer.scrollPage('up');
-    const scroll = renderer.stateSnapshot().scroll;
-    assert(
-      scroll.kind !== 'followLatest',
-      'PageUp jumped to latest before reaching oldest',
-    );
-    if (scroll.kind === 'oldest') break;
-  }
-  assertEquals(renderer.stateSnapshot().scroll, { kind: 'oldest' });
-  assertEquals(renderer.layoutSnapshot(100, 45).viewport?.cursors[0]?.sourceUtf16Offset ?? 0, 0);
-});
-
 Deno.test('startup header follows rename, session replacement, and terminal size', () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);
@@ -1027,7 +528,7 @@ Deno.test('startup header follows rename, session replacement, and terminal size
 
   terminal.size = { columns: 50, rows: 12 };
   renderer.resize(50, 12);
-  const compact = renderer.layoutSnapshot(50, 12).viewport!.rows.map((row) => row.text);
+  const compact = renderer.layoutSnapshot(50, 12).log.map((row) => row.text);
   assertEquals(compact.length, 2);
   assert(compact[0].includes('Henji Harness v0.1.2'));
   assert(compact[1].includes('exact session · bbbbbbbb'));
@@ -1186,112 +687,6 @@ Deno.test('runtime display state carries a bounded base instruction only when re
   assert(absent.baseInstruction === undefined);
 });
 
-Deno.test('retained PageUp keeps latest when the conversation fits one page', () => {
-  const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal);
-  renderer.eventSink({
-    kind: 'user_message',
-    turn: 1,
-    message: { role: 'user', content: { kind: 'text', text: 'question' } },
-  });
-  renderer.eventSink({
-    kind: 'assistant_message',
-    turn: 1,
-    message: { role: 'assistant', content: { kind: 'text', text: 'answer' } },
-  });
-
-  renderer.scrollPage('up');
-  assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
-});
-
-Deno.test('keyed thinking stays ordered and PageUp reaches history beyond the old display limits', () => {
-  const renderer = new TuiRenderer(new RecordingTerminal());
-  const entities: Record<string, ConversationEntity> = {};
-  const order: string[] = [];
-  for (let index = 0; index < 300; index += 1) {
-    const executionId = `execution-${index}`;
-    const userId = `question-${index}`;
-    const answerId = `answer-${index}`;
-    entities[userId] = {
-      kind: 'message',
-      id: userId,
-      executionId,
-      turn: index + 1,
-      version: 0,
-      position: conversationPosition(index, -1, -1),
-      role: 'user',
-      text: `question ${index}`,
-      complete: true,
-    };
-    if (index === 299) {
-      entities['thinking-final'] = {
-        kind: 'thinking',
-        id: 'thinking-final',
-        executionId,
-        turn: index + 1,
-        requestKey: { executionId, modelStep: 1, requestOrdinal: 1 },
-        thinkingKind: 'summary',
-        version: 0,
-        position: conversationPosition(index, 1, 1),
-        text: 'Read the final question.',
-        complete: true,
-      };
-    }
-    entities[answerId] = {
-      kind: 'message',
-      id: answerId,
-      executionId,
-      turn: index + 1,
-      version: 0,
-      position: conversationPosition(index, 1, 2),
-      role: 'assistant',
-      text: `answer ${index}`,
-      complete: true,
-    };
-    order.push(userId);
-    if (index === 299) order.push('thinking-final');
-    order.push(answerId);
-  }
-  projectEntities(renderer, entities, order);
-  const entries = rendererEntries(renderer);
-  assert(uiConversationCount(renderer.stateSnapshot()) > 512);
-  assertEquals(renderer.stateSnapshot().keyedConversation?.omitted, 0);
-  const tail = entries.slice(-3);
-  assertEquals(tail.map((entry) => entry.kind), [
-    'user',
-    'thinking',
-    'assistant',
-  ]);
-  assert(
-    renderer.layoutSnapshot().log.some((row) => row.text.includes('Read the final question.')),
-  );
-  for (let page = 0; page < 120; page += 1) {
-    const state = renderer.stateSnapshot();
-    if (state.scroll.kind === 'oldest') {
-      break;
-    }
-    renderer.scrollPage('up');
-  }
-  assertEquals(renderer.layoutSnapshot().viewport?.atStart, true);
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
-  assert(
-    renderer.layoutSnapshot().log.some((row) => row.text.includes('question 0')),
-  );
-  for (let page = 0; page < 120; page += 1) {
-    if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
-    renderer.scrollPage('down');
-  }
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  assertEquals(
-    renderer.stateSnapshot().scroll.kind,
-    'followLatest',
-  );
-  renderer.latest();
-  assert(
-    renderer.layoutSnapshot().log.some((row) => row.text.includes('answer 299')),
-  );
-});
-
 Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () => {
   let state = createUiState();
   for (let turn = 1; turn <= 260; turn += 1) {
@@ -1356,7 +751,6 @@ Deno.test('keyed conversation retains more than 2 MiB of entry text', () => {
   assertEquals(entries[1]?.text.length, longAnswer.length);
   assertEquals(entries[5]?.text.length, longAnswer.length);
   assertEquals(renderer.stateSnapshot().keyedConversation?.omitted, 0);
-  assert(renderer.layoutSnapshot().viewport?.atStart === false);
 });
 
 Deno.test('keyed model steps place thinking around a tool result and final answer', () => {
@@ -1434,43 +828,6 @@ Deno.test('keyed model steps place thinking around a tool result and final answe
     'assistant',
   ]);
   assertEquals(entries[3]?.label, 'thinking summary>');
-});
-
-Deno.test('history footer keeps Esc latest while F1 cancellation remains available', () => {
-  const terminal = new RecordingTerminal();
-  terminal.size = { columns: 80, rows: 10 };
-  const renderer = new TuiRenderer(terminal, {
-    now: () => 0,
-    setInterval: () => 'busy-timer',
-    clearInterval: () => {},
-  });
-  renderer.resize(80, 10);
-  fillConversation(renderer);
-  renderer.scrollPage('up');
-  assert(renderer.stateSnapshot().scroll.kind !== 'followLatest');
-  const idleFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(idleFooter.includes('history '));
-  assert(idleFooter.includes('Esc latest'));
-
-  renderer.eventSink({ kind: 'turn_start', turn: 7 });
-  const busyFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(busyFooter.includes('history '));
-  assert(busyFooter.includes('Esc latest'));
-  assert(busyFooter.includes('F1 cancel'));
-
-  renderer.setRemoteFooter({
-    activity: 'working',
-    controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions', '/ commands'],
-  });
-  const remoteFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(remoteFooter.includes('Esc latest'));
-  assert(remoteFooter.includes('F1 cancel'));
-
-  renderer.latest();
-  const latestFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(!latestFooter.includes('history '));
-  assert(latestFooter.includes('F1 cancel'));
-  assert(!latestFooter.includes('Esc latest'));
 });
 
 Deno.test('remote execution clock leads the second footer row and survives repeated snapshots', () => {

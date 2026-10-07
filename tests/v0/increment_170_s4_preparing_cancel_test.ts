@@ -1,3 +1,4 @@
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 import { ok, strictEqual } from 'node:assert';
 import { stripVTControlCharacters } from 'node:util';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
@@ -21,10 +22,10 @@ class PreparationTerminal implements TerminalPort {
     return { columns: 110, rows: 32 };
   }
   setRaw() {}
-  write() {}
-  writeFrame(frame: ScreenFrame, written?: () => void) {
-    this.frames.push(frame);
-    written?.();
+  private readonly screen = new TerminalScreen(110, 32);
+  write(bytes: Uint8Array) {
+    this.screen.write(bytes);
+    this.frames.push(this.screen.frame());
   }
   addSignal() {}
   removeSignal() {}

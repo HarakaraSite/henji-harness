@@ -1,3 +1,4 @@
+import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import { strictEqual } from 'node:assert';
 import { type BodyCursor, BodyDocument, type BodyRow } from '../../v0/tui/body_document.ts';
 import { cellWidth } from '../../v0/tui/terminal_text.ts';
@@ -194,4 +195,18 @@ Deno.test('Increment 198 inline style ranges follow escaped terminal text', () =
     emphasis.start + emphasis.length,
   ).join('');
   strictEqual(selected, '*b\\u{0001}c*');
+});
+
+Deno.test('Increment 198 body replacement refreshes UTF-8 size while settlement retains it', () => {
+  let state = reduceUiEvent(createUiState(), { kind: 'assistant_progress', turn: 1, text: 'a' });
+  const text = '漢字🌸';
+  state = reduceUiEvent(state, { kind: 'assistant_progress', turn: 1, text });
+  strictEqual(state.log.entries[0].textByteLength, new TextEncoder().encode(text).byteLength);
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text } },
+  });
+  strictEqual(state.log.entries[0].text, text);
+  strictEqual(state.log.entries[0].textByteLength, new TextEncoder().encode(text).byteLength);
 });
