@@ -348,13 +348,16 @@ export const createCoreService = async (
   let openingSlot = false;
   const commands = new Map<string, TrackedCommand>();
   const executions = new Map<string, TrackedExecution>();
-  const knownServices = new Map<string, ApplicationService>();
-  const allServices = new Set<ApplicationService>();
+  const servicesBySession = new Map<string, ApplicationService[]>();
   const liveSubscriptions = new Set<() => void>();
   const credentialRegistrations = new Set<Promise<CredentialRegisterResult>>();
   const chatgptOperations = new Set<Promise<ChatGPTAuthResult>>();
   const sessionSubscribers = new Map<string, Set<SessionSubscriber>>();
   const sessionSnapshots = new Map<string, SessionControlSnapshot>();
+  let readOnlyRuntime: {
+    readonly activeSessionId: string | null;
+    readonly operations: readonly CoreOperationName[];
+  } | undefined;
   const providerById = new Map(
     providerDeclarations.map((
       declaration,
@@ -442,7 +445,7 @@ export const createCoreService = async (
       return candidate;
     }
     const changes: SessionChange[] = [];
-    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
     if (!same(previous.session, candidate.session)) {
       changes.push({ kind: 'session.replace', session: candidate.session });
     }
@@ -554,16 +557,17 @@ export const createCoreService = async (
   const pendingForSession = (
     sessionId: string,
     activeOwner?: ApplicationService,
+    activeView?: PendingView,
   ): PendingView => {
     const active = activeOwner ??
       (slot?.snapshot.session.id === sessionId ? slot.service : undefined);
-    const visible = active?.tasks.pendingView(sessionId) ?? {
+    const visible = activeView ?? active?.tasks.pendingView(sessionId) ?? {
       kind: 'core-owned' as const,
       followUps: [] as readonly FollowUpRecord[],
     };
     const retained = new Map<string, FollowUpRecord>();
-    for (const owner of allServices) {
-      const view = owner.tasks.pendingView(sessionId);
+    for (const owner of servicesBySession.get(sessionId) ?? []) {
+      const view = owner === active ? visible : owner.tasks.pendingView(sessionId);
       for (const record of view.followUps) retained.set(record.queueId, record);
       if (owner !== active && view.followUp !== undefined) {
         retained.set(view.followUp.queueId, view.followUp);
@@ -580,7 +584,7 @@ export const createCoreService = async (
 
   const slotBusy = (target: CoreSlot): boolean =>
     target.service.tasks.isBusy() ||
-    target.service.query.currentSession().runtime.active;
+    target.service.currentSession().runtimeSnapshot().active;
 
   const operations = (target?: CoreSlot): readonly CoreOperationName[] => {
     const result: CoreOperationName[] = CORE_OPERATION_NAMES.filter((name) =>
@@ -593,14 +597,12 @@ export const createCoreService = async (
       name !== 'core.shutdown'
     );
     if (!admissionClosed) result.push('core.shutdown');
-    if (!openingSlot && (slot === undefined || !slotBusy(slot))) {
-      result.push('session.open');
-    }
-    if (!openingSlot && (slot === undefined || !slotBusy(slot))) {
-      result.push('credential.register');
+    const busy = slot !== undefined && slotBusy(slot);
+    if (!openingSlot && !busy) {
+      result.push('session.open', 'credential.register');
     }
     if (target !== undefined && target === slot && !openingSlot) {
-      if (!slotBusy(target) && target.service.session.isAvailable()) {
+      if (!busy && target.service.session.isAvailable()) {
         result.push(
           'task.submit',
           'session.rename',
@@ -647,7 +649,11 @@ export const createCoreService = async (
       coreEpoch,
       previous.cursor.revision + 1,
     );
-    const pending = pendingForSession(target.snapshot.session.id, target.service);
+    const pending = pendingForSession(
+      target.snapshot.session.id,
+      target.service,
+      projected.pending,
+    );
     const reservation = target.service.tasks.isPreparing() && pending.activeTask !== undefined
       ? {
         executionId: pending.activeTask.executionId,
@@ -671,16 +677,24 @@ export const createCoreService = async (
       },
     };
     target.snapshot = publishSnapshot(updated);
+    const activeSessionId = slot?.snapshot.session.id ?? null;
+    const readOnlyOperations = operations();
+    if (
+      readOnlyRuntime?.activeSessionId === activeSessionId &&
+      readOnlyRuntime.operations.length === readOnlyOperations.length &&
+      readOnlyRuntime.operations.every((name, index) => name === readOnlyOperations[index])
+    ) return;
+    readOnlyRuntime = { activeSessionId, operations: readOnlyOperations };
     for (const [sessionId, viewed] of sessionSnapshots) {
       if (sessionId === target.snapshot.session.id) continue;
       publishSnapshot({
         ...viewed,
         runtime: {
           active: false,
-          activeSessionId: slot?.snapshot.session.id ?? null,
+          activeSessionId,
           phase: 'idle',
           execution: viewed.runtime.execution,
-          operations: operations(),
+          operations: readOnlyOperations,
         },
       });
     }
@@ -785,8 +799,9 @@ export const createCoreService = async (
     );
     next.unsubscribeDescriptor = descriptorWatch.unsubscribe;
     acceptDescriptor(descriptorWatch.snapshot);
-    knownServices.set(service.query.currentSession().sessionId, service);
-    allServices.add(service);
+    const owners = servicesBySession.get(sessionId) ?? [];
+    owners.push(service);
+    servicesBySession.set(sessionId, owners);
     next.unsubscribeObservations = service.subscribe((observation) => {
       if (observation.kind === 'task_state') {
         applyExecutionChanges(service, observation.executionChanges);
@@ -1243,8 +1258,10 @@ export const createCoreService = async (
               : 'failed';
             return rejected(input.commandId, target, reason);
           } finally {
-            openingSlot = false;
-            if (slot !== undefined) refreshSlotSnapshot(slot);
+            if (openingSlot) {
+              openingSlot = false;
+              if (slot !== undefined) refreshSlotSnapshot(slot);
+            }
           }
         },
       );
@@ -1338,8 +1355,10 @@ export const createCoreService = async (
               value: { result },
             };
           } finally {
-            openingSlot = false;
-            refreshSlotSnapshot(active);
+            if (openingSlot) {
+              openingSlot = false;
+              refreshSlotSnapshot(active);
+            }
           }
         },
       );
@@ -1405,8 +1424,10 @@ export const createCoreService = async (
               value: { result, selection: apiSelection(selection) },
             };
           } finally {
-            openingSlot = false;
-            refreshSlotSnapshot(active);
+            if (openingSlot) {
+              openingSlot = false;
+              refreshSlotSnapshot(active);
+            }
           }
         },
       );
@@ -1464,8 +1485,10 @@ export const createCoreService = async (
             }
             throw error;
           } finally {
-            openingSlot = false;
-            refreshSlotSnapshot(active);
+            if (openingSlot) {
+              openingSlot = false;
+              refreshSlotSnapshot(active);
+            }
           }
         },
       );
@@ -1622,7 +1645,7 @@ export const createCoreService = async (
         }),
         target,
         async () => {
-          const owner = knownServices.get(sessionId);
+          const owner = servicesBySession.get(sessionId)?.at(-1);
           const tracked = executions.get(executionId);
           if (
             tracked?.sessionId !== sessionId || tracked.owner !== owner
@@ -1694,7 +1717,7 @@ export const createCoreService = async (
         }),
         target,
         async () => {
-          const owner = knownServices.get(sessionId);
+          const owner = servicesBySession.get(sessionId)?.at(-1);
           const tracked = executions.get(input.afterExecutionId);
           if (
             tracked?.sessionId !== sessionId || tracked.owner !== owner
@@ -1752,7 +1775,7 @@ export const createCoreService = async (
       );
     },
     followUpRead(sessionId, queueId): Promise<FollowUpReadResult> {
-      for (const owner of allServices) {
+      for (const owner of servicesBySession.get(sessionId) ?? []) {
         const followUp = owner.tasks.followUpRead(queueId);
         if (followUp?.sessionId === sessionId) {
           return Promise.resolve({ followUp });

@@ -5,8 +5,12 @@
 
 ## 現在地（2026-10-07）
 
+- [Increment 210](../docs/increments/increment-210.md)は、Coreの重複照会・再投影のlocal改善と検証を完了した。
+  通常・批判的reviewとP2のtest修正・再reviewも完了した。
+  sourceは今回のcommitへ保存する。push・常用build・配置は未実施。
+  要件・比較結果・実経路確認とreview結果は210を参照する。
 - [Increment 209](../docs/increments/increment-209.md)は、利用者指定のHTTP APIについて不要な処理を整理し、
-  local実装・検証を完了し、sourceは今回のcommitへ保存する。常用build・配置、pushは未実施。
+  local実装・検証を完了し、sourceはcommit `24e9e357`へ保存済み。常用build・配置、pushは未実施。
   結果は209を参照する。
 - [Increment 208](../docs/increments/increment-208.md)は、実装・検証・常用配置・利用者受入・pushまで完了。
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
@@ -20,7 +24,7 @@
 
 ## 次の一手
 
-- 209の常用build・配置等は利用者の指示待ち。次の個別incrementは未採用。
+- 209・210の常用build・配置等は利用者の指示待ち。次の個別incrementは未採用。
   利用者の指示と[通常利用メモ](../docs/experience/normal-use-inbox.md)から対象を選ぶ。
   候補の記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。
