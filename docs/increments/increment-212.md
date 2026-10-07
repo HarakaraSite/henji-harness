@@ -1,7 +1,7 @@
 # Increment 212 — S36: TUIの会話履歴表示を端末scrollbackへ任せる
 
 状態: local実装・検証・source commit・公式build・常用配置・配置後smoke完了（2026-10-07）。
-常用環境での211・212の利用者確認待ち。
+常用環境での211・212とヘッダー修正の利用者受入済み（2026-10-07）。
 
 ## 目的・採用と承認範囲
 
@@ -304,3 +304,11 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
 `.tools/increment-212/header-fixed/deployment/deployment.json`、`header_deploy_smoke.py`、
 `smoke.json`、`after-rename.txt`、`header-history.txt`、`saved-restored.txt`。
 この結果記録のcommitは文書変更だけであり、binaryのsourceは`afc75e0b`を指す。
+
+
+## 利用者受入と0.11.0公開・配置（2026-10-07）
+
+利用者が通常利用で確認し、「確認しましたよさそうです」と受け入れた。
+push、v0.11.0でのJSR公開、常用配置を明示承認した。結果は
+[JSR公開記録](../operations/jsr-publish.md#0110-publication--2026-10-07-jst)と
+[常用配置記録](../operations/native-0.11.0-deployment.md)へ記録する。

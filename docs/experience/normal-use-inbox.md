@@ -41,6 +41,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                                       | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                                 | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                                              | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| S38 | Surface        | エラーの赤と、DISCONNECTED・キューなどの非エラーsystem通知の色を区別                          | 利用者がsystem通知の配色変更を個別incrementへ採用するとき。今回はメモのみ                                               |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                                     | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                                                      | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                                    | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -157,6 +158,16 @@ Definition/transportを候補の必須前提として復活させず、候補自
 - 候補: TUI helpとCLI helpの内容を整理・統合する。対象となる内容と統合方法は未決。
 - 再検討条件: 利用者がヘルプ内容の統合を個別Incrementへ採用するとき。
 - 関連: [Increment 159](../increments/increment-159.md)、TUIの`/help`、CLI help。
+
+### S38 — エラーと非エラーsystem通知の色を区別（未採用、メモのみ）
+
+- 利用者観測（2026-10-07）: Ctrl-Qによる正常終了でも
+  `system> DISCONNECTED · Core connection lost · the displayed Session may be stale`が表示され、
+  色がエラーの赤に見えて紛らわしい。通知自体は現状維持とする。
+- 利用者要望: エラーは赤、エラーではないsystem通知は別の色で区別したい。
+  対象例は`system> DISCONNECTED`とキューなどの通知。具体的な非エラー通知色は未指定。
+- 今回は要望の記録のみ。配色・通知動作の変更は行わない。
+- 再検討条件: 利用者がsystem通知の配色変更を個別incrementへ採用するとき。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 

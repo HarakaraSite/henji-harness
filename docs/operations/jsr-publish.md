@@ -233,3 +233,14 @@ the native binary as 0.10.0 (see [native 0.10.0 deployment](native-0.10.0-deploy
 Verification logs are stored in the ignored `.tools/jsr-0.10.0/` directory (`gate.log`,
 `gate-home.log`, `gate-release.log`, `focused-tests.log`, `pre-dry-run-dirty.log`) and in
 `/tmp/henji-jsr-0.10.0-dry-run.log`.
+
+
+## 0.11.0 publication — 2026-10-07 JST
+
+The user accepted Increments 211/212 and the Session-header fix, and requested push, JSR
+publication as 0.11.0, and native deployment. Preparation updates `jsr.json` and the exact-version
+examples in both READMEs. Release verification and publication results are recorded below.
+
+The authoritative offline `v0:gate` passed once with `HOME` set: 682 tests, no failures;
+type check, format, and lint also passed. Pre-existing documentation reorganization stays outside
+this release commit. The S38 color request is recorded without changing notification behavior.
