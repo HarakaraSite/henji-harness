@@ -87,8 +87,8 @@ Henjiは入力と実行操作、生成中表示、会話の保存とSession再�
   以後の累積更新は新しいsource部分を追記する。editor・footerは新しいサイズで引き続き操作できる。
 - 本文が変わらないeditor・footer更新では、同じ先頭行を保持して変更された末尾だけを描画する。
   resize検知前の旧geometryの再描画が物理resizeと重なっても、既出本文を再出力しない。
-- 起動時のcontext・skills・Session情報が変わったときは、新しいヘッダーを追記する。
-  resizeやcommittedTurnだけの変更でヘッダーを再追記しない。
+- ヘッダーはSession表示scopeの初期情報を1回だけ出す（2026-10-07の利用者指示で変更）。
+  RENAME・context・skillsなどの更新では追記せず、保存Sessionを開き直す時に最新状態を出す。
 - Markdown tableなど、追記によって既出行の内部配置が変わるblockは全体を確定し、後続sourceだけを追記する。
   queue notice後の本文継続とthinkingの確定label変更も、既出本文prefixを再追記しない。
 - 旧viewportとHenji内の会話PageUp/Down・wheel処理・history footerは撤去する。help overlayのPageUp/Downは残す。
@@ -270,3 +270,17 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
   source確認記録は`.tools/increment-212/header-fixed-source/`、修正前の再現記録は`header-fix/`。
 
 修正のcommit・build・再配置結果は以下へ記録する。実provider call・push・公開は含めない。
+
+
+### ヘッダーを表示開始時の情報へ固定（2026-10-07）
+
+利用者がRENAMEでの再出力を観測し、「ヘッダは初期の情報だけ表示でいいよ、更新情報は、
+保存履歴から復活する時に更新状態でいい」と指定した。先行修正`e1ac27ea`はbuild済み・未配置の
+段階で、この指示を追加の正本要件として採用した。
+
+- 同scopeのmetadata比較キーを廃止し、初回出力済みのbooleanだけを保持する。
+  metadata自体の更新・保存は従来どおり行い、scope reset後は最新snapshotからヘッダーを出す。
+- 旧remote header更新testは、最新状態の保存Sessionを開く動作へ修正した。
+  RENAMEとcontext・skills更新が出力を増やさず、再表示で更新情報を出すfocused regressionも追加した。
+- focused test 16 pass／0 fail。変更箇所とCLIのtype check、format・lint、diff checkを完了した。
+- 隔離tmuxでのRENAME・保存Session再表示、公式build・再配置結果は以下へ記録する。

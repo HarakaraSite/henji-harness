@@ -277,8 +277,18 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
   }
 });
 
-Deno.test('remote TUI refreshes header evaluation and title from a session-only update', async () => {
-  let stream!: ReadableStreamDefaultController<Uint8Array>;
+Deno.test('remote TUI opens a saved Session with its latest header metadata', async () => {
+  const restoredSnapshot = {
+    ...snapshot,
+    session: {
+      ...snapshot.session,
+      position: { ...snapshot.session.position, title: 'Updated title' },
+      startup: apiStartupFixture({
+        instructions: { loaded: true, source: 'AGENTS.md' },
+        skills: { count: 1, names: ['header-skill'], omitted: 0 },
+      }),
+    },
+  };
   const server = Deno.serve(
     { hostname: '127.0.0.1', port: 0, onListen() {} },
     (request) => {
@@ -288,9 +298,10 @@ Deno.test('remote TUI refreshes header evaluation and title from a session-only 
         return new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
-              stream = controller;
               controller.enqueue(encoder.encode(
-                `data: ${JSON.stringify({ kind: 'session.snapshot', snapshot })}\n\n`,
+                `data: ${
+                  JSON.stringify({ kind: 'session.snapshot', snapshot: restoredSnapshot })
+                }\n\n`,
               ));
             },
           }),
@@ -318,29 +329,6 @@ Deno.test('remote TUI refreshes header evaluation and title from a session-only 
     strictEqual(
       await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
         terminal,
-        afterAcquire: () => {
-          stream.enqueue(encoder.encode(`data: ${
-            JSON.stringify({
-              kind: 'session.update',
-              previousRevision: 4,
-              cursor: { ...snapshot.cursor, revision: 5 },
-              changes: [{
-                kind: 'session.replace',
-                session: {
-                  ...snapshot.session,
-                  position: {
-                    ...snapshot.session.position,
-                    title: 'Updated title',
-                  },
-                  startup: apiStartupFixture({
-                    instructions: { loaded: true, source: 'AGENTS.md' },
-                    skills: { count: 1, names: ['header-skill'], omitted: 0 },
-                  }),
-                },
-              }],
-            })
-          }\n\n`));
-        },
       }),
       0,
     );

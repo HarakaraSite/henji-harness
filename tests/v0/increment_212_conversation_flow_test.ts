@@ -86,6 +86,49 @@ Deno.test('212 opening a new Session does not append the previous Session passiv
   );
 });
 
+Deno.test('212 header stays at opening state and a reopened saved Session uses latest metadata', () => {
+  const flow = new ConversationFlow();
+  const position = {
+    sessionId: 'saved-session',
+    createdAt: '2026-10-07T00:00:00Z',
+    title: 'Original title',
+    agent: 'default',
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  const initial = reduceUiAction(state([]), {
+    kind: 'startup',
+    position,
+    state: {
+      ...apiStartupFixture({ status: 'unevaluated' }),
+      startupEvaluation: 'unevaluated',
+    },
+  });
+  ok(flow.drain(initial, 120, 24).committed.some((row) => row.text.includes('Original title')));
+  const renamed = reduceUiAction(initial, {
+    kind: 'startup',
+    position: { ...position, title: 'Renamed title' },
+    state: initial.startup!.state,
+  });
+  deepStrictEqual(flow.drain(renamed, 120, 24), { committed: [], live: [] });
+  const evaluated = reduceUiAction(renamed, {
+    kind: 'startup',
+    position: renamed.startup!.position,
+    state: apiStartupFixture({
+      instructions: { loaded: true, source: 'AGENTS.md' },
+      skills: { count: 1, names: ['updated-skill'], omitted: 0 },
+    }),
+  });
+  deepStrictEqual(flow.drain(evaluated, 120, 24), { committed: [], live: [] });
+  flow.reset();
+  const restored = flow.drain(evaluated, 120, 24).committed;
+  strictEqual(restored.filter((row) => row.text.includes('Henji Harness')).length, 1);
+  for (const value of ['Renamed title', 'AGENTS.md', 'updated-skill']) {
+    ok(restored.some((row) => row.text.includes(value)), value);
+  }
+  deepStrictEqual(flow.drain(evaluated, 120, 24), { committed: [], live: [] });
+});
+
 Deno.test('212 saved conversation is emitted in order once and replayed on a new display scope', () => {
   const flow = new ConversationFlow();
   const snapshot = state([

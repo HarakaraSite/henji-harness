@@ -129,7 +129,7 @@ export const conversationRows = (
 /** Terminal output receipts belong to a display scope, never to the saved conversation. */
 export class ConversationFlow {
   private printed = new Map<string, PrintedEntry>();
-  private headerKey: string | undefined;
+  private headerPrinted = false;
   private liveEntry: UiLogEntry | undefined;
   private readonly rendered = new Map<
     string,
@@ -143,7 +143,7 @@ export class ConversationFlow {
 
   reset(): void {
     this.printed.clear();
-    this.headerKey = undefined;
+    this.headerPrinted = false;
     this.rendered.clear();
     this.liveEntry = undefined;
   }
@@ -175,36 +175,19 @@ export class ConversationFlow {
     capacity: number,
   ): { committed: LayoutRow[]; live: LayoutRow[] } {
     const committed: LayoutRow[] = [];
-    if (state.startup !== undefined) {
-      const startup = state.startup.state;
-      const position = state.startup.position;
-      const key = JSON.stringify([
-        startup.productVersion,
-        startup.coreEpoch,
-        startup.workspace,
-        startup.agentId,
-        startup.startupEvaluation,
-        startup.instructions,
-        startup.skills,
-        startup.trust.hardSandbox,
-        position.sessionId,
-        position.createdAt,
-        position.title,
-      ]);
-      // Opening another Session turns this one into a passive descriptor: its opening mode
-      // and active-only base instruction disappear. Keep the original orientation in history.
-      if (key !== this.headerKey) {
-        committed.push(
-          ...startupHeaderLines(
-            state.startup.state,
-            state.startup.position,
-            width,
-            state.terminalSize.rows,
-          )
-            .map((text): LayoutRow => ({ text, kind: 'log' })),
-        );
-        this.headerKey = key;
-      }
+    // The header records the opening state. Metadata updates stay in the Session;
+    // opening it in a new display scope prints its latest state once.
+    if (state.startup !== undefined && !this.headerPrinted) {
+      committed.push(
+        ...startupHeaderLines(
+          state.startup.state,
+          state.startup.position,
+          width,
+          state.terminalSize.rows,
+        )
+          .map((text): LayoutRow => ({ text, kind: 'log' })),
+      );
+      this.headerPrinted = true;
     }
     const pending: {
       entry: UiLogEntry;
