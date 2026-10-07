@@ -181,18 +181,18 @@ export class ConversationFlow {
       const key = JSON.stringify([
         startup.productVersion,
         startup.coreEpoch,
-        startup.sessionMode.kind,
         startup.workspace,
         startup.agentId,
         startup.startupEvaluation,
         startup.instructions,
         startup.skills,
         startup.trust.hardSandbox,
-        startup.baseInstruction,
         position.sessionId,
         position.createdAt,
         position.title,
       ]);
+      // Opening another Session turns this one into a passive descriptor: its opening mode
+      // and active-only base instruction disappear. Keep the original orientation in history.
       if (key !== this.headerKey) {
         committed.push(
           ...startupHeaderLines(

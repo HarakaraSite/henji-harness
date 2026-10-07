@@ -11,6 +11,8 @@
   212はlocal実装・focused確認・隔離tmux実表示／操作確認と独立reviewを完了し、sourceは
   commit `894aeb0b`へ保存済み。利用者指示により公式build・常用配置・配置後smokeまで完了した。
   詳細と検証結果は212を参照する。常用環境での利用者確認は211・212をまとめて行う。
+  配置後の利用者観測で`/new`のヘッダー重複を再現・修正し、focused／隔離tmux確認を完了した。
+  既承認の212配置への修正commit・再配置を実施中。詳細は212の追加記録を参照する。
   pushは未実施。
   順序は211の実表示・操作確認後に212。要件と確認方針は各incrementを参照する。
 - [Increment 210](../docs/increments/increment-210.md)は、Coreの重複照会・再投影のlocal改善と検証を完了した。
@@ -35,7 +37,7 @@
 
 ## 次の一手
 
-- 新しいCore/TUIを起動して211と212の常用環境での利用者確認へ進む。pushは未承認。
+- 212のヘッダー重複修正をcommit・再配置し、新しいCore/TUIで利用者確認へ進む。pushは未承認。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。

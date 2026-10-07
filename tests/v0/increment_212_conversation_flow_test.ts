@@ -1,6 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import { ConversationFlow } from '../../v0/tui/conversation_flow.ts';
 import { BodyDocument } from '../../v0/tui/body_document.ts';
+import { apiStartupFixture } from './fixtures/api_startup.ts';
 import {
   KeyedConversationStore,
   mapConversationEntity,
@@ -34,6 +35,56 @@ const state = (entries: readonly UiLogEntry[], running = false) => {
 };
 const texts = (rows: readonly { text: string; kind?: string }[]) =>
   rows.filter((row) => row.kind !== 'separator').map((row) => row.text);
+
+Deno.test('212 opening a new Session does not append the previous Session passive header', () => {
+  const flow = new ConversationFlow();
+  const position = {
+    sessionId: 'previous-session',
+    createdAt: '2026-10-07T00:00:00Z',
+    title: 'untitled',
+    agent: 'default',
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  const initial = reduceUiAction(state([]), {
+    kind: 'startup',
+    position,
+    state: {
+      ...apiStartupFixture({
+        status: 'unevaluated',
+        sessionMode: { kind: 'new' },
+        baseInstruction: {
+          resourceId: 'builtin/henji-base',
+          selectionSource: 'built-in',
+          revisionDigest: 'a'.repeat(64),
+        },
+      }),
+      startupEvaluation: 'unevaluated',
+    },
+  });
+  const header = flow.drain(initial, 120, 24).committed;
+  strictEqual(header.filter((row) => row.text.includes('Henji Harness')).length, 1);
+  ok(header.some((row) => row.text.includes('builtin/henji-base')));
+  const passive = reduceUiAction(initial, {
+    kind: 'startup',
+    position,
+    state: {
+      ...apiStartupFixture({ status: 'unevaluated', sessionMode: { kind: 'exact' } }),
+      startupEvaluation: 'unevaluated',
+    },
+  });
+  deepStrictEqual(flow.drain(passive, 120, 24), { committed: [], live: [] });
+  flow.reset();
+  const next = reduceUiAction(initial, {
+    kind: 'startup',
+    state: initial.startup!.state,
+    position: { ...position, sessionId: 'next-session' },
+  });
+  strictEqual(
+    flow.drain(next, 120, 24).committed.filter((row) => row.text.includes('Henji Harness')).length,
+    1,
+  );
+});
 
 Deno.test('212 saved conversation is emitted in order once and replayed on a new display scope', () => {
   const flow = new ConversationFlow();

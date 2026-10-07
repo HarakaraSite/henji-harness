@@ -248,3 +248,25 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
 記録（git対象外）: `.tools/increment-212/deployment/build.log`、`deployment.json`、
 `deploy_smoke.py`、`smoke.json`、`smoke-tui.txt`、`smoke-picker.txt`、`smoke-editor.txt`。
 この配置記録のcommitは文書だけの変更であり、binaryのsourceは上記source commitを指す。
+
+## 配置後の新規Sessionヘッダー重複修正（2026-10-07）
+
+利用者の「新規でセッション開始した時、ヘッダーが重複して表示される」を受け、
+既承認の212配置に対する不具合対応として修正・検証し、commitと再配置を進める。
+
+- 配置済みbinary・隔離HOME/XDG・local固定provider・tmuxで`/new`を再現した。
+  初回`/new`でヘッダー数が1→3となり、旧Sessionの`new (autosave)`に続いて同じIDの
+  `exact session`ヘッダー、その後に新しいIDのヘッダーが出た。実provider requestは0回。
+- 新Sessionを開くと旧Sessionがpassive descriptorへ変わり、startupのsessionModeが
+  `new`→`exact`、active-only baseInstructionが存在→省略へ変わる。
+  同じ表示scopeのこのmetadata変化をヘッダー再出力の判定へ含めていたため、
+  新Sessionへ切り替わる前に旧Sessionのヘッダーが追記された。
+- この2項目を同scopeのヘッダー再出力キーから外した。表示scope変更時は従来どおり初期ヘッダーを
+  最新のstartup情報で出力する。context・skills・タイトルの実際の変更は表示更新を維持する。
+- 新しいfocused regressionと既存remote header更新等で15 pass／0 fail。
+  対象source・testとCLIのtype check、対象format・lint、`git diff --check`はPASS。
+- 修正sourceのproduction TUI＋配置済みcompiled Coreを隔離tmuxで操作し、連続する2回の`/new`で
+  ヘッダー数が1→2→3と新Sessionごとに1回だけ増えた。複数行editorとF4／EscもPASS。
+  source確認記録は`.tools/increment-212/header-fixed-source/`、修正前の再現記録は`header-fix/`。
+
+修正のcommit・build・再配置結果は以下へ記録する。実provider call・push・公開は含めない。
