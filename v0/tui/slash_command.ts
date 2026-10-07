@@ -46,7 +46,7 @@ export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
     command: 'sessions',
     description: 'List sessions',
     usage: '/sessions',
-    shortcut: 'F1',
+    shortcut: 'F4',
   }),
   Object.freeze({
     text: '/view',
@@ -127,16 +127,15 @@ export const slashPickerCandidates = (
 export const SHORTCUT_ONLY_OPERATIONS = Object.freeze(
   [
     ['Submit task', 'Enter (idle)'],
-    ['Steer execution', 'F3 (running)'],
+    ['Cancel execution', 'F1 (running)'],
     ['Queue next task', 'F2 (running)'],
-    ['Cancel execution', 'Esc (latest view, running)'],
+    ['Steer execution', 'F3 (running)'],
     ['Clear input', 'Ctrl-C (normal input)'],
     ['Newline', 'Alt-Enter; Shift/Ctrl-Enter when distinguishable'],
     ['Open command picker', 'Leading /'],
     ['Complete command', 'Tab; Enter completes the selected command'],
     ['Scroll conversation', 'PageUp/PageDown'],
     ['Return to latest', 'Esc (history view)'],
-    ['Navigate input history', '↑/↓ (idle; line movement takes precedence)'],
     ['Move cursor left/right', '←/→'],
     ['Move up/down', '↑/↓'],
     ['Line start/end', 'Home/End'],

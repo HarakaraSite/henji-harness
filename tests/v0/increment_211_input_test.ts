@@ -1,23 +1,21 @@
-import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
-import type { ConversationSnapshot, SessionSnapshot } from '../../v0/api/contract.ts';
-import type { ConversationEntity } from '../../v0/conversation/model.ts';
+import type { SessionSnapshot } from '../../v0/api/contract.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
-// Terminal frames intentionally contain ANSI CSI sequences between styled label words.
+const sessionId = '21100000-0000-4000-8000-000000000001';
+const coreEpoch = 'increment-211-input';
 // deno-lint-ignore no-control-regex
 const plain = (text: string): string => text.replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, '');
-const sessionId = '14600000-0000-4000-8000-000000000001';
-const coreEpoch = 'increment-146-remote-history';
 
 const build = {
   schemaVersion: 1,
   productVersion: '0.1.0',
   buildId: 'a'.repeat(64),
-  sourceRevision: 'remote-history-test',
+  sourceRevision: 'increment-211-input-test',
   sourceDirty: false,
   denoVersion: '2.9.7',
   target: 'x86_64-unknown-linux-gnu',
@@ -27,49 +25,43 @@ const build = {
   supportedHookApiContracts: ['henji-hooks/v1'],
 };
 
-const deferred = () => {
-  let resolve!: () => void;
-  const promise = new Promise<void>((accept) => resolve = accept);
-  return { promise, resolve };
-};
-
-const conversationEntities: Readonly<Record<string, ConversationEntity>> = Object.fromEntries(
-  Array.from({ length: 32 }, (_, index) => {
-    const turn = Math.floor(index / 2) + 1;
-    const id = `history-message-${index + 1}`;
-    const role = index % 2 === 0 ? 'user' : 'assistant';
-    const entity: ConversationEntity = {
-      kind: 'message',
-      id,
-      executionId: `history-execution-${turn}`,
-      turn,
-      version: 0,
-      position: {
-        executionOrder: turn - 1,
-        requestOrder: role === 'user' ? -1 : 1,
-        phase: role === 'user' ? -1 : 1,
-        eventOrdinal: role === 'user' ? 0 : 1,
-        itemOrdinal: 0,
-      },
-      role,
-      text: `history message ${index + 1}`,
-      complete: true,
-    };
-    return [id, entity];
-  }),
-);
-const conversation: ConversationSnapshot = {
+const snapshot = (revision: number): SessionSnapshot => ({
   schemaVersion: 2,
-  sessionId,
-  cut: 1,
-  storeRevision: 1,
-  entities: conversationEntities,
-  order: Object.values(conversationEntities).sort((left, right) =>
-    left.position.executionOrder - right.position.executionOrder ||
-    left.position.requestOrder - right.position.requestOrder ||
-    left.position.phase - right.position.phase || left.id.localeCompare(right.id)
-  ).map((entity) => entity.id),
-};
+  cursor: { coreEpoch, sessionId, revision },
+  session: {
+    id: sessionId,
+    canonicalSessionId: sessionId,
+    persistence: 'persistent',
+    position: {
+      sessionId,
+      createdAt: '2026-10-07T00:00:00.000Z',
+      title: 'Increment 211 editor input',
+      agent: 'default',
+      committedTurn: 0,
+      messageCount: 0,
+    },
+    selection: { provider: 'provider-a', modelId: 'model-a', effort: 'low' },
+    startup: apiStartupFixture(),
+  },
+  runtime: {
+    active: false,
+    activeSessionId: sessionId,
+    phase: 'idle',
+    execution: null,
+    operations: ['task.submit'],
+  },
+  conversation: {
+    schemaVersion: 2,
+    sessionId,
+    cut: 0,
+    storeRevision: 0,
+    entities: {},
+    order: [],
+  },
+  pending: { kind: 'core-owned', followUps: [] },
+  credentialAvailability: { status: 'unknown' },
+  context: {},
+});
 
 class FakeTerminal implements TerminalPort {
   readonly output: string[] = [];
@@ -109,7 +101,6 @@ class FakeTerminal implements TerminalPort {
     this.write(encodeScreenFrame(frame));
     onWritten?.();
   }
-
   write(bytes: Uint8Array): void {
     this.output.push(new TextDecoder().decode(bytes));
   }
@@ -119,7 +110,7 @@ class FakeTerminal implements TerminalPort {
     return () => {};
   }
   text(): string {
-    return this.output.join('');
+    return plain(this.output.join(''));
   }
   screen(): string {
     return plain(this.output.at(-1) ?? '');
@@ -132,46 +123,13 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error('timed out waiting for remote editor history behavior');
+  throw new Error('timed out waiting for Increment 211 remote input behavior');
 };
 
-const snapshot = (revision: number): SessionSnapshot => ({
-  schemaVersion: 2,
-  cursor: { coreEpoch, sessionId, revision },
-  session: {
-    id: sessionId,
-    canonicalSessionId: sessionId,
-    persistence: 'persistent',
-    position: {
-      sessionId,
-      createdAt: '2026-09-28T00:00:00.000Z',
-      title: 'Increment 146 remote input history',
-      agent: 'default',
-      committedTurn: 16,
-      messageCount: Object.keys(conversationEntities).length,
-    },
-    selection: { provider: 'provider-a', modelId: 'model-a', effort: 'low' },
-    startup: apiStartupFixture(),
-  },
-  runtime: {
-    active: false,
-    activeSessionId: sessionId,
-    phase: 'idle',
-    execution: null,
-    operations: ['task.submit'],
-  },
-  conversation,
-  pending: { kind: 'core-owned', followUps: [] },
-  credentialAvailability: { status: 'unknown' },
-  context: {},
-});
-
-Deno.test('Increment 146 remote editor history follows accepted task receipts and restores drafts', async () => {
+Deno.test('Increment 211 remote arrows move editor lines and do not recall submitted prompts', async () => {
   const submitted: string[] = [];
   let revision = 1;
   let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
-  const heldReceiptSeen = deferred();
-  const releaseHeldReceipt = deferred();
   const currentSnapshot = () => snapshot(revision);
   const sendSnapshot = (): void => {
     streamController?.enqueue(encoder.encode(
@@ -187,7 +145,7 @@ Deno.test('Increment 146 remote editor history follows accepted task receipts an
           apiVersion: 1,
           coreEpoch,
           build,
-          workspace: '/tmp/increment-146-workspace',
+          workspace: '/tmp/increment-211-workspace',
           activeSessionId: sessionId,
           phase: 'idle',
           implementedOperations: ['core.read', 'session.read', 'session.subscribe', 'task.submit'],
@@ -213,10 +171,6 @@ Deno.test('Increment 146 remote editor history follows accepted task receipts an
       if (request.method === 'POST' && url.pathname.endsWith('/tasks')) {
         const body = await request.json() as { commandId: string; text: string };
         submitted.push(body.text);
-        if (body.text === 'held accepted task') {
-          heldReceiptSeen.resolve();
-          await releaseHeldReceipt.promise;
-        }
         revision += 1;
         sendSnapshot();
         return Response.json({
@@ -231,38 +185,22 @@ Deno.test('Increment 146 remote editor history follows accepted task receipts an
     },
   );
   const terminal = new FakeTerminal();
-  const run = runRemoteTui(`http://127.0.0.1:${server.addr.port}`, undefined, { terminal });
+  const run = runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, { terminal });
   try {
-    await waitFor(() => terminal.text().includes('Increment 146 remote input history'));
+    await waitFor(() => terminal.text().includes('Increment 211 editor input'));
 
-    terminal.pushInput('\x1b[5~');
-    await waitFor(() => terminal.screen().includes('Esc latest'));
-    terminal.pushInput('held accepted task\r');
-    await heldReceiptSeen.promise;
-    strictEqual(terminal.screen().includes('Esc latest'), true);
-    releaseHeldReceipt.resolve();
-    await waitFor(() =>
-      !terminal.screen().includes('Esc latest') && terminal.screen().includes('Enter submit')
-    );
+    terminal.pushInput('first\x1b[27;3;13~second\x1b[A!\x1b[B?\r');
+    await waitFor(() => submitted.length === 1);
+    deepStrictEqual(submitted, ['first!\nsecond?']);
 
-    terminal.pushInput('accepted prompt\r');
+    await waitFor(() => terminal.screen().includes('Enter submit'));
+    terminal.pushInput('\x1b[A\r');
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    strictEqual(submitted.length, 1);
+
+    terminal.pushInput('next prompt\r');
     await waitFor(() => submitted.length === 2);
-
-    terminal.pushInput('accepted prompt\r');
-    await waitFor(() => submitted.length === 3);
-    deepStrictEqual(submitted, ['held accepted task', 'accepted prompt', 'accepted prompt']);
-
-    terminal.pushInput('unsent draft');
-    await waitFor(() => terminal.text().includes('unsent draft'));
-    terminal.pushInput('\x1b[A\x1b[B\r');
-    await waitFor(() => submitted.length === 4);
-    deepStrictEqual(submitted, [
-      'held accepted task',
-      'accepted prompt',
-      'accepted prompt',
-      'unsent draft',
-    ]);
-    strictEqual(terminal.text().includes('unsent draft'), true);
+    deepStrictEqual(submitted, ['first!\nsecond?', 'next prompt']);
   } finally {
     terminal.pushInput('\x04');
     await run;

@@ -278,7 +278,7 @@ Deno.test('terminal lifecycle requests mouse tracking and restores the previous 
   );
 });
 
-Deno.test('retained working footer spins its primary status and shows cancel help', () => {
+Deno.test('retained working footer spins its primary status and shows F1 cancel help', () => {
   const terminal = new RecordingTerminal();
   let now = 0;
   let tick = () => {};
@@ -295,13 +295,13 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
 
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   let layout = renderer.layoutSnapshot(80, 24);
-  assertEquals(layout.footer[0].text, ' ⠋ working 00:00 · Esc cancel');
+  assertEquals(layout.footer[0].text, ' ⠋ working 00:00 · F1 cancel');
   assert(!layout.footer[0].text.includes('\x1b'));
   assertEquals(layout.footer[0].blinkScalarStart, undefined);
   assertEquals(layout.footer[0].blinkScalarLength, undefined);
   assert(
     withoutSgr(renderer.renderFrame(80, 24)).includes(
-      ' ⠋ working 00:00 · Esc cancel',
+      ' ⠋ working 00:00 · F1 cancel',
     ),
   );
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
@@ -310,19 +310,19 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   tick();
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    ' ⠙ working 01:02 · Esc cancel',
+    ' ⠙ working 01:02 · F1 cancel',
   );
 
   renderer.setStatus('busy · steer applied');
   assert(
     withoutSgr(renderer.renderFrame(80, 24)).includes(
-      ' ⠙ working 01:02 · steer applied · Esc cancel',
+      ' ⠙ working 01:02 · steer applied · F1 cancel',
     ),
   );
   renderer.setSlashCommandCandidates(['/help', '/recall']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    ' ⠙ working 01:02 · cmds: /help, /recall · steer applied · Esc cancel',
+    ' ⠙ working 01:02 · cmds: /help, /recall · steer applied · F1 cancel',
   );
   assertEquals(
     renderer.layoutSnapshot(40, 24).footer[0].text,
@@ -341,14 +341,14 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   renderer.setSlashCommandCandidates(['/provider']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    ' ⠙ working 01:02 · cmds: /provider · pending active_task:44B · Esc cancel',
+    ' ⠙ working 01:02 · cmds: /provider · pending active_task:44B · F1 cancel',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setPendingMetadata(undefined);
   renderer.setStatus('busy; /provider waits for ready');
   assert(
     withoutSgr(renderer.renderFrame(80, 24)).includes(
-      ' ⠙ working 01:02 · /provider waits for ready · Esc cancel',
+      ' ⠙ working 01:02 · /provider waits for ready · F1 cancel',
     ),
   );
 
@@ -357,7 +357,7 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   renderer.setStatus('cancelling context compaction');
   assert(
     withoutSgr(renderer.renderFrame(80, 24)).includes(
-      ' ⠹ cancelling 1:01:01 · context compaction · Esc cancel',
+      ' ⠹ cancelling 1:01:01 · context compaction · F1 cancel',
     ),
   );
   layout = renderer.layoutSnapshot(12, 24);
@@ -1436,7 +1436,7 @@ Deno.test('keyed model steps place thinking around a tool result and final answe
   assertEquals(entries[3]?.label, 'thinking summary>');
 });
 
-Deno.test('history footer hints Esc latest while busy and only latest advertises cancel', () => {
+Deno.test('history footer keeps Esc latest while F1 cancellation remains available', () => {
   const terminal = new RecordingTerminal();
   terminal.size = { columns: 80, rows: 10 };
   const renderer = new TuiRenderer(terminal, {
@@ -1456,20 +1456,20 @@ Deno.test('history footer hints Esc latest while busy and only latest advertises
   const busyFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
   assert(busyFooter.includes('history '));
   assert(busyFooter.includes('Esc latest'));
-  assert(!busyFooter.includes('Esc cancel'));
+  assert(busyFooter.includes('F1 cancel'));
 
   renderer.setRemoteFooter({
     activity: 'working',
-    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+    controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions', '/ commands'],
   });
   const remoteFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
   assert(remoteFooter.includes('Esc latest'));
-  assert(!remoteFooter.includes('Esc cancel'));
+  assert(remoteFooter.includes('F1 cancel'));
 
   renderer.latest();
   const latestFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
   assert(!latestFooter.includes('history '));
-  assert(latestFooter.includes('Esc cancel'));
+  assert(latestFooter.includes('F1 cancel'));
   assert(!latestFooter.includes('Esc latest'));
 });
 
@@ -1502,7 +1502,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   renderer.setProjection(projection, 62_000);
   renderer.setRemoteFooter({
     activity: 'working',
-    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+    controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions', '/ commands'],
   }, 62_000);
   let footer = renderer.layoutSnapshot(80, 24).footer;
   assert(footer[1].text.startsWith(' ⠋ working 00:38   '));
@@ -1512,7 +1512,8 @@ Deno.test('remote execution clock leads the second footer row and survives repea
     const hint of [
       'F3 steer',
       'F2 queue',
-      'Esc cancel',
+      'F1 cancel',
+      'F4 sessions',
     ]
   ) {
     assert(footer[0].text.includes(hint));
@@ -1529,7 +1530,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   );
   renderer.setRemoteFooter({
     activity: 'working',
-    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+    controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions', '/ commands'],
   }, 62_000);
   assert(!renderer.layoutSnapshot(80, 24).footer.some((row) => row.text.includes('accepted')));
 
@@ -1544,7 +1545,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
 
   renderer.setProjection(projection, 102_000);
   renderer.setRemoteFooter(
-    { activity: 'working', controls: ['Esc cancel', '/ commands'] },
+    { activity: 'working', controls: ['F1 cancel', '/ commands'] },
     102_000,
   );
   assertEquals(starts, 2);
@@ -1561,7 +1562,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   renderer.close();
 });
 
-Deno.test('remote footer shows contextual controls without constant global shortcuts', () => {
+Deno.test('remote footer shows active execution, queue, steering, and Session controls', () => {
   const terminal = new RecordingTerminal();
   terminal.size = { columns: 80, rows: 24 };
   const renderer = new TuiRenderer(terminal, {
@@ -1573,13 +1574,13 @@ Deno.test('remote footer shows contextual controls without constant global short
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   renderer.setRemoteFooter({
     activity: 'working',
-    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+    controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions', '/ commands'],
   });
   const footer = renderer.layoutSnapshot(80, 24).footer[0].text;
-  for (const hint of ['F3 steer', 'F2 queue', 'Esc cancel', '/ commands']) {
+  for (const hint of ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions', '/ commands']) {
     assert(footer.includes(hint), `${hint} missing from ${footer}`);
   }
-  for (const hint of ['F1', 'Ctrl-C', 'Ctrl-D', 'Ctrl-Q', 'credential']) {
+  for (const hint of ['Ctrl-C', 'Ctrl-D', 'Ctrl-Q', 'credential']) {
     assert(!footer.includes(hint));
   }
   renderer.close();
@@ -1614,6 +1615,9 @@ Deno.test('Increment 159 full command picker keeps the selected command visible 
   for (const [description] of SHORTCUT_ONLY_OPERATIONS) assert(text.includes(description));
   assert(text.includes('Ctrl-U (masked input)'));
   assert(text.includes('none │ F2 (running)'));
+  assert(text.includes('none │ F1 (running)'));
+  assert(text.includes('/sessions │ F4'));
+  assert(!text.includes('Navigate input history'));
   renderer.close();
 });
 
@@ -1658,7 +1662,7 @@ Deno.test('Increment 159 footer preparation spins without invented time and sett
     assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(' ⠙ working   '));
   }
   renderer.setRemoteFooter(
-    { activity: 'working', controls: ['Esc cancel', '/ commands'] },
+    { activity: 'working', controls: ['F1 cancel', '/ commands'] },
     100_000,
   );
   assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(' ⠋ working 00:02   '));
@@ -1669,7 +1673,7 @@ Deno.test('Increment 159 footer preparation spins without invented time and sett
     clearInterval() {},
   });
   fresh.setProjection({ ...projection, lifecycle: 'busy' });
-  fresh.setRemoteFooter({ activity: 'working', controls: ['Esc cancel', '/ commands'] }, 100_000);
+  fresh.setRemoteFooter({ activity: 'working', controls: ['F1 cancel', '/ commands'] }, 100_000);
   assertEquals(
     fresh.layoutSnapshot(80, 24).footer[1].text,
     renderer.layoutSnapshot(80, 24).footer[1].text,
@@ -1733,7 +1737,7 @@ Deno.test('Increment 160 footer aligns identity and styles only the intended vis
   assert(frame.includes(`${DIM_SGR}auto${RESET_SGR}`));
   renderer.setRemoteFooter({
     activity: 'working',
-    controls: ['F2 queue', 'F3 steer', 'Esc cancel'],
+    controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions'],
   });
   assert(renderer.renderFrame(100, 24).includes(`${YELLOW_SGR}⠋ working${RESET_SGR}`));
   renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });

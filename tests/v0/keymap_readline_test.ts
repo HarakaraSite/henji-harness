@@ -1,4 +1,4 @@
-import { InputDecoder, TuiEditor, TuiEditorHistory } from '../../v0/tui/input.ts';
+import { InputDecoder, TuiEditor } from '../../v0/tui/input.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -38,14 +38,16 @@ Deno.test('Keymap retires alt word aliases without inserting their payload', () 
   assertEquals(feedOne(decoder, [0x1b, 0x64]), 'unknown');
 });
 
-Deno.test('Keymap decodes F1 through F3 from SS3 and xterm CSI sequences', () => {
+Deno.test('Keymap decodes F1 through F4 from SS3 and xterm CSI sequences', () => {
   const decoder = new InputDecoder();
   assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x50]), 'f1');
   assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x51]), 'f2');
   assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x52]), 'f3');
+  assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x53]), 'f4');
   assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x31, 0x7e]), 'f1');
   assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x32, 0x7e]), 'f2');
   assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x33, 0x7e]), 'f3');
+  assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x34, 0x7e]), 'f4');
 });
 
 Deno.test('Keymap decodes modified Return keys as newline', () => {
@@ -134,21 +136,15 @@ Deno.test('Keymap line movement', () => {
   assertEquals(moved.cursorScalar, 5);
 });
 
-Deno.test('Input history exposes navigation state for Up/Down-edge walk', () => {
-  const history = new TuiEditorHistory();
-  assertEquals(history.navigating, false);
-  assert(history.record('first task'));
-  assert(history.record('second task'));
-  const draft = { text: '', cursorScalar: 0, byteLength: 0 };
-  const back = history.previous(draft);
-  assert(back !== null);
-  assertEquals(back.text, 'second task');
-  assertEquals(history.navigating, true);
-  const older = history.previous(draft);
-  assertEquals(older?.text, 'first task');
-  const forward = history.next();
-  assertEquals(forward?.text, 'second task');
-  const restored = history.next();
-  assertEquals(restored?.text, '');
-  assertEquals(history.navigating, false);
+Deno.test('Editor Up/Down moves between lines while preserving the preferred column', () => {
+  const editor = new TuiEditor();
+  assert(editor.insert('first\nsecond'));
+  assert(editor.moveUp());
+  assertEquals(editor.cursorScalar, 5);
+  assert(editor.insert('X'));
+  assertEquals(editor.text, 'firstX\nsecond');
+  assert(editor.moveDown());
+  assertEquals(editor.cursorScalar, 13);
+  assert(editor.insert('Y'));
+  assertEquals(editor.text, 'firstX\nsecondY');
 });

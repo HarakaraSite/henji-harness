@@ -21,7 +21,7 @@ import type {
 } from '../api/contract.ts';
 import { movePresentationPickerSelection } from '../presentation/contract.ts';
 import { reduceSessionStreamFrame, type SessionClientState } from '../api/reducer.ts';
-import { InputDecoder, type InputEvent, TuiEditor, TuiEditorHistory } from './input.ts';
+import { InputDecoder, type InputEvent, TuiEditor } from './input.ts';
 import { TuiEventQueue } from './event_queue.ts';
 import { TuiRenderer } from './render.ts';
 import { RemoteCatalogUi } from './remote_catalog_ui.ts';
@@ -678,7 +678,6 @@ export const runRemoteTui = async (
   const conversationProjector = new SnapshotConversationProjector();
   const systemNotices = new RemoteSystemNotices();
   const editor = new TuiEditor();
-  const editorHistory = new TuiEditorHistory();
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   const decoder = new InputDecoder();
   let draftRevision = 0;
@@ -777,13 +776,14 @@ export const runRemoteTui = async (
     if (!shutdownPending) {
       if (editor.text.trimStart().startsWith('/')) controls.push('Enter command');
       else if (activity === 'ready') controls.push('Enter submit');
+      if (canCancel() && !cancellationRequested) controls.push('F1 cancel');
       if (
         execution !== undefined && connected && !receiptPending && pendingCancellation === undefined
       ) {
         if (hasOperation('followUp.queue')) controls.push('F2 queue');
         if (hasOperation('execution.steer')) controls.push('F3 steer');
       }
-      if (canCancel() && !cancellationRequested) controls.push('Esc cancel');
+      controls.push('F4 sessions');
       controls.push('/ commands');
     }
     renderer.setRemoteFooter({
@@ -849,11 +849,6 @@ export const runRemoteTui = async (
     );
   };
 
-  const editorBusy = (): boolean =>
-    pendingSubmission !== undefined || acceptedSubmission !== undefined ||
-    pendingCancellation !== undefined ||
-    (targetsActiveSession() && snapshot().runtime.active);
-
   const renderEditor = (): void => {
     renderer.setEditorSnapshot(editor.snapshot());
     const overlay = renderer.stateSnapshot().overlay;
@@ -878,44 +873,6 @@ export const runRemoteTui = async (
         editor.text === slashPickerSuppressedText ? [] : slashCommandCandidates(editor.text),
       );
     }
-  };
-
-  const walkInputHistory = (direction: 'up' | 'down'): boolean => {
-    if (direction === 'down') {
-      if (!editorHistory.navigating) return false;
-      const next = editorHistory.next();
-      if (next === null) {
-        notice = 'history boundary';
-        updateStatus();
-        return true;
-      }
-      editor.setSnapshot(next);
-      notice = undefined;
-      renderEditor();
-      updateStatus();
-      return true;
-    }
-    if (
-      !editorHistory.navigating && editor.text.length > 0 && editor.moveUp()
-    ) {
-      notice = undefined;
-      renderEditor();
-      updateStatus();
-      return true;
-    }
-    const previous = editorHistory.previous(editor.snapshot());
-    if (previous === null) {
-      if (editor.text.length === 0) {
-        notice = 'history empty';
-        updateStatus();
-      }
-      return true;
-    }
-    editor.setSnapshot(previous);
-    notice = undefined;
-    renderEditor();
-    updateStatus();
-    return true;
   };
 
   const catalogUi = new RemoteCatalogUi({
@@ -944,7 +901,6 @@ export const runRemoteTui = async (
   });
 
   const replaceEditorText = (text: string): void => {
-    editorHistory.resetNavigation();
     editor.setSnapshot({
       text,
       cursorScalar: [...text].length,
@@ -1095,7 +1051,6 @@ export const runRemoteTui = async (
       submission.kind === 'task' &&
       renderer.stateSnapshot().scroll.kind !== 'followLatest'
     ) renderer.latest(false);
-    editorHistory.record(submission.text);
     pendingSubmission = undefined;
     acceptedSubmission = accepted;
     finishDraft(submission, true);
@@ -1986,7 +1941,6 @@ export const runRemoteTui = async (
     if (changed) {
       if (editor.text !== before) {
         draftRevision += 1;
-        editorHistory.resetNavigation();
       }
       notice = undefined;
       renderEditor();
@@ -2273,10 +2227,6 @@ export const runRemoteTui = async (
             if (event.kind === 'escape') clearRemoteOverlay();
             continue;
           }
-          if (
-            !editorBusy() && (event.kind === 'up' || event.kind === 'down') &&
-            walkInputHistory(event.kind)
-          ) continue;
           if (event.kind === 'ctrl_c') {
             separateSubmittedDraft();
             if (editor.text.length > 0) replaceEditorText('');
@@ -2291,14 +2241,14 @@ export const runRemoteTui = async (
           } else if (event.kind === 'escape') {
             if (renderer.stateSnapshot().scroll.kind !== 'followLatest') {
               renderer.latest();
-            } else if (activeExecutionId() !== undefined) {
-              if (!cancellationRequested) cancelActiveExecution();
             } else {
               renderer.clearModal();
               renderer.latest();
             }
           } else if (event.kind === 'f1') {
-            showSessionPicker();
+            if (activeExecutionId() !== undefined && !cancellationRequested) {
+              cancelActiveExecution();
+            }
           } else if (event.kind === 'enter') {
             const command = editor.text.trim();
             if (command === '/detach') {
@@ -2318,6 +2268,8 @@ export const runRemoteTui = async (
           } else if (event.kind === 'f3') {
             notice = undefined;
             submitDraft('steering');
+          } else if (event.kind === 'f4') {
+            showSessionPicker();
           } else if (event.kind === 'paste_rejected') {
             notice = 'paste exceeds 64 KiB';
             updateStatus();

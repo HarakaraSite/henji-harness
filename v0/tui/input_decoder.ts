@@ -135,7 +135,15 @@ export class InputDecoder {
       this.ss3Pending = false;
       this.expiredSs3 = false;
       events.push({
-        kind: byte === 0x50 ? 'f1' : byte === 0x51 ? 'f2' : byte === 0x52 ? 'f3' : 'unknown',
+        kind: byte === 0x50
+          ? 'f1'
+          : byte === 0x51
+          ? 'f2'
+          : byte === 0x52
+          ? 'f3'
+          : byte === 0x53
+          ? 'f4'
+          : 'unknown',
       });
       return;
     }
@@ -367,6 +375,10 @@ export class InputDecoder {
     }
     if (matches(sequence, [0x1b, 0x5b, 0x31, 0x33, 0x7e])) {
       events.push({ kind: 'f3' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x31, 0x34, 0x7e])) {
+      events.push({ kind: 'f4' });
       return;
     }
     // Modified Return keys (CSI-u / modifyOtherKeys): Shift=2, Alt=3, Ctrl=5.

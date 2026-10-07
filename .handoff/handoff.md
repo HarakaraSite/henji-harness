@@ -5,9 +5,15 @@
 
 ## 現在地（2026-10-07）
 
+- [Increment 211](../docs/increments/increment-211.md)へS32＋S37、
+  [Increment 212](../docs/increments/increment-212.md)へS36を採用した。211はlocal実装・focused test・
+  隔離tmux実表示／操作確認・独立reviewを完了し、sourceは今回のcommitへ保存する。
+  212は実装着手が承認された。常用環境での利用者確認は212の後にまとめる。
+  常用build・配置・pushは未実施。
+  順序は211の実表示・操作確認後に212。要件と確認方針は各incrementを参照する。
 - [Increment 210](../docs/increments/increment-210.md)は、Coreの重複照会・再投影のlocal改善と検証を完了した。
   通常・批判的reviewとP2のtest修正・再reviewも完了した。
-  sourceは今回のcommitへ保存する。push・常用build・配置は未実施。
+  sourceはcommit `568ed489`へ保存済み。push・常用build・配置は未実施。
   要件・比較結果・実経路確認とreview結果は210を参照する。
 - [Increment 209](../docs/increments/increment-209.md)は、利用者指定のHTTP APIについて不要な処理を整理し、
   local実装・検証を完了し、sourceはcommit `24e9e357`へ保存済み。常用build・配置、pushは未実施。
@@ -24,9 +30,11 @@
 
 ## 次の一手
 
-- 209・210の常用build・配置等は利用者の指示待ち。次の個別incrementは未採用。
-  利用者の指示と[通常利用メモ](../docs/experience/normal-use-inbox.md)から対象を選ぶ。
-  候補の記載だけでは実装を開始しない。
+- 212の詳細設計・local実装・focused確認と、実表示／操作確認を進める。
+  常用環境での利用者確認は211と212をまとめて行う。
+  architectureの旧入力履歴・キー割当の更新案は211に記録し、正本変更への別途明示承認を待つ。
+  209・210の常用build・配置等は利用者の指示待ち。未採用候補は
+  [通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。
   実modelの自発的なtool選択と使い勝手は通常利用での観測待ちであり、追加probeを必須作業にしない。
 - [開発ワークフロー案](../docs/plans/development-workflow.md)は未採用・利用者review待ち。

@@ -408,7 +408,7 @@ Deno.test('Increment 143 slash operations and context overlay do not submit or c
   }
 });
 
-Deno.test('Increment 143 F1 picker Enter views a saved Session without changing the active slot', async () => {
+Deno.test('Increment 143 F4 picker Enter views a saved Session without changing the active slot', async () => {
   let lists = 0;
   let savedReads = 0;
   let savedSubscriptions = 0;
@@ -461,7 +461,7 @@ Deno.test('Increment 143 F1 picker Enter views a saved Session without changing 
   );
   try {
     await waitFor(() => terminal.text().includes('Active Session A'));
-    terminal.pushInput('\x1bOP');
+    terminal.pushInput('\x1b[14~');
     await waitFor(() => lists === 1 && terminal.text().includes('Saved Session B'));
     terminal.pushInput('\x1b[B\r');
     await waitFor(() =>
@@ -821,7 +821,7 @@ Deno.test('Session picker d/D confirms y/n, cancels without deletion, refreshes 
   const run = runRemoteTui(`http://127.0.0.1:${server.addr.port}`, activeSessionId, { terminal });
   try {
     await waitFor(() => activeSubscriptions === 1);
-    terminal.pushInput('\x1bOP');
+    terminal.pushInput('\x1b[14~');
     await waitFor(() => screen().includes('Saved Session B ·'));
     terminal.pushInput('d');
     await waitFor(() => screen().includes('Delete Session?') && screen().includes(savedSessionId));
@@ -837,7 +837,7 @@ Deno.test('Session picker d/D confirms y/n, cancels without deletion, refreshes 
     await waitFor(() =>
       savedSubscriptions === 1 && screen().includes('Saved B conversation marker')
     );
-    terminal.pushInput('\x1bOP');
+    terminal.pushInput('\x1b[14~');
     await waitFor(() => screen().includes('session picker'));
     terminal.pushInput('D');
     await waitFor(() => screen().includes('Delete Session?'));

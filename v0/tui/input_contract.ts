@@ -1,7 +1,5 @@
 export const MAX_PASTE_BYTES = 64 * 1024;
 export const MAX_EDITOR_BYTES = 64 * 1024;
-export const MAX_HISTORY_ENTRIES = 32;
-export const MAX_HISTORY_BYTES = 256 * 1024;
 export const ESC_TIMEOUT_MS = 50;
 export const PASTE_BEGIN = [0x1b, 0x5b, 0x32, 0x30, 0x30, 0x7e];
 export const PASTE_END = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e];
@@ -37,6 +35,7 @@ export type InputEvent =
   | { readonly kind: 'f1' }
   | { readonly kind: 'f2' }
   | { readonly kind: 'f3' }
+  | { readonly kind: 'f4' }
   | { readonly kind: 'escape' }
   | { readonly kind: 'unknown' }
   | { readonly kind: 'invalid_utf8' }

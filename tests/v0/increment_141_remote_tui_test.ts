@@ -412,7 +412,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
       releaseSubmit();
     }
     const visible = plain(text);
-    if (!detached && visible.includes('> new draft') && visible.includes('Esc cancel')) {
+    if (!detached && visible.includes('> new draft') && visible.includes('F1 cancel')) {
       detached = true;
       void (async () => {
         while (commandReadCount < 2) await new Promise((resolve) => setTimeout(resolve, 5));
@@ -443,8 +443,8 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
     strictEqual(rendered.includes('first task'), true);
     strictEqual(rendered.includes('new draft'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), false);
-    strictEqual(rendered.includes('Esc cancel'), true);
-    strictEqual(rendered.includes('working │ Esc cancel]'), false);
+    strictEqual(rendered.includes('F1 cancel'), true);
+    strictEqual(rendered.includes('working │ F1 cancel]'), false);
     strictEqual(terminal.raw, false);
     strictEqual(terminal.signals.size, 0);
     const stillRunning = await fetch(
@@ -457,7 +457,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
   }
 });
 
-Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and detaches with Ctrl-D', async () => {
+Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with F1 and detaches with Ctrl-D', async () => {
   let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
   const cancellations: {
     path: string;
@@ -536,25 +536,31 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
       terminal.pushInput('\x04');
     }
   };
+  const waitFor = async (predicate: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 1_500;
+    while (Date.now() < deadline) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error('remote TUI did not reach the expected cancellation state');
+  };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
   try {
-    strictEqual(
-      await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
-        terminal,
-        writeStderr: (text) => {
-          throw new Error(text);
-        },
-        afterAcquire: async () => {
-          terminal.pushInput('draft to clear\x03\x03');
-          await new Promise((resolve) => setTimeout(resolve, 80));
-          strictEqual(cancellations.length, 0);
-          strictEqual(terminal.raw, true);
-          strictEqual(terminal.output.at(-1)?.includes('> draft to clear'), false);
-          terminal.pushInput('\x1b');
-        },
-      }),
-      0,
-    );
+    const run = runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
+      terminal,
+      writeStderr: (text) => {
+        throw new Error(text);
+      },
+      afterAcquire: () => terminal.pushInput('draft to clear\x03\x03'),
+    });
+    await waitFor(() => {
+      const visible = plain(terminal.output.at(-1) ?? '');
+      return terminal.raw && visible.includes('F1 cancel') &&
+        !visible.includes('> draft to clear');
+    });
+    strictEqual(cancellations.length, 0);
+    terminal.pushInput('\x1bOP');
+    strictEqual(await run, 0);
     strictEqual(cancellations.length, 1);
     strictEqual(
       cancellations[0].path,
@@ -568,8 +574,8 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
     const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('Ctrl-C clear'), false);
     strictEqual(rendered.includes('Ctrl-D detach'), false);
-    strictEqual(rendered.includes('Esc cancel'), true);
-    strictEqual(rendered.includes('working │ Esc cancel]'), false);
+    strictEqual(rendered.includes('F1 cancel'), true);
+    strictEqual(rendered.includes('working │ F1 cancel]'), false);
   } finally {
     clearTimeout(fallback);
     await server.shutdown();
@@ -671,7 +677,7 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             await waitFor(() => screen().includes('> S15 draft kept'));
             terminal.pushInput('\x1b[5~');
             await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
-            strictEqual(screen().includes('Esc cancel'), false);
+            strictEqual(screen().includes('F1 cancel'), true);
             strictEqual(cancellations, 0);
 
             current = snapshot({
@@ -693,14 +699,14 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             sendSnapshot(streamController!, current);
             await waitFor(() => screen().includes('history 1/2'));
             strictEqual(screen().includes('Esc latest'), true);
-            terminal.pushInput('\x1bOP');
+            terminal.pushInput('\x1b[14~');
             await waitFor(() => screen().includes('session picker'));
             terminal.pushInput('\x1b');
             await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
             strictEqual(cancellations, 0);
 
             terminal.pushInput('\x1b');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
+            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
             strictEqual(cancellations, 0);
             strictEqual(screen().includes('S15 stream update'), true);
             strictEqual(screen().includes('> S15 draft kept'), true);
@@ -708,7 +714,7 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             terminal.pushInput('\x1b[5~');
             await waitFor(() => screen().includes('Esc latest'));
             terminal.pushInput('\x1b[6~');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
+            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
             strictEqual(cancellations, 0);
 
             // Mouse wheel paging uses the same history position as PageUp/PageDown.
@@ -716,9 +722,16 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
             await waitFor(() => hasHistoryStatus() && screen().includes('Esc latest'));
             strictEqual(cancellations, 0);
             terminal.pushInput('\x1b[<65;10;5M');
-            await waitFor(() => !hasHistoryStatus() && screen().includes('Esc cancel'));
+            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
             strictEqual(cancellations, 0);
+            terminal.pushInput('\x1b[5~');
+            await waitFor(() => hasHistoryStatus() && screen().includes('F1 cancel'));
             terminal.pushInput('\x1b');
+            await waitFor(() => !hasHistoryStatus() && screen().includes('F1 cancel'));
+            strictEqual(cancellations, 0);
+            terminal.pushInput('\x1b[5~');
+            await waitFor(() => hasHistoryStatus() && screen().includes('F1 cancel'));
+            terminal.pushInput('\x1bOP');
             await waitFor(() => cancellations === 1);
             terminal.pushInput('\x04');
           })().catch((error) => {
@@ -785,7 +798,7 @@ Deno.test('remote TUI clears drafts with Ctrl-C when reconnecting during cancell
     const rendered = plain(terminal.output.join(''));
     strictEqual(rendered.includes('cancelling'), true);
     strictEqual(rendered.includes('Ctrl-C clear'), false);
-    strictEqual(rendered.includes('working │ Esc cancel]'), false);
+    strictEqual(rendered.includes('working │ F1 cancel]'), false);
   } finally {
     clearTimeout(fallback);
     await server.shutdown();
@@ -1007,7 +1020,7 @@ Deno.test('Increment 159 remote TUI represents preparation as working without a 
     strictEqual(rendered.includes('working'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), false);
     strictEqual(rendered.includes('Esc/Ctrl-C cancel'), false);
-    strictEqual(rendered.includes('[⠋ working │ Esc cancel]'), false);
+    strictEqual(rendered.includes('[⠋ working │ F1 cancel]'), false);
   } finally {
     clearTimeout(fallback);
     await server.shutdown();

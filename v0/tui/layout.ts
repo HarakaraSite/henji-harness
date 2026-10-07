@@ -170,13 +170,13 @@ const footerStatusParts = (
 const remoteFooterControls = (status: string): readonly string[] => {
   const known = new Set([
     'Enter submit',
-    'F1 sessions',
+    'F1 cancel',
     'F2 queue',
     'F3 steer',
+    'F4 sessions',
     'Ctrl-C clear',
     'Ctrl-D detach',
     'Ctrl-Q shutdown',
-    'Esc cancel',
     'cancellation unavailable',
     '/detach',
   ]);
@@ -288,9 +288,7 @@ const footerStatusText = (
       ? overlay.deleting ? ['deleting Session'] : ['y delete', 'n/Esc return']
       : overlay.kind === 'choicePicker'
       ? overlay.controls ?? ['Esc close']
-      : state.footer.controls.filter((control) =>
-        history === undefined || control !== 'Esc cancel'
-      );
+      : state.footer.controls;
     const historySegments = history === undefined ? [] : [
       history.kind === 'start'
         ? 'history start'
@@ -323,17 +321,14 @@ const footerStatusText = (
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
   const statusControls = remoteFooterControls(state.status);
-  const remoteControls = history === undefined
-    ? statusControls
-    : statusControls.filter((control) => control !== 'Esc cancel');
+  const remoteControls = statusControls;
   const remoteResult = remoteExecutionResult(state.status);
   const displayedPrimary = footerPrimaryText(state, columns);
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
-  const cancelSegment = history === undefined && state.lifecycle === 'busy' &&
-      remoteControls.length === 0
-    ? 'Esc cancel'
+  const cancelSegment = state.lifecycle === 'busy' && remoteControls.length === 0
+    ? 'F1 cancel'
     : undefined;
   const historyHint = 'Esc latest';
   const historyFull = history === undefined

@@ -59,7 +59,7 @@ const waitFor = async (predicate: () => boolean | Promise<boolean>): Promise<voi
   throw new Error('TUI preparation operation did not complete');
 };
 
-Deno.test('Increment 170 TUI Esc cancels its visible preparing reservation before the task receipt', async () => {
+Deno.test('Increment 170 TUI F1 cancels its visible preparing reservation before the task receipt', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i170-tui-preparing-' });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
@@ -96,12 +96,12 @@ Deno.test('Increment 170 TUI Esc cancels its visible preparing reservation befor
   try {
     await waitFor(() => terminal.text().includes('Enter submit'));
     terminal.push('Cancel before its task receipt\r');
-    await waitFor(() => held && terminal.text().includes('Esc cancel'));
+    await waitFor(() => held && terminal.text().includes('F1 cancel'));
     const preparing = await client.sessionRead(sessionId);
     strictEqual(preparing.runtime.phase, 'preparing');
     const executionId = preparing.runtime.reservation?.executionId;
     ok(executionId);
-    terminal.push('\x1b');
+    terminal.push('\x1bOP');
     await waitFor(() => terminal.text().includes('cancelling'));
     release();
     await waitFor(async () => (await client.sessionRead(sessionId)).runtime.phase === 'idle');

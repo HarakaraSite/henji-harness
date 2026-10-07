@@ -12,6 +12,9 @@ tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙
 2026-10-06にA19（requestごとの実行状況・日時・地域context）は利用者判断で不採用とし、
 候補一覧と本項目を削除した。
 
+2026-10-07にS32・S37は[Increment 211](../increments/increment-211.md)、S36は
+[Increment 212](../increments/increment-212.md)へ採用・移設した。S35は利用者方針により取り下げた。
+
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
 - 長い実行証拠、参照実装比較、完了経緯は、increment、research、architecture等の担当正本へ置き、
@@ -38,8 +41,6 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                                       | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                                 | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                                              | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| S32 | Surface        | 入力履歴機能の削除                                                                            | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
-| S35 | Surface        | スクロールモード（mouse wheel履歴参照）のオン／オフ切替（デフォルトオン）                     | 利用者が個別incrementへ採用するとき。オフ中は端末標準のドラッグ選択・コピーを使えるようにする                          |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                                     | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                                                      | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                                    | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -181,30 +182,6 @@ Pi／OpenCode／Henjiの画面表示比較
   単独では採らない。Surface変更を採用するincrementで、
   frameの実挙動検証が要件に直結するときに限って検討する。 再検討条件:
   terminalの実表示・操作確認を補う具体的な必要が出たとき。
-
-### S32 — 入力履歴機能の削除（未採用、メモのみ）
-
-- 観測・利用者意向（2026-10-03）: 実行中の↑/↓で入力履歴を呼べないことを確認したが、利用者は
-  あまり不便を感じておらず、入力履歴自体の使用頻度も少ないと述べ、削除候補の記録を指示した。
-- 候補: editorの送信済みpromptを↑/↓で再呼出しする入力履歴機能を削除する。
-  関連する記録・navigation処理、help記載、専用testの整理範囲は採用時に決める。
-- 再検討条件: 利用者が入力履歴の削除を個別incrementへ採用するとき。
-- 現行経路: `v0/tui/input_history.ts`、`v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
-
-### S35 — スクロールモード（mouse wheel履歴参照）のオン／オフ切替（未採用、メモのみ）
-
-- 利用者メモ（2026-10-07）: 「メモ スクロールモードのオンオフができるように デフォルトはオン」。
-- 観測（208の配置後）: TUIがmouse trackingを要求する間は、端末標準のドラッグ選択・コピーが
-  TUIへ転送され使えない。利用者は208をShift+ドラッグ運用で受入した。
-- 候補: スクロールモード（mouse wheelによる履歴参照）をオン／オフできるようにし、既定をオンとする。
-  オフ時はmouse trackingを解放し、端末標準のドラッグ選択・コピー（tmux選択）を使えるようにする
-  意図と解釈する（切替手段・表示・セッションをまたぐ保持の範囲は採用時に決める）。
-  オフ中もPageUp／PageDownによる履歴参照は維持する。
-- 関連: [Increment 208](../increments/increment-208.md)の「配置後の利用者観測」にある改善案2（TUIに
-  一時的なmouse解放コマンドを追加する案）を、既定オン付きの切替として具体化したもの。
-- 現行経路: `v0/tui/terminal.ts`（`?1000h`／`?1006h`の要求・復元）、`v0/tui/input_decoder.ts`、
-  `v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
-- 再検討条件: 利用者が個別incrementへ採用するとき。
 
 ## Agent実行
 
