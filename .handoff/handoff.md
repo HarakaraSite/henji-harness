@@ -220,6 +220,8 @@ bash結果のexitCodeで捕捉、Jev等のAI判定は実provider承認が前提�
 198・199の記述追記を適用した。構想は変更なし。変更は`docs/architecture/henji-host-agent-worker.md`・
 `docs/architecture/multi-provider-routing-and-auth.md`・`docs/roadmap.md`で、roadmapヘッダに反映範囲を
 記録した。
+利用者メモ（2026-10-07）でスクロールモード（mouse wheel履歴参照）のオン／オフ切替（既定オン）を
+通常利用メモS35へ未採用候補として記録した。採用は利用者判断。
 
 199は利用者による完了承認済みで、source commitまで完了。採用範囲にpendingなし。
 常用配置・push・公開/release・新しい実provider callは未承認（199のarchitecture/roadmap記述は

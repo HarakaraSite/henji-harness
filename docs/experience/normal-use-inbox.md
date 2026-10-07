@@ -38,6 +38,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S29 | Surface        | `/edit`による外部エディタ起動                                        | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                     | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
 | S32 | Surface        | 入力履歴機能の削除                                                   | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
+| S35 | Surface        | スクロールモード（mouse wheel履歴参照）のオン／オフ切替（デフォルトオン） | 利用者が個別incrementへ採用するとき。オフ中は端末標準のドラッグ選択・コピーを使えるようにする                          |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                            | AIがSession列挙やreloadを実際に必要とする                                                                              |
 | A3  | Agent実行      | Context Strategyの外部化                                             | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -183,6 +184,21 @@ Pi／OpenCode／Henjiの画面表示比較
   関連する記録・navigation処理、help記載、専用testの整理範囲は採用時に決める。
 - 再検討条件: 利用者が入力履歴の削除を個別incrementへ採用するとき。
 - 現行経路: `v0/tui/input_history.ts`、`v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
+
+### S35 — スクロールモード（mouse wheel履歴参照）のオン／オフ切替（未採用、メモのみ）
+
+- 利用者メモ（2026-10-07）: 「メモ スクロールモードのオンオフができるように デフォルトはオン」。
+- 観測（208の配置後）: TUIがmouse trackingを要求する間は、端末標準のドラッグ選択・コピーが
+  TUIへ転送され使えない。利用者は208をShift+ドラッグ運用で受入した。
+- 候補: スクロールモード（mouse wheelによる履歴参照）をオン／オフできるようにし、既定をオンとする。
+  オフ時はmouse trackingを解放し、端末標準のドラッグ選択・コピー（tmux選択）を使えるようにする
+  意図と解釈する（切替手段・表示・セッションをまたぐ保持の範囲は採用時に決める）。
+  オフ中もPageUp／PageDownによる履歴参照は維持する。
+- 関連: [Increment 208](../increments/increment-208.md)の「配置後の利用者観測」にある改善案2（TUIに
+  一時的なmouse解放コマンドを追加する案）を、既定オン付きの切替として具体化したもの。
+- 現行経路: `v0/tui/terminal.ts`（`?1000h`／`?1006h`の要求・復元）、`v0/tui/input_decoder.ts`、
+  `v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
+- 再検討条件: 利用者が個別incrementへ採用するとき。
 
 ## Agent実行
 
