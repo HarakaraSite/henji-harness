@@ -2,12 +2,13 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-05（source `a78c2076`・Increment 182までと照合。S26はIncrement 183、A18はIncrement
-185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設）。
+更新日: 2026-10-07（source `68ab5dd0`。S20・A34・B5の現行境界を追加照合）。 基盤の照合:
+2026-10-05、source `a78c2076`・Increment 182まで。S26はIncrement 183、A18はIncrement
+185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設。
 2026-10-06にA30・A31を追加し、A32・A33はIncrement 200・201へ採用・移設（A32: review用Agentの
-tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。
-B12はIncrement 203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。
-A30へは保存Session `0cd5c22e`・`2bc2699f`の分析結果も追記した。
+tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。 B12はIncrement
+203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。 A30へは保存Session
+`0cd5c22e`・`2bc2699f`の分析結果も追記した。
 2026-10-06にA19（requestごとの実行状況・日時・地域context）は利用者判断で不採用とし、
 候補一覧と本項目を削除した。
 
@@ -29,44 +30,44 @@ Definition/transportを候補の必須前提として復活させず、候補自
 
 ## 候補一覧
 
-| ID  | 領域           | 候補                                                                 | 再検討の主な契機                                                                                                       |
-| --- | -------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                  | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
-| S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                            | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
-| S22 | Surface        | 将来のWebUI本体                                                      | browserから通常利用する画面が必要になるとき                                                                            |
-| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                              | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
-| S29 | Surface        | `/edit`による外部エディタ起動                                        | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
-| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                     | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| S32 | Surface        | 入力履歴機能の削除                                                   | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
-| S35 | Surface        | スクロールモード（mouse wheel履歴参照）のオン／オフ切替（デフォルトオン） | 利用者が個別incrementへ採用するとき。オフ中は端末標準のドラッグ選択・コピーを使えるようにする                          |
-| A2  | Agent実行      | Host操作のmodel向けtool化                                            | AIがSession列挙やreloadを実際に必要とする                                                                              |
-| A3  | Agent実行      | Context Strategyの外部化                                             | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
-| A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
-| A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                          | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
-| A11 | Agent実行      | instructionの与え方                                                  | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                | 実行中に追加の指示を続けて送りたいとき                                                                                 |
-| A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択              | 利用者が起動判断の検討を再開するとき                                                                                   |
-| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                         | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
-| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback              | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
-| A30 | Agent実行      | tool間の結果連鎖（tool resultを別toolの入力にできない）。利用者は安易なパイプ連結を希望しない | パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき                                  |
-| A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                      | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき               |
-| A34 | Agent実行      | 再起動後の続行セッションで新規toolがmodel定義に現れない疑い          | 新規セッションで再確認し、同じ現象なら定義更新の経路を調査するとき                                                       |
-| A35 | Agent実行      | 子agentの時間上限と期限での自動キャンセル                           | review等の時間上限をruntimeで実行したいとき                                                                             |
-| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
-| R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
-| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | tool candidateを生成・保存・採用するflowを設計する                                                                     |
-| R3  | F24            | tool実行profileとsandboxed Deno program                              | trusted-local以外の実行環境をproduct要件にする                                                                         |
-| R4  | F24            | instruction componentのrevision化                                    | instructionを自己改訂candidateとして採用する                                                                           |
-| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                  | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
-| E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                              | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
-| E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
-| E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
-| P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                    | context圧縮を人間が明示的に行いたくなったとき                                                                          |
-| P4  | 参照実装parity | Session export/import                                                | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
-| P6  | 参照実装parity | model cycling shortcut                                               | provider横断のmodel切替を頻繁に行うとき                                                                                |
-| P8  | 参照実装parity | configurable keybindings                                             | keybindingを利用者ごとに変えたくなったとき                                                                             |
-| P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
-| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                         | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
+| ID  | 領域           | 候補                                                                                          | 再検討の主な契機                                                                                                       |
+| --- | -------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                                           | 改訂したinstruction・Agent設定・toolを現Sessionの後続executionへ適用したいとき                                         |
+| S20 | Surface        | 巨大表示領域での画面サイズ・frame上限の見直し                                                 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
+| S22 | Surface        | 将来のWebUI本体                                                                               | browserから通常利用する画面が必要になるとき                                                                            |
+| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                                       | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
+| S29 | Surface        | `/edit`による外部エディタ起動                                                                 | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
+| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                                              | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| S32 | Surface        | 入力履歴機能の削除                                                                            | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
+| S35 | Surface        | スクロールモード（mouse wheel履歴参照）のオン／オフ切替（デフォルトオン）                     | 利用者が個別incrementへ採用するとき。オフ中は端末標準のドラッグ選択・コピーを使えるようにする                          |
+| A2  | Agent実行      | Host操作のmodel向けtool化                                                                     | AIがSession列挙やreloadを実際に必要とする                                                                              |
+| A3  | Agent実行      | Context Strategyの外部化                                                                      | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
+| A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                                    | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
+| A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                                   | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
+| A11 | Agent実行      | instructionの与え方                                                                           | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
+| A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                                         | 実行中に追加の指示を続けて送りたいとき                                                                                 |
+| A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                                       | 利用者が起動判断の検討を再開するとき                                                                                   |
+| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                                  | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
+| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback                                       | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
+| A30 | Agent実行      | tool間の結果連鎖（tool resultを別toolの入力にできない）。利用者は安易なパイプ連結を希望しない | パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき                                             |
+| A31 | Agent実行      | workspace外（config/state/tmp）の読取・書込境界                                               | workspace外の確認・一時file作成を通常利用で繰り返すとき。credential露出防止とセットで決める必要が出たとき              |
+| A34 | Agent実行      | 再起動後の続行セッションで新規toolがmodel定義に現れない疑い                                   | 新規セッションで再確認し、同じ現象なら定義更新の経路を調査するとき                                                     |
+| A35 | Agent実行      | 子agentの時間上限と期限での自動キャンセル                                                     | review等の時間上限をruntimeで実行したいとき                                                                            |
+| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                                    | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
+| R1  | F24            | 自己改訂対象の重心とagent loop境界                                                            | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
+| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                                             | tool candidateを生成・保存・採用するflowを設計する                                                                     |
+| R3  | F24            | tool実行profileとsandboxed Deno program                                                       | trusted-local以外の実行環境をproduct要件にする                                                                         |
+| R4  | F24            | instruction componentのrevision化                                                             | instructionを自己改訂candidateとして採用する                                                                           |
+| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                                           | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
+| E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                                       | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
+| E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                                         | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
+| E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）                          | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
+| P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                                             | context圧縮を人間が明示的に行いたくなったとき                                                                          |
+| P4  | 参照実装parity | Session export/import                                                                         | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
+| P6  | 参照実装parity | model cycling shortcut                                                                        | provider横断のmodel切替を頻繁に行うとき                                                                                |
+| P8  | 参照実装parity | configurable keybindings                                                                      | keybindingを利用者ごとに変えたくなったとき                                                                             |
+| P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                                         | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
+| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                                                  | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
 
 ## Surface
 
@@ -93,19 +94,24 @@ Definition/transportを候補の必須前提として復活させず、候補自
   [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
   [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
 
-### S20 — 巨大表示領域でのwindow行量確保とframe上限（F01）
+### S20 — 巨大表示領域での画面サイズ・frame上限の見直し（F01）
 
-- 観測（2026-09-26、参照実装調査の実測）: 大きな表示領域で現行TUIが画面を埋められない。
+- 原観測（2026-09-26、参照実装調査の実測）: 大きな表示領域で当時のTUIが画面を埋められなかった。
   `HISTORY_WINDOW_ENTRIES` 48／`HISTORY_WINDOW_BYTES` 1 MiBのwindowはentry数・文字量で決まり、
   画面が要求する行数は保証しない。実測で512×200のとき、window30 entry・63 KBで生成行120行に対し
   必要196行（不足分は空行padding）。entryが短い対話ほど起こりやすい。加えて`MAX_ROWS` 200／
   `MAX_COLUMNS` 512でclampされた外側は空白になり、512×200＋CJK本文ではframeが `MAX_FRAME_BYTES` 128
   KiB（実測147 KB、SGR未計上）を超過して`renderFrame`が古いlog行からtruncateする。
-- 候補: 描画windowを行量ベース（必要なlogHeightぶんを遡って確保、entry数上限は維持）に変え、
-  巨大表示領域でのclampとframe上限を実測に基づき見直す。
+- 現行境界（2026-10-07、source照合）: [Increment 198](../increments/increment-198.md)で 48件/byte
+  window、全候補行の結合/slice、旧全文layoutを撤去し、本文位置から可視範囲を取得する方式へ
+  置換した。旧windowの行量不足を理由とする変更案は残候補にしない。 `MAX_ROWS` 200・`MAX_COLUMNS`
+  512・`MAX_FRAME_BYTES` 128 KiBは残っている。
+  原観測の512×200条件での空白・行欠落は198後に再測定しておらず、同じ現象が残るとは断定しない。
+- 残る候補: 巨大表示領域での画面サイズclampとframe上限を、現行経路での実測に基づき見直す。
 - 再検討条件: 大きなディスプレイ利用が日常になり、履歴の空白・行欠落が観測されたとき。
-- 関連: `v0/tui/state.ts`（`HISTORY_WINDOW_*`）、`v0/tui/layout.ts`（`MAX_ROWS`／`MAX_COLUMNS`／
-  `MAX_LAYOUT_SOURCE_BYTES`）、`v0/tui/tui_renderer.ts`（`MAX_FRAME_BYTES`）、比較文書。
+- 関連: `v0/tui/layout.ts`（`MAX_ROWS`／`MAX_COLUMNS`／`MAX_FRAME_BYTES`）、
+  `v0/tui/tui_renderer.ts`（frame予算）、[Increment 198](../increments/increment-198.md)、
+  [画面表示比較](../research/pi-opencode-henji-screen-display-comparison.md)。
 
 ### S22 — 将来のWebUI本体（F01、F10、未採用）
 
@@ -398,14 +404,16 @@ Pi／OpenCode／Henjiの画面表示比較
   stream中断時はそのchunkを受け取れないことがある。
   これらはOpenAIの仕様であり、同形式の互換providerすべてが同じ詳細項目を返すとは未確認。
   provider別の実対応と保存・公開contractは採用時に確認する。
-- 関連: A3、A28、`v0/agent/provider/openai_responses_model.ts`、
+- 関連:
+  A3、[A28の移設先](../increments/increment-199-a28-observations.md)、`v0/agent/provider/openai_responses_model.ts`、
   [OpenAI Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)、
   [Chat Completions公式仕様](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)。
 
 ### A30 — tool間の結果連鎖（tool resultを別toolの入力にできない）（未採用、メモのみ）
 
 - 観測（2026-10-06、[Increment 200](../increments/increment-200.md)の実装・検証作業中の通常利用）:
-  専用toolへ寄せられない合成処理がbash pipelineに残る。実例は、test結果の要約（`deno test … |
+  専用toolへ寄せられない合成処理がbash
+  pipelineに残る。実例は、test結果の要約（`deno test … |
   grep -E … | tail`）、`search`結果の`cut`・`head`整形、`git diff | grep`、`cat … | head`。
 - 現行境界: `run_typescript`の`input`はmodelが用意するJSONで、直前のtool
   result（bashのstdout、`search`結果）を機械的に受け取る経路がない。大きい出力はmodel
@@ -419,10 +427,12 @@ Pi／OpenCode／Henjiの画面表示比較
   トークン効率が下がる可能性は許容する。合成のためのbash pipelineより、明示的なstepと専用toolの
   利用を優先する。
 - 実測（2026-10-06、現行環境）: 1回のbash内で完結するpipelineはtool間の連鎖ではないが、別の理由でも
-  望ましくない。bashは`/bin/bash --noprofile --norc -c`で実行され`pipefail`が無いため、
-  失敗がexit statusから消える（`false | tail -1`と`deno eval … Deno.exit(7) | tail -1`がともexit 0）。
-  今回のtest要約（`deno test … | grep … | tail`）も同じ形で、失敗runでもbash toolのexitCodeは0だった。
-- 既存の代替経路（新機構なしで成立、実測）: コマンド出力をfileへredirectし（workspace内のscratchまたは
+  望ましくない。bashは`/bin/bash --noprofile --norc -c`で実行され`pipefail`が無いため、 失敗がexit
+  statusから消える（`false | tail -1`と`deno eval … Deno.exit(7) | tail -1`がともexit 0）。
+  今回のtest要約（`deno test … | grep … | tail`）も同じ形で、失敗runでもbash
+  toolのexitCodeは0だった。
+- 既存の代替経路（新機構なしで成立、実測）:
+  コマンド出力をfileへredirectし（workspace内のscratchまたは
   `/tmp`）、`run_typescript`がそのfileを読んで集計する。bashの`/tmp`書込と`run_typescript`の`/tmp`
   読取は今回の環境で確認した。中間出力をmodel contextへ出さないため、pipelineでtailへ絞る場合より
   context消費が増えるとは限らず、増えるのはstep数である。
@@ -434,28 +444,31 @@ Pi／OpenCode／Henjiの画面表示比較
   pipe（grep/head/tail）を避け、集計が必要なら出力をfileへ書いて`run_typescript`に渡す」、
   `run_typescript`へ「他commandの出力を集計するときはfile経由で読む」。[Increment 200](../increments/increment-200.md)の
   文面へ追加するかは未定。
-- 当該作業でのpipe使用の分類（2026-10-06）: 観測したpipeはすべて「modelが読むための要約・整形」目的で、
+- 当該作業でのpipe使用の分類（2026-10-06）:
+  観測したpipeはすべて「modelが読むための要約・整形」目的で、
   command自体がstream処理を目的とする必須pipeは0件だった。代替は、一覧/検索→`search`、file閲覧→`read`、
   test出力→redirect+`run_typescript`または`bash_output`の末尾offset、JSON整形→`run_typescript`。
   2件はpipe後も4 KiBを超えてtruncateされた（7,318と4,654 bytes）ため、pipeは可視性問題を解決しない。
-- 案内の形: 「pipeを避ける」だけでは、代替（file経由/末尾offset/専用tool）を使えない場合に失敗の見逃しや
+- 案内の形:
+  「pipeを避ける」だけでは、代替（file経由/末尾offset/専用tool）を使えない場合に失敗の見逃しや
   step増を招く。「要約はpipeではなくredirect+file+`run_typescript`、打ち切られた末尾は`bash_output`の
   offset」のように置換先を指定し、pipeが本当にcommandの目的である場合と、どうしても使う場合の
   `set -o pipefail`（実測で有効）を例外として残す。
 - baseline観測（2026-10-06、保存Session `0cd5c22e`・13 turn・tool call 139件の
   read-only分析、Increment 200の案内配置前）: bash 113件（81%）に対しread 15・edit 9・write 1・
-  web_search 1で、`run_typescript`・`search`・`bash_output`は0件。bashの内訳はcd 111（98%）、
-  pipe 81（72%、うちhead 68）、`sed -n 'A,Bp'` 33、grep系 68、ls/find 22、echo区切り 72、
-  `> /dev/null` 17、実書込redirect 1。結果は11件がtruncate/spoolされ、`bash_output`
+  web_search 1で、`run_typescript`・`search`・`bash_output`は0件。bashの内訳はcd 111（98%）、 pipe
+  81（72%、うちhead 68）、`sed -n 'A,Bp'` 33、grep系 68、ls/find 22、echo区切り 72、 `> /dev/null`
+  17、実書込redirect 1。結果は11件がtruncate/spoolされ、`bash_output`
   でのreadbackは0件。同一fileの再訪が多い（`worker_runtime.ts` 26回等）。
   つまりbashが閲覧・検索・head整形の代用になっており、pipeはdata連鎖ではなく表示の切詰めが主。
   証拠は`.tools/tool-trend-0cd5c22e/`（詳細JSONLと集計summary.json）にある。
 - 再検討条件: パイプ回避の案内後も、保持済み出力を後段toolで使う必要が通常利用で残るとき。
 - 利用者提案（2026-10-06）: `read xxx.md | run_typescript`、`search xxx | read`のようなtool間の
   受け渡し。実装は未指示。
-- 実装ルートの整理（2026-10-06、source確認）: 新文法/新pipeline toolは表示・step・失敗・型のsurfaceを
-  増やすため最後の候補とする。明示的な参照渡し（tool resultのidと後続toolの参照）なら既存contractの
-  延長で済む。大きいdataはrequest上限（会話1 MiB等）があるためargumentsでなくfile渡しが妥当。
+- 実装ルートの整理（2026-10-06、source確認）: 新文法/新pipeline
+  toolは表示・step・失敗・型のsurfaceを 増やすため最後の候補とする。明示的な参照渡し（tool
+  resultのidと後続toolの参照）なら既存contractの 延長で済む。大きいdataはrequest上限（会話1
+  MiB等）があるためargumentsでなくfile渡しが妥当。
   - core変更なしのprobe: 外部hookで成立する。`after_tool`で結果とidを保持し、`before_tool`で参照を
     file path等の小さい引数へ置換、`runtime_start`のcontext additionで案内を追加する。hook contextの
     transcriptはcommitted済みの過去turnのみ（当turnの結果は見えない）ためhook自身が保持する。
@@ -465,20 +478,22 @@ Pi／OpenCode／Henjiの画面表示比較
 - どのルートでも決めること: 参照可能な範囲（当turn/実行/Worker世代）、上限・eviction・清掃、
   credentialをworkspaceやDataへ書かないこと、参照元のsidecar/attribution、不在・期限切れの明示error、
   TUIの参照表示。
-- 可視サイズの実測（2026-10-06）: bashのmodel可視出力はstreamあたり4,096 bytes（`MAX_CAPTURE_BYTES`）で
-  打ち切られ、残りはspoolへ保持される（32 MiB/command、128 MiB/registry）。`bash_output`は`totalBytes`と
-  任意offset（UTF-8境界）を受け、49,152 bytes windowで末尾も読める。readは64 KiB/call、searchは既定100件/page。
-  今回の実測は`deno test`（2 file・41
-  test）4,998 bytes、`git status --porcelain` 2,502 bytes、`grep -rn` 1,565 bytes、
+- 可視サイズの実測（2026-10-06）: bashのmodel可視出力はstreamあたり4,096
+  bytes（`MAX_CAPTURE_BYTES`）で 打ち切られ、残りはspoolへ保持される（32 MiB/command、128
+  MiB/registry）。`bash_output`は`totalBytes`と 任意offset（UTF-8境界）を受け、49,152 bytes
+  windowで末尾も読める。readは64 KiB/call、searchは既定100件/page。 今回の実測は`deno test`（2
+  file・41 test）4,998 bytes、`git status --porcelain` 2,502 bytes、`grep -rn` 1,565 bytes、
   `cat .handoff/handoff.md` 12,239 bytes（可視4 KiB＋readback）。
-- 効果の見込み（再評価）: 打ち切られた結果を後段へ渡す需要より、「打ち切られず全部読めるfileを作り、集計だけを
+- 効果の見込み（再評価）:
+  打ち切られた結果を後段へ渡す需要より、「打ち切られず全部読めるfileを作り、集計だけを
   contextへ返す」需要が実態に合う。`web_fetch`は`save_to`（workspaceまたは`/tmp`、既存fileは拒否）で
   本文をfile化し、結果は`Saved: <path> … Bytes:`の小さいtextだけになる。同じ形を`bash`のredirectでも
   使えるため、新機構の優先度は下げ、既存primitiveの案内と`bash_output`の末尾offset利用を先にする。
   `read→run_typescript`はrun_typescriptが既にfileを読めるため利得小。本命だった`bash`/`search`→
   `run_typescript`も、上記のfile経路と末尾readbackで多くは足りる。
 - pipe回避の既存実例（2026-10-05 Session `2bc2699f`、2026-10-06にread-only分析）:
-  `… > log 2>&1; result=$?; tail -n 8 log; exit "$result"`の形が39件あり、対象実行では非0 exit 10件が
+  `… > log 2>&1; result=$?; tail -n 8 log; exit "$result"`の形が39件あり、対象実行では非0 exit
+  10件が
   正しく伝播していた（pipeでtailへ絞る場合と違い失敗が見える）。file化＋尾の表示＋exit再送は、
   新しい機構なしで成立する代替の実例である。
 - 関連: [Increment 200](../increments/increment-200.md)、`v0/agent/tools/run_typescript.ts`、
@@ -488,9 +503,10 @@ Pi／OpenCode／Henjiの画面表示比較
 
 - 観測（2026-10-06）: 専用toolはworkspace内に限定される（`checkedPath`、`run_typescript`実行Workerの
   permissionはworkspaceと`/tmp`）。workspace外の確認はbashが必要で、実際に今回はAgent自身の実効
-  instructionを確認するためconfig rootの`instruction.md`をbashの`cat`で読んだ（`read`は
-  「path must stay within workspace」で拒否）。
-- 採用済み（2026-10-06、[Increment 204](../increments/increment-204.md)）: `run_typescript`はconfig rootを
+  instructionを確認するためconfig rootの`instruction.md`をbashの`cat`で読んだ（`read`は 「path must
+  stay within workspace」で拒否）。
+- 採用済み（2026-10-06、[Increment 204](../increments/increment-204.md)）: `run_typescript`はconfig
+  rootを
   read/writeでき、`henjiConfigRoot`変数を受け取る。credential値はstate配下の専用rootへ分離し、
   同toolからread/writeとも不可（`deny`監査は設定可能）。採用した要件・前提・残る範囲は204を参照する。
 - 残る候補: workspace外のHost-owned root（config/state）を`read`・`search`等の専用toolでも明示pathで
@@ -498,30 +514,40 @@ Pi／OpenCode／Henjiの画面表示比較
   credential fileの扱い、表示・履歴への波及を採用時に決める。
 - 再検討条件: 通常利用でworkspace外の確認・一時file作成が繰り返し必要になり、bash併用の使い分けが
   負担・誤用の原因になるとき。
-- 関連: A5、A30、204、`v0/agent/tools/work_tool_workspace.ts`、`v0/agent/tools/run_typescript_executor.ts`、E1。
+- 関連:
+  A5、A30、204、`v0/agent/tools/work_tool_workspace.ts`、`v0/agent/tools/run_typescript_executor.ts`、E1。
 
 ### A34 — 再起動後の続行セッションで新規toolがmodel定義に現れない疑い（未確認）
 
 - 観測（2026-10-06、Session `91cb1f45`）: Core/TUIを再起動（新binary build `5bfcdbaa`・source
   `6f6f9a6a`、Core `c6afea6d`、`henji tui --continue`）した。
   - config側: `tool list`に`git_inspect`、`agent inspect`はdefault・reviewerともrejections `[]`
-  - 実行側: `search`の`entries` mode（local-3）は**このセッションで動作**した（type/bytes/modifiedAtを返した）
+  - 実行側: `search`の`entries`
+    mode（local-3）は**このセッションで動作**した（type/bytes/modifiedAtを返した）
   - しかし新規tool名`git_inspect`は**このセッションのtool呼び出しとして発行できなかった**（複数回試行したがbashへ
     落ちた）。
-- 追試（2026-10-06、利用者指示により実行を試行）: 同じセッション・同じWorkerで`git_inspect`の呼び出しを発行できなかった
-  （複数回試行、いずれも発行不能。同じWorkerの`search`は`entries` modeが動作した）。config側はrejections `[]`なので、
-  原因はこのセッションのmodel-facing tool定義に`git_inspect`が無いことにある。
-- 仮説（未確認）: 会話のmodel-facing tool定義がセッション開始時のbinaryで固定され、`--continue`では新しいtool名が
-  追加されない。実行はliveなWorker Registryへ届くため、同名toolの新機能（search entries）は使える。
-- 利用者影響: 再起動しても、新規追加toolを既存セッションの続きでは使えない可能性がある。新規セッションなら
+- 追試（2026-10-06、利用者指示により実行を試行）:
+  同じセッション・同じWorkerで`git_inspect`の呼び出しを発行できなかった
+  （複数回試行、いずれも発行不能。同じWorkerの`search`は`entries`
+  modeが動作した）。config側のrejections `[]`と 呼出し不能の観測だけでは、当該requestのmodel-facing
+  tool定義に`git_inspect`が無かったとは確定できない。
+- 当時の仮説（未確認）: model-facing
+  tool定義がSession開始時のbinaryで固定され、`--continue`では新しいtool名が
+  追加されない可能性を考えた。同名toolの新機能が使えたことは観測だが、定義の固定を証明するものではない。
+- 現行source照合（2026-10-07）: `core/loop.ts`は各model
+  requestへ現在の`registry.definitions()`を渡す。
+  Worker起動時は現在fileからtoolを構成し、保存Sessionの過去snapshotを現在のtool定義として使う契約ではない。
+  当該実WorkerのRegistryとmodelへ実提示した定義は未取得であり、原因と仮説の成立は未確認のままである。
+- 利用者影響:
+  再起動しても、新規追加toolを既存セッションの続きでは使えない可能性がある。新規セッションなら
   使える見込み（未確認）。
-- 次の確認: ①`henji tui --new`の新規セッションで`git_inspect`を呼べるか、②呼べない場合はmodel requestの`tools`を
-  組み立てる経路（`loadWorkerTools`・Worker composition）とHost/TUIが保持する会話stateの関係を確認する。
+- 次の確認: 新規Sessionと続行Sessionのtool提示・呼出しを比較し、再観測時は当該Workerの構成とmodelへ
+  実提示したtool名を確認する。実provider callを伴う追試は別途明示承認を得る。
 - 再検討条件: 利用者が新規セッションで確認するとき、または同現象が再観測されるとき。
 - 追加確認（2026-10-06）: Core API（`/api/v1/*`）には実行中Workerのtool一覧を読む経路がない。
-  隔離XDGで起動したcompiled binaryのTUIではconfiguration rejectionのnoticeが出ず、Workerは`git_inspect`を
-  読み込む（`search`の`entries`は続行セッションでも動作）。利用者判断でセッションを作り直して新規セッションで
-  確認する。
+  隔離XDGで起動したcompiled binaryのTUIではconfiguration rejectionのnoticeが出なかった。
+  `search`の`entries`は続行Sessionでも動作したが、当該実Workerの`git_inspect`提示確認とは分ける。
+  利用者判断でSessionを作り直して新規Sessionで確認する方針とした。本項目にはその確認結果の記録がない。
 
 ### A35 — 子agentの時間上限と期限での自動キャンセル（未採用、メモのみ）
 
@@ -796,17 +822,18 @@ Pi／OpenCode／Henjiの画面表示比較
   同日の隔離XDG・実provider確認では別原因のprovider timeoutとなり、commit却下は再現しなかった。
   詳細なDB観測、自動復元の由来、再現試行は
   [`increment-85.md`](../increments/increment-85.md#b5の原観測と切り分け2026-09-19)へ移した。
-- 現行境界（2026-10-04、source照合）: [Increment 170](../increments/increment-170.md)で
-  record組立て・保存はAgent Data側へ移った。`session_authority.ts`の`proposalRecord`はcanonical
-  Session schema
-  1の`validateStoredSessionRecord`がfalseなら`undefined`を返し、`session_data_owner.ts`の
-  `prepareProposal`が`commit proposal invalid`をthrowする。validatorはbooleanのままで、
-  不合格になった項目・値の形は返さない。元の却下原因も未特定である。
+- 現行境界（2026-10-07、source照合）: [Increment 170](../increments/increment-170.md)で
+  record組立て・保存はAgent
+  Data側へ移り、[Increment 199](../increments/increment-199.md)で採用portを 新message
+  suffixへ絞った。`session_authority.ts`の`proposalSuffix`はnextTurn、既存会話以上の
+  transcript長、新suffixの因果構造と1 turnであることを検証し、不合格なら`undefined`を返す。
+  `session_data_owner.ts`の`prepareProposal`はこれを`commit proposal invalid`としてthrowする。
+  不合格項目・値の形を返す経路はなく、元の却下原因も未特定である。
 - 対応済みの境界: 自動入力復元と停止理由の上書きはIncrement 85／97で解消した。
   却下proposalのtranscriptを保存・readbackする経路は181のhistory.sqlite3（schema
   1）へ接続されており、 原観測時の「却下transcriptをDBから読めない」は現行storeの制約ではない。
   [Increment 176](../increments/increment-176.md)でWorker／Data／commitの例外に取得可能な処理段階・
-  例外種類・短いmessage等を残すが、boolean validatorを項目別理由付きへ置き換える作業は対象外である。
+  例外種類・短いmessage等を残すが、項目別の検証不合格理由は提供していない。
 - 残る利用者影響:
   commit却下が起きた場合、保存されたproposalと取得可能な例外情報だけでは具体的な検証不合格箇所を
   直接特定できず、成果がcanonical採用されなかった理由の調査が難しい。

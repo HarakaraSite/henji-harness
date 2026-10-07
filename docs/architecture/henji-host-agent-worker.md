@@ -8,10 +8,13 @@
 
 この文書は、Henji HostとヘッドレスなDeno Agent Workerの責務、状態、lifetime、commit境界を定める。
 
-現行source照合: `a78c2076`（2026-10-04、Increment 182まで）。 JSON Agent設定・現在tool
+基盤のsource照合: `a78c2076`（2026-10-04、Increment 182まで）。 JSON Agent設定・現在tool
 folder・新履歴DBは[Increment 181](../increments/increment-181.md)、
 model省略childへの実効認証参照継承は[Increment 182](../increments/increment-182.md)の実装・受入結果を参照する。
-導入時のmanaged
+追加照合: 2026-10-07、source
+`68ab5dd0`。189・191・192・193・197・198・199・201・202・204・206・207・208に
+関わるhook、tool、provider、Data処理、TUIの現行記述を照合・反映した。全incrementの結果を本書へ転記するものではなく、
+個々の採用範囲・受入・配置結果は個別increment文書を参照する。 導入時のmanaged
 Definition/module方式は181で廃止した。過去の設計・受入記録は個別incrementに保持し、現行方式と区別する。
 
 複数providerを同一SessionとWorker内で扱うroute、認証profile、model一覧、account binding、provider
@@ -229,10 +232,16 @@ runのprocess宛signalに新しいgraceful保存保証は追加しない。
 
 標準run_typescriptの呼出しごとに同じHenjiの子processを既存Host ProcessExecutorが所有し、
 同期計算中の取消もprocess停止・清算へ接続する。子process内のcode Worker・module取得Workerは
-Tool実装が所有する。既存Registry・semantic履歴を使い、async本文、workspaceと/tmpのread/write、
-networkと実行時std取得を提供する。importはstdのみ許可し、通常fetchは維持する。
+Tool実装が所有する。既存Registry・semantic履歴を使い、async本文、workspace・/tmp・config
+rootのread/write、 networkと実行時std取得を提供する。importはstdのみ許可し、通常fetchは維持する。
 codeのenv/run/sys/ffiは無効とし、追加Worker作成は許可しない。
-実装・確認・全体gate通過・常用配置結果は[Increment 191](../increments/increment-191.md)を参照する。
+codeへ`henjiConfigRoot`を渡す。credential値とChatGPT account fileはstate配下の専用credential
+rootへ置き、 既定のread/write許可に含めない。config
+rootの`run-typescript.json`は既定許可へ加える`allow`と、code本文の
+文字列照合による`deny`監査を持つ。Deno
+permissionによる許可範囲と、path合成やsymlink等を強制的に防がない best-effortの監査は区別する。
+導入・確認・全体gate通過・常用配置結果は[Increment 191](../increments/increment-191.md)、 config
+rootとcredential保存先の変更は[Increment 204](../increments/increment-204.md)を参照する。
 
 - 共通factoryによるJSON設定、model/effort、実際のTool、native instruction/skill、runtime
   factsのcomposition構築。
@@ -250,7 +259,7 @@ Worker内でchildを同期実行せず、Hostへ要求して別Worker・Executio
 HenjiはDeno runtime・production entry・共通Agent設定/構成・tool APIを含むstandalone
 executableとして配布する。 任意path・任意workspaceから使え、repository
 checkoutや別途導入したDenoをruntime dependencyにしない。配布packageはexecutableと編集可能な
-`search`、`web_search`、`web_fetch`の外部tool folder、installer、build/file
+`search`、`git_inspect`、`web_search`、`web_fetch`の外部tool folder、installer、build/file
 manifestを含む。installerは
 config配下へfolderを配置し、既存のtool選択CLIで登録する。既存folderの編集は保持し、明示的な
 `--replace-tools`指定時にpackageのfileを上書きする。
@@ -317,8 +326,8 @@ dispatchに使い、function/内部stateをpostMessageしない。
 JSONのtoolsが空ならskill/submit_json_resultを自動追加しない。native
 skillは実catalogと選択toolがあるとき提示する。
 
-同梱default/genericはread/write/edit/bash/bash_output/run_typescript、search/web_search/web_fetch、
-skill/submit_json_resultを選ぶ。searchと二つのweb toolはpackageに含む外部sourceを使い、
+同梱default/genericはread/write/edit/bash/bash_output/run_typescript、search/git_inspect/web_search/web_fetch、
+skill/submit_json_resultを選ぶ。search、git_inspectと二つのweb toolはpackageに含む外部sourceを使い、
 executableへ実装を埋め込まない。明示toolsを持つnamed Agentは必要な名前を宣言する。 child操作はAgent
 JSONのagentsから別に構成し、child Workerには再帰spawn toolを提示しない。 rejectされたtool/named
 entryは提示とdispatchの両方から除き、理由を最終instructionとSurfaceへ渡す。
@@ -329,8 +338,8 @@ Agent/catalog構成が成立しなければtaskをadmitせず、Core/TUIと履�
 Agent Workerはruntime_start、runtime_stop、before_turn、after_turn、before_tool、after_toolの
 六つのbuiltin呼出点を持つ。共通runnerは登録順のawaitと結果の受渡しを担当し、Agent側が
 context・tool値への適用とsemantic記録を担当する。環境情報の挿入等の具体処理は外部TSに置き、
-Worker-local HookFactoryへ公開specifier `@henji/hooks`、contract `henji-hooks/v1`を提供する。
-Data Workerのhookはこのincrementでは追加しない。
+Worker-local HookFactoryへ公開specifier `@henji/hooks`、contract `henji-hooks/v1`を提供する。 Data
+Workerのhookはこのincrementでは追加しない。
 
 現在のhooks.jsonがcatalogと共通defaultを選ぶ。Agentのhooks省略はdefault、明示一覧は置換、
 空一覧は無効化であり、root/named/genericへ同じ規則を使う。factoryとclosureはWorkerごとに独立し、
@@ -346,14 +355,15 @@ before_turnの寄与はそのturnだけに適用する。before_toolは実効引
 元callと双方の値・出所を記録する。after_toolは本文だけを変え、outcome/callId/terminal
 finalTextを保持する。
 
-after_turnはDataの採用・保存確定後に実行し、確定したterminal reasonと完成draftを渡す。summaryと保持境界の返却はData ownerの
+after_turnはDataの採用・保存確定後に実行し、確定したterminal
+reasonと完成draftを渡す。summaryと保持境界の返却はData ownerの
 既存checkpoint保存へ接続し、保存ack後にturn完了と次task/子result公開へ進む。
-canonical履歴は残し、子の更新は子自身のcontextへ適用する。確定後のhook効果・例外・
-短いprovider request factはsealed executionの通常受付とは別の保存経路へ残し、
+canonical履歴は残し、子の更新は子自身のcontextへ適用する。確定後のhook効果・例外・ 短いprovider
+request factはsealed executionの通常受付とは別の保存経路へ残し、
 hook失敗で採用済み結果を再失敗にしない。189ではcompaction用の外部定義の要約処理・閾値は実装しない。
 
-配布packageはruntime-start-time定義を同梱する。これはWorker開始時のDateを一度取得し、
-UTC offsetとtimezone名付きで開始日時を挿入する。installerは初回catalog/defaultを作り、
+配布packageはruntime-start-time定義を同梱する。これはWorker開始時のDateを一度取得し、 UTC
+offsetとtimezone名付きで開始日時を挿入する。installerは初回catalog/defaultを作り、
 既存catalogと編集済み定義を保持する。配布定義の置換は明示的な--replace-hooksで行う。
 
 #### 非同期childの操作と清算
@@ -465,17 +475,30 @@ bindingの詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing
 
 #### 検索・URL取得・process tool
 
-外部searchはpaths（file名一覧）、files（本文が一致するfile）、content（一致行）、count（出現数）を提供する。
-共通列挙したfileを明示引数として渡し、rgを優先して不在時だけgrepへfallbackする。hidden/ignore対象も
+外部searchはpaths（file名一覧）、files（本文が一致するfile）、content（一致行）、count（出現数）、
+entries（directory内のentry metadata）、stats（fileごとの行数・単語数・byte数）を提供する。
+本文検索は共通列挙したfileを明示引数として渡し、rgを優先して不在時だけgrepへfallbackする。hidden/ignore対象も
 同じ範囲へ含める。regexpの方言とゼロ幅一致の扱いはbackendに従う。files/content/countはtext検索であり、
-`.db`・`.sqlite`・`.sqlite3`・`.blob`と対応する`-wal`/`-shm`を除外し、その他のfileは64 KiB単位で内容を
-読みながらNULをbinaryとして除外する（UTF-16 BOM付きtextは維持し、encoded NULではなくcode unitの
+`.db`・`.sqlite`・`.sqlite3`・`.blob`と対応する`-wal`/`-shm`を除外し、その他のfileは64
+KiB単位で内容を 読みながらNULをbinaryとして除外する（UTF-16 BOM付きtextは維持し、encoded
+NULではなくcode unitの
 U+0000を判定する）。paths/files/contentは完全なrecord単位でoffset/limitと続き情報を持ち、contentのtotalは
 一致行数である。countは同じ検索条件で選択対象全体の非重複の一致数をmatchCountへ合算し、
 offset/limitを適用しない。backend出力のcaptureはstdout合計8 MiB・stderr 64 KiBまでとし、超過時は
 processを停止して取得済み範囲を返し、不完全recordを除く。tool返却JSONは1 MiBまでで、超過する
 matching textはprefix化する。部分結果は`truncated:true`・`totalIsExact:false`で明示し、
 hasMore/nextOffsetは取得済みrecord内のpagingに限る。
+
+entriesはpath直下を既定とし、depthで対象階層を選ぶ。type・fileのbytes・取得できたmodifiedAtを返し、
+symlinkはentryとして表示してsymlinked directoryを辿らない。statsはfileまたはdirectory/globを選び、
+64 KiB単位の逐次読取でLF数、Unicode White_Spaceで区切った非空列数、全byte数を集計する。
+末尾の未改行部分は行数に含めず、検索用のDB/blob除外は適用しない。両modeはrecord単位でpagingする。
+
+外部git_inspectはworkspaceのstatus・diff（staged/rev/path絞込・diffstatを含む）・log・showを、
+固定argvで読取専用操作として提供する。通常の出力は行window、logはcommit単位でpagingする。
+searchのentriesとgit_inspectの導入は[Increment 201](../increments/increment-201.md)、statsとtool選択の
+guidelineは[Increment 206](../increments/increment-206.md)を参照する。modelによる自発的な選択改善は、
+機能とguidelineの到達確認だけで実証済みとしない。
 
 外部web_searchはExa APIを使い、非modelの検索requestとしてauthProfile `exa-api-key`を解決する。
 親modelのcredentialやmodel request budgetを使わず、tool semantic履歴とprovider=exa/api=exa-searchの
@@ -544,10 +567,12 @@ Responsesの本文とtool callの併存時も本文をtoolより前に保持す�
 
 assistant本文はHost Surface内のMarkdown
 rendererで見出し、list、table、quote、bold、emphasis、code等を plain
-textと表示spanへ投影する。現行はuser行を灰色背景の全幅panelとyellow文字で示し、assistantはyellow、toolはcyan、
-systemはmagenta、失敗語はred、Markdown見出しは256色のblue系、list
-marker・emphasis・readyはcyanである。terminal styleは最終frameにだけ加え、保存本文・API・model
-contextへANSIを混入させない。
+textと表示spanへ投影する。現行はuser行を灰237の全幅panelと端末既定の本文色で示し、user/assistantラベルは
+ANSI 33、toolラベルとtool名・thinking系ラベルは緑＋dim（SGR 32;2）である。通常system通知とlist/quote
+markerは端末既定色、失敗語はred、Markdown見出しとreadyはANSI blue（34）、emphasisはcyan（36）、
+workingはANSI 33、表罫線・footerはdimである。配色の採用・利用者確認は
+[Increment 193](../increments/increment-193.md)と[197](../increments/increment-197.md)を参照する。
+terminal styleは最終frameにだけ加え、保存本文・API・model contextへANSIを混入させない。
 rendererはgrapheme幅、変更entryの再利用、更新の合流、行差分とsynchronized outputを使う。
 会話表示は保存本文の可視rangeを起点に構築し、viewport位置・幅変更・Page/resize・followを同じ経路で
 処理する。Core/Dataは表示幅に依存せず、幅と表示操作のownerはTUIである。
@@ -557,9 +582,12 @@ rendererはgrapheme幅、変更entryの再利用、更新の合流、行差分�
 executionへの一回のsteeringである。最終回答を受けた時点でも受付済みの追加指示があれば、同じexecutionの
 次model requestへ一度取り込み、元のfinalだけで終了しない。受付可否はCore
 operationsから導く。Ctrl-Cは通常入力のclear、
-Alt-Enterは改行、区別可能なShift／Ctrl-Enterも改行として扱う。
-PageUp／PageDownは実行中も履歴を移動する。mouse wheelは同じ履歴移動（1イベント＝1ページ）として働き、
-TUIは会話表示中にmouse trackingを要求するため、端末標準のドラッグ選択はShift+ドラッグ（terminal側）または
+Alt-Enterは改行、区別可能なShift／Ctrl-Enterも改行として扱う。TerminalLifecycleはxterm
+modifyOtherKeys mode 1を要求・復元し、CSI-uとxterm形式の修飾Enterを復号する。
+tmux経路でのShift+Enter改行の採用・通常利用確認は[Increment 207](../increments/increment-207.md)を参照する。
+PageUp／PageDownは実行中も履歴を移動する。mouse
+wheelは同じ履歴移動（1イベント＝1ページ）として働き、 TUIは会話表示中にmouse
+trackingを要求するため、端末標準のドラッグ選択はShift+ドラッグ（terminal側）または
 tmuxのキーボードcopy-modeで行う。履歴中のEscはlatestへ戻り、latestで実行中のEscだけがcancelを
 要求する。pickerのEscはその画面を閉じ、cancelへ流さない。入力と過去表示位置はsnapshot更新で保持する。
 

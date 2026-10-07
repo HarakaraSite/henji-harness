@@ -216,10 +216,10 @@ bash結果のexitCodeで捕捉、Jev等のAI判定は実provider承認が前提�
 
 ## 次の一手と承認境界
 
-構想・architecture・roadmap: 利用者指示（2026-10-07）で189・191・192の記録済みpatchと202の追記、
-198・199の記述追記を適用した。構想は変更なし。変更は`docs/architecture/henji-host-agent-worker.md`・
-`docs/architecture/multi-provider-routing-and-auth.md`・`docs/roadmap.md`で、roadmapヘッダに反映範囲を
-記録した。
+正本文書の照合対応: 利用者指示（2026-10-07「対応して」）により、architecture・roadmapの現行記述と
+反映範囲、通常利用メモS20・A34・B5を更新した。構想は変更なし。照合範囲は
+`docs/architecture/henji-host-agent-worker.md`・`docs/roadmap.md`のヘッダ、残候補は
+`docs/experience/normal-use-inbox.md`を参照する。文書修正とcommitは利用者承認済み。pushは未承認。
 利用者メモ（2026-10-07）でスクロールモード（mouse wheel履歴参照）のオン／オフ切替（既定オン）を
 通常利用メモS35へ未採用候補として記録した。採用は利用者判断。
 
