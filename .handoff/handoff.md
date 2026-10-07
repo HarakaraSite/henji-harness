@@ -14,22 +14,22 @@
   配置後の利用者観測と指示により、ヘッダーを表示開始時の情報へ固定し、保存Session再表示で
   最新状態を出す修正を`afc75e0b`へcommit・build・再配置した。focused／配置binaryの隔離tmuxで
   RENAME時の再出力抑止・連続`/new`・保存Sessionの最新title表示を確認済み。詳細は212を参照する。
-  pushは未実施。
+  push済み。
   順序は211の実表示・操作確認後に212。要件と確認方針は各incrementを参照する。
 - [Increment 210](../docs/increments/increment-210.md)は、Coreの重複照会・再投影のlocal改善と検証を完了した。
   通常・批判的reviewとP2のtest修正・再reviewも完了した。
-  sourceはcommit `568ed489`へ保存済み。212の常用binaryにbuild・配置済み。pushは未実施。
+  sourceはcommit `568ed489`へ保存済み。212の常用binaryにbuild・配置済み。push済み。
   要件・比較結果・実経路確認とreview結果は210を参照する。
 - [Increment 209](../docs/increments/increment-209.md)は、利用者指定のHTTP APIについて不要な処理を整理し、
-  local実装・検証を完了し、sourceはcommit `24e9e357`へ保存済み。212の常用binaryにbuild・配置済み。pushは未実施。
+  local実装・検証を完了し、sourceはcommit `24e9e357`へ保存済み。212の常用binaryにbuild・配置済み。push済み。
   結果は209を参照する。
 - 既存incrementは、履歴へ退避済みのものも含め、2026-10-07の利用者判断で一律完了とした。
   各increment冒頭の現在状態を参照する。当時の実施・未実施記録は保持し、過去作業を再調査しない。
 - [Increment 208](../docs/increments/increment-208.md)は、実装・検証・常用配置・利用者受入・pushまで完了。
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
-- 常用binaryはHenji 0.10.0、source `afc75e0b`、build `8a1a9e4c…`（`--version`で確認）。
-  現行の配置は212。利用者受入後、v0.11.0のpush・JSR公開・常用配置を承認され準備中。
-  JSR公開は[公開記録](../docs/operations/jsr-publish.md#0100-publication--2026-10-07-jst)を参照する。
+- 常用binaryはHenji 0.11.0、source `f75087fb`、build `b68ee1a8…`。211・212とヘッダー修正は利用者受入済み。
+  push・公式build・常用配置・隔離tmux確認は完了。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
+  JSR公開はdry run完了、ブラウザー認証・registry確認へ進む。[公開記録](../docs/operations/jsr-publish.md#0110-publication--2026-10-07-jst)を参照する。
 - 正本の照合対応はcommit `071ec6ca`へ保存済み。
   反映範囲はarchitecture・roadmapのヘッダ、修正後の残候補は通常利用メモを参照する。
 - 今回のhandoff整理と履歴保存は完了し、利用者がcommit・pushを指示した（2026-10-07）。
@@ -38,7 +38,8 @@
 
 ## 次の一手
 
-- 承認済みのv0.11.0公開・常用配置を完了する。公開手順は[JSR公開記録](../docs/operations/jsr-publish.md)を参照する。
+- 承認済みのv0.11.0 JSR公開のブラウザー認証・registry確認・release worktree cleanupを完了する。
+  公開手順は[JSR公開記録](../docs/operations/jsr-publish.md)を参照する。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。

@@ -244,3 +244,10 @@ examples in both READMEs. Release verification and publication results are recor
 The authoritative offline `v0:gate` passed once with `HOME` set: 682 tests, no failures;
 type check, format, and lint also passed. Pre-existing documentation reorganization stays outside
 this release commit. The S38 color request is recorded without changing notification behavior.
+
+Release source `f75087fb6551b279270e551444f0be4f4c7c3118` was pushed to `origin/main`; local and remote matched.
+A clean detached worktree passed `deno publish --dry-run --no-lock --config jsr.json` with
+all 59 configured files, both entrypoints, and public slow-type checking enabled.
+The same source was built and deployed as native 0.11.0; see
+[native deployment](native-0.11.0-deployment.md). JSR browser authorization and registry
+verification are the remaining publication steps.
