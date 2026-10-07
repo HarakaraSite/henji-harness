@@ -7,6 +7,7 @@
 
 - [Increment 213](../docs/increments/increment-213.md)のtool共通ファイルアクセス設定はlocal実装・検証完了。
   利用者指示で公式build・常用binaryと外部toolの配置・配置binaryの隔離smokeまで完了。
+  source・配置記録と文書整理はcommit `ad2bce02`へ保存し、origin/mainへpush済み。
   要件・結果・権限境界は213を参照する。新しいCore起動から適用する。
 
 - [Increment 211](../docs/increments/increment-211.md)へS32＋S37、
@@ -35,12 +36,12 @@
   公開後のTUI修正もcommit・公式build・常用配置・配置binaryの隔離tmux確認まで完了した。
   配置後の通常利用で利用者が確認し、公開後のTUI修正も受入済み。
   211・212と公開後TUI修正のsource・配置記録は利用者指示によりpush済み。
-  213のsource・配置記録も利用者がcommit・pushを指示済み（2026-10-07）。追加公開は未実施。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
+  213のsource・配置記録も利用者指示によりpush済み（2026-10-07）。追加公開は未実施。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
   JSR 0.11.0の公開・registryからのtool/hooks APIとpublic type確認・release worktree
   cleanupも完了。[公開記録](../docs/operations/jsr-publish.md#0110-publication--2026-10-07-jst)を参照する。
 - 正本の照合対応はcommit `071ec6ca`へ保存済み。
   反映範囲はarchitecture・roadmapのヘッダ、修正後の残候補は通常利用メモを参照する。
-- 今回のhandoff整理と履歴保存は完了し、利用者がcommit・pushを指示した（2026-10-07）。
+- 今回のhandoff整理と履歴保存は完了し、利用者指示によりcommit・push済み（2026-10-07）。
   整理前の記録は[履歴](../docs/history/handoff-through-2026-10-07.md)へ保存した。
   未追跡の`191-result.json`と`scripts/diagnostics/__pycache__/`はcommit対象外。
 

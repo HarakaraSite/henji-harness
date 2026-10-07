@@ -4,6 +4,7 @@
 
 2026-10-07、利用者が以下の方向でlocal実装を指示。local実装・検証を完了した。
 後続の利用者指示で公式build・常用配置を承認され、配置と配置binaryの隔離smokeまで完了した。
+利用者のcommit・push指示により、source・配置記録をcommit `ad2bce02`へ保存し、origin/mainへpush済み。
 
 ## 必要な動作と根拠
 
