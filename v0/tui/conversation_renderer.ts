@@ -85,6 +85,9 @@ export const projectConversationEntry = (
     labelScalarLength: [...entry.label].length,
     // User rows render as a full-width panel, so every wrapped row carries the user tone.
     ...(entry.label === 'user>' ? { rowTone: 'user' as const } : {}),
+    ...(entry.kind === 'system' && entry.failureWord === undefined
+      ? { rowTone: 'system' as const }
+      : {}),
     ...(entry.label === 'tool>' && entry.toolName !== undefined
       ? {
         styledPrefixScalarLength: [...`${entry.label} ${toolActivityName(entry.toolName)}`].length,

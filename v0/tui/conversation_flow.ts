@@ -53,6 +53,7 @@ const entryRows = (
           entryId: entry.id,
           labelScalarLength: [...value.text].length,
           labelTone: entry.kind === 'thinking' ? 'thinking' : 'assistant',
+          ...(entry.kind === 'thinking' ? { rowTone: 'thinking' as const } : {}),
         },
       });
     }
@@ -83,7 +84,11 @@ const entryRows = (
           labelScalarLength: Math.min(remaining, [...value.text].length),
           labelTone: projection?.labelTone,
         }),
-        ...(projection?.rowTone === undefined ? {} : { rowTone: projection.rowTone }),
+        ...(entry.kind === 'thinking'
+          ? { rowTone: 'thinking' as const }
+          : projection?.rowTone === undefined
+          ? {}
+          : { rowTone: projection.rowTone }),
       },
     });
   }
@@ -216,30 +221,23 @@ export class ConversationFlow {
       if (output) awaiting.delete(entry.turn!);
       previous = entry;
       let receipt = this.printed.get(entry.id);
+      // Keep the first visible tool state. Reopening the Session prints its saved result.
+      if (entry.kind === 'tool' && receipt !== undefined) continue;
+      const body = entry.kind === 'assistant' || entry.kind === 'thinking';
       // Settled records do not need another projection on editor/footer redraws.
       if (
         receipt?.complete && receipt.text === entry.text &&
-        receipt.label === entry.label
+        (body || receipt.label === entry.label)
       ) {
         continue;
       }
       const labelChanged = receipt !== undefined &&
         receipt.label !== entry.label;
-      if (
-        receipt !== undefined &&
-        !entry.text.startsWith(receipt.text.slice(0, receipt.offset))
-      ) {
-        receipt = undefined;
-      }
       if (receipt?.complete && receipt.text !== entry.text) {
-        if (
-          (entry.kind === 'assistant' || entry.kind === 'thinking') &&
-          entry.text.startsWith(receipt.text)
-        ) {
+        if (body) {
           // Later output may already follow this body. Append only its new source text.
           receipt.base = receipt.text.length;
           receipt.offset = receipt.base;
-          receipt.labelPrinted = false;
           receipt.cursor = undefined;
           receipt.complete = false;
         } else receipt = undefined;
@@ -274,7 +272,7 @@ export class ConversationFlow {
       const rendered = cached.value;
       let start = 0;
       if (receipt.labelPrinted) {
-        const cursor = receipt.width === width && !labelChanged
+        const cursor = receipt.width === width && !labelChanged && receipt.cursor !== undefined
           ? receipt.cursor
           : rendered.body.seek(receipt.offset - receipt.base, width);
         start = cursor === undefined
@@ -284,15 +282,9 @@ export class ConversationFlow {
           );
         if (start < 0) start = rendered.rows.length;
       }
-      let pendingRows = receipt.complete && receipt.text === entry.text
+      const pendingRows = receipt.complete && receipt.text === entry.text
         ? []
         : rendered.rows.slice(start);
-      if (labelChanged && receipt.labelPrinted) {
-        pendingRows = [
-          ...rendered.rows.filter((row) => row.cursor === undefined),
-          ...pendingRows,
-        ];
-      }
       receipt.label = entry.label;
       receipt.text = entry.text;
       receipt.width = width;
@@ -307,8 +299,7 @@ export class ConversationFlow {
     this.liveEntry = undefined;
     for (let index = 0; index < pending.length; index++) {
       const { entry, rows, receipt } = pending[index];
-      // Earlier output must precede later entries. Tool activity is appended at each change,
-      // so a result never rewrites its start after that start entered terminal history.
+      // Earlier output must precede later entries. The first tool state is committed once.
       const mutable = running && entry.live &&
         (entry.kind === 'assistant' || entry.kind === 'thinking') &&
         index === pending.length - 1;

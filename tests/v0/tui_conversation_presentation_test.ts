@@ -233,10 +233,10 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
   assert(frame.includes(userPanel));
   assert(frame.includes('\x1b[33massistant>\x1b[0m'));
   assert(layout.log.some((row) => row.text === '回答' && row.labelTone === undefined));
-  assert(frame.includes('\x1b[32;2mtool> bash\x1b[0m printf result ✓'));
+  assert(frame.includes('\x1b[33;2mtool> bash\x1b[0m printf result ✓'));
   assert(frame.includes('system> 履歴を保存しました'));
   assert(!frame.includes('\x1b[33m回答'));
-  assert(!frame.includes('\x1b[32;2mprintf'));
+  assert(!frame.includes('\x1b[33;2mprintf'));
   assert(!frame.includes('\x1b[35m履歴'));
 });
 
@@ -1237,7 +1237,7 @@ Deno.test('a repeated failure diagnostic keeps the execution ID from the first e
   assertEquals(state.log.entries[0].executionId, executionId);
 });
 
-Deno.test('tool label and displayed name stay green dim across wrapping and settlement in both UI paths', () => {
+Deno.test('tool label and displayed name stay yellow dim across wrapping and settlement in both UI paths', () => {
   for (const keyed of [false, true]) {
     const renderer = new TuiRenderer(new FakeTerminal());
     const name = 'read';
@@ -1279,7 +1279,7 @@ Deno.test('tool label and displayed name stay green dim across wrapping and sett
           });}
       }
       const frame = renderer.renderFrame(80, 24);
-      assert(frame.includes('\x1b[32;2mtool> read\x1b[0m needle ' + (settled ? '✓' : '…')));
+      assert(frame.includes('\x1b[33;2mtool> read\x1b[0m needle ' + (settled ? '✓' : '…')));
       const rows = renderer.layoutSnapshot(9, 24).log.filter((row) => row.entryId !== undefined);
       assertEquals(
         rows.map((row) => row.text).join(''),
@@ -1287,7 +1287,7 @@ Deno.test('tool label and displayed name stay green dim across wrapping and sett
       );
       assertEquals(rows.map((row) => row.labelScalarLength ?? 0), [9, 1, 0]);
       renderer.renderFrame(9, 24);
-      assert(renderer.renderFrame(80, 24).includes('\x1b[32;2mtool> read\x1b[0m needle'));
+      assert(renderer.renderFrame(80, 24).includes('\x1b[33;2mtool> read\x1b[0m needle'));
     }
     renderer.close();
   }
@@ -1317,6 +1317,13 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
   const narrow = renderer.renderFrame(3, 200);
   assert(narrow.includes('\x1b[33muse\x1b[39m'));
   assert(narrow.includes('\x1b[33mr>\x1b[39m '));
+  renderer.setEditorSnapshot({ text: 'draft\nsecond', cursorScalar: 12, byteLength: 12 });
+  const inputPanel = renderer.renderFrame(80, 24);
+  for (const line of ['draft', 'second']) {
+    assert(inputPanel.includes(
+      '\x1b[39m\x1b[48;5;237m> ' + line + ' '.repeat(80 - 2 - line.length) + '\x1b[0m',
+    ));
+  }
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
@@ -1338,7 +1345,7 @@ Deno.test('Solarized palette keeps Markdown structure neutral and user panels fu
   renderer.close();
 });
 
-Deno.test('thinking and summary labels are green dim while Assistant notes use ochre in both UI paths', () => {
+Deno.test('thinking and summary labels and bodies use default dim while Assistant notes use ochre', () => {
   for (const keyed of [false, true]) {
     for (const thinkingKind of ['text', 'summary'] as const) {
       for (const complete of [false, true]) {
@@ -1371,9 +1378,9 @@ Deno.test('thinking and summary labels are green dim while Assistant notes use o
         const label = (thinkingKind === 'summary' ? 'thinking summary' : 'thinking') +
           (complete ? '>' : '~');
         const frame = renderer.renderFrame(80, 24);
-        assert(frame.includes(`\x1b[32;2m${label}\x1b[0m`));
+        assert(frame.includes(`\x1b[39;2m${label}\x1b[0m`));
         assert(renderer.layoutSnapshot().log.some((row) => row.text === 'READABLE_THOUGHT'));
-        assert(!frame.includes('\x1b[32;2mREADABLE_THOUGHT'));
+        assert(frame.includes('\x1b[39;2mREADABLE_THOUGHT\x1b[0m'));
         renderer.close();
       }
     }

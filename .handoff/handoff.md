@@ -39,7 +39,14 @@
 ## 次の一手
 
 - v0.11.0のpush・JSR公開・常用配置は完了。今回の承認範囲に残作業はない。
-  S38の非エラーsystem通知の配色要望は通常利用メモへ記録済みで、未採用・未実装。
+  S38の非エラーsystem通知の配色要望は212の公開後の追加修正へ採用した。
+  公開後の追加要望としてCtrl-LのようなTUI終了時の画面クリアをlocal実装・focused／隔離tmux確認済み。
+  scrollbackは保持する。footerのF4キーがDimだった局所修正もfocused／隔離tmux確認済み。
+  未観測のassistant／thinking本文置き換え対応の削除もlocal実装・focused／隔離tmux確認済み。
+  tool行とassistant／thinkingラベルを初回だけ出し、保存Session再表示では最新状態を出す変更も同様に確認済み。
+  system通知・thinking・tool・入力欄の配色と、折り返しを含む複数行入力の上下移動もlocal実装・
+  focused／隔離tmux確認済み。
+  これらのcommit・build・常用配置は未実施。詳細は212の追加記録を参照する。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。

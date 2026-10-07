@@ -161,20 +161,20 @@ Deno.test('212 saved conversation is emitted in order once and replayed on a new
   strictEqual(flow.drain(snapshot, 80, 3).committed.length, 7);
 });
 
-Deno.test('212 live body replacement updates the tail and settlement commits its actual final text', () => {
+Deno.test('212 cumulative live body settles without repeating its prefix', () => {
   const flow = new ConversationFlow();
   deepStrictEqual(
     texts(
       flow.drain(
-        state([entry('a', 'worker progress', 'assistant', true)], true),
+        state([entry('a', 'first paragraph', 'assistant', true)], true),
         80,
         5,
       ).live,
     ),
-    ['assistant>', 'worker progress'],
+    ['assistant>', 'first paragraph'],
   );
-  const final = flow.drain(state([entry('a', 'worker answer')]), 80, 5);
-  deepStrictEqual(texts(final.committed), ['assistant>', 'worker answer']);
+  const final = flow.drain(state([entry('a', 'first paragraph\ncompleted answer')]), 80, 5);
+  deepStrictEqual(texts(final.committed), ['assistant>', 'first paragraph', 'completed answer']);
   deepStrictEqual(final.live, []);
 });
 
@@ -207,7 +207,7 @@ Deno.test('212 long thinking enters scrollback progressively without losing or r
   ]);
 });
 
-Deno.test('212 tool result follows its emitted start and changed system notice is appended', () => {
+Deno.test('212 tool is emitted once, system notices update, and reopening shows the saved result', () => {
   const flow = new ConversationFlow();
   const start = flow.drain(
     state([entry('tool', 'read README.md …', 'tool', true)], true),
@@ -224,18 +224,19 @@ Deno.test('212 tool result follows its emitted start and changed system notice i
     4,
   );
   deepStrictEqual(texts(done.committed), [
-    'tool> read README.md ✓',
     'system> STARTED',
   ]);
-  const updated = flow.drain(
-    state([
-      entry('tool', 'read README.md ✓', 'tool'),
-      entry('notice', 'COMPLETE', 'system'),
-    ]),
-    80,
-    4,
-  );
+  const saved = state([
+    entry('tool', 'read README.md ✓', 'tool'),
+    entry('notice', 'COMPLETE', 'system'),
+  ]);
+  const updated = flow.drain(saved, 80, 4);
   deepStrictEqual(texts(updated.committed), ['system> COMPLETE']);
+  flow.reset();
+  deepStrictEqual(texts(flow.drain(saved, 80, 4).committed), [
+    'tool> read README.md ✓',
+    'system> COMPLETE',
+  ]);
 });
 
 Deno.test('212 already emitted and unchanged live bodies do not parse again on footer redraw', () => {
@@ -266,23 +267,7 @@ Deno.test('212 already emitted and unchanged live bodies do not parse again on f
   }
 });
 
-Deno.test('212 overflowing progress replaced by a final answer preserves history and emits the answer', () => {
-  const flow = new ConversationFlow();
-  const long = Array.from({ length: 20 }, (_, i) => `progress ${i}`).join('\n');
-  const progress = flow.drain(
-    state([entry('a', long, 'assistant', true)], true),
-    80,
-    4,
-  );
-  ok(progress.committed.length > 0);
-  const final = flow.drain(state([entry('a', 'actual final answer')]), 80, 4);
-  deepStrictEqual(texts(final.committed), [
-    'assistant>',
-    'actual final answer',
-  ]);
-});
-
-Deno.test('212 thinking settlement label change preserves its already committed body prefix', () => {
+Deno.test('212 thinking settlement preserves its first label and committed body prefix', () => {
   const flow = new ConversationFlow();
   const text = Array.from({ length: 40 }, (_, i) => `thought ${i}`).join('\n');
   const entity = {
@@ -314,7 +299,11 @@ Deno.test('212 thinking settlement label change preserves its already committed 
     texts([...first.committed, ...last.committed]).filter((text) => text.startsWith('thought ')),
     text.split('\n'),
   );
-  ok(last.committed.some((row) => row.text === 'thinking>'));
+  const labels = texts([...first.committed, ...last.committed]).filter((text) =>
+    text.startsWith('thinking')
+  );
+  deepStrictEqual(labels, [initial.label]);
+  deepStrictEqual(flow.drain(state([final]), 80, 4), { committed: [], live: [] });
 });
 
 Deno.test('212 cumulative body after a queued-task notice appends only the continuation', () => {
@@ -360,6 +349,10 @@ Deno.test('212 cumulative body after a queued-task notice appends only the conti
     6,
   );
   ok(final.committed.some((row) => row.text === 'continued answer'));
+  strictEqual(
+    texts([...notified.committed, ...final.committed]).filter((row) => row === 'assistant>').length,
+    1,
+  );
 });
 
 Deno.test('212 an overflowing Markdown table is sealed before later cells change its widths', () => {
@@ -420,4 +413,5 @@ Deno.test('212 resize seals displayed live text and later output appends only it
     strictEqual(displayed.filter((row) => row === `thought ${i}`).length, 1);
   }
   ok(displayed.includes('continued thought'));
+  strictEqual(displayed.filter((row) => row === 'thinking>').length, 1);
 });

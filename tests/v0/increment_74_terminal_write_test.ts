@@ -1,4 +1,5 @@
 import { OrderedWriter, TerminalLifecycle, type TerminalPort } from '../../v0/tui/terminal.ts';
+import { TerminalScreen } from './terminal_screen_fixture.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -142,4 +143,22 @@ Deno.test('terminal lifecycle waits for queued output to flush on restore', asyn
   await restoring;
   assert(restored, 'restore settles after the flush completes');
   assertEquals(lifecycle.restoreStatus(), 'ok');
+});
+
+Deno.test('TUI restore clears the screen and homes the prompt while retaining scrollback', async () => {
+  const terminal = new FlushTerminal();
+  const screen = new TerminalScreen();
+  const seed = Array.from({ length: 40 }, (_, index) => `saved line ${index}`).join('\r\n');
+  screen.write(encode(seed));
+  const history = [...screen.history];
+  assert(history.length > 0);
+  const lifecycle = new TerminalLifecycle(terminal);
+  await lifecycle.acquire();
+  terminal.releaseFlush();
+  await lifecycle.restore();
+  for (const write of terminal.writes) screen.write(encode(write));
+  assert(screen.frame().rows.every((row) => row === ''));
+  assertEquals(screen.frame().cursor, { row: 0, cell: 0 });
+  assertEquals(screen.history, history);
+  assert(!terminal.writes.join('').includes('\x1b[3J'));
 });

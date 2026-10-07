@@ -1,4 +1,6 @@
 import { InputDecoder, TuiEditor } from '../../v0/tui/input.ts';
+import { layoutUi } from '../../v0/tui/layout.ts';
+import { createUiState } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -93,12 +95,37 @@ Deno.test('Keymap line movement', () => {
 Deno.test('Editor Up/Down moves between lines while preserving the preferred column', () => {
   const editor = new TuiEditor();
   assert(editor.insert('first\nsecond'));
-  assert(editor.moveUp());
+  assert(editor.moveUp(77));
   assertEquals(editor.cursorScalar, 5);
   assert(editor.insert('X'));
   assertEquals(editor.text, 'firstX\nsecond');
-  assert(editor.moveDown());
+  assert(editor.moveDown(77));
   assertEquals(editor.cursorScalar, 13);
   assert(editor.insert('Y'));
   assertEquals(editor.text, 'firstX\nsecondY');
+});
+
+Deno.test('Editor Up/Down follows wrapped rows and reveals rows outside the eight-line input band', () => {
+  const editor = new TuiEditor();
+  editor.insert('x'.repeat(77 * 10 + 5));
+  const initial = layoutUi(createUiState(editor.snapshot()), 80, 24);
+  assertEquals(initial.input.length, 8);
+  for (let i = 0; i < 10; i++) assert(editor.moveUp(77));
+  assertEquals(editor.cursorScalar, 5);
+  const top = layoutUi(createUiState(editor.snapshot()), 80, 24);
+  assertEquals(top.cursor.row, top.log.length + top.beforeInput.length);
+  assertEquals(top.cursor.cell, 7);
+  for (let i = 0; i < 10; i++) assert(editor.moveDown(77));
+  assertEquals(editor.cursorScalar, 77 * 10 + 5);
+  const bottom = layoutUi(createUiState(editor.snapshot()), 80, 24);
+  assertEquals(bottom.input.length, 8);
+  assertEquals(bottom.cursor.row, bottom.log.length + bottom.beforeInput.length + 7);
+});
+
+Deno.test('Editor vertical movement preserves displayed columns across Japanese text', () => {
+  const editor = edit('あx\nabcd', 5);
+  assert(editor.moveUp(77));
+  assertEquals(editor.cursorScalar, 1);
+  assert(editor.moveDown(77));
+  assertEquals(editor.cursorScalar, 5);
 });

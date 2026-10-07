@@ -243,7 +243,7 @@ export class RemoteSystemNotices {
       sessionId,
       `execution:${execution.executionId}`,
       (reason === execution.outcome ? word : `${word} · ${reason}`) + recallHint,
-      word,
+      execution.outcome === 'cancelled' ? undefined : word,
       execution.executionId,
     );
   }

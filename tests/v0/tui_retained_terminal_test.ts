@@ -1097,6 +1097,7 @@ Deno.test('Increment 160 footer aligns identity and styles only the intended vis
     controls: ['F1 cancel', 'F2 queue', 'F3 steer', 'F4 sessions'],
   });
   assert(renderer.renderFrame(100, 24).includes(`${YELLOW_SGR}⠋ working${RESET_SGR}`));
+  assert(renderer.renderFrame(100, 24).includes(`F4${DIM_SGR} sessions${RESET_SGR}`));
   renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
   renderer.renderChoicePicker(['model selection'], ['↑/↓ select', 'Enter choose', 'Esc close']);
   assertEquals(

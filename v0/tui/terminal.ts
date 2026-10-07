@@ -41,13 +41,16 @@ export const DIM_SGR = '\x1b[2m';
 export const CYAN_SGR = '\x1b[36m';
 export const BLUE_SGR = '\x1b[34m';
 export const YELLOW_SGR = '\x1b[33m';
-export const GREEN_DIM_SGR = '\x1b[32;2m';
+export const DEFAULT_DIM_SGR = '\x1b[39;2m';
+export const YELLOW_DIM_SGR = '\x1b[33;2m';
+export const MAGENTA_DIM_SGR = '\x1b[35;2m';
 export const RED_SGR = '\x1b[31m';
 export const USER_TEXT_SGR = '\x1b[39m';
 // Standard 256-color gray 237 is #3a3a3a; label accents use the terminal's ANSI palette.
 export const USER_ROW_BG_SGR = '\x1b[48;5;237m';
 export const HEADING_SGR = BLUE_SGR;
 export const RESET_SCROLL_REGION = '\x1b[r';
+const CLEAR_SCREEN = '\x1b[H\x1b[2J';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);
 
@@ -431,7 +434,13 @@ export class TerminalLifecycle {
       this.restoreFailed = true;
       // Continue with static controls and raw restore.
     }
-    const controls = [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR];
+    const controls = [
+      RESET_SGR,
+      RESET_SCROLL_REGION,
+      CLEAR_SCREEN,
+      DEFAULT_CURSOR_STYLE,
+      SHOW_CURSOR,
+    ];
     for (const sequence of controls) {
       try {
         this.terminal.write(staticBytes(sequence));

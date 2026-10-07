@@ -1,5 +1,6 @@
 import { conversationRows } from './conversation_flow.ts';
 import { type EditorSnapshot } from './input.ts';
+import { layoutEditorText } from './input_layout.ts';
 import type { UiState } from './state.ts';
 import { type AssistantSpan, type ConversationLabelTone } from './conversation_renderer.ts';
 import {
@@ -55,6 +56,8 @@ export interface UiLayout {
 
 const clamp = (value: number, min: number, max: number): number =>
   Number.isSafeInteger(value) ? Math.max(min, Math.min(max, value)) : min;
+export const editorColumns = (columns: number): number =>
+  Math.max(1, clamp(columns, 1, MAX_COLUMNS) - 3);
 const width = (text: string): number => cellWidth(safeDisplay(text));
 const escapedCodePoint = (code: number): string => {
   let value = code.toString(16).toUpperCase();
@@ -394,7 +397,7 @@ const footerControlsRow = (text: string, columns: number): LayoutRow => {
   for (const [index, segment] of text.split(' · ').entries()) {
     if (index > 0) pieces.push({ text: ' · ', tone: 'dim' });
     const key = segment.match(
-      /^(?:Enter|Esc|Tab|Alt-Enter|Shift-Enter|Ctrl-[A-Za-z]|F[1-3]|PageUp\/Down|↑\/↓|←\/→|R|\/)(?= |$)/,
+      /^(?:Enter|Esc|Tab|Alt-Enter|Shift-Enter|Ctrl-[A-Za-z]|F[1-4]|PageUp\/Down|↑\/↓|←\/→|R|\/)(?= |$)/,
     )?.[0];
     if (key !== undefined) {
       pieces.push({ text: key }, { text: segment.slice(key.length), tone: 'dim' });
@@ -672,62 +675,7 @@ const inputRows = (
   columns: number,
   maxRows: number,
 ): { rows: LayoutRow[]; cursorRow: number; cursorCell: number } => {
-  const segments = segmentTerminalText(snapshot.text);
-  const scalarLength = segments.at(-1)?.scalarEnd ?? 0;
-  const cursor = clamp(snapshot.cursorScalar, 0, scalarLength);
-  const all: { text: string; offset: number; cursor?: number }[] = [];
-  let text = '';
-  let used = 0;
-  let offset = 0;
-  let cursorRow = 0;
-  let cursorCell = 0;
-  let cursorSet = false;
-  const push = (): void => {
-    all.push({ text, offset });
-    text = '';
-    used = 0;
-  };
-  for (const segment of segments) {
-    if (segment.text === '\n') {
-      if (
-        !cursorSet && cursor >= segment.scalarStart &&
-        cursor < segment.scalarEnd
-      ) {
-        cursorRow = all.length;
-        cursorCell = used;
-        cursorSet = true;
-      }
-      push();
-      offset = segment.scalarEnd;
-      if (!cursorSet && cursor === segment.scalarEnd) {
-        cursorRow = all.length;
-        cursorCell = 0;
-        cursorSet = true;
-      }
-      continue;
-    }
-    const displayText = safeDisplay(segment.text, false);
-    const displayWidth = cellWidth(displayText);
-    if (text.length > 0 && used + displayWidth > columns) {
-      push();
-      offset = segment.scalarStart;
-    }
-    if (
-      !cursorSet && cursor >= segment.scalarStart && cursor < segment.scalarEnd
-    ) {
-      cursorRow = all.length;
-      cursorCell = used;
-      cursorSet = true;
-    }
-    text += displayText;
-    used += displayWidth;
-    offset = segment.scalarEnd;
-  }
-  if (!cursorSet) {
-    cursorRow = all.length;
-    cursorCell = used;
-  }
-  push();
+  const { rows: all, cursorRow, cursorCell } = layoutEditorText(snapshot, columns);
   const first = Math.max(
     0,
     Math.min(cursorRow - maxRows + 1, all.length - maxRows),
@@ -775,7 +723,8 @@ export const measureUi = (
     : 1;
   // Reserve one cell after the prompt for the cursor. Without this cell, a full-width final
   // character leaves the hardware cursor on that character rather than at the insertion point.
-  const editor = inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
+  const inputColumns = editorColumns(widthLimit);
+  const editor = inputRows(state.editor, inputColumns, maxInput);
   const logHeight = Math.max(
     0,
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -

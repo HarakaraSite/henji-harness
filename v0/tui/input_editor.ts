@@ -1,5 +1,6 @@
 import { type EditorSnapshot, MAX_EDITOR_BYTES } from './input_contract.ts';
 import { byteLength, isWellFormed, scalarIndexToOffset, scalars } from './input_value.ts';
+import { moveEditorCursorVertically } from './input_layout.ts';
 
 /** Bounded scalar-aware multiline editor. The editor is the only mutable text owner. */
 export class TuiEditor {
@@ -100,32 +101,22 @@ export class TuiEditor {
     this.preferredColumn = null;
     return changed;
   }
-  moveUp(): boolean {
-    return this.moveVertical(-1);
+  moveUp(columns: number): boolean {
+    return this.moveVertical(-1, columns);
   }
-  moveDown(): boolean {
-    return this.moveVertical(1);
+  moveDown(columns: number): boolean {
+    return this.moveVertical(1, columns);
   }
-  private moveVertical(direction: -1 | 1): boolean {
-    const points = scalars(this.value);
-    let lineStart = this.cursor;
-    while (lineStart > 0 && points[lineStart - 1] !== '\n') lineStart -= 1;
-    const column = this.cursor - lineStart, preferred = this.preferredColumn ?? column;
-    let targetStart: number;
-    if (direction < 0) {
-      if (lineStart === 0) return false;
-      targetStart = lineStart - 1;
-      while (targetStart > 0 && points[targetStart - 1] !== '\n') targetStart -= 1;
-    } else {
-      let currentEnd = lineStart;
-      while (currentEnd < points.length && points[currentEnd] !== '\n') currentEnd += 1;
-      if (currentEnd >= points.length) return false;
-      targetStart = currentEnd + 1;
-    }
-    let targetEnd = targetStart;
-    while (targetEnd < points.length && points[targetEnd] !== '\n') targetEnd += 1;
-    this.cursor = Math.min(targetEnd, targetStart + preferred);
-    this.preferredColumn = preferred;
+  private moveVertical(direction: -1 | 1, columns: number): boolean {
+    const moved = moveEditorCursorVertically(
+      { text: this.value, cursorScalar: this.cursor },
+      columns,
+      direction,
+      this.preferredColumn,
+    );
+    if (moved === undefined) return false;
+    this.cursor = moved.cursor;
+    this.preferredColumn = moved.preferredColumn;
     return true;
   }
   submit(): string | null {

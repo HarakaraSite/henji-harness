@@ -16,10 +16,11 @@ import {
   BLUE_SGR,
   CYAN_SGR,
   DEFAULT_CURSOR_STYLE,
+  DEFAULT_DIM_SGR,
   DIM_SGR,
   ERASE_LINE,
-  GREEN_DIM_SGR,
   HEADING_SGR,
+  MAGENTA_DIM_SGR,
   RED_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
@@ -30,6 +31,7 @@ import {
   type TerminalRendererGate,
   USER_ROW_BG_SGR,
   USER_TEXT_SGR,
+  YELLOW_DIM_SGR,
   YELLOW_SGR,
 } from './terminal.ts';
 import type { EditorSnapshot } from './input.ts';
@@ -71,9 +73,9 @@ export interface TuiRendererOptions {
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
   user: YELLOW_SGR,
   assistant: YELLOW_SGR,
-  thinking: GREEN_DIM_SGR,
-  tool: GREEN_DIM_SGR,
-  system: '',
+  thinking: DEFAULT_DIM_SGR,
+  tool: YELLOW_DIM_SGR,
+  system: MAGENTA_DIM_SGR,
   failure: RED_SGR,
 };
 
@@ -93,6 +95,12 @@ const FOOTER_SGR: Record<FooterTone, string> = {
 };
 
 const renderLayoutRow = (row: LayoutRow, columns: number): string => {
+  if (row.kind === 'input') {
+    const text = `> ${row.text}`;
+    return `${USER_TEXT_SGR}${USER_ROW_BG_SGR}${text}${
+      ' '.repeat(Math.max(0, columns - cellWidth(text)))
+    }${RESET_SGR}`;
+  }
   // A whole-row tone covers label, reason and guidance in one color; such rows carry no spans.
   if (row.rowTone !== undefined) {
     // Keep the gray band through foreground changes; only the user label is orange.
@@ -306,7 +314,7 @@ export class TuiRenderer implements TerminalRendererGate {
     const rendered = [
       ...layout.log.map((row) => this.renderRow(row, layout.columns)),
       ...layout.beforeInput.map((line) => line.text),
-      ...layout.input.map((line) => `> ${line.text}`),
+      ...layout.input.map((line) => this.renderRow(line, layout.columns)),
       ...layout.afterInput.map((line) => line.text),
       ...layout.footer.map((row) => this.renderRow(row, layout.columns)),
     ];

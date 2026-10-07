@@ -24,6 +24,7 @@ import { reduceSessionStreamFrame, type SessionClientState } from '../api/reduce
 import { InputDecoder, type InputEvent, TuiEditor } from './input.ts';
 import { TuiEventQueue } from './event_queue.ts';
 import { TuiRenderer } from './render.ts';
+import { editorColumns } from './layout.ts';
 import { RemoteCatalogUi } from './remote_catalog_ui.ts';
 import { RemoteSystemNotices } from './system_notices.ts';
 import {
@@ -528,7 +529,7 @@ const isEditorTextMutation = (event: InputEvent): boolean =>
   event.kind === 'backspace' ||
   event.kind === 'newline' || event.kind === 'alt_enter';
 
-const applyEditorEvent = (editor: TuiEditor, event: InputEvent): boolean => {
+const applyEditorEvent = (editor: TuiEditor, event: InputEvent, columns: number): boolean => {
   switch (event.kind) {
     case 'printable':
       return editor.insert(event.text);
@@ -548,9 +549,9 @@ const applyEditorEvent = (editor: TuiEditor, event: InputEvent): boolean => {
     case 'right':
       return editor.moveRight();
     case 'up':
-      return editor.moveUp();
+      return editor.moveUp(columns);
     case 'down':
-      return editor.moveDown();
+      return editor.moveDown(columns);
     default:
       return false;
   }
@@ -831,7 +832,6 @@ export const runRemoteTui = async (
       sessionId,
       `connection:${crypto.randomUUID()}`,
       'DISCONNECTED · Core connection lost · the displayed Session may be stale',
-      'DISCONNECTED',
     );
   };
 
@@ -1919,7 +1919,8 @@ export const runRemoteTui = async (
     ) return;
     if (isEditorTextMutation(event)) separateSubmittedDraft();
     const before = editor.text;
-    const changed = applyEditorEvent(editor, event);
+    const columns = editorColumns(renderer.stateSnapshot().terminalSize.columns);
+    const changed = applyEditorEvent(editor, event, columns);
     if (changed) {
       if (editor.text !== before) {
         draftRevision += 1;

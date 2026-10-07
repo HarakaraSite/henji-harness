@@ -37,7 +37,8 @@ Henjiは入力と実行操作、生成中表示、会話の保存とSession再�
 1. 通常画面へ会話を順次出力し、確定してscrollbackへ流れた表示を後から描き直さない。
    履歴のスクロール・検索・選択・コピーをHenji独自のviewportで処理しない。
 2. 生成中の本文・thinking・tool進捗／結果、入力欄・footerを表示・更新できる。
-   すでにscrollbackへ流れたtool開始行への結果は続きとして追記し、過去行への書き直しを避ける。
+   公開後の利用者指示により、同じtool entityは初回の表示だけを残し、進捗・結果の追加行を出さない。
+   保存Sessionの再表示では最新の結果を出す。assistant／thinkingの既出ラベルも再表示しない。
    進行中の同じentityの更新を、確定した過去会話の変更と混同しない。
 3. 複数行入力とpickerを会話表示と共存させ、211で整理したキー操作を使用できる。
    最新表示では入力欄・footerが見え、履歴閲覧中は同じ端末の表示全体がスクロールする。
@@ -81,7 +82,8 @@ Henjiは入力と実行操作、生成中表示、会話の保存とSession再�
 - 通常画面へ確定会話をCRLFで追記し、末尾の生成中表示・editor・footer・overlayだけを相対cursor移動と各行のELで更新する。
   alternate screenとmouse trackingは要求しない。
 - Session表示scopeごとに出力済み位置を持つ。scope変更時は保存会話を再出力し、同scopeのsnapshot再同期で確定会話を重複させない。
-- tool開始・更新・結果は順次追記する。本文・thinkingは末尾を更新し、画面を超える部分は先頭から確定して追記する。
+- toolは最初に見えた状態を1回だけ出す（公開後の利用者指示で変更）。更新・結果は保存Sessionの再表示で反映する。
+  本文・thinkingは末尾を更新し、画面を超える部分は先頭から確定して追記する。既出ラベルは再出力しない。
   実行終了時にはcomplete=falseで残ったsemantic entityも表示確定する。
 - resize時は既に表示したlive本文を、その場で確定する。端末がreflowして履歴へ移した本文を再追記せず、
   以後の累積更新は新しいsource部分を追記する。editor・footerは新しいサイズで引き続き操作できる。
@@ -312,3 +314,149 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
 push、v0.11.0でのJSR公開、常用配置を明示承認した。結果は
 [JSR公開記録](../operations/jsr-publish.md#0110-publication--2026-10-07-jst)と
 [常用配置記録](../operations/native-0.11.0-deployment.md)へ記録する。
+
+
+## 公開後の追加要望: TUI終了時の画面クリア（2026-10-07）
+
+利用者が「TUI終了時にターミナルのバッファクリアできる？」と相談し、「ctr + lのイメージ」と
+範囲を補足した。表示画面を消して次のshell promptを左上へ戻し、端末scrollbackと保存Sessionは残す。
+
+- 現経路は全TUIの`TerminalLifecycle.restoreOnce`がrendererを閉じ、端末modeとraw入力を復元して
+  出力flushを待つ。ここにcursor home＋表示画面のeraseを追加した。保存会話・Data/Coreを変更しない。
+- 使う制御はCUP＋ED2（`ESC[H`＋`ESC[2J`）。保存行を消すED3は送らない。
+  定義は[xterm control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)のCUP・EDを確認した。
+- focused testは28 pass／0 fail。画面が空でcursorが0/0へ戻り、既存scrollbackが保持されること、
+  出力flushと端末mode復元、remote TUIの表示・切断等を確認した。CLIと変更箇所のtype check、format・lint、
+  `git diff --check`もPASS。full gateは繰り返していない。
+- 隔離HOME/XDGのtmux上でproduction source CLI＋配置済みcompiled Coreを操作した。
+  起動前に80行のmarkerを出し、TUI起動・複数行editor・F4/Escを確認後、Ctrl-Qで終了した。
+  次のshell promptが最上行の左端にあり、その下は全て空行。起動前markerとHenji headerは
+  scrollbackに残り、終了後history_sizeは91行。Core exit 0、実provider requestは0回。
+- この追加変更はlocal実装・確認済み。0.11.0の公開sourceと常用binaryは変更していない。
+  commit・build・配置・push・追加公開は未実施。
+
+確認記録（git対象外）: `.tools/clear-on-exit/tmux_probe.py`、`smoke.json`、
+`after-exit-screen.txt`、`after-exit-history.txt`。
+
+
+## 公開後の小修正: footerのF4キー表示（2026-10-07）
+
+利用者が「フッタの F4 sessions の案内のF4が標準色じゃない Dim?」と指摘した。
+footerのキー認識がF1〜F3に限られており、211で移したF4が説明文と一緒にDimになっていた。
+認識対象にF4を加え、キー`F4`を標準表示、説明`sessions`を他の案内と同じDimとした。
+
+- 既存footer styling testへF4の回帰確認を加え、focused testは19 pass／0 fail。
+  CLIと変更箇所のtype check、format・lint、diff checkもPASS。
+- 隔離HOME/XDGのproduction source TUI＋配置済みcompiled Coreをtmux上で起動し、
+  capture-paneの実SGRで`F4`はDimなし、`sessions`はDimありと確認した。
+  F4 picker・Esc復帰、複数行editor、直前の終了時画面clearもPASS。実provider requestは0回。
+- local変更のみ。終了時画面clearと合わせ、commit・build・常用配置は未実施。
+
+確認記録（git対象外）: `.tools/footer-f4-fix/tmux_probe.py`、`smoke.json`、`styled-footer.txt`。
+
+
+## 公開後の整理: 未観測の本文置き換え対応を削除（2026-10-07）
+
+利用者が「不要な処理は削除、本当にあればその時追加」と指示した。
+対象は、同じassistant／thinking entityの既出本文と新本文のprefix不一致を検出して、
+出力位置を破棄し先頭から再出力する分岐である。
+
+- 実モデルが送信済み本文を確定時に置き換える実例は確認していない。
+  provider-freeの`WorkerProbeModel`は`worker progress: …`から`worker answer: …`等へ本文を
+  置き換えるが、これはtest用の応答であり、実providerの仕様を裏づけない。
+  現行OpenRouter adapterは同じdeltaの連結を途中表示と最終本文に使う。
+- `ConversationFlow`のprefix比較と、非prefix本文を先頭から再出力する分岐を削除した。
+  assistant／thinkingの累積本文は既存の出力位置から続ける。
+  tool・system通知の内容変更時の再出力は既存の共通経路で扱う。
+  API・保存履歴・provider adapter・test用Workerの契約は変更していない。
+- 本文の全面置き換えを要件化していた2つのtestを整理した。一つは通常の累積本文の確定確認へ
+  修正し、scrollbackへ流れた途中本文とは別の最終本文を出す専用testは削除した。
+  長文・queue通知後の続きを欠落／重複させない既存regressionは維持した。
+- focused testは37 pass／0 fail。CLIと変更箇所のtype check、format・lint、diff checkもPASS。
+  full gateは実行していない。
+- 隔離HOME/XDGのtmuxでproduction source TUI＋配置済みcompiled Core/Workerを起動した。
+  localhostの模擬chat SSEから80行を流し、生成中のeditor更新と狭幅／広幅へのresize、確定後まで
+  各本文行が1回だけ表示されることを確認した。read toolの結果、F4から保存Sessionを再表示した際の
+  80行と最終応答の欠落・重複なしも確認した。localhost requestは3回、外部provider callは0回、Core exit 0。
+  初回の確認driverは現在Sessionの選択、slash commandの補完、pickerの選択待ちを誤っていた。
+  driverのみ修正して再確認PASS。production codeの追加変更はない。
+- local実装・検証済み。commit・build・常用配置・push・追加公開は未実施。
+
+確認記録（git対象外）: `.tools/append-only-body/tmux_probe.py`、`result.json`、`live.txt`、
+`completed.txt`、`tool.txt`、`restored.txt`。
+
+
+## 公開後の表示整理: tool行と本文ラベルを初回だけ表示（2026-10-07）
+
+利用者が、toolの実行中・実行後の2行表示について「最初に表示したのだけ表示して完了後は
+出力しない」と指示し、初回の`…`を残すことを了承した。thinking等のラベルも初回だけ表示する。
+
+- 操作から表示までの経路は、Coreのconversation entity更新 → keyed store → `ConversationFlow`
+  → 端末scrollbackである。出力済みtool entityをflowで再出力しないようにした。
+  semantic履歴とstoreの進捗・成功・失敗の更新は維持し、表示scopeを開き直すと最新状態を出す。
+  初回描画までに結果を受信したtoolは、その結果が初回の表示になる。
+- assistant／thinkingは本文の続きを出す際も出力済みラベルを維持する。
+  thinkingの完了時のラベル変更、queue通知後の続きを出す際、resizeで末尾を確定した後にも
+  ラベルを再出力しない。本文の続きを欠落させず、新しいentityにはそれぞれのラベルを表示する。
+  system通知の更新は維持する。
+- 既存のfocused testを新しい動作へ合わせ、37 pass／0 fail。
+  CLIと変更箇所のtype check、format・lint、diff checkもPASS。full gateは実行していない。
+- 隔離HOME/XDGのtmux上でproduction source TUI＋配置済みcompiled Core/Workerを操作した。
+  localhost chat SSEの80行のthinking、続く80行の本文、生成中のeditor更新・resizeを確認し、
+  各本文行は1回、thinkingラベルは最初の`thinking~`だけ、assistantラベルも1回だった。
+  local bashの`sleep 0.6; printf TOOL_MARKER`を実行し、完了後もtool行は初回の`…`付き1行だけ。
+  `/new`後にF4から元の保存Sessionを開くと、tool行は`✓`付き1行、thinkingラベルは`thinking>`で、
+  保存したthinking／本文の80行ずつも欠落・重複なし。localhost requestは3回、外部provider callは0回、Core exit 0。
+  thinking確認driverの初回期待値は`thinking~>`だったが、現行ラベルの`thinking~`に修正して再確認PASS。
+- local実装・検証済み。commit・build・常用配置・push・追加公開は未実施。
+
+確認記録（git対象外）: `.tools/tool-first-line/tmux_probe.py`、`result.json`、`tool.txt`、`restored.txt`、
+`.tools/tool-thinking-once/tmux_probe.py`、`result.json`、`live.txt`、`completed.txt`、`tool.txt`、`restored.txt`。
+
+
+## 公開後の配色と複数行editorの上下移動（S38、2026-10-07）
+
+利用者が非エラーsystem通知を紫のDimと指定し、キャンセル受付も同じ色とすることを了承した。
+次の配色・操作要件も指示した。この採用によりS38を通常利用メモから本書へ移した。
+
+- エラーは赤を維持する。DISCONNECTED・キュー・正常なキャンセル通知等のsystem行は紫のDim。
+  元の観測は、Ctrl-Q終了で表示されるDISCONNECTEDが赤に見えてエラーと紛らわしいことだった。
+  通知自体を削除したり、新しい通知を追加したりしない。
+- thinking／thinking summaryはラベルと本文全体を標準色のDimにする。
+  toolのラベルとtool名は黄色のDim、引数等の本文は標準色とする。
+  editorはuser行と同じ背景色（既存の256色gray 237）で、表示幅全体を塗る。
+- 複数行editorはUp/Downで表示上の行を移動する。改行・折り返しの両方を対象とし、
+  既存の8行の表示帯から外れる場合はcursor位置に合わせて隠れた行を表示する。
+
+現行経路と変更:
+
+- Core entity／UI-local notice → `ConversationFlow`のrow tone／label tone → `TuiRenderer`のSGR出力。
+  thinkingの全行へtoneを渡し、toolのprefixと非エラーsystem行の色を変更した。
+  DISCONNECTEDと正常なCANCELLEDに付いていたfailureWordを外す。
+  FAILED・REJECTED等の実際の失敗は既存の赤いprefixを維持する。
+  editorも同じrow renderer経由でuser行の背景を使う。
+- 端末入力 → decoder → `remote_session` → `TuiEditor` → editor layout → cursor位置の端末出力。
+  旧Up/Downは改行だけを探索し、単一の長い行が折り返された場合は移動できなかった。
+  既存の折り返し計算を`input_layout.ts`へまとめ、描画と移動で同じsource位置・表示cell幅を使う。
+  editorのtext・cursor・preferred columnは既存のownerを維持する。
+  入力幅だけを共有し、上下キー処理のためにfooterや会話全体のlayoutを計算しない。
+
+検証結果:
+
+- keymap／remote入力・会話presentation・system notices・conversation flow・retained terminalの
+  focused testは67 pass／0 fail。表示cell幅を使う日本語の上下移動、8行を超える折り返し、
+  thinking summaryを含むラベル／本文のDim、tool prefix、入力背景、system通知と赤い失敗を確認した。
+  その後、editor入力幅の共有と上下移動時のbyte数の再計算を除く整理を行い、影響する入力test 10件を再確認した。
+  CLIと変更箇所のtype check、format・lint、diff checkもPASS。full gateは実行していない。
+- 隔離HOME/XDGのproduction source TUI＋配置済みcompiled Core/Workerをtmuxで操作した。
+  localhost chat SSEの80行thinking／80行本文、editor更新・resizeと保存Session再表示を確認した。
+  capture-paneのSGRでthinkingラベルと本文が標準色Dim、toolラベル／名が黄色Dim、引数が標準色、
+  入力欄の背景がgray 237であることを確認した。
+  改行なしで11行に折り返されたdraftを貼り、Up 10回で隠れていた先頭行を表示して編集し、
+  Down 10回で末尾を表示して編集できた。既存の改行ありUp/Down経路はremote入力testで確認した。
+  F1で別のlocal streaming taskをcancelし、CANCELLEDのsystem通知が紫Dimになることを確認した。
+  localhost requestは4回、外部provider callは0回、Core exit 0。
+- local実装・検証済み。commit・build・常用配置・push・追加公開は未実施。
+
+確認記録（git対象外）: `.tools/tui-colors-editor/tmux_probe.py`、`result.json`、`styled.txt`、
+`editor-top.txt`、`editor-bottom.txt`、`editor-edited-bottom.txt`、`cancelled.txt`、`restored.txt`。

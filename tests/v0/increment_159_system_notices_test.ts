@@ -113,6 +113,7 @@ Deno.test('Increment 166 failure and cancellation notices follow their keyed exe
     'system',
   ]);
   strictEqual(rows(first.store).at(-1)?.text, 'CANCELLED');
+  strictEqual(rows(first.store).at(-1)?.failureWord, undefined);
   const retainedNotice = rows(first.store).at(-1);
   const repeated = apply(projector, notices, tuiClientState(structuredClone(cancelled)));
   strictEqual(rows(repeated.store).at(-1), retainedNotice);
@@ -258,7 +259,7 @@ Deno.test('Increment 159 local, queue and steering notices remain keyed by recei
   ok(rows(back.store).some((item) => item.text === 'REJECTED · draft kept · busy'));
 });
 
-Deno.test('Increment 159 normal system text is neutral and failure color stops after its short word', () => {
+Deno.test('Increment 159 normal system text is purple dim and failure color stops after its short word', () => {
   const screen = new TerminalScreen(100, 24);
   const terminal: TerminalPort = {
     stdinIsTerminal: () => true,
@@ -306,7 +307,7 @@ Deno.test('Increment 159 normal system text is neutral and failure color stops a
   const frame = renderer.renderScreenFrame(100, 24);
   const frameText = frame.rows.join('\n');
   const visibleText = screen.frame().rows.join('\n');
-  ok(frameText.includes('system> RESERVED · next task'));
+  ok(frameText.includes('\x1b[35;2msystem> RESERVED · next task\x1b[0m'));
   ok(frameText.includes('\x1b[31msystem> FAILED\x1b[0m · provider response invalid · try /recall'));
   ok(visibleText.includes('system> RESERVED · next task'));
   ok(visibleText.includes('FAILED · provider response invalid · try /recall'));
