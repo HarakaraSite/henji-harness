@@ -59,4 +59,5 @@ localhost requestは4回、外部provider requestは0回、Core exit 0。full ga
 `after-exit-screen.txt`、`after-exit-history.txt`。
 
 既存の稼働Core/TUIは停止・再起動していない。新しいTUI起動から表示変更が適用される。
-今回のsourceのpush・JSR追加公開は実施していない。
+今回のsourceと配置記録は、通常利用での利用者受入後に明示指示を受けてorigin/mainへpushした。
+JSR追加公開は実施していない。

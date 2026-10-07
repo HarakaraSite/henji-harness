@@ -471,3 +471,7 @@ build IDは`316f06be431b4613e83196c2f151b5caafff776afd08c990c9dc55cbc0e02ed7`、
 要件どおりの表示・上下移動・保存Session再表示・終了時clear／scrollback保持を確認した。
 詳細とbackup・hash・確認記録は[配置記録](../operations/native-0.11.0-deployment.md)を参照する。
 稼働中のCore/TUIは再起動しておらず、新しいTUI起動から反映する。push・追加公開は未実施。
+
+利用者受入（2026-10-07）: 常用配置後に利用者が「確認しました、OKです、すごく使いやすくなった」と確認した。
+今回の公開後のTUI修正は通常利用での確認・受入まで完了した。
+利用者の「プッシュして」の指示により、source `b7a904ca`と配置記録`a3eb11b3`をorigin/mainへpushした。

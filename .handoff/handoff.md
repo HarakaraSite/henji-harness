@@ -29,7 +29,8 @@
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
 - 常用binaryはHenji 0.11.0、source `b7a904ca`、build `316f06be…`。211・212とヘッダー修正は利用者受入済み。
   公開後のTUI修正もcommit・公式build・常用配置・配置binaryの隔離tmux確認まで完了した。
-  今回のsourceのpush・追加公開は未実施。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
+  配置後の通常利用で利用者が確認し、公開後のTUI修正も受入済み。
+  今回のsourceと配置記録は利用者指示によりpush済み。追加公開は未実施。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
   JSR 0.11.0の公開・registryからのtool/hooks APIとpublic type確認・release worktree cleanupも完了。[公開記録](../docs/operations/jsr-publish.md#0110-publication--2026-10-07-jst)を参照する。
 - 正本の照合対応はcommit `071ec6ca`へ保存済み。
   反映範囲はarchitecture・roadmapのヘッダ、修正後の残候補は通常利用メモを参照する。
@@ -42,7 +43,7 @@
 - v0.11.0のpush・JSR公開・常用配置は完了。今回の承認範囲に残作業はない。
   S38を含む公開後のTUI修正は`b7a904ca`へcommitし、公式build・常用配置・配置binaryの隔離tmux確認まで完了。
   新しいTUI起動から反映する。詳細は212の追加記録と配置記録を参照する。
-  今回のsourceのpush・追加公開は利用者未指示で、実施していない。
+  今回のsourceと配置記録はpush済み。追加公開は利用者未指示で、実施していない。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。
