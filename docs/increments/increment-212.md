@@ -1,6 +1,7 @@
 # Increment 212 — S36: TUIの会話履歴表示を端末scrollbackへ任せる
 
-状態: local実装・検証完了（2026-10-07）。常用環境での211・212の利用者確認待ち。
+状態: local実装・検証・source commit・公式build・常用配置・配置後smoke完了（2026-10-07）。
+常用環境での211・212の利用者確認待ち。
 
 ## 目的・採用と承認範囲
 
@@ -110,7 +111,7 @@ architectureのTUI説明には旧viewport、input history、alternate screen、�
 ## 現在の未実施事項
 
 Ghostty単独の実機挙動・211と212の常用環境での利用者確認は未実施。
-212のcommit・常用build・配置・pushは今回実施していない。
+212のsource commit・常用build・配置は後続指示により実施済み。push・公開は未実施。
 
 ## local実経路確認（2026-10-07）
 
@@ -215,3 +216,35 @@ tmux 3.5aは上限へ達すると最古の10%（この設定では200行）を�
 記録（git対象外）: `.tools/increment-212/large-scrollback-2000-result.json`、
 `large-2000-run.log`、`large_scrollback_2000_probe.py`、`large-scrollback-2000-history.txt`、
 `large-scrollback-2000-screen.txt`、`large-scrollback-2000-copied-oldest.txt`。
+
+## Commit・公式build・常用配置（2026-10-07）
+
+利用者の「了解です コミットと配置をお願いします」により実施した。
+
+- source commit: `894aeb0b7188b0688a68a04d6be3aa949d96f1d0`
+  （`feat: move TUI conversation history to terminal scrollback (increment 212)`）。
+  対象は212のTUI／対応test／診断consumer・increment-212・handoffの44 file。
+  作業前から残る文書再配置の差分・未追跡README・`191-result.json`・`__pycache__`は含めていない。
+- このcommitから公式`henji:compile`で0.10.0をbuildした（version変更は依頼されていない）。
+  209のHTTP API、210のCore、211の入力・キー変更もこの常用binaryに含む。
+  `--version`とcompiled Core APIでsource一致・sourceDirty=falseを確認した。
+- build ID: `4c7f0dcf40c0fc045bca7210359e5936c3e325fd324c394ea753129904541966`。
+  runtime SHA-256: `b5b713ff044fe4dda3fb410c2b71cab4be6956a6d7edcc7b015c31380954ff8f`。
+  binary SHA-256: `1d6a50fd701ed61115e983ca635725388344757baf73cc485a48c90d9b8e50c1`。
+- `dist/henji`と`/home/agent/.local/bin/henji`へatomic renameで配置し、両方のversionとSHA-256一致を確認。
+  旧208 binary（source `c39e39a6`、SHA-256
+  `c9ef9beec5cecd88a21a2f377e26b56345afcc2e166cdbb7f46d84c6be2099e5`）は
+  `~/.local/bin/henji.previous`と`.tools/increment-212/deployment/henji.local.previous`へ保存した。
+  元の`henji.previous`は同directoryの`henji.local.previous.pre212`、旧distは`henji.dist.previous`へ保存。
+- 配置binaryを隔離HOME/XDG/workspace・外部DenoのないPATHで実行した。
+  local固定catalogのproviderを指定し、task投入・実provider requestは0回。
+  compiled Core／Data・Agent・API Worker起動、ready表示、alternate screen／mouse tracking off、
+  複数行editorとUp/Home編集、F4 picker・Esc復帰とdraft保持、Ctrl-QでTUI終了・Core exit 0を確認した。
+  初回smokeはdriverの期待source SHA誤記で中断し、deployment記録から直接取得するよう直して再実行PASS。
+  これによるproduction source／配置binaryの変更はない。
+- 既存の稼働Core/TUIは停止・再起動していない。新しいCore/TUIの起動から適用する。
+  常用環境・Ghosttyの利用者確認は次の段階。push・公開／releaseは実施していない。
+
+記録（git対象外）: `.tools/increment-212/deployment/build.log`、`deployment.json`、
+`deploy_smoke.py`、`smoke.json`、`smoke-tui.txt`、`smoke-picker.txt`、`smoke-editor.txt`。
+この配置記録のcommitは文書だけの変更であり、binaryのsourceは上記source commitを指す。

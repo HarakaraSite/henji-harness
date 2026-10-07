@@ -1,7 +1,8 @@
 # Increment 211 — S32・S37: 入力履歴の削除とキャンセル・Session一覧キーの変更
 
 状態: local実装・focused test・隔離tmux実表示／操作確認・独立review完了（2026-10-07）。
-sourceは今回のcommitへ保存する。常用build・配置・pushは未実施。
+sourceは`ac59f0d0`へ保存済み。212と合わせて常用build・配置済み。pushは未実施。
+配置結果は[Increment 212](increment-212.md)を参照する。常用環境での利用者確認待ち。
 
 ## 目的・採用と承認範囲
 

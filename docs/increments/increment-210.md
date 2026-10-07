@@ -1,6 +1,7 @@
 # Increment 210 — Coreの重複照会・再投影を整理する
 
-状態: local調査・改善・検証とP2対応完了（2026-10-07）。sourceは今回のcommitへ保存する。常用build・配置は未実施。
+状態: local調査・改善・検証とP2対応・source commit完了（2026-10-07）。常用binaryには212のbuild・配置で反映済み。
+sourceは`568ed489`。配置結果は[Increment 212](increment-212.md)を参照する。
 
 ## 目的・承認範囲・維持する動作
 

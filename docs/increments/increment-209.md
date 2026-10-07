@@ -1,6 +1,7 @@
 # Increment 209 — HTTP APIの不要な処理を整理する
 
-状態: local調査・改善・検証完了（2026-10-07）。常用build・配置は未実施。
+状態: local調査・改善・検証・source commit完了（2026-10-07）。常用binaryには212のbuild・配置で反映済み。
+sourceは`24e9e357`。配置結果は[Increment 212](increment-212.md)を参照する。
 
 ## 目的と承認範囲
 
