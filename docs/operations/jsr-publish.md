@@ -249,5 +249,19 @@ Release source `f75087fb6551b279270e551444f0be4f4c7c3118` was pushed to `origin/
 A clean detached worktree passed `deno publish --dry-run --no-lock --config jsr.json` with
 all 59 configured files, both entrypoints, and public slow-type checking enabled.
 The same source was built and deployed as native 0.11.0; see
-[native deployment](native-0.11.0-deployment.md). JSR browser authorization and registry
-verification are the remaining publication steps.
+[native deployment](native-0.11.0-deployment.md).
+
+The user approved browser authorization. The waiting PTY publisher reported
+`Authorization successful. Authenticated as HarakaraSite` and
+`Successfully published @henji/harness@0.11.0`.
+
+Registry metadata confirmed `latest: 0.11.0`, with creation timestamp `2026-10-07T06:06:57.646125Z`.
+A consumer outside both repositories ran `deno run --check --no-config --no-lock --min-dep-age=0
+--reload=jsr:@henji/harness`, importing the exact-version tool and hooks entrypoints from JSR.
+Seven tool runtime exports, both hook runtime exports, and the six hook phases loaded; the public
+`ToolFactory`, `ToolFactoryInput`, and `HookFactory` types checked successfully.
+
+Removed the clean release worktree after verification. The native binary remains the verified
+0.11.0 deployment from the same release source. Publication and deployment are complete.
+Verification logs are stored in the ignored `.tools/jsr-0.11.0/` directory: `gate.log`,
+`clean-dry-run.log`, `publish.log`, `published-meta.json`, `consumer.ts`, and `published-import.log`.

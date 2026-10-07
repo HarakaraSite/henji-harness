@@ -29,7 +29,7 @@
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
 - 常用binaryはHenji 0.11.0、source `f75087fb`、build `b68ee1a8…`。211・212とヘッダー修正は利用者受入済み。
   push・公式build・常用配置・隔離tmux確認は完了。詳細は[配置記録](../docs/operations/native-0.11.0-deployment.md)。
-  JSR公開はdry run完了、ブラウザー認証・registry確認へ進む。[公開記録](../docs/operations/jsr-publish.md#0110-publication--2026-10-07-jst)を参照する。
+  JSR 0.11.0の公開・registryからのtool/hooks APIとpublic type確認・release worktree cleanupも完了。[公開記録](../docs/operations/jsr-publish.md#0110-publication--2026-10-07-jst)を参照する。
 - 正本の照合対応はcommit `071ec6ca`へ保存済み。
   反映範囲はarchitecture・roadmapのヘッダ、修正後の残候補は通常利用メモを参照する。
 - 今回のhandoff整理と履歴保存は完了し、利用者がcommit・pushを指示した（2026-10-07）。
@@ -38,8 +38,8 @@
 
 ## 次の一手
 
-- 承認済みのv0.11.0 JSR公開のブラウザー認証・registry確認・release worktree cleanupを完了する。
-  公開手順は[JSR公開記録](../docs/operations/jsr-publish.md)を参照する。
+- v0.11.0のpush・JSR公開・常用配置は完了。今回の承認範囲に残作業はない。
+  S38の非エラーsystem通知の配色要望は通常利用メモへ記録済みで、未採用・未実装。
   architectureの旧入力履歴・キー割当とviewportの更新案は211・212に記録し、正本変更への別途明示承認を待つ。
   未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)を参照し、記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。
