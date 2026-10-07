@@ -12,16 +12,9 @@ export type ApiOperationName =
   >
   | 'subscribeSession';
 
-export type ApiOperationArgs<K extends ApiOperationName> = K extends 'subscribeSession'
-  ? readonly [sessionId: string]
-  : K extends keyof CoreService
-    ? CoreService[K] extends (...args: never[]) => unknown ? Parameters<CoreService[K]> : never
-  : never;
-
 export interface ApiWorkerStart {
   readonly hostname: string;
   readonly port: number;
-  readonly build: unknown;
 }
 
 export type ApiWorkerToMain =

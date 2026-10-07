@@ -144,17 +144,7 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
       server = Deno.serve(
         { hostname: message.options.hostname, port: message.options.port, onListen() {} },
         (request) => {
-          const operation = admissionClosed &&
-              new URL(request.url).pathname !== '/api/v1/core/shutdown'
-            ? Promise.resolve(
-              new Response(
-                JSON.stringify({
-                  error: { code: 'core_stopping', message: 'Core is stopping' },
-                }),
-                { status: 503, headers: { 'content-type': 'application/json; charset=utf-8' } },
-              ),
-            )
-            : handler(request);
+          const operation = handler(request);
           activeHandlers.add(operation);
           void operation.then(
             () => activeHandlers.delete(operation),
@@ -215,10 +205,8 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
   if (message.kind === 'drain') {
     admissionClosed = true;
     drainPromise ??= (async () => {
-      while (pending.size > 0 || activeHandlers.size > 0) {
-        if (pending.size > 0) await new Promise((resolve) => setTimeout(resolve, 0));
-        else await Promise.allSettled([...activeHandlers]);
-      }
+      // Every RPC belongs to a handler, including the awaited subscription.ready.
+      while (activeHandlers.size > 0) await Promise.allSettled([...activeHandlers]);
       post({ kind: 'drained' });
     })();
     return;

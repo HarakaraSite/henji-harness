@@ -1,7 +1,6 @@
 import type { EncodedDataReply } from '../data/client.ts';
 import type { CoreService } from '../host/core_service.ts';
 import { CoreServiceError, coreServiceErrorData } from '../host/core_service_error.ts';
-import { buildManifest } from '../runtime/build_manifest.ts';
 import type { ApiWorkerToMain, MainToApiWorker } from './api_worker_protocol.ts';
 
 export interface CoreServerOptions {
@@ -168,7 +167,6 @@ export const startCoreServer = async (
       options: {
         hostname: options.hostname ?? '127.0.0.1',
         port: options.port ?? 0,
-        build: buildManifest(),
       },
     } satisfies MainToApiWorker,
   );

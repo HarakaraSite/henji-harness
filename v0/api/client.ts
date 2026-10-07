@@ -497,6 +497,8 @@ export class HenjiApiClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffered = '';
+    const separator = /\r?\n\r?\n/gu;
+    let scanFrom = 0;
     const parseFrame = (chunk: string): SessionStreamFrame | undefined => {
       const data: string[] = [];
       for (const line of chunk.split(/\r?\n/u)) {
@@ -519,15 +521,18 @@ export class HenjiApiClient {
       while (true) {
         const { done, value } = await reader.read();
         buffered += decoder.decode(value, { stream: !done });
-        let boundary = buffered.search(/\r?\n\r?\n/u);
-        while (boundary >= 0) {
-          const separator = buffered.match(/\r?\n\r?\n/u)!;
-          const chunk = buffered.slice(0, boundary);
-          buffered = buffered.slice(boundary + separator[0].length);
+        separator.lastIndex = scanFrom;
+        let boundary = separator.exec(buffered);
+        while (boundary !== null) {
+          const chunk = buffered.slice(0, boundary.index);
+          buffered = buffered.slice(boundary.index + boundary[0].length);
           const frame = parseFrame(chunk);
           if (frame !== undefined) yield frame;
-          boundary = buffered.search(/\r?\n\r?\n/u);
+          separator.lastIndex = 0;
+          boundary = separator.exec(buffered);
         }
+        // A CRLF separator can straddle chunks; earlier text has already been scanned.
+        scanFrom = Math.max(0, buffered.length - 3);
         if (done) {
           const frame = parseFrame(buffered);
           if (frame !== undefined) yield frame;

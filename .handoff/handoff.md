@@ -5,6 +5,9 @@
 
 ## 現在地（2026-10-07）
 
+- [Increment 209](../docs/increments/increment-209.md)は、利用者指定のHTTP APIについて不要な処理を整理し、
+  local実装・検証を完了し、sourceは今回のcommitへ保存する。常用build・配置、pushは未実施。
+  結果は209を参照する。
 - [Increment 208](../docs/increments/increment-208.md)は、実装・検証・常用配置・利用者受入・pushまで完了。
   wheelによる履歴参照とShift+ドラッグによるコピーの運用を受入済み。採用範囲にpendingなし。
 - 常用binaryはHenji 0.10.0、source `c39e39a6`、build `a4f8394f…`（`--version`で確認）。
@@ -17,7 +20,8 @@
 
 ## 次の一手
 
-- 次の個別incrementは未採用。利用者の指示と[通常利用メモ](../docs/experience/normal-use-inbox.md)から対象を選ぶ。
+- 209の常用build・配置等は利用者の指示待ち。次の個別incrementは未採用。
+  利用者の指示と[通常利用メモ](../docs/experience/normal-use-inbox.md)から対象を選ぶ。
   候補の記載だけでは実装を開始しない。
 - [Increment 206](../docs/increments/increment-206.md)のfile集計と専用tool選択は反映済み。
   実modelの自発的なtool選択と使い勝手は通常利用での観測待ちであり、追加probeを必須作業にしない。
