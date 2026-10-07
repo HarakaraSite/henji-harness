@@ -206,6 +206,13 @@ Pi／OpenCode／Henjiの画面表示比較
   元の保存履歴を保持し、必要な結果は履歴toolで再取得する構成を候補とする。対象・タイミング・
   保持内容・再取得経路を一体で設計する。現在の通常処理が自動省略しているという意味ではない。
   履歴tool・compaction方針とも、個別incrementへの採用・実装は未承認。
+- 利用者との検討（2026-10-07、調査・議論の整理のみ）:
+  Pi・OpenCode・Zotの更新後の機能比較から、context品質を優先し、用件の区切りで詳細なtool結果を
+  DBに保持したまま、modelには結論・必要な根拠・参照IDを残して、必要時に履歴toolで再取得する案を検討した。
+  IDだけを残すか、tool名・対象・要点を添えるか、整理の契機・投影単位・reasoningとの関係は未決。
+  cache hit率を目的に不要なcontextを保持せず、回答品質・重複探索・再取得と費用を合わせて考える。
+  常時background要約、固定turn数での省略、履歴tool・compactionの採用・実装は承認していない。
+  根拠と比較は[機能比較とcontext整理の検討](../research/2026-10-07-reference-feature-comparison-and-context-strategy.md)を参照する。
 - 再検討条件: 長期Sessionの実token usage、provider/model
   context契約、turn中/間checkpointを比較できる 利用証拠が得られること。
 - 正本:
@@ -382,6 +389,10 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### A29 — request単位のtoken usage・cache再利用量の保存とreadback（未採用、メモのみ）
 
+- 2026-10-07の追加検討:
+  usage保存と三参照のtoken節約策を分けて比較し、cacheは必要な共通contextの再利用に使うと整理した。
+  A3の履歴整理・再取得、要約やwarmingの追加費用を含めて評価する材料とする。採用・実装は未承認。
+  詳細は[機能比較とcontext整理の検討](../research/2026-10-07-reference-feature-comparison-and-context-strategy.md)を参照する。
 - 利用者観測・依頼（2026-10-05）:
   Henjiの`openai-chatgpt / gpt-6.1-sol`でtoken消費が激しく感じられる。
   Codexのcache活用と、完了turnのtool結果をcontextから外すA3案との関係を検討した。
