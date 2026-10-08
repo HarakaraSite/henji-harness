@@ -53,4 +53,18 @@ Deno.test('Increment 78 current build input graph includes its generator', async
   assert(inputs.includes('v0/agent/cli/henji_cli.ts'));
   assert(inputs.includes('v0/agent/hook_api.ts'));
   assert(inputs.includes('deno.v0.json'));
+  for (
+    const entry of [
+      'v0/agent/cli/tui_cli.ts',
+      'v0/agent/cli/run_worker_client.ts',
+      'v0/agent/cli/serve_cli.ts',
+      'v0/agent/cli/core_cli.ts',
+      'v0/agent/cli/session_cli.ts',
+      'v0/agent/cli/history_cli.ts',
+      'v0/agent/cli/configuration_cli.ts',
+      'v0/agent/cli/failure_diagnostic_cli.ts',
+      'v0/agent/runtime/process_runner.ts',
+      'v0/agent/tools/run_typescript_process_entry.ts',
+    ]
+  ) assert(inputs.includes(entry), `CLI command entry missing from build inputs: ${entry}`);
 });

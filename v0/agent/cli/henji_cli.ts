@@ -1,17 +1,7 @@
 import { cliErrorMessage, cliErrorText, parseCliOptions } from './cli_error.ts';
 import { cliHelp } from './cli_help.ts';
-import { runProcessRunner } from '../runtime/process_runner.ts';
-import { runTypescriptProcessEntry } from '../tools/run_typescript_process_entry.ts';
-import { main as tuiMain } from './tui_cli.ts';
-import { runCliWorker } from './run_worker_client.ts';
-import { main as sessionsMain } from './session_cli.ts';
-import { main as historyMain } from './history_cli.ts';
-import { main as diagnosticsMain } from './failure_diagnostic_cli.ts';
-import { configurationMain } from './configuration_cli.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
-import { main as serveMain } from './serve_cli.ts';
-import { main as coreMain } from './core_cli.ts';
 
 const encoder = new TextEncoder();
 
@@ -69,9 +59,11 @@ const runtimeDiagnostics = async (args: readonly string[]): Promise<number> => {
 /** Classify the complete CLI before a selected command touches workspace or durable state. */
 export const main = async (args: readonly string[] = Deno.args): Promise<number> => {
   if (args.length === 3 && args[0] === '--internal-run-typescript') {
+    const { runTypescriptProcessEntry } = await import('../tools/run_typescript_process_entry.ts');
     return await runTypescriptProcessEntry(args[1], args[2]);
   }
   if (args.length === 1 && args[0] === '--internal-process-runner') {
+    const { runProcessRunner } = await import('../runtime/process_runner.ts');
     await runProcessRunner();
     return 0;
   }
@@ -79,6 +71,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
     if (args.length !== 3 || args[1].length === 0 || args[2].length === 0) {
       return await writeInvalid('Invalid internal Core bootstrap arguments');
     }
+    const { main: serveMain } = await import('./serve_cli.ts');
     return await serveMain([], { bootstrapToken: args[1], coreEpoch: args[2] });
   }
   if (args.length === 1 && args[0] === '--version') {
@@ -90,23 +83,51 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
     await writeStdout(help);
     return 0;
   }
-  if (args[0] === 'run') return await runCliWorker(args.slice(1));
-  if (args[0] === 'serve') return await serveMain(args.slice(1));
-  if (args[0] === 'core') return await coreMain(args.slice(1));
-  if (args[0] === 'tui') return await tuiMain(args.slice(1));
+  if (args[0] === 'run') {
+    const { runCliWorker } = await import('./run_worker_client.ts');
+    return await runCliWorker(args.slice(1));
+  }
+  if (args[0] === 'serve') {
+    const { main: serveMain } = await import('./serve_cli.ts');
+    return await serveMain(args.slice(1));
+  }
+  if (args[0] === 'core') {
+    const { main: coreMain } = await import('./core_cli.ts');
+    return await coreMain(args.slice(1));
+  }
+  if (args[0] === 'tui') {
+    const { main: tuiMain } = await import('./tui_cli.ts');
+    return await tuiMain(args.slice(1));
+  }
   if (args[0] === 'webui') {
     await Deno.stderr.write(encoder.encode(cliErrorText('webui', 'WebUI is not implemented.')));
     return 1;
   }
-  if (args[0] === 'sessions') return await sessionsMain(args.slice(1));
-  if (args[0] === 'history') return await historyMain(args.slice(1));
-  if (args[0] === 'agent') return await configurationMain('agent', args.slice(1));
-  if (args[0] === 'tool') return await configurationMain('tool', args.slice(1));
+  if (args[0] === 'sessions') {
+    const { main: sessionsMain } = await import('./session_cli.ts');
+    return await sessionsMain(args.slice(1));
+  }
+  if (args[0] === 'history') {
+    const { main: historyMain } = await import('./history_cli.ts');
+    return await historyMain(args.slice(1));
+  }
+  if (args[0] === 'agent') {
+    const { configurationMain } = await import('./configuration_cli.ts');
+    return await configurationMain('agent', args.slice(1));
+  }
+  if (args[0] === 'tool') {
+    const { configurationMain } = await import('./configuration_cli.ts');
+    return await configurationMain('tool', args.slice(1));
+  }
   if (args[0] === 'diagnostics') {
     if (args[1] === 'runtime') return await runtimeDiagnostics(args.slice(2));
+    const { main: diagnosticsMain } = await import('./failure_diagnostic_cli.ts');
     return await diagnosticsMain(args.slice(1));
   }
-  if (args.length === 0 || args[0].startsWith('--')) return await tuiMain(args);
+  if (args.length === 0 || args[0].startsWith('--')) {
+    const { main: tuiMain } = await import('./tui_cli.ts');
+    return await tuiMain(args);
+  }
   return await writeInvalid(
     `Unknown command '${args[0]}'.${
       args[0] === 'list' ? " To list Cores, use 'henji core list'." : ''

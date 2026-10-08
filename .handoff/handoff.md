@@ -5,6 +5,11 @@
 
 ## 現在地（2026-10-08）
 
+- [Increment 216](../docs/increments/increment-216.md)の指示書コピー・計画詳細化・local実装・focused検証と、
+  一時compile/binaryの公開・内部入口確認と独立reviewを完了した。対象と結果は216を参照する。
+  source・計画書・検証記録は利用者指示によりcommitし、origin/mainへpush。常用配置・実provider
+  callは未実施。
+
 - [Increment 215](../docs/increments/increment-215.md)の指示書コピー・計画詳細化・local実装・focused検証・独立reviewを完了した。
   Coreのエラー分類からData
   owner/SQLiteへの静的値import依存を除去した。要件・比較・検証結果は215を参照する。
@@ -62,6 +67,9 @@
   未追跡の`191-result.json`と`scripts/diagnostics/__pycache__/`はcommit対象外。
 
 ## 次の一手
+
+- 216のlocal実装・検証用compile/binary確認・reviewとcommit/pushは完了。後続の常用配置は利用者指示に従う。
+  今回の承認範囲と結果は216を参照する。
 
 - 215のlocal実装・検証・reviewとcommit/pushは完了。後続のbuild/配置は利用者指示に従う。
   今回の承認範囲と結果は215を参照する。
