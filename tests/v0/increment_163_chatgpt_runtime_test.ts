@@ -8,7 +8,7 @@ import {
   createChildDataTestRegistry,
 } from './helpers/increment_170_child_data.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import { ChatGPTResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
+import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import { createCredentialResolver } from '../../v0/agent/provider/credential_resolver.ts';
 import { LiveModelCatalog } from '../../v0/agent/provider/live_model_catalog.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
@@ -236,11 +236,12 @@ childDataTest(
         headers: { 'content-type': 'text/event-stream' },
       });
     };
-    const model = new ChatGPTResponsesModel({
-      selection,
-      credentialSource: () => 'mock-access-token',
+    const physical = createProductionPhysicalIo(undefined, {
+      credentialRoot: '/tmp/increment-163-config',
+      credentialSources: { 'openai-chatgpt': () => 'mock-access-token' },
       fetcher,
     });
+    const model = physical.createModel('parent', selection);
     const request: ModelRequest = {
       systemInstruction: 'Use Henji tools when needed.',
       transcript: [
@@ -274,10 +275,28 @@ childDataTest(
       }],
     };
 
+    const measured = model.measureRequestWire?.(request);
+    ok(measured, 'ChatGPT wire measurement must exist before first generation');
     const thinking: unknown[] = [];
     const result = await model.generate(request, {
       reportThinkingDelta: (delta) => thinking.push(delta),
     });
+    strictEqual(
+      measured.messagesBytes,
+      new TextEncoder().encode(JSON.stringify(requestBody.input)).byteLength,
+    );
+    strictEqual(
+      measured.bodyBytes,
+      new TextEncoder().encode(JSON.stringify({
+        model: requestBody.model,
+        instructions: requestBody.instructions,
+        input: requestBody.input,
+        tools: requestBody.tools,
+        stream: requestBody.stream,
+        store: requestBody.store,
+      })).byteLength,
+    );
+    deepStrictEqual(model.measureRequestWire?.(request), measured);
     deepStrictEqual(requestBody.reasoning, { summary: 'auto', effort: 'high' });
     deepStrictEqual(thinking, [{ kind: 'summary', text: 'Check the echoed value.' }]);
     strictEqual(result.kind, 'tool_calls');

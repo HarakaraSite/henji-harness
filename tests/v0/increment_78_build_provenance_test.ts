@@ -67,4 +67,12 @@ Deno.test('Increment 78 current build input graph includes its generator', async
       'v0/agent/tools/run_typescript_process_entry.ts',
     ]
   ) assert(inputs.includes(entry), `CLI command entry missing from build inputs: ${entry}`);
+  for (
+    const path of [
+      'v0/agent/provider/openrouter_model.ts',
+      'v0/agent/provider/openrouter_transport.ts',
+      'v0/agent/provider/openai_responses_model.ts',
+      'v0/agent/provider/openai_responses_request.ts',
+    ]
+  ) assert(inputs.includes(path), `Deferred provider source missing from build inputs: ${path}`);
 });

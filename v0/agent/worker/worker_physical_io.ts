@@ -1,16 +1,9 @@
 import type { PhysicalIoBindings } from '../worker_agent_api.ts';
-import {
-  type CredentialSource,
-  type CredentialSourceContext,
-  OpenRouterAgentModel,
-} from '../provider/openrouter_model.ts';
+import type { Model } from '../core/contracts.ts';
+import type { CredentialSource, CredentialSourceContext } from '../provider/openrouter_contract.ts';
 import { createCredentialResolver } from '../provider/credential_resolver.ts';
-import {
-  ChatGPTResponsesModel,
-  DeclaredResponsesModel,
-  OpenAIResponsesModel,
-  OpenRouterResponsesModel,
-} from '../provider/openai_responses_model.ts';
+import { measureModelRequestWire } from '../provider/openrouter_request.ts';
+import { measureResponsesRequestWire } from '../provider/openai_responses_request.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
   AuthProfileId,
@@ -43,6 +36,19 @@ export const createWorkerRequestCounter = (): WorkerRequestCounter => {
       value += 1;
     },
     count: () => value,
+  };
+};
+
+/** Keep synchronous wire measurement while loading the adapter on the first generation. */
+const deferredModel = (
+  measureRequestWire: NonNullable<Model['measureRequestWire']>,
+  createAdapter: () => Promise<Model>,
+): Model => {
+  let adapter: Promise<Model> | undefined;
+  return {
+    measureRequestWire,
+    generate: async (request, options) =>
+      (await (adapter ??= createAdapter())).generate(request, options),
   };
 };
 
@@ -83,36 +89,71 @@ export const createProductionPhysicalIo = (
       const resolved = selection ?? defaultModelSelectionFor('openrouter-chat');
       if (resolved.provider === 'openai-chatgpt') {
         const chatgpt = resolved as ChatGPTModelSelection;
-        return new ChatGPTResponsesModel({
-          selection: chatgpt,
-          credentialSource: (context?: CredentialSourceContext) =>
-            resolver.resolve(chatgpt.authProfile, chatgpt.registrationId, {
-              ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-              ...context,
+        return deferredModel(
+          (request) =>
+            measureResponsesRequestWire(request, resolved.modelId, {
+              stateProvider: chatgpt.registrationId === undefined
+                ? chatgpt.provider
+                : `${chatgpt.provider}@${chatgpt.registrationId ?? 'unselected'}`,
+              includeStore: true,
+              namespaceTools: true,
             }),
-          fetcher,
-          timeoutMs: options.providerTimeoutMs,
-          ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-        });
+          async () => {
+            const { ChatGPTResponsesModel } = await import('../provider/openai_responses_model.ts');
+            return new ChatGPTResponsesModel({
+              selection: chatgpt,
+              credentialSource: (context?: CredentialSourceContext) =>
+                resolver.resolve(chatgpt.authProfile, chatgpt.registrationId, {
+                  ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+                  ...context,
+                }),
+              fetcher,
+              timeoutMs: options.providerTimeoutMs,
+              ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+            });
+          },
+        );
       }
       if (resolved.provider === 'openai-responses') {
-        return new OpenAIResponsesModel({
-          selection: resolved as OpenAIModelSelection,
-          credentialSource: () => resolver.resolve(resolved.authProfile),
-          fetcher,
-          timeoutMs: options.providerTimeoutMs,
-        });
+        return deferredModel(
+          (request) =>
+            measureResponsesRequestWire(request, resolved.modelId, {
+              stateProvider: resolved.provider,
+              includeStore: true,
+            }),
+          async () => {
+            const { OpenAIResponsesModel } = await import('../provider/openai_responses_model.ts');
+            return new OpenAIResponsesModel({
+              selection: resolved as OpenAIModelSelection,
+              credentialSource: () => resolver.resolve(resolved.authProfile),
+              fetcher,
+              timeoutMs: options.providerTimeoutMs,
+            });
+          },
+        );
       }
       if (resolved.provider === 'openrouter-responses') {
         const endpoint = declaredProviders.get('openrouter-responses')
           ?.endpoint;
-        return new OpenRouterResponsesModel({
-          selection: resolved as OpenRouterResponsesModelSelection,
-          credentialSource: () => resolver.resolve(resolved.authProfile),
-          fetcher,
-          timeoutMs: options.providerTimeoutMs,
-          ...(endpoint === undefined ? {} : { baseURL: endpoint }),
-        });
+        return deferredModel(
+          (request) =>
+            measureResponsesRequestWire(request, resolved.modelId, {
+              stateProvider: resolved.provider,
+              includeStore: false,
+            }),
+          async () => {
+            const { OpenRouterResponsesModel } = await import(
+              '../provider/openai_responses_model.ts'
+            );
+            return new OpenRouterResponsesModel({
+              selection: resolved as OpenRouterResponsesModelSelection,
+              credentialSource: () => resolver.resolve(resolved.authProfile),
+              fetcher,
+              timeoutMs: options.providerTimeoutMs,
+              ...(endpoint === undefined ? {} : { baseURL: endpoint }),
+            });
+          },
+        );
       }
       if (resolved.api === 'openai-responses') {
         const declaration = declaredProviders.get(resolved.provider);
@@ -122,15 +163,27 @@ export const createProductionPhysicalIo = (
         ) {
           throw new Error('declared provider is unavailable');
         }
-        return new DeclaredResponsesModel({
-          selection: resolved as DeclaredProviderModelSelection,
-          credentialSource: () => resolver.resolve(declaration.authProfile),
-          fetcher,
-          timeoutMs: options.providerTimeoutMs,
-          baseURL: declaration.endpoint,
-          ...(declaration.headers === undefined ? {} : { requestHeaders: declaration.headers }),
-          ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-        });
+        return deferredModel(
+          (request) =>
+            measureResponsesRequestWire(request, resolved.modelId, {
+              stateProvider: resolved.provider,
+              includeStore: false,
+            }),
+          async () => {
+            const { DeclaredResponsesModel } = await import(
+              '../provider/openai_responses_model.ts'
+            );
+            return new DeclaredResponsesModel({
+              selection: resolved as DeclaredProviderModelSelection,
+              credentialSource: () => resolver.resolve(declaration.authProfile),
+              fetcher,
+              timeoutMs: options.providerTimeoutMs,
+              baseURL: declaration.endpoint,
+              ...(declaration.headers === undefined ? {} : { requestHeaders: declaration.headers }),
+              ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+            });
+          },
+        );
       }
       if (resolved.api === 'openai-chat-completions') {
         const declaration = declaredProviders.get(resolved.provider);
@@ -140,33 +193,47 @@ export const createProductionPhysicalIo = (
         ) {
           throw new Error('declared provider is unavailable');
         }
-        return new OpenRouterAgentModel({
-          profile: openRouterProfileForDeclaredChat(
-            resolved.provider,
-            resolved.modelId,
-            resolved.effort,
-            declaration.endpoint,
-            declaration.headers,
-          ),
-          evidenceIdentity: {
-            provider: resolved.provider,
-            api: 'openai-chat-completions',
-            authProfile: declaration.authProfile,
+        const profile = openRouterProfileForDeclaredChat(
+          resolved.provider,
+          resolved.modelId,
+          resolved.effort,
+          declaration.endpoint,
+          declaration.headers,
+        );
+        return deferredModel(
+          (request) => measureModelRequestWire(request, profile, 'sse', resolved.provider),
+          async () => {
+            const { OpenRouterAgentModel } = await import('../provider/openrouter_model.ts');
+            return new OpenRouterAgentModel({
+              profile,
+              evidenceIdentity: {
+                provider: resolved.provider,
+                api: 'openai-chat-completions',
+                authProfile: declaration.authProfile,
+              },
+              credentialSource: () => resolver.resolve(declaration.authProfile),
+              fetcher,
+              responseMode: 'sse',
+              timeoutMs: options.providerTimeoutMs,
+              ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+            });
           },
-          credentialSource: () => resolver.resolve(declaration.authProfile),
-          fetcher,
-          responseMode: 'sse',
-          timeoutMs: options.providerTimeoutMs,
-          ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-        });
+        );
       }
-      return new OpenRouterAgentModel({
-        profile: openRouterProfileFor(resolved as OpenRouterModelSelection),
-        credentialSource: () => resolver.resolve(resolved.authProfile),
-        fetcher,
-        responseMode: 'sse',
-        timeoutMs: options.providerTimeoutMs,
-      });
+      const profile = openRouterProfileFor(resolved as OpenRouterModelSelection);
+      return deferredModel(
+        (request) => measureModelRequestWire(request, profile),
+        async () => {
+          const { OpenRouterAgentModel } = await import('../provider/openrouter_model.ts');
+          return new OpenRouterAgentModel({
+            profile,
+            credentialSource: () => resolver.resolve(resolved.authProfile),
+            fetcher,
+            responseMode: 'sse',
+            timeoutMs: options.providerTimeoutMs,
+          });
+        },
+      );
     },
     requestProvider: createProviderRequestDispatcher({
       resolveCredential: (authProfile) => resolver.resolve(authProfile),

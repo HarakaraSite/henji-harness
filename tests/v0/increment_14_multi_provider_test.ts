@@ -220,19 +220,24 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
       },
     });
   };
+  let credentialReads = 0;
   const physical = createProductionPhysicalIo(undefined, {
     credentialRoot: '/tmp/henji-test-credentials',
     credentialSources: {
       'openrouter-api-key': () => Promise.resolve('router-secret'),
-      'openai-api-key': () => Promise.resolve('openai-secret'),
+      'openai-api-key': () => {
+        credentialReads += 1;
+        return Promise.resolve('openai-secret');
+      },
     },
     fetcher,
   });
   const evidence = new ProviderEvidenceRecorder();
-  const result = await physical.createModel(
-    'parent',
-    openAiDefaultSelection,
-  ).generate(
+  const model = physical.createModel('parent', openAiDefaultSelection);
+  const measured = model.measureRequestWire?.(request);
+  assert(measured !== undefined, 'Responses wire measurement must exist before first generation');
+  assertEquals(credentialReads, 0);
+  const result = await model.generate(
     request,
     {
       providerEvidence: evidence,
@@ -247,6 +252,23 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
   assertEquals(seen.url, 'https://api.openai.com/v1/responses');
   assertEquals(seen.authorization, 'Bearer openai-secret');
   const body = JSON.parse(seen.body ?? '{}');
+  assertEquals(credentialReads, 1);
+  assertEquals(
+    measured.messagesBytes,
+    new TextEncoder().encode(JSON.stringify(body.input)).byteLength,
+  );
+  assertEquals(
+    measured.bodyBytes,
+    new TextEncoder().encode(JSON.stringify({
+      model: body.model,
+      instructions: body.instructions,
+      input: body.input,
+      tools: body.tools,
+      stream: body.stream,
+      store: body.store,
+    })).byteLength,
+  );
+  assertEquals(model.measureRequestWire?.(request), measured);
   assertEquals(body.model, 'gpt-5.6-sol');
   assertEquals(body.store, false);
   assertEquals(body.stream, true);

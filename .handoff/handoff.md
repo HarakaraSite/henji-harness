@@ -5,6 +5,13 @@
 
 ## 現在地（2026-10-08）
 
+- [Increment 217](../docs/increments/increment-217.md)の指示書コピー・計画詳細化・local実装・focused検証と、
+  一時compile／実Workerのlocalhost生成・切替・保存再開確認を完了した。同期factory／wire計測を保ち、
+  protocol
+  adapter本体を最初のgenerateで読み込む。対象・依存比較・実行証拠・未確認範囲は217を参照する。
+  独立review完了。source・計画書・検証記録は利用者指示によりcommitし、origin/mainへpush。
+  常用配置・実provider callは未実施。
+
 - [Increment 216](../docs/increments/increment-216.md)の指示書コピー・計画詳細化・local実装・focused検証と、
   一時compile/binaryの公開・内部入口確認と独立reviewを完了した。対象と結果は216を参照する。
   source・計画書・検証記録は利用者指示によりcommitし、origin/mainへpush。常用配置・実provider
@@ -67,6 +74,9 @@
   未追跡の`191-result.json`と`scripts/diagnostics/__pycache__/`はcommit対象外。
 
 ## 次の一手
+
+- 217のlocal実装・検証用compile／binary確認・独立reviewとcommit/pushは完了。後続の常用配置は利用者指示に従う。
+  今回の承認範囲と結果は217を参照する。
 
 - 216のlocal実装・検証用compile/binary確認・reviewとcommit/pushは完了。後続の常用配置は利用者指示に従う。
   今回の承認範囲と結果は216を参照する。

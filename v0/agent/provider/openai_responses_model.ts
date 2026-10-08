@@ -2,12 +2,10 @@ import { captureFailureDetails, type FailureDetails } from '../core/failure_deta
 import OpenAI from '@openai/openai';
 import type {
   JsonValue,
-  Message,
   Model,
   ModelGenerateOptions,
   ModelRequest,
   ModelResult,
-  ProviderState,
   ToolCall,
 } from '../core/contracts.ts';
 import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
@@ -25,6 +23,12 @@ import type {
   OpenAIModelSelection,
   OpenRouterResponsesModelSelection,
 } from './model_selection.ts';
+import {
+  measureResponsesRequestWire,
+  responsesRequestInput,
+  responsesRequestTools,
+  type ResponsesWireConfig,
+} from './openai_responses_request.ts';
 import { substituteRequestHeaders } from './provider_request_headers.ts';
 
 interface OpenAIResponsesModelOptions {
@@ -53,75 +57,6 @@ const jsonValue = (value: unknown): JsonValue | undefined => {
   } catch {
     return undefined;
   }
-};
-
-const replayItemsFor = (
-  state: ProviderState | undefined,
-  providerId: string,
-  modelId: string,
-): readonly JsonValue[] | undefined => {
-  if (state === undefined || state.provider !== providerId) return undefined;
-  const responses = state as {
-    readonly replayItems?: readonly JsonValue[];
-    readonly model?: string;
-  };
-  if (!Array.isArray(responses.replayItems)) return undefined;
-  if (responses.model !== undefined && responses.model !== modelId) {
-    return undefined;
-  }
-  return responses.replayItems;
-};
-
-const requestInput = (
-  transcript: readonly Message[],
-  providerId: string,
-  modelId: string,
-): unknown[] => {
-  const input: unknown[] = [];
-  for (const message of transcript) {
-    if (message.role === 'user') {
-      input.push({ role: 'user', content: message.content.text });
-      continue;
-    }
-    if (message.role === 'assistant') {
-      const replayItems = replayItemsFor(
-        message.providerState,
-        providerId,
-        modelId,
-      );
-      if (replayItems !== undefined) {
-        input.push(...replayItems);
-        continue;
-      }
-      if (!Array.isArray(message.content)) {
-        input.push({
-          role: 'assistant',
-          content: (message.content as { readonly text: string }).text,
-        });
-        continue;
-      }
-      if (message.text !== undefined) {
-        input.push({ role: 'assistant', content: message.text });
-      }
-      for (const call of message.content) {
-        input.push({
-          type: 'function_call',
-          call_id: call.callId,
-          name: call.name,
-          arguments: JSON.stringify(call.arguments),
-        });
-      }
-      continue;
-    }
-    for (const result of message.content) {
-      input.push({
-        type: 'function_call_output',
-        call_id: result.callId,
-        output: result.text,
-      });
-    }
-  }
-  return input;
 };
 
 const evidenceOrigin = (
@@ -231,13 +166,9 @@ interface ResponsesApiModelOptions {
   readonly sessionId?: string;
 }
 
-interface ResponsesApiModelConfig {
+interface ResponsesApiModelConfig extends ResponsesWireConfig {
   readonly baseURL: string;
   readonly providerLabel: string;
-  /** Producer identity recorded on client-owned replay state. */
-  readonly stateProvider: string;
-  readonly includeStore: boolean;
-  readonly namespaceTools?: boolean;
 }
 
 /** Shared Responses-API adapter; Henji retains the tool loop and durable transcript. */
@@ -247,49 +178,8 @@ class ResponsesApiModel implements Model {
     private readonly config: ResponsesApiModelConfig,
   ) {}
 
-  readonly measureRequestWire = (request: ModelRequest): {
-    readonly messagesBytes: number;
-    readonly bodyBytes: number;
-  } => {
-    const input = requestInput(
-      request.transcript,
-      this.config.stateProvider,
-      this.options.selection.modelId,
-    );
-    const tools = this.#requestTools(request);
-    const body = JSON.stringify({
-      model: this.options.selection.modelId,
-      instructions: request.systemInstruction,
-      input,
-      ...(tools === undefined ? {} : { tools }),
-      stream: true,
-      ...(this.config.includeStore ? { store: false } : {}),
-    });
-    const encoder = new TextEncoder();
-    return {
-      messagesBytes: encoder.encode(JSON.stringify(input)).byteLength,
-      bodyBytes: encoder.encode(body).byteLength,
-    };
-  };
-
-  #requestTools(request: ModelRequest): unknown[] | undefined {
-    const functions = request.tools.map((tool) => ({
-      type: 'function' as const,
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.inputSchema,
-      strict: false,
-    }));
-    if (this.config.namespaceTools === true) {
-      return functions.length === 0 ? undefined : [{
-        type: 'namespace',
-        name: 'henji',
-        description: 'Henji local tools.',
-        tools: functions,
-      }];
-    }
-    return functions;
-  }
+  readonly measureRequestWire = (request: ModelRequest) =>
+    measureResponsesRequestWire(request, this.options.selection.modelId, this.config);
 
   async generate(
     request: ModelRequest,
@@ -363,7 +253,7 @@ class ResponsesApiModel implements Model {
         sessionId: this.options.sessionId,
       }),
     };
-    const requestTools = this.#requestTools(request);
+    const requestTools = responsesRequestTools(request, this.config.namespaceTools);
     const client = new OpenAI({
       apiKey: credential,
       baseURL: this.config.baseURL,
@@ -383,7 +273,7 @@ class ResponsesApiModel implements Model {
       const stream = await client.responses.create({
         model: this.options.selection.modelId,
         instructions: request.systemInstruction,
-        input: requestInput(
+        input: responsesRequestInput(
           request.transcript,
           this.config.stateProvider,
           this.options.selection.modelId,
