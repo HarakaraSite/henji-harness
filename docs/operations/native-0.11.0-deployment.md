@@ -122,3 +122,46 @@ candidate-runtime.json、deployment.json、tool_paths.source.ts、search.previou
 smoke.py、smoke.log、smoke.json、core.log。 実tool-paths.json・credential・DB設定は変更していない。
 既存の稼働Core/TUIは停止・再起動していない。新しいCoreの起動から適用する。
 commit、push、JSR公開、releaseは実施していない。
+
+## Increment 214〜217の完了と配置 — 2026-10-08
+
+利用者が「これまでのインクリメントを完了とします」と判断し、「配置もしてください」と指示した。
+217までの既存incrementを完了とし、214〜217を反映したsource
+`6315beed73cb4c68ec46189c30e08487a83d0028`
+のbinaryを`dist/henji`と`/home/agent/.local/bin/henji`へatomic配置した。
+
+メモリ観測時に公式builderで作成し、各3回のproduction Core/TUI測定に使ったclean binaryを再利用した。
+配置直前にHEAD/sourceDirty/versionとbinary
+SHA-256を照合した。build入力の追加変更はなく、再compileは不要だった。
+メモリ測定結果は[Increment 217](../increments/increment-217.md)を参照する。
+
+- version: `henji 0.11.0`、sourceDirty: `false`
+- source: `6315beed73cb4c68ec46189c30e08487a83d0028`
+- build ID: `199c39379d87466f05f25923df13cdd5fd76f0ab774ad98d0022febfb54e14fc`
+- runtime SHA-256: `8204780530362bb332010dd61eec49e00dcf6a87dfacdabfb0b0d93816112449`
+- binary SHA-256: `930ea6a03fb2034df05a32f84f1ddae25ebfb0f323e58f99bd60d10f04e53736`
+- Deno: `2.9.7`、target: `x86_64-unknown-linux-gnu`
+
+配置先両方のversion/SHA-256がcandidateと一致した。旧dist・常用binary・更新前`henji.previous`は
+git管理外`.tools/increment-217-deployment/henji.{dist,local,previous}.previous`へ保持した。
+`/home/agent/.local/bin/henji.previous`には今回置き換えた常用binaryをatomic配置し、元のSHA-256と照合した。
+既存の外部tool/hooks、provider/settings/tool-paths/credential/DBは変更していない。
+
+配置先の常用binaryから、隔離workspace/HOME/XDGと外部DenoのないPATHでproduction
+Core/Agent/Dataを起動した。
+localhost宣言providerを使い、同じSessionでChat→Responses→Chatの3turn、Core停止・再起動後の保存Session再開と
+Chatの4turn目が成功した。各turnのcompleted outcome、requestCount=1、provider/model、canonical
+historyを確認した。
+
+別の隔離tmuxでcompiled Core/TUIを起動し、Core APIのsource/clean/build ID一致、0.11.0のready表示、
+normal screen/mouse off、複数行editorのUp/Home編集、F4 pickerとEscのdraft保持、Ctrl-QによるTUI終了と
+Core exit 0を確認した。TUI smokeのprovider requestは0回、Worker smokeはlocalhost request 4回。
+外部provider requestは0回。full gateは繰り返していない。
+
+記録（git管理外）:
+`.tools/increment-217-deployment/deployment.json`、`install.py`、`worker_smoke.py`、
+`worker-smoke.json`、`tui_smoke.py`、`smoke.json`、`smoke-core.log`、`smoke-tui.txt`等。
+build記録は`.tools/memory-after-217/compile-after.log`／`builds.json`。
+
+既存の稼働Core/TUIは停止・再起動していない。新しいCore/TUI起動から反映する。
+今回の完了・観測・配置記録のcommit/pushは未実施。JSR追加公開・releaseも実施していない。

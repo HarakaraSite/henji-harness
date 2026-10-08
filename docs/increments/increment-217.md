@@ -1,5 +1,10 @@
 # Increment 217: 選択protocolに応じたprovider adapterの読み込み
 
+現在の状態: **完了（2026-10-08、利用者判断による一律整理）**。
+
+以下の状態・未実施・承認待ちの記載は各作業時点の記録であり、本incrementの現在の残作業として扱わない。
+この完了判断は過去の作業を閉じるもので、当時未実施だった実装・検証・配置等を実施済みに変更するものではない。
+
 作成日：2026-10-08。
 
 状態：計画詳細化・local実装・focused検証・一時compile/binary確認・独立reviewを完了。利用者の明示指示により原指示書を本incrementへ採用した。
@@ -301,6 +306,63 @@ gateは実行していない。独立reviewは次項の通り完了した。
 coordinating ownerは上記結果を採用した。承認済み217のlocal実装・検証・reviewに残作業はない。
 commit/pushは後続の利用者明示指示に基づき実施した。常用配置は利用者の後続指示に従う。
 
+### 後続指示による214〜217のメモリ観測（2026-10-08）
+
+利用者の「これまでの修正を適用したバージョンでメモリ使用量を測定してください」により、
+修正前`ad67a85e`と214〜217適用後`6315beed`のclean sourceを公式builderでそれぞれcompileした。
+同じDeno 2.9.7/Linux x86_64環境で、compiled production Coreと別processの接続TUIを各3回測定した。
+前回214のsource実行とはbuild形態・CLI/Core/TUI構成が異なるため、その数値と直接比較しない。
+
+隔離workspace/XDG、localhost Chat Completions SSE provider、bundled readを使う。 1turnで59,282
+byte（約58 KiB）の同じfileを1回readし、次requestでOKを返す20turn/40request負荷で、
+6実行すべてcompleted outcomeとcanonical
+historyの保存が成功した。TUIは110×36の隔離tmuxから実HTTP/SSEを購読した。
+測定順序はbefore→after、after→before、before→after。CoreのData/API/Agent Workerは同一process内のため
+RSSを重複加算せず、Core/TUIの別processを約20ms間隔の/proc smaps_rollupでRSS/PSS採取した。 mock
+server・tmux server・観測process・compileは含めず、強制GCなし、全sampleでSwap=0だった。
+
+以下は各3回の中央値。最大RSS合計は同時sampleのCore+TUI
+RSS合計の最大値であり、成分の最大値の和ではない。
+
+| 時点            | 修正前 RSS合計 | 最新 RSS合計 |
+| --------------- | -------------: | -----------: |
+| 起動・TUI接続後 |      167.6 MiB |    147.0 MiB |
+| 5turn後         |      277.0 MiB |    250.3 MiB |
+| 10turn後        |      346.3 MiB |    311.4 MiB |
+| 20turn後        |      437.1 MiB |    401.5 MiB |
+| 最大RSS合計     |      439.1 MiB |    402.4 MiB |
+
+最大RSS合計は中央値で36.7 MiB（約8.4%）減少した。各回の範囲は修正前438.0〜440.0 MiB、
+最新390.7〜403.8 MiBで、3回とも最新の方が低かった。最新20turn後2秒idleの内訳はCore RSS 324.7 MiB、
+TUI RSS 76.8 MiB。共有ページをprocess間で按分するPSS合計の中央値も380.8→351.5 MiBとなった。
+RSS合計は共有ページを重複計上するため、physical memoryの比較にはPSSも併記する。
+
+この条件では214〜217を合わせた修正後のメモリ減少を観測した。各incrementの単独寄与は分離していない。
+Responses/ChatGPT、実provider応答、長いthinking、長期利用の上限は未確認である。
+一時証拠と再現用probeはgit管理外`.tools/memory-after-217/`の`report.txt`、`builds.json`、`environment.json`、
+`summary.json`、`aggregate.json`、`observe.py`と各runの`samples.json`／`stages.json`に保存した。
+最新binaryのbuild IDは`199c39379d87466f05f25923df13cdd5fd76f0ab774ad98d0022febfb54e14fc`、 runtime
+SHAは`8204780530362bb332010dd61eec49e00dcf6a87dfacdabfb0b0d93816112449`、sourceDirty=false。
+測定だけでは常用binaryを更新していない。後続の配置指示と結果は次項に記録する。
+
+### 利用者の完了判断と常用配置（2026-10-08）
+
+利用者が217までの既存incrementを完了とし、続けて配置を指示した。
+メモリ観測で公式builderから作成したclean source
+`6315beed`のbinaryを`dist/henji`と常用binaryへatomic配置した。
+両配置先のversion/SHA-256はcandidateと一致し、旧binaryと更新前のbackupは保持した。
+外部tool/hooks、実provider/settings/tool-paths/credential/DBの変更はない。
+
+配置先binaryのproduction Workerでlocalhost
+Chat→Responses→Chat＋Core再起動/保存再開後Chatの4turnを確認した。 別の隔離tmuxでcompiled
+Core/TUI、source/clean/build ID、ready表示、複数行editor、F4 picker/Escのdraft保持、
+Ctrl-Qの終了とCore exit 0を確認した。外部Denoなしで成功し、外部provider callは0回。
+既存の稼働Core/TUIは再起動せず、新しいCore/TUI起動から適用する。
+
+build
+identity、退避先、確認結果と証拠は[常用配置記録](../operations/native-0.11.0-deployment.md)を参照する。
+本incrementの採用範囲に残作業はない。今回の完了・観測・配置記録のcommit/pushと追加公開は未実施。
+
 ### 記録と残る範囲
 
 一時証拠はgit管理外`.tools/increment-217/`に保持した。
@@ -311,7 +373,8 @@ commit/pushは後続の利用者明示指示に基づき実施した。常用配
 
 変更fileはphysical I/O factory、Responses adapter、新しい共有request module、14/163/78の既存test、
 本計画書と`.handoff/handoff.md`。構想・architecture・roadmapは変更していない。
-実providerとの成功、RSS・起動時間・binaryサイズへの効果、常用配置は未確認であり、今回の完了条件に含めない。
+上記の後続メモリ観測でChat/file-read負荷のRSS/PSSを確認した。実providerとの成功、起動時間・binaryサイズへの効果は未確認。
+常用配置は後続指示の結果を参照する。
 利用者の実config／credential／保存Sessionと既存未追跡fileは保全した。
 source・計画書・検証とreviewの記録は、2026-10-08の利用者指示によりcommitし、origin/mainへpushした。
 配置/公開・実provider callは後続の利用者明示指示に従う。

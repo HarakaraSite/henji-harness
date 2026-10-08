@@ -31,6 +31,9 @@ AgentへDB操作を依頼する。
 2026-10-08にrebuildを実装しない判断と、Agentによるroot model・effort変更は効果が薄いため見送る判断を
 構想・architecture・roadmapへ反映し、A2の候補から除いた。run_typescriptによる自己拡張は自己改訂の
 部分実装として扱い、R1/R2/R3では既存経路で不足する動作だけを未採用候補として残す。
+同日にA37（searchのglobにおける`!`否定と除外の扱い）を追加した。案A・案Bを併記し、
+採用時の見込みとしてM2（除外の実装）とI1（description書き換え）の併用を残す。
+同日にA38（searchのmode命名と機能の発見性）を追加した。推測と対処案3つを併記する。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -66,6 +69,8 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                         | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
 | A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback              | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
 | A36 | Agent実行      | 非同期の書記官subagentによるメモ・handoff更新                        | 利用者が既存subagent経路で試すことを指示するとき。今回はメモのみ                                                       |
+| A37 | Agent実行      | searchのglobにおける`!`否定（除外）の扱い                            | 利用者がsearchの除外機能を採用するとき。案A／案Bの契約はその時点で決める                                              |
+| A38 | Agent実行      | searchのmode命名と機能の発見性                                       | 利用者がmode名・tool構成の見直しを指示するとき、または発見性起因の誤用を追加観測したとき                              |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | 自己拡張・改訂の経験参照・振り返り・継続利用に具体的な不足が出たとき                                                   |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | 生成処理やtool変更の継続利用に不足が出る、または具体的なMCP integrationを採用するとき                                  |
@@ -443,6 +448,76 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 利用者がHenjiの既存subagent経路で書記官を試すことを指示するとき。
   今回はagent設定・tool・runtime・作業規則を変更せず、試行も行わない。
 - 関連: A24、R4、`v0/agent/tools/async_agents.ts`、`v0/agent/worker/worker_host_children.ts`。
+
+### A37 — searchのglobにおける`!`否定（除外）の扱い（未採用、メモのみ）
+
+- 利用者の観測（2026-10-08）: deepseek系modelがsearchのglobで`!`否定をよく使う。だんだん絞り込む
+  意図での使用であり、rg等の書式の慣習だけでなく、実際の絞り込み要望の表れと見る。使用は複数
+  セッションで利用者確認済み（coordinating側で確認できた6セッションには使用例なし）。
+- 現行挙動の確認（2026-10-08、source・実測）:
+  - `external-tools/search/index.ts`はglob中の`!`をliteralとして扱い、`!`始まりのglobはpathに一致せず
+    **無言でtotal 0**になる（実測: `glob:"!**/docs/**"`で0件、対照`glob:"README*"`で1312件）。
+    「該当なし」に見えるため、もっともらしい誤答（存在しないとの判断）に繋がる。
+  - 「leading !は除外ではない」注意は既に3箇所にある（L85のglobパラメータ説明、L952・L960のtool説明）。
+    文章による抑止だけでは止まっていないことが実証されている。
+  - searchはhidden・gitignore済み・dependency fileも対象に含み、結果capture上限（8MiB、結果1MiB、
+    100件page）がある。騒音源が既知で対象は広い絞り込みは、path指定や複数callでは表現しにくい。
+  - 例: Session c5d830b5（2026-10-08、README比較）で`path:"."`＋`glob:"*.json"`の結果が`.tools/**`の
+    artifact由来で約870KBになり、答えに寄与したのは後続の狭いqueryだった。広いsweepの正しい直し方
+    は騒音dirの除外だった。
+  - `stats` mode（wc相当: path/lines/words/bytes）も同じglob filterを使う。騒音源の事前把握に使える
+    （実測: `.tools/tool-trend-0cd5c22e/detail.json`は9,250行で34,770,332 bytesの巨大行JSONL。
+    c5d830b5の騒音の正体で、content searchの前に`stats`1回で特定できた）。
+- 議論の整理: 除外という能力はこのtool設計では有用で、騒音を含む世界を1 callで絞れる。`!`書式は
+  人・modelに既知で習得コストが無いが、**単独指定の意味論**（全体からの除外か、includeとの組み合わせ
+  か）を契約として決める必要がある。
+- 候補（案A・案B併記）:
+  - 案A（gitignore準拠）: `glob`をstringまたはstring配列とし、`!`前要素を除外とする。positiveが無ければ
+    全体、有れば「positiveに合致かつnegativeに非合致」。modelの書いた形がそのまま動き、誤用が構造的に
+    消える。literalの`!`始まりpathにマッチさせる手段は未定（実需要はほぼ無い見込み）。
+  - 案B（明示param）: `exclude`パラメータを追加し、`!`始まりのglobは明示errorで`exclude`へ誘導する。
+    契約は明快だが、modelにはerror往復が1回発生する。
+  - どちらでも現状の無言のゼロは解消する（案Aは動く形で、案Bはerrorで）。
+  - 除外はfiles/paths/content/count/entries/statsの全modeに共通のglob filterに乗るため、案A・案Bの
+    どちらでも全modeに効く。現状の無言ゼロも同じ経路で全modeに発生し得る。
+- I1相当の文言整理（案A・案Bのどちらでも併用）: descriptionは「除外できない」の否定だけでなく、
+  「`path`を絞る・callを分ける・`exclude`を使う」等、正面の代替行動を書く形へ改める。
+- 利用者の見込み（2026-10-08）: おそらくM2（除外の実装）とI1（description書き換え）の両方をやるだろう。
+  採用・実装は未承認。
+- 未確認: `!`使用の実頻度・失敗率は利用者観測ベースで数値未取得。literalの`!`始まりglobの実需要。
+  案Aの複数pattern時の順序・上書き規則の詳細。
+- 再検討条件: 利用者がsearchの除外機能を採用するとき。その時点で案A／案Bの契約を決めてincrement化する。
+- 関連: A2、A11、`external-tools/search/index.ts`、Session c5d830b5（広いglobの騒音例。`!`未使用）。
+
+### A38 — searchのmode命名と機能の発見性（未採用、メモのみ）
+
+- 利用者の疑問（2026-10-08）: searchという名前に対して機能が多く（entries/paths/files/content/count/stats）、
+  イメージしにくくなっているのでは。wc相当の挙動も説明にあるはず。
+- 現行確認（2026-10-08、source確認）: tool説明は冒頭で「List, find, search, and count」と複数用途を宣言し、
+  mode→慣習コマンド対応（ls-style／find or rg --files／rg -l／grep or rg／grep -c相当／wc-style）と具体例を
+  記載。statsの詳細は2段落目、prompt guidelinesにも「Use search instead of bash ls, find, grep, rg, or wc」
+  「do not pipe a listing into wc」の記載あり。説明文自体は発見性を補完済み。
+- 推測（未確認、根拠限定的）: 観測された誤用（A37の`!`によるrg的除外、広いsweep前のstats未使用）は
+  「search＝grep」という機能名アンカー＋rg priorsで説明がつく。ツール名よりも、**mode名が慣習コマンドの
+  信号を持たない**（特に`stats`をwcとして見つけるには説明文の読解が必要）ことが本体の可能性。
+  説明文への注意が薄いmodelほど名前に依存する。「名前のせいで失敗している」の直接証拠はまだ薄い。
+- 対処案（3案、product契約の判断は利用者へ戻す）:
+  1. 据え置き＋説明改善: 現状維持し、A37のI1相当（正面の代替行動の記載）で補う。
+  2. mode名を慣習対応にする（`stats`→`wc`等、または慣習名の別名を受け付ける）: 発見性は上がるが
+     tool契約の変更。旧名併存の扱いを含めて要決定。
+  3. ツール分割（ls/find/grep/wc系）: 直感的だがtool数とschema tokenが増える。
+- 命名候補（coordinating案、2026-10-08、採否は利用者）: 改名するなら **`fs_inspect`**。
+  - 理由: `git_inspect`（repositoryをread-onlyで調べる）と同じfamilyで対象差だけになる／動詞名の
+    機能名アンカー（search＝grep）を外せる／`web_search`との区別が「fs／Web」で明確になる／
+    `fileAccess: 'read'`のinspectの語感（変更しない調査）と整合する。
+  - 却下候補: `fs`（mode頼みがさらに強まる）、`find`（grep/wc/ls実態と不合で、今度はfindアンカー）、
+    `query`／`scan`（他tool familyとの関係で信号が弱い）。
+  - 最終形のイメージ: ドメイン名で束ねる＋mode名で慣習コマンドに接続する（`stats`→`wc`等の案2と
+    組み合わせ）。名前だけではwc探索の問題は残るため、両者を合わせて効かせる。
+  - 注: 改名はtool契約の変更。履歴上の過去recordのtool名は変更しない前提で確認する。
+- 未確認: 名前の影響度の実測。別名受入の実需要。分割時のtoken増減の比較。
+- 再検討条件: 利用者がmode名・tool構成の見直しを指示するとき、または発見性起因の誤用を追加観測したとき。
+- 関連: A37、A11、`external-tools/search/index.ts`。
 
 ## F24・自己改訂
 
