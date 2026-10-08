@@ -170,6 +170,13 @@ Deno.test('Increment 143 HTTP keeps activation, recall consumption, saved view a
       cancelled &&
       (await client.executionRead(cancelledId)).execution.processSettlement === 'complete'
     );
+    const missingRecall = await client.recall(id, {
+      commandId: crypto.randomUUID(),
+      action: 'prepare',
+      executionId: '00000000-0000-4000-8000-000000000000',
+    });
+    strictEqual(missingRecall.kind, 'rejected', JSON.stringify(missingRecall));
+    if (missingRecall.kind === 'rejected') strictEqual(missingRecall.reason, 'notFound');
     const recallInput = {
       commandId: crypto.randomUUID(),
       action: 'prepare' as const,

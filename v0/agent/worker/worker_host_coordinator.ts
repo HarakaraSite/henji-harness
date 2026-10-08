@@ -16,7 +16,6 @@ import type {
   DataSessionDescriptorUpdate,
   DataSessionTerminalResult,
 } from '../data/data_contract.ts';
-import { DataRecallSelectionError } from '../data/session_data_owner.ts';
 import type {
   WorkerClosedMessage,
   WorkerCorrelation,
@@ -490,10 +489,8 @@ export class ExecutionCoordinator {
       );
       return result;
     } catch (error) {
-      const code = error instanceof DataRecallSelectionError
-        ? error.code
-        : typeof error === 'object' && error !== null && 'code' in error &&
-            typeof error.code === 'string'
+      const code = typeof error === 'object' && error !== null && 'code' in error &&
+          typeof error.code === 'string'
         ? error.code
         : 'failed';
       throw new WorkerRecallSelectionError(
