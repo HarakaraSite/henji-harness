@@ -34,6 +34,8 @@ AgentへDB操作を依頼する。
 同日にA37（searchのglobにおける`!`否定と除外の扱い）を追加した。案A・案Bを併記し、
 採用時の見込みとしてM2（除外の実装）とI1（description書き換え）の併用を残す。
 同日にA38（searchのmode命名と機能の発見性）を追加した。推測と対処案3つを併記する。
+同日にA39（git書き込み系tool）を追加した。tool grant粒度の衝突と案A（tool分割）／案B（mode単位grant）
+を併記する。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -71,6 +73,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | A36 | Agent実行      | 非同期の書記官subagentによるメモ・handoff更新                        | 利用者が既存subagent経路で試すことを指示するとき。今回はメモのみ                                                       |
 | A37 | Agent実行      | searchのglobにおける`!`否定（除外）の扱い                            | 利用者がsearchの除外機能を採用するとき。案A／案Bの契約はその時点で決める                                              |
 | A38 | Agent実行      | searchのmode命名と機能の発見性                                       | 利用者がmode名・tool構成の見直しを指示するとき、または発見性起因の誤用を追加観測したとき                              |
+| A39 | Agent実行      | git書き込み系tool（`git_inspect`との分割）                            | bashなしsubagentへcommit/pushを委譲する実需が出たとき。案A／案B・mode範囲・名称はその時点で決める                    |
 | B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | 自己拡張・改訂の経験参照・振り返り・継続利用に具体的な不足が出たとき                                                   |
 | R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | 生成処理やtool変更の継続利用に不足が出る、または具体的なMCP integrationを採用するとき                                  |
@@ -518,6 +521,35 @@ Pi／OpenCode／Henjiの画面表示比較
 - 未確認: 名前の影響度の実測。別名受入の実需要。分割時のtoken増減の比較。
 - 再検討条件: 利用者がmode名・tool構成の見直しを指示するとき、または発見性起因の誤用を追加観測したとき。
 - 関連: A37、A11、`external-tools/search/index.ts`。
+
+### A39 — git書き込み系tool（`git_inspect`との分割）（未採用、メモのみ）
+
+- 利用者の課題（2026-10-08）: reviewer subagentにgit diffを使わせたいが、`git commit`等の書き込み系は
+  やらせたくない。diffのためにbashを与えるのも避けたい。read+writeを1つのtool（`git_tools`／`vcs_tools`
+  等）にまとめると、tool grantがtool名単位なので衝突する（diffのためにcommit能力まで渡す）。
+  衝突の回避策を検討した。
+- 現行確認（2026-10-08）: agent設定の`tools`とsubagent起動の`tools`はtool名単位のgrant（`run_typescript`も
+  listに含めないと使えない）。`git_inspect`はread-only（status/diff/log/show、repository・index・working tree
+  に書かない）。reviewerへのdiff提供は`git_inspect`のselective grantでbashなしに既に成立。
+  `run_typescript`はsubprocess無効なのでcommit経路にならない。mode単位のgrantは現状ない。
+- 候補:
+  - 案A（推奨、harness無変更）: `git_inspect`（read）＋write側tool新設の2分割。write側はmode
+    `add`／`commit`／`push`（最小）。名称例: `git_write`／`vcs_write`／`git_ops`（`git_inspect`と対に
+    なる命名が分かりやすい）。external tool folderとして`git_inspect`同family（managed process executor）。
+  - 案B（将来の本格対応）: harnessにmode単位のgrant（`tools: ["git_tools:diff"]`的粒度）。agent JSON
+    contract・Worker dispatch・tool catalogの変更。product契約・architecture正本の変更承認が要る。
+    他toolでも部分grantの実需が出てからで遅くない。
+- 認証の前提（既存のまま、新前提なし）: commitはHOME配下のglobal configでidentity解決（HOME未指定は
+  `fatal: $HOME not set`、実測）。pushは`credential.helper=store`とHOME配下のcredential storeで解決。
+  credential値はtool call・resultに記録しない。認証なし環境ではpush失敗＝bash経由と同じ。
+- 機能拡大の規律: scopeは「gitでできること」でなく「bashなしで委譲したいこと」。追加は「通常利用で
+  bashなし委譲の実需が出たmodeだけ」に閉じ、非破壊・履歴作成操作（add/commit/push）の範囲を保つ。
+  reset/rebase/force/checkout等の書き換え系は対象外（人間とbashがいる場でのみ行う）。拡大はproduct
+  要件の変化として管理する。
+- 利用者判断待ち: 案A／案B、write側のmode範囲、tool名。採用・実装は未承認。
+- 未確認: bashなしsubagentへのcommit/push委譲の実需の頻度。案B採用時のgrant表記の具体形。
+- 再検討条件: bashなしsubagentへcommit/pushを委譲する実需が出たとき。
+- 関連: A36、A37、A38、`git_inspect`（external tool folder）、AGENTS.mdの実行環境（HOME・credential store）。
 
 ## F24・自己改訂
 
