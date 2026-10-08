@@ -17,6 +17,11 @@ model省略childへの実効認証参照継承は[Increment 182](../increments/i
 個々の採用範囲・受入・配置結果は個別increment文書を参照する。 導入時のmanaged
 Definition/module方式は181で廃止した。過去の設計・受入記録は個別incrementに保持し、現行方式と区別する。
 
+自己拡張と構成操作の方針照合: 2026-10-08。利用者判断に従い、run_typescriptによる自己拡張の責務と
+既存の反映経路を明記した。rebuildは実装せず、Agentによるroot
+model・effort変更は効果が薄いため見送る。
+run_typescriptのfileアクセス設定は[Increment 213](../increments/increment-213.md)の現行経路へ照合した。
+
 複数providerを同一SessionとWorker内で扱うroute、認証profile、model一覧、account binding、provider
 stateとevidenceの境界は、 専門設計
 [`docs/architecture/multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)
@@ -66,9 +71,9 @@ stateとevidenceの境界は、 専門設計
 - executableはimmutableな配布artifactとして扱い、writableなconfig/state、workspace
   inputとlifetimeを分離する。 廃止したmanaged store・旧DBのmigration、compatibility
   read、fallback、実data削除は行わない。
-- 自己改訂は保存Sessionと履歴を基盤に育てる。durable AgentInstanceは複数Sessionをstable
-  identityで束ねる 追加機能であり、自己改訂の開始条件ではない。Agent自身の観測、root
-  model操作、rebuildの実装状態はroadmapで管理する。
+- 自己改訂は保存Sessionと履歴、run_typescriptによる自己拡張を基盤に育てる。durable AgentInstanceは
+  複数Sessionをstable identityで束ねる追加機能であり、自己改訂の開始条件ではない。Agent自身の観測と
+  自己拡張の不足はroadmapで管理する。rebuildは実装せず、Agentによるroot model・effort変更は見送る。
 
 ## 用語
 
@@ -86,7 +91,6 @@ stateとevidenceの境界は、 専門設計
 | `Turn`                        | 正常完了とHost採用判断を経てcanonical Sessionへ一括採用された会話単位。回答の正しさや満足を保証しない                                                       |
 | `HistoryLogicalRecord`        | execution内ordinal、semantic contentと関係を持つ観測fact。physical locatorをidentityにしない                                                                |
 | `HistoryProjection`           | 保存正本から生成するhuman view、export、artifact、context表示等                                                                                             |
-| `AgentContextGeneration`      | rebuildを採用する場合の基底設定を表す将来概念。Worker lifetimeやmodel input全体と同一視しない                                                               |
 | `AgentInstance`               | 複数Sessionをstable identityと共通設定で束ねる未実装の追加概念                                                                                              |
 | `Surface`                     | Host-side interaction adapter。現行TUI、HTTP/API、run CLIはAgent Workerと独立したlifetimeを持つ                                                             |
 | `Core`                        | workspace、稼働Session slot、公開revision・購読、Worker/process/childを所有するHost process。epochはprocess identity                                        |
@@ -236,12 +240,19 @@ Tool実装が所有する。既存Registry・semantic履歴を使い、async本�
 rootのread/write、 networkと実行時std取得を提供する。importはstdのみ許可し、通常fetchは維持する。
 codeのenv/run/sys/ffiは無効とし、追加Worker作成は許可しない。
 codeへ`henjiConfigRoot`を渡す。credential値とChatGPT account fileはstate配下の専用credential
-rootへ置き、 既定のread/write許可に含めない。config
-rootの`run-typescript.json`は既定許可へ加える`allow`と、code本文の
-文字列照合による`deny`監査を持つ。Deno
+rootへ置き、既定のread/write許可に含めない。現行はconfig rootの`tool-paths.json`でtool別`allow`と
+共通`deny`を解決し、tool loaderがWorkerへ固定する。設定済み`allow`は既定への追加ではなく置換である。
+run_typescriptは許可範囲をDenoへ渡し、共通denyをcode本文の文字列照合へ使う。旧`run-typescript.json`は読まない。Deno
 permissionによる許可範囲と、path合成やsymlink等を強制的に防がない best-effortの監査は区別する。
 導入・確認・全体gate通過・常用配置結果は[Increment 191](../increments/increment-191.md)、 config
-rootとcredential保存先の変更は[Increment 204](../increments/increment-204.md)を参照する。
+rootとcredential保存先の変更は[Increment 204](../increments/increment-204.md)、共通fileアクセス設定への
+切替は[Increment 213](../increments/increment-213.md)を参照する。
+
+この経路は、Agentが作業上必要な処理を生成・実行する自己拡張を担う。code生成と結果の利用はAgent
+Worker、 物理processの起動・取消・清算はHost、code/inputと結果のsemantic履歴保存はData
+Workerの責務である。 生成codeは呼出しごとに実行し、tool resultを既存loopの後続model
+stepへ渡す。設定やtoolのfileを編集した場合は、
+既存の新Worker起動経路から反映する。生成codeの呼出しごとの実行と、永続toolのRegistry登録は別の経路である。
 
 - 共通factoryによるJSON設定、model/effort、実際のTool、native instruction/skill、runtime
   factsのcomposition構築。
@@ -298,7 +309,9 @@ nameは一致させる。genericは同梱default JSONを基底にし、catalog�
 
 HostはWorker起動ごとに現在fileを解決する。起動済みWorkerはその時点の設定・import済みtoolを使い、
 編集は新Workerから反映する。Session再開は保存choiceに従って現在設定で継続し、過去snapshotを書き換えない。
-同一Sessionの再選択だけによるreload/retry、file watch、`/reload`、`/rebuild`は未実装である。
+同一Sessionの再選択だけによるreload/retryとfile
+watchは未実装である。`/reload`はCore再起動の運用で足りるため
+不採用、`/rebuild`も実装しない。設定/tool変更の反映には既存の新Worker起動・Session再開・Core再起動を使う。
 
 `henji agent list/inspect/activate/deactivate`は現在fileの選択・確認、
 `henji tool list/inspect/activate/deactivate`は現在folderの選択・確認を扱う。
@@ -795,7 +808,7 @@ attributionは別authorityであり、現在設定の変更で過去の attribut
 このattributionは完全再現性を目的にしない。過去Worker、model内部状態、dependency、binary、OS、filesystem、
 外部service、tool effectをsnapshotまたは再構築する保証にはしない。
 
-### Agent自身の観測と構成操作
+### Agent自身の観測と自己拡張
 
 人間向けTUI/historyの充実を、Agent自身の観測操作が成立したことと同一視しない。Agentが現在の自分の
 executionと実効構成を発見し、目的に必要な履歴・attribution・短いrequest
@@ -803,49 +816,32 @@ factを選んで読む経路を整える。 Hostは既存のsemantic
 authorityをreadbackし、Workerは観測を解釈して次の調査や変更候補の形成へ使う。
 新しいInstanceやexperience専用store、raw常設収集を、この観測の前提として追加しない。
 
-`/model`や`/rebuild`相当の状態操作は、Hostが所有するoperationへ人間のSurfaceとAgentのtoolから要求する方向とする。
-Workerが選択・要求を行い、Hostが適用対象と結果を確定して履歴へ相関する。TUIのslash文字列をAgentが擬似入力する
-経路を前提にしない。人間が定めた目的・改訂範囲・採用境界の中での操作と、その境界を変える判断を区別する。
+`run_typescript`は既存Registryから生成codeを実行し、結果を後続stepへ渡す自己拡張の経路である。
+code/inputとtool
+resultは通常のsemantic履歴へ保存し、人間とAgentが既存のreadback経路から振り返る材料にする。
+専用experience storeや全対象共通candidate管理、採用protocolを、この部分実装の成立条件にしない。
+人間が定めた目的・改訂範囲・採用境界の中での実行と、その境界を変える判断を区別する。
 操作ごとの承認を一律に要求せず、候補の採用判断をAgentへ自動的に移すこともしない。
 
-現行root selectionはidle時に人間が変更し、admit済みturnで固定する。Agentからのroot
-model変更要求とrebuildは 未実装であり、適用するmodel
-step／execution／generation境界と保存scopeは採用incrementで定める。 進行中のprovider
-requestが使用した構成や、過去executionのattributionを書き換えない。
+現行root selectionはidle時に人間が変更し、admit済みturnで固定する。Agentによるroot
+model・effort変更は 効果が薄いため見送る。subagentのtask/model/tools指定は既存のspawn経路を使う。
 
-`AgentContextGeneration`を採用する場合、それは`/rebuild`によって構築・有効化したAgent側の基底設定を表す。
-canonical conversationはturnごとに進み、skill本文やtool
-result等はexecution中にも追加されるため、generation ID だけで実際のmodel
-input全体を表さない。process/isolateのlifetimeを表す`AgentWorkerGeneration`と同じidentityに
-するかも未決である。
+### 設定・tool変更の反映
 
-### Context rebuild候補
+`/rebuild`相当の専用operationは実装しない。Hostは新Worker起動時に現在の設定/toolを解決し、Workerはその
+起動snapshotからcompositionを構成する。保存Sessionの再開とCore再起動もこの既存経路を使う。
+起動済みWorkerの設定・import済みtoolをhot変更せず、過去executionのconfigurationとattributionを維持する。
+binary platform authorityの変更は新しいHenji buildとして追う。
 
-人間とAgentが要求できるHost
-operationの候補である`/rebuild`は、再解決の対象として定めたresourceから新しいAgentの実効状態を
-構築し、後続実行へ適用する。単なるfile
-rereadではなく、改訂されたresourceを次のAgent側基底設定へ反映する activation境界として扱う。
+`AgentWorkerGeneration`はprocess/isolateのlifetimeを表す。実際のmodel inputはcanonical
+conversation、 明示projection、execution中に追加されるskill本文やtool result等とも相関し、generation
+IDだけで表さない。 rebuild用の`AgentContextGeneration`は導入しない。
 
-この操作をHenji executableの再compile・配置・再起動と同一の操作とは決めない。binary platform
-authorityの
-変更は新しいbuildとして追い、resourceのrevisionとその実行時の内容・selectionはそれぞれ相関する。
-
-対象resourceと更新可能範囲は未決である。workspace instructionとskillに加え、Agent JSON、tool
-contract、 tool
-implementationも候補に含む。toolを対象にする場合は、modelへ提示するcontractと実際にdispatchするimplementation
-の対応を定める。現在fileを再解決する操作と、変更候補の人間承認・選択変更を同じoperationにするとは決めない。
-
-Agentが実行中に要求する場合も、進行中requestの基底設定を上書きせず、新しい設定の構築成功後に適用する
-境界を定める。要求元taskの続きへ適用するか、次executionへ適用するかとgenerationの引継ぎは採用incrementで
-具体化する。canonical conversation、未送信draft、過去executionとそのattributionは書き換えない。
-構築失敗時に旧generationを維持すること、context transitionをHost-owned
-evidenceとして記録することの具体的な identity、commit順序、failure
-semanticsは個別incrementで定める。
-
-cancel/failed executionのtool effectとしてresource
-fileが変更された場合、その変更自体は既に外部副作用として
-存在し得る。`/rebuild`は、対象resourceの現在内容を新しいAgent状態へ取り込む境界であり、source
-executionの canonical化、既に生じた副作用の承認または取消しを意味しない。
+cancel/failed executionのtool
+effectとして設定やtoolのfileが変更された場合、その変更は既に外部副作用として
+存在し得る。後続Workerが現在fileを読むことは、source
+executionのcanonical化や、既に生じた副作用の取消しを 意味しない。candidate採用とtool
+effect、canonical会話採用の境界は維持する。
 
 ### Configuration と generation の fencing
 
@@ -996,13 +992,9 @@ compatibility境界だけを採用する。
 | 未決の判断                                                                                                             | 今決めない理由                                                                                                                | 判断する契機                                                           |
 | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Agent自身が参照するexecution・実効構成とreadbackの入口                                                                 | 人間向けhistoryと間接参照はあるが、現在の自分を発見して必要な材料を選ぶ操作は未整備である                                     | 自身の観測・振り返りの最初のincrementを採用するとき                    |
-| Agentからのroot model変更要求の適用時点と保存scope                                                                     | 現行はidle時の人間操作でturn内固定。Agentの要求をどの後続step/executionへ適用するか未決である                                 | root model操作の最初のincrementを採用するとき                          |
-| `AgentContextGeneration`のidentity、所有する基底設定、`AgentWorkerGeneration`との対応                                  | `/rebuild`対象resourceとcomposition再構築のlifetimeが未決であり、execution単位の動的inputまでgenerationへ固定しない           | `/rebuild`または同等のcontext再構築をroadmapで採用するとき             |
-| `/rebuild`対象resource、selection/activation authority、transitionのcommit/failure semantics                           | native instruction、skill、Agent JSON、toolでは更新方法とauthorityが異なる                                                    | 最初の`/rebuild` incrementで対象resourceを選ぶとき                     |
 | `/recall`のcanonical表現を変更するか                                                                                   | 現行はprojection本文をcanonical turnへ複製せず、semantic履歴とcontext attributionへ相関する。表現を変更する要件は未採用である | canonical turnのprojection表現を変更するschemaまたは機能を採用するとき |
 | process以外のprovider/tool物理I/Oのplacement変更                                                                       | process実行はHost所有として成立した。provider HTTP等はWorker内にあり、将来の配置変更は実際の利用契約から決める                | roadmapが配置変更を必要とするprovider/tool利用経路を選んだとき         |
 | Worker protocolのmessage、handshake、error、versioning                                                                 | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる                                                           | 新しいHost / Worker間機能を実装するとき                                |
-| Compositionをどの単位で再構築・適用するか                                                                              | Agentからのrebuild要求を含む方向は決まったが、最初の対象resourceとtaskの引継ぎは未決である                                    | roadmapが具体的なrebuild動作を選んだとき                               |
 | MCP connection discovery/config format、tool name mapping、capability変更時のgeneration更新、server packageのmanaged化 | MCP protocol compatibilityとHenji固有のselection・durabilityは別contractであり、具体的な利用経路をまだ採用していない          | roadmapがMCP integrationを採用したとき                                 |
 | Worker restart、cancel、concurrency、lease、backpressure                                                               | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる                                                           | 複数入力、長時間turn、強制停止のいずれかを扱うとき                     |
 | Surface identity、load / selection / replacement、置換時のUI-local state引継ぎ                                         | CoreのHTTP/SSEと接続TUIは成立したが、WebUI本体と一般Surface loaderは未実装である                                              | 新Surfaceまたは一般的な置換operationを採用したとき                     |

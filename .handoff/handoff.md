@@ -3,7 +3,12 @@
 再開時の入口。現在地・次の一手・正本へのpointer・承認境界を保持する。
 完了した作業の詳細は担当正本へ記録し、ここへ追記し続けない。
 
-## 現在地（2026-10-07）
+## 現在地（2026-10-08）
+
+- 利用者指示による[roadmap](../docs/roadmap.md#現在の到達点と残る候補)のlocal改訂と、
+  [構想](../docs/concepts/experience-driven-self-revision.md)・
+  [architecture](../docs/architecture/henji-host-agent-worker.md)・
+  [通常利用メモ](../docs/experience/normal-use-inbox.md)の整合を完了した。今回の変更は文書のみ。
 
 - [Increment 213](../docs/increments/increment-213.md)のtool共通ファイルアクセス設定はlocal実装・検証完了。
   利用者指示で公式build・常用binaryと外部toolの配置・配置binaryの隔離smokeまで完了。

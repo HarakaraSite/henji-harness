@@ -2,12 +2,13 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-07（source `68ab5dd0`。S20・B5の現行境界を追加照合）。 基盤の照合:
-2026-10-05、source `a78c2076`・Increment 182まで。S26はIncrement 183、A18はIncrement
-185へ採用・移設。B11はIncrement 190へ採用・移設。A23はIncrement 191の計画へ採用・移設。
-2026-10-06にA31を追加し、A32・A33はIncrement 200・201へ採用・移設（A32: review用Agentの
-tool構成とinstruction、A33: read-onlyのgit調査toolとsearchのentry列挙）。 B12はIncrement
-203へ採用・移設（binary更新後のprocess runner起動と早期終了の原因表示）。
+更新日: 2026-10-08（自己拡張と構成操作の利用者判断を反映）。直前のsource照合: 2026-10-07、source
+`68ab5dd0`（S20・B5の現行境界）。基盤の照合: 2026-10-05、source `a78c2076`・Increment
+182まで。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11はIncrement
+190へ採用・移設。A23はIncrement 191の計画へ採用・移設。 2026-10-06にA31を追加し、A32・A33はIncrement
+200・201へ採用・移設（A32: review用Agentの tool構成とinstruction、A33:
+read-onlyのgit調査toolとsearchのentry列挙）。 B12はIncrement 203へ採用・移設（binary更新後のprocess
+runner起動と早期終了の原因表示）。
 2026-10-06にA19（requestごとの実行状況・日時・地域context）は利用者判断で不採用とし、
 候補一覧と本項目を削除した。
 2026-10-07にS32・S37は[Increment 211](../increments/increment-211.md)、S36は
@@ -27,6 +28,9 @@ AgentへDB操作を依頼する。
 関連参照を削除した。
 同日にA31（workspace外のファイルアクセス境界）は[Increment 213](../increments/increment-213.md)へ
 採用・移設した。共通deny、tool別allow、外部toolへの共通API、bashの対象外扱いを実装する。
+2026-10-08にrebuildを実装しない判断と、Agentによるroot model・effort変更は効果が薄いため見送る判断を
+構想・architecture・roadmapへ反映し、A2の候補から除いた。run_typescriptによる自己拡張は自己改訂の
+部分実装として扱い、R1/R2/R3では既存経路で不足する動作だけを未採用候補として残す。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -46,37 +50,37 @@ Definition/transportを候補の必須前提として復活させず、候補自
 
 ## 候補一覧
 
-| ID  | 領域           | 候補                                                                                          | 再検討の主な契機                                                                                                       |
-| --- | -------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| S20 | Surface        | 巨大表示領域での画面サイズ・frame上限の見直し                                                 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
-| S22 | Surface        | 将来のWebUI本体                                                                               | browserから通常利用する画面が必要になるとき                                                                            |
-| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                                       | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
-| S29 | Surface        | `/edit`による外部エディタ起動                                                                 | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
-| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                                              | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| A2  | Agent実行      | Host操作のmodel向けtool化                                                                     | AIがSession列挙やreloadを実際に必要とする                                                                              |
-| A3  | Agent実行      | Context Strategyの外部化                                                                      | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
-| A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                                    | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
-| A11 | Agent実行      | instructionの与え方                                                                           | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
-| A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                                         | 実行中に追加の指示を続けて送りたいとき                                                                                 |
-| A24 | Agent実行      | subagentの委譲と実行中の制御・待機（旧A35を統合）                                            | 利用者が委譲・進捗・追加指示・時間管理・待機方法の改善を個別incrementへ採用するとき                                   |
-| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                                                  | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
-| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback                                       | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
-| A36 | Agent実行      | 非同期の書記官subagentによるメモ・handoff更新                                                 | 利用者が既存subagent経路で試すことを指示するとき。今回はメモのみ                                                       |
-| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                                                    | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
-| R1  | F24            | 自己改訂対象の重心とagent loop境界                                                            | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
-| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                                             | tool candidateを生成・保存・採用するflowを設計する                                                                     |
-| R3  | F24            | tool実行profileとsandboxed Deno program                                                       | trusted-local以外の実行環境をproduct要件にする                                                                         |
-| R4  | F24            | instruction componentのrevision化                                                             | instructionを自己改訂candidateとして採用する                                                                           |
-| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                                           | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
-| E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                                       | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
-| E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                                         | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
-| E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）                          | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
-| P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                                             | context圧縮を人間が明示的に行いたくなったとき                                                                          |
-| P4  | 参照実装parity | Session export/import                                                                         | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
-| P6  | 参照実装parity | model cycling shortcut                                                                        | provider横断のmodel切替を頻繁に行うとき                                                                                |
-| P8  | 参照実装parity | configurable keybindings                                                                      | keybindingを利用者ごとに変えたくなったとき                                                                             |
-| P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                                         | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
-| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                                                  | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
+| ID  | 領域           | 候補                                                                 | 再検討の主な契機                                                                                                       |
+| --- | -------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| S20 | Surface        | 巨大表示領域での画面サイズ・frame上限の見直し                        | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
+| S22 | Surface        | 将来のWebUI本体                                                      | browserから通常利用する画面が必要になるとき                                                                            |
+| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                              | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
+| S29 | Surface        | `/edit`による外部エディタ起動                                        | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
+| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                     | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| A2  | Agent実行      | Host操作のmodel向けtool化                                            | AIがSession列挙・詳細取得・選択や自身の実効構成readbackを実taskで必要とするとき                                        |
+| A3  | Agent実行      | Context Strategyの外部化                                             | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
+| A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
+| A11 | Agent実行      | instructionの与え方                                                  | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
+| A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                | 実行中に追加の指示を続けて送りたいとき                                                                                 |
+| A24 | Agent実行      | subagentの委譲と実行中の制御・待機（旧A35を統合）                    | 利用者が委譲・進捗・追加指示・時間管理・待機方法の改善を個別incrementへ採用するとき                                    |
+| A27 | Agent実行      | providerの一時的な応答中断に対する自動再試行                         | recallでの手動継続が負担になる、または利用者が自動再試行の検討を再開するとき                                           |
+| A29 | Agent実行      | request単位のtoken usage・cache再利用量の保存とreadback              | token消費の内訳やcontext整理・cache改善の効果を把握したいとき                                                          |
+| A36 | Agent実行      | 非同期の書記官subagentによるメモ・handoff更新                        | 利用者が既存subagent経路で試すことを指示するとき。今回はメモのみ                                                       |
+| B5  | 保存履歴       | commit却下時の検証不合格項目を特定できない                           | 却下の再観測、または項目別理由の記録・原因調査を個別incrementへ採用するとき                                            |
+| R1  | F24            | 自己改訂対象の重心とagent loop境界                                   | 自己拡張・改訂の経験参照・振り返り・継続利用に具体的な不足が出たとき                                                   |
+| R2  | F24            | tool改訂の版・使用内容の記録とMCP                                    | 生成処理やtool変更の継続利用に不足が出る、または具体的なMCP integrationを採用するとき                                  |
+| R3  | F24            | tool実行profileとsandboxed Deno program                              | 既存run_typescriptとは別に、trusted-local以外の実行環境をproduct要件にするとき                                         |
+| R4  | F24            | instruction componentのrevision化                                    | instructionを自己改訂candidateとして採用する                                                                           |
+| E1  | 配布・外部化   | Agent設定・tool以外のresource外部化                                  | 通常利用で更新・共有・rollback・分離実行が必要になる                                                                   |
+| E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                              | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
+| E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
+| E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
+| P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                    | context圧縮を人間が明示的に行いたくなったとき                                                                          |
+| P4  | 参照実装parity | Session export/import                                                | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
+| P6  | 参照実装parity | model cycling shortcut                                               | provider横断のmodel切替を頻繁に行うとき                                                                                |
+| P8  | 参照実装parity | configurable keybindings                                             | keybindingを利用者ごとに変えたくなったとき                                                                             |
+| P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
+| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                         | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
 
 ## Surface
 
@@ -171,20 +175,18 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ## Agent実行
 
-### A2 — Host操作のmodel向けtool化（F02、F06、F10、F27）
+### A2 — Host操作のmodel向けtool化（F02、F06、F10、F28）
 
-- 観測: `/reload`や`/sessions`の意味操作は、人間だけでなくAIが作業中に使う価値もある。
+- 観測: 人間向けのSession一覧・履歴参照があり、Agentもbash/history等から間接的に参照できる。
+  Agentが作業中に必要なSession・execution・実効構成を取得する入口は未整備である。
 - 候補: slash command文字列をmodelに擬似入力させず、Host-owned application serviceへ型付きcommand
-  handlerとtool handlerを接続する。read-onlyな一覧/詳細取得と、Session切替・reloadのように
-  呼出元のcontextを置き換える操作を分ける。後者はtool result前に呼出元を破棄せず、次turn予約、Host
-  control event、turn完了後の切替等の順序を定める。
-- 利用者メモ（2026-09-25）:
-  Agent自身が`/model`相当のHost操作をtoolで要求する案。model変更は現在のturn中には
-  適用せず、次のturnから有効にする。現行の`selectModel`は実行中に`busy`を返すため、単にslash
-  commandを toolで呼ぶだけでは成立しない。実際に必要な利用場面はまだ不明で、採用・実装は決めない。
-- 再検討条件: AIがSession列挙・詳細取得・選択、またはreloadを実taskで必要とすること。
-  またはAgentが後続turnのmodelを自分で変える必要が実taskで現れること。UIだけに意味があるcommandや
-  人間の明示選択が目的のcommandまで一律にtool化しない。
+  handlerとtool
+  handlerを接続する。Session列挙・詳細取得・履歴readbackから、実taskで必要な操作を選ぶ。
+  Session切替を採用する場合は、read-only取得と呼出元contextへの適用を分け、結果を返す順序を定める。
+  reload/rebuildとAgentによるroot model・effort変更は候補に含めない。
+- 再検討条件:
+  AIがSession列挙・詳細取得・選択、または自身の実効構成のreadbackを実taskで必要とすること。
+  UIだけに意味があるcommandや 人間の明示選択が目的のcommandまで一律にtool化しない。
 
 ### A3 — Context Strategyの外部化（F02、F06、将来のF24候補）
 
@@ -450,17 +452,20 @@ Pi／OpenCode／Henjiの画面表示比較
   Definition、とくにrole定義はmodel能力への依存が大きく、有用なvariationも多くない
   可能性がある。Definition variantの増加自体を自己改訂の中心にしない。tool定義と実装、作業方針、
   instruction、policy、workflowの方が改善余地を観測しやすい。
-- 現行境界（2026-10-04）: Agent
+- 現行境界（2026-10-08）: Agent
   JSONはinstruction/tools/agentsを選び、共通runtimeがmodel/loop/contextと
   compositionを構築する。maxStepsはruntime既定と起動optionで決まり、JSONの任意項目からは選ばない。
   task中の判断規則はinstruction/workflow、tool実行順やdispatch・turn確定条件はruntime/loopの改訂対象である。
-- 候補: 最初の実証対象をAgent JSONに限定せず、tool実装、作業方針、instruction/policy/workflow、core
-  loop、
-  Hostのいずれかから経験に必要な対象を選ぶ。経験の解釈、候補生成、差分確認、人間の採用、通常利用への
-  反映をつなぐ。現在fileと使用snapshotを使い、全対象共通のrevision storeを必須にしない。
+  run_typescriptによる必要な処理の生成・実行・結果利用は、自己拡張として一部実装済みである。
+- 候補:
+  既存の自己拡張と改訂運用で、経験の参照・振り返り・生成した処理の継続利用に不足する動作を選ぶ。
+  Agent JSONに限定せず、tool実装、作業方針、instruction/policy/workflow、core loop、Hostから
+  実際の経験に必要な対象を選ぶ。現在file、semantic履歴、使用snapshotを使い、全対象共通のrevision
+  storeや 専用候補管理・採用flowを必須残件にしない。
 
 - 不変条件: candidateの採用は人間の明示操作・承認に限定する。candidate自身にこの境界を外させない。
-- 再検討条件: Self-revision Cycleで最初のcandidate kindと採用flowを選ぶとき。
+- 再検討条件:
+  自己拡張・改訂の通常利用で、経験の参照・振り返り・生成した処理の継続利用に具体的な不足が出たとき。
 - 調査:
   [`agent-loop-and-durable-state-comparison.md`](../research/agent-loop-and-durable-state-comparison.md)。
 
@@ -469,16 +474,19 @@ Pi／OpenCode／Henjiの画面表示比較
 - 現行境界（2026-10-04）: Agent JSONのtoolsが名前を宣言し、tools.jsonが現在folderを選ぶ。
   Workerが@henji/toolのfactoryを一度呼び、同じToolのcontract/executorを提示・dispatchする。
   revisionは版名であり、実提示contract・選択元・rejectは独立configuration snapshotへ保存する。
-  source closureの保存・exact revision pin・transportは現行方式ではない。
-- 候補: tool候補の生成・内容確認・人間の採用・新Workerへの適用を経験へ結び付ける。
-  履歴snapshotに加えてtool
+  source closureの保存・exact revision pin・transportは現行方式ではない。 2026-10-08の位置付け:
+  run_typescriptによる自己拡張は部分実装済みであり、生成code/inputと結果はsemantic
+  履歴から振り返れる。生成処理を永続toolとして継続利用する必要があるかは、通常利用で判断する。
+- 候補: 生成した処理やtool変更の継続利用で、既存の内容確認・人間の採用・新Workerへの反映経路に不足が
+  出た場合、その動作を経験へ結び付ける。 履歴snapshotに加えてtool
   sourceの版やdependencyを固定する必要があるかは、具体的な改訂で振り返る材料から判断する。
   旧案のDefinition lineageへの固定を現行方式の必須追加機能にしない。 一般MCP
   componentは別の将来候補で、Exa MCPの採用は却下済みである。
 - 確認する動作:
   schemaや版名の導入だけでF24の完了とせず、必要な候補内容と由来を人間が確認・採用でき、
   後続通常利用へ反映して使用内容を振り返れること。
-- 再検討条件: tool改訂のcandidate flow、または具体的なMCP integrationを採用するとき。
+- 再検討条件: 生成処理・tool改訂の継続利用に具体的な不足が出たとき、または具体的なMCP
+  integrationを採用するとき。
 - 関連: E1/E2、[181 contract](../increments/increment-181-contract.md)、
   [Host/Worker architecture](../architecture/henji-host-agent-worker.md)。
 
@@ -501,15 +509,16 @@ Pi／OpenCode／Henjiの画面表示比較
   （`rm -rf /`等）のdeny-netは**sandboxまでの安全帯**であり境界ではない（変数展開・script・interpreter・
   redirect・`curl|sh`等で回避可能）。frictionの大きいapproval
   gateを常用の前提にしない。安価な大事故低減が 必要になった場合の選択肢としてのみ残す。
-- Deno program tool候補: modelはTypeScript
-  programとdataを渡し、Host/executorが固定permissionで実行する。modelに Deno CLI option、permission
-  flag、executor、任意の`deno run`や`--allow-all`、shell起動を制御させない。
-- 分類: sandboxed program toolの通常導入はF06の改善として先行できる。経験からexecutor/contractの
-  revision candidateを生成・採用するflowまで成立した段階をF24とする。
-- 関連: [Increment 191](../increments/increment-191.md)へA23の標準tool計画を採用した。同一process
-  Workerの限界を 区別して記録している。強いsandboxの採用と同一の判断にはしない。
-- 再検討条件: trusted-local以外の実行環境、またはmodel-generated
-  programの制限実行がproduct要件になること。
+- 現行Deno program tool:
+  [Increment 191](../increments/increment-191.md)のrun_typescriptは実装・常用配置済み。
+  modelがTypeScript本文とdataを渡し、Host所有の呼出し専用Henji子processで実行する。 config
+  rootのread/writeは[204](../increments/increment-204.md)、共通allow/deny設定は
+  [213](../increments/increment-213.md)を参照する。通常のcode実行を未実装候補に残さない。
+- 分類: run_typescriptはF06の標準toolであり、code生成・実行による自己拡張はF24の部分実装でもある。
+  executor/contractの改訂flowや強いsandboxの採用は、具体的な必要が出た場合に別途判断する。
+- 再検討条件:
+  trusted-local以外の実行環境、または既存run_typescriptで足りない実行profile・強いsandboxが
+  product要件になること。
 - 参照: [Deno permissions](https://docs.deno.com/runtime/reference/permissions/#subprocesses)。
 
 ### R4 — instruction componentのrevision化と自己改訂
