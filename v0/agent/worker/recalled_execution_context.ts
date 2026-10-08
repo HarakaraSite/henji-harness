@@ -649,6 +649,7 @@ export const recalledExecutionProjectionText = (
   'Do not automatically rerun a source tool; decide only from the current user task.\n' +
   JSON.stringify(context);
 
+/** Insert recall into a borrowed transcript view; the loop owns the model-request snapshot. */
 export const projectRecalledExecutionContext = (
   request: {
     readonly systemInstruction?: string;
@@ -675,11 +676,11 @@ export const projectRecalledExecutionContext = (
     ...(request.systemInstruction === undefined
       ? {}
       : { systemInstruction: request.systemInstruction }),
-    transcript: structuredClone([
+    transcript: [
       ...request.transcript.slice(0, currentUserMessageIndex),
       recalled,
       ...request.transcript.slice(currentUserMessageIndex),
-    ]),
-    tools: structuredClone(request.tools),
+    ],
+    tools: request.tools,
   };
 };

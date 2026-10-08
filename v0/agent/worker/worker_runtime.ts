@@ -1450,6 +1450,8 @@ export class WorkerGeneration {
       }
       return requestOrdinal;
     };
+    // Keep messages and source sidecars aligned without mutating the borrowed request.
+    // The loop snapshots the completed projection before observation and model generation.
     const projectParentRequestWithSources = (
       request: import('../core/contracts.ts').ModelRequest,
       sources: import('../core/execution_context.ts').ModelRequestSourceAttribution,

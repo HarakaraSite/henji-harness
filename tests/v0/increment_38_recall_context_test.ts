@@ -1,4 +1,5 @@
 import type { Message, Model, ModelRequest, ModelResult } from '../../v0/agent/core/contracts.ts';
+import type { ContextModelRequestDelta } from '../../v0/agent/history/context_attribution.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -625,7 +626,12 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
       return { kind: 'final', text: 'checkpoint recall answer' };
     },
   };
+  let contextDelta: ContextModelRequestDelta | undefined;
   const port: WorkerGenerationPort = {
+    contextObservation: (_correlation, delta) => {
+      contextDelta = delta;
+      return 1;
+    },
     runtimeEvent: () => {},
     effectObservation: () => {},
     checkpointProposal: () => Promise.resolve(false),
@@ -694,6 +700,21 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
   assert(proposal !== undefined);
   assertEquals(proposal.slice(0, initialTranscript.length), initialTranscript);
   assert(!JSON.stringify(proposal).includes('[henji-recalled-execution:v1]'));
+  assert(contextDelta !== undefined);
+  const checkpointOccurrence = contextDelta.occurrences.find((occurrence) =>
+    occurrence.sourceRelations.some((source) =>
+      source.logicalIdentity === `checkpoint:${SESSION_ID}:turn:1` &&
+      source.sourceLocator === `session:${SESSION_ID}`
+    )
+  );
+  const recallOccurrence = contextDelta.occurrences.find((occurrence) =>
+    occurrence.sourceRelations.some((source) =>
+      source.logicalIdentity === `recall:${SOURCE_ID}->${SESSION_ID}:turn:3:message:4` &&
+      source.sourceLocator === `execution:${SOURCE_ID}`
+    )
+  );
+  assert(checkpointOccurrence !== undefined, 'checkpoint source attribution was lost');
+  assert(recallOccurrence !== undefined, 'recall source attribution was lost');
 });
 
 Deno.test('Increment 38 target artifact retains exact recall attribution', async () => {

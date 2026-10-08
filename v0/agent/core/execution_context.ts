@@ -121,7 +121,7 @@ export interface ModelExecutionContext {
   readonly modelSelection?: ModelSelection;
   /** Worker-owned source projection for the accepted turn. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
-  /** Worker-owned parent projection for the accepted turn. */
+  /** Pure synchronous Worker projection; the loop snapshots its borrowed result for the model. */
   readonly projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,

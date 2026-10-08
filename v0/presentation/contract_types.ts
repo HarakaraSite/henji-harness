@@ -174,20 +174,6 @@ export interface PresentationOutcome {
   readonly transcript: readonly PresentationMessage[];
 }
 
-export interface PresentationContextMetrics {
-  readonly messageEstimatedTokensBefore: number;
-  readonly messageEstimatedTokensAfter: number;
-  readonly toolEstimatedTokens: number;
-  readonly requestEstimatedTokensBefore: number;
-  readonly requestEstimatedTokensAfter: number;
-  readonly triggerTokens: 65_536;
-  readonly targetTokens: 49_152;
-  readonly triggered: boolean;
-  readonly targetReached: boolean;
-  readonly compressedResultCount: number;
-  readonly compressedMessageCount: number;
-}
-
 export interface PresentationCheckpoint {
   readonly coveredThroughTurn: number;
   readonly retainedFromTurn: number;

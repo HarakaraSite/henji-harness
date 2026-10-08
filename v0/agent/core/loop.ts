@@ -35,7 +35,6 @@ import {
   type ModelRequestSourceAttribution,
   type RequestMessageSourceFactory,
 } from './execution_context.ts';
-import { prepareModelContext } from './context.ts';
 import { type ReadableThinking, readableThinkingFromState } from './readable_thinking.ts';
 import { type SteeringConsumer } from './steering.ts';
 import {
@@ -77,9 +76,9 @@ interface AgentTurnOptions extends AgentLoopOptions {
   readonly commit?: (transcript: readonly Message[]) => void;
   /** Internal single-use steering lane for the accepted turn. */
   readonly steering?: SteeringConsumer;
-  /** Optional pure semantic parent projection, applied before defensive request preparation. */
+  /** Pure synchronous projection; the loop snapshots its result for the model. */
   readonly projectParentRequest?: (request: ModelRequest) => ModelRequest;
-  /** Projection that transforms transcript provenance in the same operation as its messages. */
+  /** Pure synchronous projection of borrowed messages and their parallel provenance. */
   readonly projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,
@@ -604,13 +603,13 @@ const runAgentTurnInternal = async (
     try {
       const request: ModelRequest = options.systemInstruction === undefined
         ? {
-          transcript: snapshotMessages(transcript),
-          tools: snapshot(registry.definitions()),
+          transcript,
+          tools: registry.definitions(),
         }
         : {
           systemInstruction: options.systemInstruction,
-          transcript: snapshotMessages(transcript),
-          tools: snapshot(registry.definitions()),
+          transcript,
+          tools: registry.definitions(),
         };
       let projected = request;
       if (projectParentRequestWithSources !== undefined) {
@@ -623,7 +622,9 @@ const runAgentTurnInternal = async (
       } else if (options.projectParentRequest !== undefined) {
         projected = options.projectParentRequest(request);
       }
-      preparedRequest = prepareModelContext(projected).request;
+      // Projection borrows turn/Registry values. Copy once at the model-request boundary so
+      // observers and the model receive nested values independent of every step and owner.
+      preparedRequest = snapshot(projected);
     } catch (error) {
       return finishContractFailure(
         `context preparation failure: ${errorText(error)}`,

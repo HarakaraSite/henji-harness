@@ -5,6 +5,11 @@
 
 ## 現在地（2026-10-08）
 
+- [Increment 214](../docs/increments/increment-214.md)の計画書化・local実装・focused検証・独立reviewと、
+  利用者追加指示による最小限の実provider確認・別実行のメモリ観測を完了した。
+  要件・コピー経路・検証結果・未確認事項と権限境界は214を参照する。
+  source・計画書・検証記録は利用者指示によりcommitし、origin/mainへpush。build/配置は未実施。
+
 - 利用者指示による[roadmap](../docs/roadmap.md#現在の到達点と残る候補)のlocal改訂と、
   [構想](../docs/concepts/experience-driven-self-revision.md)・
   [architecture](../docs/architecture/henji-host-agent-worker.md)・
@@ -51,6 +56,9 @@
   未追跡の`191-result.json`と`scripts/diagnostics/__pycache__/`はcommit対象外。
 
 ## 次の一手
+
+- 214のlocal実装・検証・review・追加実経路確認／メモリ観測とcommit/pushは完了。後続のbuild/配置・追加の実provider
+  callは利用者指示に従う。今回の承認範囲と結果は214を参照する。
 
 - 213の実装・検証・常用配置は完了。searchの既定allowを/へ変更して再配置・隔離実経路確認済み。
   新しいCore起動から適用する。通常利用での観測を待つ。実tool-paths設定値は変更していない。

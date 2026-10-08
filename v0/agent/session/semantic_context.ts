@@ -20,7 +20,7 @@ const checkpointMessage = (
   },
 });
 
-/** Compose summary + retained canonical suffix + current draft without changing their content. */
+/** Compose a borrowed summary/suffix/draft view; the loop owns the model-request snapshot. */
 export const projectSemanticContext = (
   request: ModelRequest,
   checkpoint: SemanticContextCheckpointV1,
@@ -37,7 +37,7 @@ export const projectSemanticContext = (
     ...(request.systemInstruction === undefined
       ? {}
       : { systemInstruction: request.systemInstruction }),
-    transcript: structuredClone(projected),
-    tools: structuredClone(request.tools),
+    transcript: projected,
+    tools: request.tools,
   };
 };

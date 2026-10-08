@@ -3,7 +3,6 @@ export type {
   PresentationAgentId,
   PresentationAssistantMessage,
   PresentationCheckpoint,
-  PresentationContextMetrics,
   PresentationContextPreview,
   PresentationContextResult,
   PresentationDiagnosticDurability,
