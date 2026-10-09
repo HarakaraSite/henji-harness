@@ -13,7 +13,8 @@ localhost測定は第11.12節と[メモリ報告書](../research/increment-218-m
 全体review指摘対応は第11.13節。続く利用者の明示許可により、実providerによる基本動作e2eを
 4turnで実施し、成功した（第11.14節）。さらに最新sourceで同じSession・Workerの実provider
 20turnとメモリ同時計測を一回実施した（第11.15節）。続く利用者指示で実装・test・結果を
-commitする（第11.16節）。常用DB変更/配置/pushと第12節の正本変更は未承認。
+commitした（第11.16節、`38eb2423`）。続く指示で、同commitの最新版を昨日と同じlocalhost負荷で
+200turn一回再測定した（第11.17節）。常用DB変更/配置/pushと第12節の正本変更は未承認。
 以下の全体計画は本実装前の提案であり、隔離スパイクで実施した部分と未実施部分は第10節に記録する。
 実行、実provider、commit/push、常用配置はそれぞれの利用者指示に従う。
 
@@ -1264,6 +1265,149 @@ canonical 42messageの全入力・全final・read引数/全文結果・content h
 測定用 `.tools/`、無関係な `191-result.json` / `scripts/diagnostics/__pycache__/` と別件の
 `normal-use-inbox.md`の`/reload`メモ更新はcommit対象外で保全する。
 push、常用配置、実DB変更、第12節の正本変更、increment全体の完了承認はこの指示へ含めない。
+
+### 11.17 最新commitのlocalhost200turn再測定（2026-10-09）
+
+利用者の「実プロバイダを使わない200ターン」「昨日の測定に倣って」に基づき、
+commit `38eb2423`のsourceを隔離コピーして数値診断だけを加え、compiled Core＋production TUIで
+一回実施した。昨日の元Aとbyte一致する512行/59,282 byteのfileを毎turn一度readし、localhost
+Chat Completions SSEがOKを返す2request/turn。tmux 110×36、task入力はlocalhost API。
+Core/Session/Agent Workerは同じものを継続し、途中再起動・強制GC・追加最適化は行っていない。
+
+全200turn/400requestを完了し、実providerは0。canonical 800messageの全read本文/hash・全OKと、
+400requestのsource/全体位置/window差分再構成・実wire/input hash/予算照合に成功した。
+
+| 時点 | Core RSS/PSS MiB | TUI RSS/PSS MiB |
+| --- | ---: | ---: |
+| Core起動後・Session前 | 84.88 / 78.78 | — |
+| Session後・TUI前・初会話前 | 87.01 / 80.79 | — |
+| Session＋TUI・初会話前 | 87.45 / 64.57 | 61.42 / 41.67 |
+| 20turn＋2秒 | 252.22 / 224.11 | 78.23 / 55.24 |
+| 50turn＋2秒 | 272.30 / 244.16 | 82.61 / 59.59 |
+| 100turn＋2秒 | 273.16 / 245.02 | 82.86 / 59.83 |
+| 200turn＋2秒 | 303.71 / 275.57 | 93.83 / 70.81 |
+| 最後の30秒待機後 | 158.71 / 130.57 | 78.44 / 55.30 |
+
+開始前の有効空き11,012.14 MiBからCore＋TUI RSS停止上限5,376 MiBを記録し、
+合算観測最大397.78 MiBで未到達。Core RSS/PSS観測最大304.37/276.23、TUIは93.83/70.81 MiB。
+各contextのheap/保持件数/最大、傾き、昨日との比較は
+[200turn報告書](../research/increment-218-localhost-200-memory-2026-10-09.md)と
+`.tools/increment-218-local-memory-200-20261009/`へ保存した。
+
+51〜100turnはほぼ横ばいだが、101〜200のCore RSS/PSS傾きは0.3494 MiB/turnで初期判断線0.25を上回る。
+区間peak増分29.72 MiBは初期線64以下。この一回を前回3run中央値の判定へ置き換えず、完全な頭打ちは
+確認していない。30秒待機でCore RSS/PSSが145.00/145.00 MiB下がり、20turn＋2秒より93.51/93.54 MiB低い。
+20turn＋30秒は今回採っていないため、同じ待機条件の比較とはしない。
+
+20〜200でData/Writer execution indexは各1、Agent本文保持0、prepared/配送残り0。
+Writer閲覧pageは9execution/54entity、TUI printedは27を維持した。待機でheapTotalが縮小しても保持件数は同じ。
+会話処理30.63秒、明示測定待機86.60秒、driver開始から最終pointまで119.75秒。正常shutdown exit 0。
+今回の追加測定結果は未commit。実DB/常用配置/push/product正本変更は行っていない。
+
+### 11.18 Agent Workerのみ終了する追加メモリ測定（2026-10-09）
+
+利用者の「では計測しようか」に基づき、最新版commit `38eb2423`・同じlocalhost負荷で、
+新しい隔離Core/Session/Agentの1ターンと200ターンを各一回測定した。毎turn read 59,282 byte→OKの
+2request、production TUI接続、各run内は同じSession/Worker。最終会話後30秒待ち、既存の
+`ExecutionCoordinator.supervisor.close()`でAgentだけを正常終了し、さらに30秒待機した。
+Data/API/Core/TUIは同じPID・generationで残した。実providerは0、強制GC・追加最適化なし。
+
+| ターン | 終了前Core RSS/PSS MiB | Agent終了＋30秒 | 減少量 |
+| --- | ---: | ---: | ---: |
+| 1 | 108.78 / 83.13 | 97.06 / 73.38 | 11.71 / 9.75 |
+| 200 | 182.36 / 154.73 | 100.31 / 74.65 | 82.04 / 80.08 |
+
+200ターン側の解放量は1ターンよりRSS/PSS各70.33 MiB大きく、終了後のCore差は3.25/1.27 MiBに縮まった。
+Agent終了前のheapTotalは1ターン9.50、200ターン8.88 MiBであり、RSS解放量の差を説明しない。
+本文保持0、Data/Writer execution index各1、prepared/配送残り0を確認した。
+200ターン側のCore anonymous RSSは118.95→39.13 MiB。Workerの寿命に対応して解放される部分が残るが、
+native/runtime/allocatorのallocation元・Worker専有RSS全量・リークとは特定していない。
+TUIは別processで残り、終了後の200ターンと1ターンのRSS差17.71 MiBは残った。
+
+開始前の有効空き11,199.93 / 11,196.58 MiBから、各runのCore＋TUI RSS停止上限5,376 MiBを記録した。
+合算最大192.06 / 424.53 MiBで未到達。200ターンCore最大RSS/PSSは331.18/303.56 MiB。
+全201ターン/402 localhost request、canonical 804messageのread全文/hash・全OKと全requestの
+source/window/実wire/input hash/予算の照合に成功し、正常shutdown exit 0。
+会話処理は0.18 / 30.31秒、Core起動〜最終観測は66.76 / 149.62秒。
+
+各条件一回、1ターン側は終了前の最後5秒にも自然回収があり、固定費の厳密な推定とはしない。
+200ターン側は終了直前5秒が安定し、close＋2秒ですでにRSS 77.39 MiB減った。
+無操作の同時間待機対照・allocation元の特定・再起動後の動作や定期再起動の評価は実施していない。
+条件、heap/最大/時系列/smaps/存続確認は
+[Agent終了メモリ報告書](../research/increment-218-agent-release-memory-2026-10-09.md)と
+`.tools/increment-218-agent-release-memory-20261009/`を参照する。
+測定結果は未commit。通常source・実DB・常用配置・product正本は変更していない。
+
+### 11.19 native allocator統計・Agent存続trim・割当/解放stack測定（2026-10-09）
+
+利用者の「ではその順番で計測して」に基づき、同commit・同じlocalhost200ターン負荷を使い、
+allocator使用中/空き統計、Agentを残した`malloc_trim(0)`、独立したnative stack profilingの順に実施した。
+数値診断とlibc限定FFI許可を隔離binaryにだけ加え、通常runtime/script等283fileはcommitとのhash一致を維持した。
+最終会話後30秒、trim後30秒、Agentのみ正常終了後30秒の間、Data/API/Core/TUIは維持した。
+
+| プロファイラなしの時点 | Core RSS/PSS MiB | glibc使用中/空き MiB |
+| --- | ---: | ---: |
+| 200ターン＋30秒 | 220.98 / 192.33 | 14.05 / 112.59 |
+| Agent存続・trim＋30秒 | 125.55 / 96.91 | 14.07 / 112.10 |
+| Agent終了＋30秒 | 103.80 / 77.12 | 10.30 / 115.87 |
+
+trimは6ms・返り値1。Agentを終了せずRSS/PSSが95.43 MiB減り、使用中allocationはほぼ不変。
+allocatorが保持する解放済みresident pageが大きいことを確認した。空きbyte accountingはresident量ではない。
+trim後のAgent終了でさらにRSS/PSSが21.75/19.79 MiB減り、native使用中量は3.77 MiB減った。
+前回82.04 MiBは別runであり、その全byteの厳密な内訳に今回の値を置き換えない。
+
+heaptrackとfree backtrace補助をCoreだけへpreloadして独立測定した。初回は補助のunwind header不足で
+free一段しか採れず、初回rawを保全してlink修正後にstack測定だけ再実行した。
+修正後、終了前のlive cohortのうち終了＋29秒までに解放された3.55 MiBをfree pointer/stackへ全量照合した。
+主な経路はSourceMap drop、V8ConsoleMessage deque clear、StringTable/Isolate destructor。
+Worker lifetimeのnative metadataを観測したが、診断consoleログと他contextの自然回収も含む。
+深いfree stackが途中で止まる経路、直接mmap、プロファイラ自身のallocationは区別し、RSS全量やリークとは扱わない。
+
+全3run・600ターン/1,200 localhost request、canonical 2,400messageの全文/hash・全OKと全request照合に成功。
+実provider 0、強制V8 GCなし。開始前の停止上限5,888/5,888/6,656 MiBに未到達、正常shutdown exit 0。
+各contextのheap/最大、allocator統計、割当/解放stack、再実行理由と限界は
+[native allocator報告書](../research/increment-218-native-allocator-memory-2026-10-09.md)と
+`.tools/increment-218-native-memory-20261009/`へ保存した。
+今回は診断のみで、通常実装へのtrim組込み・追加最適化・実DB操作・常用配置・commit/push・product正本変更は行っていない。
+
+### 11.20 長い1ターンの実行中にCoreからtrimする隔離スパイク（2026-10-09）
+
+利用者の「これをスパイクで試そうか」に基づき、必要な実行状態を維持したまま、
+ターン終了に依存しないCore周期trimを隔離環境で比較した。前回の診断sourceをコピーし、
+Core診断moduleにtimer/shadow観測だけを加えた同じbinaryで、control／5秒周期trimを各一回実行した。
+
+各条件、新しい隔離Core/Session/Agent＋production TUIで従来とbyte一致の200ターンを実行後、
+同じWorkerで「128 byte fileを200回read→OK」の単一ターンを実行した。各localhost responseに250ms待機。
+既存context予算を維持するため小さいtool結果を使い、従来の200ターンと同じ負荷とは扱わない。
+Core timerは単一ターンの実行中に11回発火し、全発火の前後を同じexecutionの未settled API観測で照合した。
+その後の通常read→OK会話も同じAgent generationで正常完了した。
+
+| 単一ターン実行中 | control | 5秒周期trim |
+| --- | ---: | ---: |
+| Core RSS/PSS中央値 MiB | 276.96 / 249.33 | 241.46 / 213.74 |
+| Core RSS/PSS最大 MiB | 351.31 / 323.69 | 342.35 / 314.62 |
+| ターン処理秒 | 57.408 | 57.205 |
+| 設定provider待機秒 | 50.25 | 50.25 |
+| 設定待機を除いた秒 | 7.158 | 6.955 |
+
+RSS中央値差35.49 MiB、PSS差35.59 MiB。開始時heapと自然GC位相は一致しておらず、差の全量をtrim単独へ帰属しない。
+最大値は最初のtrim前5秒も含む。
+全11回でtrim返り値1。一回の直前/直後RSS減少は中央値8.43、最大48.27 MiB、native使用中変化は中央値
+0.0003 MiB。trim呼出し時間は中央値2.817ms、最大7.375ms、合計40.075ms。
+この一回比較では遅延増加を観測していないが、runの揺らぎを含み性能保証とはしない。
+
+全404ターン/1,206 localhost request、canonical 2,412messageの全tool引数/結果/hash・全OKと、
+全requestのcontext source/splice再構成・wire/system/tool hash・予算を照合した。
+messages最大94,464/94,461 byteで5 MiB上限未到達。開始前のCore＋TUI停止上限6,912/6,656 MiBは
+未到達、両run正常shutdown exit 0。実provider 0、強制V8 GCなし、通常source283fileと診断16fileのhash不変。
+
+短い単一長時間実行で、Coreから実行中に空きページを返す経路の成立と継続動作を確認した。
+provider待機が実行時間の大半を占める。10時間耐久、CPU/allocator連続占有、複数Session同時負荷は未測定。
+5秒周期は実験用で、production採用や間隔は未決定。必要なlive状態の削減とは扱わない。
+計画・全数値・各context heap/最大・timerと処理時間・限界は
+[実行中trimスパイク報告書](../research/increment-218-active-trim-spike-2026-10-09.md)と
+`.tools/increment-218-active-trim-spike-20261009/`を参照する。
+通常実装への組込み・実DB/config/常用配置・構想/architecture/roadmap変更・commit/pushは行っていない。
 
 ## 12. 本実装に伴う正本変更の具体案
 

@@ -1,6 +1,7 @@
 import { HOOK_API_CONTRACT } from '../v0/agent/hook_api.ts';
 import { TOOL_API_CONTRACT } from '../v0/agent/runtime/build_manifest.ts';
 import type { BuildManifestV1 } from '../v0/agent/runtime/build_manifest.ts';
+import { NATIVE_MEMORY_TRIM_LIBRARY } from '../v0/agent/runtime/native_memory_trim.ts';
 
 const EXPECTED_DENO = '2.9.7';
 const ROOTS = [
@@ -234,6 +235,7 @@ const main = async (): Promise<void> => {
       '--no-prompt',
       '--cached-only',
       '--unstable-worker-options',
+      `--allow-ffi=${NATIVE_MEMORY_TRIM_LIBRARY}`,
       '--allow-read',
       '--allow-write',
       '--allow-run=/bin/bash',

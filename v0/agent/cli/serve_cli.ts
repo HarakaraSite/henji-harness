@@ -21,6 +21,7 @@ import {
   writeCoreBootResult,
 } from '../runtime/core_discovery.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
+import { startNativeMemoryTrim } from '../runtime/native_memory_trim.ts';
 
 interface ServeMainOptions {
   readonly bootstrapToken?: string;
@@ -52,7 +53,9 @@ const parseServeInvocation = (args: readonly string[]): ServeInvocation => {
     } else if (flag === '--host') {
       const value = args[++index];
       if (hostSeen) throw new Error('Duplicate --host');
-      if (!value || value.startsWith('--')) throw new Error('Missing value for --host');
+      if (!value || value.startsWith('--')) {
+        throw new Error('Missing value for --host');
+      }
       hostname = value;
       hostSeen = true;
     } else if (flag === '--port') {
@@ -87,7 +90,9 @@ const parseServeInvocation = (args: readonly string[]): ServeInvocation => {
           '--root-provider',
         ].includes(flag)
       ) throw new Error(`Unknown option '${flag}'`);
-      if (flag === '--session' || flag === '--continue' || flag === '--no-session') {
+      if (
+        flag === '--session' || flag === '--continue' || flag === '--no-session'
+      ) {
         if (openInitialSession) throw new Error('duplicate Session target');
         openInitialSession = true;
       }
@@ -139,6 +144,7 @@ export const main = async (
     return ownershipCleanup;
   };
   let signalsInstalled = false;
+  let stopMemoryTrim: (() => void) | undefined;
   try {
     const command = parseServeInvocation(args);
     const paths = resolveRuntimePaths();
@@ -181,7 +187,9 @@ export const main = async (
       rootMaxSteps: invocation.rootMaxSteps,
       providerTimeoutMs: invocation.providerTimeoutMs,
       ...(invocation.rootProvider === undefined ? {} : {
-        initialModelSelection: defaultModelSelectionFor(invocation.rootProvider),
+        initialModelSelection: defaultModelSelectionFor(
+          invocation.rootProvider,
+        ),
       }),
       providerDeclarations,
       ...(initialSession === undefined ? {} : { initialSession }),
@@ -193,6 +201,7 @@ export const main = async (
       port: command.port,
       onServiceClosed: cleanupOwnership,
     });
+    stopMemoryTrim = startNativeMemoryTrim();
     const endpoint: CoreEndpoint = {
       ready: true,
       workspace: core.workspace,
@@ -247,6 +256,7 @@ export const main = async (
     );
     return 1;
   } finally {
+    stopMemoryTrim?.();
     if (signalsInstalled) {
       Deno.removeSignalListener('SIGINT', stop);
       Deno.removeSignalListener('SIGTERM', stop);
