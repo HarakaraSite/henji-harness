@@ -80,7 +80,9 @@ const boundedText = (
   { text: string; details?: readonly ConversationContentReference[] }
 > => {
   const bytes = encoder.encode(text);
-  if (includeFullText || bytes.byteLength <= CONVERSATION_PREVIEW_BYTES) return { text };
+  if (includeFullText || bytes.byteLength <= CONVERSATION_PREVIEW_BYTES) {
+    return { text };
+  }
   return {
     text: `${
       utf8Prefix(bytes, CONVERSATION_PREVIEW_BYTES)
@@ -232,6 +234,17 @@ const eventObservation = (
 ): readonly ConversationObservation[] => {
   const executionId = event.executionId;
   const payload = payloadObject(event);
+  const runtimeAgentEvent = agentEvent(event);
+  if (runtimeAgentEvent?.kind === 'context_notice') {
+    return [{
+      kind: 'context_notice',
+      executionId,
+      turn: runtimeAgentEvent.turn,
+      eventOrdinal: event.ordinal,
+      notice: runtimeAgentEvent.notice,
+      text: runtimeAgentEvent.text,
+    }];
+  }
   if (event.kind === 'provider_request_start') {
     const observation = object(payload.observation);
     const request = object(observation?.request);

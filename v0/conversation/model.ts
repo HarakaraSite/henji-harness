@@ -103,6 +103,10 @@ export interface ConversationExecutionMetadata {
   readonly outcome: ConversationOutcome;
   readonly stopReason?: string;
   readonly diagnostic?: Readonly<{ code: string; stage: string }>;
+  readonly contextNotices?: readonly Readonly<{
+    notice: 'trimmed' | 'history_partial' | 'history_omitted' | 'exceeded';
+    text: string;
+  }>[];
   readonly adoption: ConversationAdoption;
   readonly baseRevision: number;
   readonly committedRevision?: number;
@@ -357,6 +361,14 @@ export type ConversationObservation =
     readonly diagnostic?: Readonly<{ code: string; stage: string }>;
     adoption: ConversationAdoption;
     committedRevision?: number;
+  }>
+  | Readonly<{
+    kind: 'context_notice';
+    executionId: string;
+    turn: number;
+    eventOrdinal: number;
+    notice: 'trimmed' | 'history_partial' | 'history_omitted' | 'exceeded';
+    text: string;
   }>;
 
 export const conversationRequestIdentity = (

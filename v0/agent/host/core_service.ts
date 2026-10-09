@@ -886,6 +886,15 @@ export const createCoreService = async (
       sessionId: selection.kind === 'exact' ? selection.sessionId : undefined,
       lazyInitialHost: true,
       activation: activationMetadata,
+      ...(inherited.physicalIoMode === 'provider-free' ? {} : {
+        resolveModelCapacity: async (modelSelection: ModelSelection) => {
+          try {
+            return await modelCatalog.capacity(modelSelection);
+          } finally {
+            await persistCatalogFacts();
+          }
+        },
+      }),
     };
     const service = await createApplicationService({
       ...invocation,

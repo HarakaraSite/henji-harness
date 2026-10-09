@@ -416,6 +416,7 @@ export class ExecutionCoordinator {
         ),
         baseStateRevision: this.descriptorValue.stateRevision,
       };
+      const modelCapacity = await this.options.resolveModelCapacity?.(selection);
       this.supervisor.setCurrentCorrelation(correlation);
       const response = this.supervisor.messages.wait(
         (value): value is WorkerModelSelectedMessage | WorkerErrorMessage =>
@@ -428,6 +429,7 @@ export class ExecutionCoordinator {
         kind: 'select_model',
         correlation,
         selection,
+        ...(modelCapacity === undefined ? {} : { modelCapacity }),
         privateStateFromTurn: this.descriptorValue.privateStateFromTurn,
       });
       const message = await response;

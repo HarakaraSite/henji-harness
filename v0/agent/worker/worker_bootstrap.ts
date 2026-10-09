@@ -1,4 +1,5 @@
 import { readContextBudget } from '../session/context_budget.ts';
+import type { ContextCapacityMetadata } from '../session/context_budget.ts';
 import { captureFailureDetails } from '../core/failure_details.ts';
 import type { AfterTurnSettlement } from '../core/hook_effect.ts';
 import { WorkerProcessExecutor } from './worker_process_executor.ts';
@@ -480,6 +481,7 @@ const createGeneration = async (
   privateStateFromTurn = 1,
   enableAsyncAgents = true,
   runtimeIdentityInput: WorkerRuntimeIdentityInput = { role: 'root' },
+  modelCapacity: ContextCapacityMetadata = { source: 'unknown' },
 ): Promise<WorkerGeneration> => {
   const workspace = await resolveWorkspace(workspaceRoot);
   const instructionSnapshot = await discoverAgentInstructionSnapshot(
@@ -610,6 +612,7 @@ const createGeneration = async (
     runtimeIdentity,
     configured.hookProviderEvidenceScope,
     await readContextBudget(configRoot),
+    modelCapacity,
   );
 };
 
@@ -841,6 +844,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           generationBasis.privateStateFromTurn,
           command.enableAsyncAgents ?? true,
           command.runtimeIdentity ?? { role: 'root' },
+          command.modelCapacity,
         );
         if (command.notifyStartupPrepared) {
           const startupConfiguration = workerGeneration.configuration;
@@ -936,6 +940,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         generation.selectRootModel(
           command.selection,
           command.privateStateFromTurn,
+          command.modelCapacity,
         );
       const credentialAvailability = accepted
         ? await generation?.rootCredentialAvailability()

@@ -16,6 +16,13 @@ type ConversationFact =
   | Readonly<{ kind: 'upsert'; entity: ConversationEntity }>
   | Readonly<{ kind: 'remove'; id: string }>
   | Readonly<{
+    kind: 'context_notice';
+    executionId: string;
+    eventOrdinal: number;
+    notice: 'trimmed' | 'history_partial' | 'history_omitted' | 'exceeded';
+    text: string;
+  }>
+  | Readonly<{
     kind: 'settle_execution';
     executionId: string;
     eventOrdinal: number;
@@ -376,6 +383,16 @@ const normalizeConversationObservation = (
       ...(observation.committedRevision === undefined
         ? {}
         : { committedRevision: observation.committedRevision }),
+    }];
+  }
+
+  if (observation.kind === 'context_notice') {
+    return [{
+      kind: 'context_notice',
+      executionId: observation.executionId,
+      eventOrdinal: observation.eventOrdinal,
+      notice: observation.notice,
+      text: observation.text,
     }];
   }
 
@@ -928,6 +945,23 @@ const applyFact = (
       action: 'remove',
       id: fact.id,
     }];
+  }
+  if (fact.kind === 'context_notice') {
+    const id = executionEntityId(fact.executionId);
+    const current = state.entities.get(id);
+    if (current === undefined || current.kind !== 'execution') return [];
+    const notices = current.execution.contextNotices ?? [];
+    if (notices.some((notice) => notice.notice === fact.notice)) return [];
+    const entity: ConversationEntity = {
+      ...current,
+      version: Math.max(current.version, fact.eventOrdinal),
+      execution: {
+        ...current.execution,
+        contextNotices: [...notices, { notice: fact.notice, text: fact.text }],
+      },
+    };
+    state.entities.set(id, entity);
+    return [{ kind: 'upsert', entity }];
   }
   if (fact.kind === 'settle_execution') {
     const id = executionEntityId(fact.executionId);

@@ -1,5 +1,6 @@
 import {
   type AssistantMessage,
+  type JsonValue,
   type LoopOutcome,
   type Message,
   type ToolCall,
@@ -98,6 +99,17 @@ export type AgentEvent =
     readonly kind: 'steering_message';
     readonly turn: number;
     readonly message: UserMessage;
+  }
+  | {
+    readonly kind: 'context_notice';
+    readonly turn: number;
+    readonly notice:
+      | 'trimmed'
+      | 'history_partial'
+      | 'history_omitted'
+      | 'exceeded';
+    readonly text: string;
+    readonly budget?: Readonly<Record<string, JsonValue>>;
   }
   | {
     readonly kind: 'turn_end';

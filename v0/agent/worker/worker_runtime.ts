@@ -1,5 +1,6 @@
 import {
   type ContextBudgetConfiguration,
+  type ContextCapacityMetadata,
   contextCost,
   resolveContextBudget,
 } from '../session/context_budget.ts';
@@ -23,6 +24,13 @@ import {
   validateSemanticContextCheckpoint,
 } from '../session/session_store.ts';
 import { runAgentTurn } from '../core/loop.ts';
+import {
+  currentProtectedMessageIndices,
+  messageIndexRanges,
+  oldestRemovableProjectionUnits,
+  recentHistoryProtectedMessageIndices,
+  transcriptProjectionUnits,
+} from './context_projection.ts';
 import {
   ParentTurnExecutionContext,
   type RequestMessageSourceKind,
@@ -53,6 +61,7 @@ import type {
   AuxiliaryRequestObservation,
   ModelRequestObservation,
 } from '../core/execution_context.ts';
+import type { FailureDetails } from '../core/failure_details.ts';
 import type { WorkerRequestCounter } from './worker_physical_io.ts';
 import {
   type ModelSelection,
@@ -155,7 +164,11 @@ export interface WorkerGenerationPort {
     correlation: WorkerCorrelation,
     outcome: LoopOutcome,
     contextManifest?: import('../history/context_attribution.ts').ExecutionContextManifestV2,
-  ) => void | boolean | AfterTurnSettlement | PromiseLike<void | boolean | AfterTurnSettlement>;
+  ) =>
+    | void
+    | boolean
+    | AfterTurnSettlement
+    | PromiseLike<void | boolean | AfterTurnSettlement>;
   /** Synchronous Core receipt emitted only after runtime turn cleanup clears `active`. */
   readonly turnSettled?: (correlation: WorkerCorrelation) => void;
 }
@@ -242,6 +255,28 @@ const failureOutcome = (
   toolResultCount: 0,
   transcript: snapshotMessages(transcript),
 });
+
+class ContextBudgetExceededError extends Error {
+  readonly failureFact: Readonly<{
+    stage: 'request_build';
+    code: 'context_budget_exceeded';
+    requestCount: number;
+    retryCount: 0;
+    details: FailureDetails;
+  }>;
+
+  constructor(message: string, requestCount: number) {
+    super(message);
+    this.name = 'ContextBudgetExceededError';
+    this.failureFact = Object.freeze({
+      stage: 'request_build',
+      code: 'context_budget_exceeded',
+      requestCount,
+      retryCount: 0,
+      details: Object.freeze({ operation: 'context_budget', message }),
+    });
+  }
+}
 
 const withTerminalOutcome = (
   draft: LoopOutcome,
@@ -352,6 +387,7 @@ export class WorkerGeneration {
     runtimeIdentity?: HookRuntimeIdentity,
     private readonly hookProviderEvidenceScope: HookProviderEvidenceScope = {},
     private readonly contextBudgetConfiguration: ContextBudgetConfiguration = {},
+    private contextCapacity: ContextCapacityMetadata = { source: 'unknown' },
   ) {
     this.composition = composition;
     this.hooks = hooks;
@@ -359,7 +395,9 @@ export class WorkerGeneration {
     this.configurationValue = configuration;
     this.runtimeIdentity = runtimeIdentity;
     this.canonicalMessageCount = initialTranscript.length;
-    this.localContextTurns = hookTranscriptTurns(snapshotMessages(initialTranscript)).map((
+    this.localContextTurns = hookTranscriptTurns(
+      snapshotMessages(initialTranscript),
+    ).map((
       entry,
     ) => ({
       ...entry,
@@ -401,7 +439,10 @@ export class WorkerGeneration {
   } | undefined {
     const settlement = this.lastSettlement;
     if (settlement === undefined) return undefined;
-    if (this.postSettlementProviderEvidence?.executionId !== settlement.executionId) {
+    if (
+      this.postSettlementProviderEvidence?.executionId !==
+        settlement.executionId
+    ) {
       const observations: ProviderEvidenceObservation[] = [];
       const recorder = new ProviderEvidenceRecorder(
         crypto.randomUUID().toLowerCase(),
@@ -442,7 +483,9 @@ export class WorkerGeneration {
             turns ??= this.selectedTurns.map(({ turn, messages }) =>
               Object.freeze({
                 turn,
-                messages: Object.freeze(messages.map((message) => freezeData(message))),
+                messages: Object.freeze(
+                  messages.map((message) => freezeData(message)),
+                ),
               })
             );
             return {
@@ -497,17 +540,19 @@ export class WorkerGeneration {
     const settlement = this.lastSettlement?.settlement;
     const settledEvidence = this.postSettlementEvidenceForCurrentExecution();
     const executionlessObservations: ProviderEvidenceObservation[] = [];
-    const providerEvidence = settledEvidence?.recorder ?? new ProviderEvidenceRecorder(
-      crypto.randomUUID().toLowerCase(),
-      this.lastSettlement?.turn ?? this.nextTurn - 1,
-      new Date().toISOString(),
-      (observation) => {
-        executionlessObservations.push(observation);
-        return undefined;
-      },
-      false,
-    );
-    const providerObservations = settledEvidence?.observations ?? executionlessObservations;
+    const providerEvidence = settledEvidence?.recorder ??
+      new ProviderEvidenceRecorder(
+        crypto.randomUUID().toLowerCase(),
+        this.lastSettlement?.turn ?? this.nextTurn - 1,
+        new Date().toISOString(),
+        (observation) => {
+          executionlessObservations.push(observation);
+          return undefined;
+        },
+        false,
+      );
+    const providerObservations = settledEvidence?.observations ??
+      executionlessObservations;
     const priorEvidence = this.hookProviderEvidenceScope.current;
     const currentEvidence = {
       recorder: providerEvidence,
@@ -517,7 +562,9 @@ export class WorkerGeneration {
     };
     this.hookProviderEvidenceScope.current = currentEvidence;
     let context: HookContextSnapshot | undefined;
-    for (const hook of this.hooks.filter((entry) => entry.handlers.runtime_stop !== undefined)) {
+    for (
+      const hook of this.hooks.filter((entry) => entry.handlers.runtime_stop !== undefined)
+    ) {
       try {
         await runHookPhase(
           [hook],
@@ -573,7 +620,11 @@ export class WorkerGeneration {
           effect,
           providerObservations,
         });
-        if (!saved) throw new Error('Data owner did not acknowledge runtime_stop effects');
+        if (!saved) {
+          throw new Error(
+            'Data owner did not acknowledge runtime_stop effects',
+          );
+        }
       } catch (error) {
         failures.push(Object.freeze({
           name: 'worker-runtime',
@@ -691,7 +742,9 @@ export class WorkerGeneration {
   }
 
   private hookContext(
-    turns: readonly HookTranscriptTurn[] = this.selectedTurns.map(({ turn, messages }) =>
+    turns: readonly HookTranscriptTurn[] = this.selectedTurns.map((
+      { turn, messages },
+    ) =>
       Object.freeze({
         turn,
         messages: Object.freeze(messages.map((message) => freezeData(message))),
@@ -716,6 +769,7 @@ export class WorkerGeneration {
       this.contextBudgetConfiguration,
       this.rootModelSelection,
       this.composition.model.requestOutputReserve,
+      this.contextCapacity,
     );
     const retainedFromTurn = turns[0]?.turn ?? this.nextTurn;
     const transcript = Object.freeze({
@@ -732,8 +786,22 @@ export class WorkerGeneration {
           this.selectedTurns.map((entry) => `execution:${entry.executionId}`),
         ),
         budget: Object.freeze({
-          historyTokens: budget.historyTokens,
-          inputLimit: budget.inputLimit,
+          ...(budget.historyTokens === undefined ? {} : {
+            historyTokens: budget.historyTokens,
+          }),
+          ...(budget.inputLimit === undefined ? {} : { inputLimit: budget.inputLimit }),
+          inputRatio: budget.inputRatio,
+          capacitySources: budget.capacitySources,
+          ...(budget.contextTokens === undefined ? {} : {
+            contextTokens: budget.contextTokens,
+          }),
+          ...(budget.inputTokens === undefined ? {} : { inputTokens: budget.inputTokens }),
+          ...(budget.outputReserve === undefined ? {} : {
+            outputReserve: budget.outputReserve,
+          }),
+          ...(budget.modelsDevProviderId === undefined ? {} : {
+            modelsDevProviderId: budget.modelsDevProviderId,
+          }),
           profile: budget.profile,
         }),
       }),
@@ -782,10 +850,18 @@ export class WorkerGeneration {
   selectRootModel(
     selection: ModelSelection,
     privateStateFromTurn = 1,
+    capacity?: ContextCapacityMetadata,
   ): boolean {
     if (this.active) return false;
+    const capacityRouteChanged = this.rootModelSelection.provider !== selection.provider ||
+      this.rootModelSelection.modelId !== selection.modelId;
     this.replaceRootModel(selection);
     this.rootModelSelection = structuredClone(selection);
+    if (capacity !== undefined) {
+      this.contextCapacity = structuredClone(capacity);
+    } else if (capacityRouteChanged) {
+      this.contextCapacity = { source: 'unknown' };
+    }
     this.privateStateFromTurn = privateStateFromTurn;
     return true;
   }
@@ -828,7 +904,8 @@ export class WorkerGeneration {
   private historyMessages(candidate: ContextTurnRead): readonly Message[] {
     return candidate.messages.map((message) => {
       if (
-        candidate.turn >= this.privateStateFromTurn || message.role !== 'assistant' ||
+        candidate.turn >= this.privateStateFromTurn ||
+        message.role !== 'assistant' ||
         message.providerState === undefined
       ) return message;
       const { providerState: _state, ...semantic } = message;
@@ -842,11 +919,15 @@ export class WorkerGeneration {
       this.contextBudgetConfiguration,
       this.rootModelSelection,
       this.composition.model.requestOutputReserve,
+      this.contextCapacity,
     );
     const prefix = this.checkpoint === undefined ? [] : [checkpointMessage(this.checkpoint)];
     let request: import('../core/contracts.ts').ModelRequest = {
       systemInstruction: this.composition.systemInstruction,
-      transcript: [...prefix, { role: 'user', content: { kind: 'text', text: task } }],
+      transcript: [...prefix, {
+        role: 'user',
+        content: { kind: 'text', text: task },
+      }],
       tools: this.composition.registry.definitions(),
     };
     const selected: ContextTurnRead[] = [];
@@ -856,18 +937,30 @@ export class WorkerGeneration {
       const candidate = correlation === undefined
         ? [...this.localContextTurns].reverse().find((entry) => entry.turn < before) ?? null
         : await this.readHistoryTurn(correlation, before);
-      if (candidate === null || candidate.turn < (this.checkpoint?.retainedFromTurn ?? 1)) break;
+      if (
+        candidate === null ||
+        candidate.turn < (this.checkpoint?.retainedFromTurn ?? 1)
+      ) break;
       const messages = this.historyMessages(candidate);
       const next = {
         ...request,
-        transcript: [...prefix, ...messages, ...request.transcript.slice(prefix.length)],
+        transcript: [
+          ...prefix,
+          ...messages,
+          ...request.transcript.slice(prefix.length),
+        ],
       };
       const cost = contextCost(
         this.composition.model,
         next,
         prefix.length === 0 ? next.transcript : next.transcript.slice(prefix.length),
       );
-      if (cost.historyUsedTokens > budget.historyTokens || cost.inputTokens > budget.inputLimit) {
+      if (
+        (budget.historyTokens !== undefined &&
+          cost.historyUsedTokens > budget.historyTokens) ||
+        (budget.inputLimit !== undefined &&
+          cost.inputTokens > budget.inputLimit)
+      ) {
         break;
       }
       selected.unshift({ ...candidate, messages });
@@ -950,6 +1043,25 @@ export class WorkerGeneration {
     const cancellation = new TurnCancellationOwner();
     const steering = new SteeringOwner();
     const turn = this.nextTurn;
+    const emittedContextNotices = new Set<
+      'trimmed' | 'history_partial' | 'history_omitted' | 'exceeded'
+    >();
+    const emitContextNotice = (
+      notice: 'trimmed' | 'history_partial' | 'history_omitted' | 'exceeded',
+      text: string,
+    ): void => {
+      if (emittedContextNotices.has(notice)) return;
+      emittedContextNotices.add(notice);
+      this.port.runtimeEvent(correlation, {
+        kind: 'context_notice',
+        turn,
+        notice,
+        text,
+        budget: this.budgetFacts as Readonly<
+          Record<string, import('../core/contracts.ts').JsonValue>
+        >,
+      });
+    };
     const baseSystemInstruction = this.composition.systemInstruction;
     let turnInstructionComponents = [
       ...(this.composition.instructionComponents ?? []),
@@ -970,7 +1082,9 @@ export class WorkerGeneration {
       turnHookTurns = this.selectedTurns.map(({ turn, messages }) =>
         Object.freeze({
           turn,
-          messages: Object.freeze(messages.map((message) => freezeData(message))),
+          messages: Object.freeze(
+            messages.map((message) => freezeData(message)),
+          ),
         })
       );
       return this.hookContext(
@@ -1095,7 +1209,9 @@ export class WorkerGeneration {
     ): readonly ContextOccurrenceSource[] => {
       const lane = 'parent' as const;
       if (kind === 'committed') {
-        throw new Error('canonical sources are produced during bounded range preparation');
+        throw new Error(
+          'canonical sources are produced during bounded range preparation',
+        );
       }
       if (kind === 'task') {
         const sequence = runtimeSequences.get('user-message');
@@ -1450,22 +1566,30 @@ export class WorkerGeneration {
             item.content.digest,
             item.sourceRelations,
           ]);
-        const reusable = new Map((previous?.items ?? []).map((item) => [itemKey(item), item]));
+        const reusable = new Map(
+          (previous?.items ?? []).map((item) => [itemKey(item), item]),
+        );
         const resultItems = occurrences.map((item) => reusable.get(itemKey(item)) ?? item);
         const newOccurrences = resultItems.filter((item) => !reusable.has(itemKey(item)));
         let commonPrefix = 0;
         while (
-          commonPrefix < resultItems.length && commonPrefix < (previous?.items.length ?? 0) &&
-          resultItems[commonPrefix].occurrenceId === previous?.items[commonPrefix].occurrenceId
+          commonPrefix < resultItems.length &&
+          commonPrefix < (previous?.items.length ?? 0) &&
+          resultItems[commonPrefix].occurrenceId ===
+            previous?.items[commonPrefix].occurrenceId
         ) commonPrefix++;
         let commonSuffix = 0;
         while (
           commonSuffix < resultItems.length - commonPrefix &&
           commonSuffix < (previous?.items.length ?? 0) - commonPrefix &&
           resultItems[resultItems.length - commonSuffix - 1].occurrenceId ===
-            previous?.items[previous.items.length - commonSuffix - 1].occurrenceId
+            previous?.items[previous.items.length - commonSuffix - 1]
+              .occurrenceId
         ) commonSuffix++;
-        const insertions = resultItems.slice(commonPrefix, resultItems.length - commonSuffix).map(
+        const insertions = resultItems.slice(
+          commonPrefix,
+          resultItems.length - commonSuffix,
+        ).map(
           (item) => ({
             occurrenceId: item.occurrenceId,
             occurrenceDigest: item.occurrenceDigest,
@@ -1473,7 +1597,8 @@ export class WorkerGeneration {
         );
         const splice = {
           start: commonPrefix,
-          deleteCount: (previous?.items.length ?? 0) - commonPrefix - commonSuffix,
+          deleteCount: (previous?.items.length ?? 0) - commonPrefix -
+            commonSuffix,
           insertions,
         };
         const resultItemCount = resultItems.length;
@@ -1530,7 +1655,8 @@ export class WorkerGeneration {
       observation: AuxiliaryRequestObservation,
     ): Promise<number> => {
       evidence.setInputTokenEstimate(
-        Math.ceil(new TextEncoder().encode(observation.body).byteLength / 3) + 16,
+        Math.ceil(new TextEncoder().encode(observation.body).byteLength / 3) +
+          16,
       );
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
@@ -1584,7 +1710,8 @@ export class WorkerGeneration {
         };
         contextRequests.push(requestDelta);
         evidence.setInputTokenEstimate(
-          Math.ceil(new TextEncoder().encode(observation.body).byteLength / 3) + 16,
+          Math.ceil(new TextEncoder().encode(observation.body).byteLength / 3) +
+            16,
         );
         await this.port.contextObservation?.(correlation, requestDelta);
       })();
@@ -1597,6 +1724,9 @@ export class WorkerGeneration {
       }
       return requestOrdinal;
     };
+    // Projection state belongs to this accepted execution and resets with the next runTurn.
+    const omittedCurrentMessageIndices = new Set<number>();
+    let currentTrimmingStarted = false;
     // Keep messages and source sidecars aligned without mutating the borrowed request.
     // The loop snapshots the completed projection before observation and model generation.
     const projectParentRequestWithSources = async (
@@ -1610,6 +1740,7 @@ export class WorkerGeneration {
         this.contextBudgetConfiguration,
         this.rootModelSelection,
         this.composition.model.requestOutputReserve,
+        this.contextCapacity,
       );
       const prefixMessages: Message[] = this.checkpoint === undefined
         ? []
@@ -1650,87 +1781,328 @@ export class WorkerGeneration {
       }
       const fits = (cost: ReturnType<typeof contextCost>) =>
         cost.withinWireLimits &&
-        cost.historyUsedTokens <= budget.historyTokens &&
-        cost.inputTokens <= budget.inputLimit;
-      let conversationTranscript = request.transcript;
-      let cost = contextCost(this.composition.model, currentRequest, conversationTranscript);
+        (budget.historyTokens === undefined ||
+          cost.historyUsedTokens <= budget.historyTokens) &&
+        (budget.inputLimit === undefined ||
+          cost.inputTokens <= budget.inputLimit);
       this.selectedTurns = [];
-      if (!fits(cost)) {
-        this.budgetFacts = { ...budget, ...cost, currentOnly: true, exceeded: true };
-        throw new Error(
-          `context_budget_exceeded: prefix/current input=${cost.inputTokens}, history=${cost.historyUsedTokens}; input limit=${budget.inputLimit}, history budget=${budget.historyTokens}; execution is saved; adjust context-budget.json/model/task`,
+      const recalledMessages = recalledContext === undefined ? [] : currentRequest.transcript.slice(
+        prefixMessages.length,
+        prefixMessages.length + 1,
+      );
+      const recalledSources = recalledContext === undefined ? [] : currentSources.slice(
+        prefixMessages.length,
+        prefixMessages.length + 1,
+      );
+      const currentUnits = transcriptProjectionUnits(request.transcript);
+      const currentProtected = currentProtectedMessageIndices(
+        request.transcript,
+        currentUnits,
+      );
+      const allCurrentIndices = request.transcript.map((_message, index) => index);
+      const recentHistoryBase = {
+        status: 'none' as 'none' | 'full' | 'partial' | 'omitted',
+      };
+      type SelectedHistory = {
+        readonly candidate: ContextTurnRead;
+        readonly messages: readonly Message[];
+        readonly indices: readonly number[];
+        readonly omittedIndices: readonly number[];
+        readonly unitCount: number;
+        readonly omittedUnitCount: number;
+      };
+      const selectedHistory: SelectedHistory[] = [];
+      const compose = (currentIndices: readonly number[]) => {
+        const historyMessages = selectedHistory.flatMap((entry) =>
+          entry.indices.map((index) => entry.messages[index])
+        );
+        const projectedCurrent = currentIndices.map((index) => request.transcript[index]);
+        const transcript = [
+          ...prefixMessages,
+          ...historyMessages,
+          ...recalledMessages,
+          ...projectedCurrent,
+        ];
+        const composedRequest = { ...currentRequest, transcript };
+        const conversationTranscript = [
+          ...historyMessages,
+          ...projectedCurrent,
+        ];
+        const historySources = selectedHistory.flatMap((entry) =>
+          entry.indices.map((index): readonly ContextOccurrenceSource[] => [{
+            stage: 'projected',
+            resourceKind: 'message',
+            lane: 'parent',
+            logicalIdentity: `${
+              entry.candidate.source === 'canonical' ? 'canonical' : 'runtime'
+            }:${this.sessionId}:turn:${entry.candidate.turn}:execution:${entry.candidate.executionId}:message:${
+              index + 1
+            }`,
+            sourceLocator: `execution:${entry.candidate.executionId}#message=${index + 1}`,
+          }])
+        );
+        const currentSourcesForProjection = currentIndices.map((index) =>
+          sources.transcript[index]
+        );
+        const composedSources = [
+          ...prefixSources,
+          ...historySources,
+          ...recalledSources,
+          ...currentSourcesForProjection,
+        ];
+        return {
+          request: composedRequest,
+          sources: composedSources,
+          conversationTranscript,
+          cost: contextCost(
+            this.composition.model,
+            composedRequest,
+            conversationTranscript,
+          ),
+        };
+      };
+      const currentRangeFacts = (currentIndices: readonly number[]) => {
+        const kept = new Set(currentIndices);
+        const omitted = allCurrentIndices.filter((index) => !kept.has(index));
+        const keptUnits = currentUnits.filter((unit) =>
+          unit.indices.every((index) => kept.has(index))
+        );
+        const omittedUnits = currentUnits.filter((unit) =>
+          unit.indices.every((index) => !kept.has(index))
+        );
+        return {
+          status: omitted.length === 0 ? 'full' : 'trimmed',
+          keptMessageRanges: messageIndexRanges(currentIndices),
+          omittedMessageRanges: messageIndexRanges(omitted),
+          keptUnits: keptUnits.length,
+          omittedUnits: omittedUnits.length,
+        };
+      };
+      let currentIndices = allCurrentIndices.filter((index) =>
+        !omittedCurrentMessageIndices.has(index)
+      );
+      let projection = compose(currentIndices);
+      if (!fits(projection.cost)) {
+        const removable = oldestRemovableProjectionUnits(
+          currentUnits,
+          currentProtected,
+        )
+          .filter((unit) => !unit.indices.some((index) => omittedCurrentMessageIndices.has(index)));
+        for (const unit of removable) {
+          currentTrimmingStarted = true;
+          unit.indices.forEach((index) => omittedCurrentMessageIndices.add(index));
+          currentIndices = allCurrentIndices.filter((index) =>
+            !omittedCurrentMessageIndices.has(index)
+          );
+          projection = compose(currentIndices);
+          if (fits(projection.cost)) break;
+        }
+      }
+      const currentFacts = currentRangeFacts(currentIndices);
+      if (!fits(projection.cost)) {
+        this.budgetFacts = {
+          ...budget,
+          ...projection.cost,
+          currentOnly: true,
+          exceeded: true,
+          ...(budget.inputTokens === undefined ? {} : { inputCapacityTokens: budget.inputTokens }),
+          currentProjection: currentFacts,
+          recentHistoryProjection: {
+            status: currentTrimmingStarted ? 'omitted' : 'none',
+            ...(currentTrimmingStarted ? { reason: 'current_trim_started' } : {}),
+          },
+        };
+        const message = 'Estimated input ' +
+          projection.cost.inputTokens +
+          ' tokens (limit ' + (budget.inputLimit ?? 'unbounded') +
+          '); history estimate ' + projection.cost.historyUsedTokens +
+          ' tokens (limit ' + (budget.historyTokens ?? 'unbounded') +
+          '); messages ' + projection.cost.messagesBytes +
+          ' bytes (limit ' + (projection.cost.messageLimitBytes ?? 'unknown') +
+          '); body ' + projection.cost.bodyBytes +
+          ' bytes (limit ' + (projection.cost.bodyLimitBytes ?? 'unknown') +
+          '). Full execution remains saved.';
+        if (currentTrimmingStarted) {
+          emitContextNotice(
+            'trimmed',
+            'Older current-turn exchanges were omitted from the model request; the full execution remains saved.',
+          );
+          emitContextNotice(
+            'history_omitted',
+            'Past-history selection was skipped after current-turn trimming began; any earlier turns remain saved.',
+          );
+        }
+        emitContextNotice(
+          'exceeded',
+          'Protected current context does not fit: ' + message + '.',
+        );
+        throw new ContextBudgetExceededError(
+          message,
+          turnProviderRequestCount(),
         );
       }
-      const selected: ContextTurnRead[] = [];
-      let beforeTurn = this.nextTurn;
-      while (true) {
-        const candidate = await this.readHistoryTurn(correlation, beforeTurn);
-        if (
-          candidate === null ||
-          (this.checkpoint !== undefined && candidate.turn < this.checkpoint.retainedFromTurn)
-        ) break;
-        const messages = this.historyMessages(candidate);
-        const candidateRequest = {
-          ...currentRequest,
-          transcript: [
-            ...prefixMessages,
-            ...messages,
-            ...currentRequest.transcript.slice(prefixMessages.length),
-          ],
-        };
-        const candidateConversation = prefixMessages.length === 0 && recalledContext === undefined
-          ? candidateRequest.transcript
-          : [...messages, ...conversationTranscript];
-        let candidateCost: ReturnType<typeof contextCost>;
-        try {
-          candidateCost = contextCost(
-            this.composition.model,
-            candidateRequest,
-            candidateConversation,
-          );
-        } catch (error) {
-          // The selected adapter enforces the existing serialized messages limit during encoding.
+
+      let recentHistoryFacts: Record<string, unknown> = currentTrimmingStarted
+        ? { status: 'omitted', reason: 'current_trim_started' }
+        : { ...recentHistoryBase };
+      if (!currentTrimmingStarted) {
+        let beforeTurn = this.nextTurn;
+        let firstHistoryCandidate = true;
+        while (true) {
+          const candidate = await this.readHistoryTurn(correlation, beforeTurn);
           if (
-            error instanceof Error &&
-            error.message.includes('serialized model messages exceed 5 MiB')
+            candidate === null ||
+            (this.checkpoint !== undefined &&
+              candidate.turn < this.checkpoint.retainedFromTurn)
           ) break;
-          throw error;
+          const messages = this.historyMessages(candidate);
+          const units = transcriptProjectionUnits(messages);
+          const indices = messages.map((_message, index) => index);
+          const fullEntry: SelectedHistory = {
+            candidate,
+            messages,
+            indices,
+            omittedIndices: [],
+            unitCount: units.length,
+            omittedUnitCount: 0,
+          };
+          selectedHistory.unshift(fullEntry);
+          const fullProjection = compose(currentIndices);
+          if (fits(fullProjection.cost)) {
+            projection = fullProjection;
+            if (firstHistoryCandidate) {
+              recentHistoryFacts = {
+                status: 'full',
+                turn: candidate.turn,
+                executionId: candidate.executionId,
+                source: candidate.source,
+                sourceMessageStart: candidate.messageStart,
+                keptMessageRanges: messageIndexRanges(indices),
+                omittedMessageRanges: [],
+                keptUnits: units.length,
+                omittedUnits: 0,
+              };
+            }
+            beforeTurn = candidate.turn;
+            firstHistoryCandidate = false;
+            continue;
+          }
+          selectedHistory.shift();
+          if (firstHistoryCandidate) {
+            const protectedIndices = recentHistoryProtectedMessageIndices(
+              messages,
+              units,
+            );
+            let partialEntry = fullEntry;
+            const tryPartial = (entry: SelectedHistory) => {
+              selectedHistory.push(entry);
+              const value = compose(currentIndices);
+              selectedHistory.pop();
+              return value;
+            };
+            let partialProjection = fullProjection;
+            let partialFits = false;
+            for (
+              const unit of oldestRemovableProjectionUnits(
+                units,
+                protectedIndices,
+              )
+            ) {
+              const newlyOmitted = new Set(partialEntry.omittedIndices);
+              unit.indices.forEach((index) => newlyOmitted.add(index));
+              partialEntry = {
+                ...partialEntry,
+                indices: indices.filter((index) => !newlyOmitted.has(index)),
+                omittedIndices: [...newlyOmitted],
+                unitCount: units.filter((candidateUnit) =>
+                  candidateUnit.indices.every((index) =>
+                    !newlyOmitted.has(index)
+                  )
+                ).length,
+                omittedUnitCount: units.filter((candidateUnit) =>
+                  candidateUnit.indices.every((index) => newlyOmitted.has(index))
+                ).length,
+              };
+              partialProjection = tryPartial(partialEntry);
+              partialFits = fits(partialProjection.cost);
+              if (partialFits) {
+                break;
+              }
+            }
+            if (partialFits && partialEntry.omittedIndices.length > 0) {
+              selectedHistory.push(partialEntry);
+              projection = partialProjection;
+              recentHistoryFacts = {
+                status: 'partial',
+                turn: candidate.turn,
+                executionId: candidate.executionId,
+                source: candidate.source,
+                sourceMessageStart: candidate.messageStart,
+                keptMessageRanges: messageIndexRanges(partialEntry.indices),
+                omittedMessageRanges: messageIndexRanges(
+                  partialEntry.omittedIndices,
+                ),
+                keptUnits: partialEntry.unitCount,
+                omittedUnits: partialEntry.omittedUnitCount,
+              };
+            } else {
+              recentHistoryFacts = {
+                status: 'omitted',
+                reason: 'protected_history_does_not_fit',
+                turn: candidate.turn,
+                executionId: candidate.executionId,
+                source: candidate.source,
+                sourceMessageStart: candidate.messageStart,
+                keptMessageRanges: [],
+                omittedMessageRanges: messageIndexRanges(indices),
+                keptUnits: 0,
+                omittedUnits: units.length,
+              };
+            }
+          }
+          break;
         }
-        if (!fits(candidateCost)) break;
-        selected.unshift({ ...candidate, messages });
-        const candidateSources = messages.map((
-          _message,
-          index,
-        ): readonly ContextOccurrenceSource[] => [{
-          stage: 'projected',
-          resourceKind: 'message',
-          lane: 'parent',
-          logicalIdentity: `${
-            candidate.source === 'canonical' ? 'canonical' : 'runtime'
-          }:${this.sessionId}:turn:${candidate.turn}:execution:${candidate.executionId}:message:${
-            index + 1
-          }`,
-          sourceLocator: `execution:${candidate.executionId}#message=${index + 1}`,
-        }]);
-        currentSources = [
-          ...prefixSources,
-          ...candidateSources,
-          ...currentSources.slice(prefixMessages.length),
-        ];
-        currentRequest = candidateRequest;
-        conversationTranscript = candidateConversation;
-        cost = candidateCost;
-        beforeTurn = candidate.turn;
       }
-      this.selectedTurns = selected;
+      this.selectedTurns = selectedHistory.map((entry) => ({
+        ...entry.candidate,
+        messages: entry.indices.map((index) => entry.messages[index]),
+      }));
       this.budgetFacts = {
         ...budget,
-        ...cost,
-        selectedTurns: selected.map((t) => t.turn),
+        ...projection.cost,
+        ...(budget.inputTokens === undefined ? {} : { inputCapacityTokens: budget.inputTokens }),
+        selectedTurns: selectedHistory.map((entry) => entry.candidate.turn),
         currentMessages: request.transcript.length,
-        selectedMessages: selected.reduce((n, t) => n + t.messages.length, 0),
+        selectedMessages: selectedHistory.reduce(
+          (n, entry) => n + entry.indices.length,
+          0,
+        ),
+        currentProjection: currentFacts,
+        recentHistoryProjection: recentHistoryFacts,
       };
-      return { request: currentRequest, sources: { transcript: currentSources } };
+      if (currentTrimmingStarted) {
+        emitContextNotice(
+          'trimmed',
+          'Older current-turn exchanges were omitted from the model request; the full execution remains saved.',
+        );
+      }
+      if (recentHistoryFacts.status === 'partial') {
+        emitContextNotice(
+          'history_partial',
+          'Some older messages from the previous turn were omitted from this request; the full turn remains saved.',
+        );
+      } else if (recentHistoryFacts.status === 'omitted') {
+        emitContextNotice(
+          'history_omitted',
+          recentHistoryFacts.reason === 'current_trim_started'
+            ? 'Past-history selection was skipped after current-turn trimming began; any earlier turns remain saved.'
+            : 'The required previous-turn context did not fit this request, so that turn was omitted from the model request and remains saved.',
+        );
+      }
+      return {
+        request: projection.request,
+        sources: { transcript: projection.sources },
+      };
     };
     const executionContext = new ParentTurnExecutionContext(
       turn,
@@ -1807,7 +2179,12 @@ export class WorkerGeneration {
     };
     const failTurn = async (
       outcome: LoopOutcome,
-    ): Promise<{ readonly outcome: LoopOutcome; readonly settlement?: AfterTurnSettlement }> => {
+    ): Promise<
+      {
+        readonly outcome: LoopOutcome;
+        readonly settlement?: AfterTurnSettlement;
+      }
+    > => {
       const finalized = finalizeEvidence(outcome);
       const result = await this.port.turnFailed(
         correlation,
@@ -1825,7 +2202,10 @@ export class WorkerGeneration {
         };
         this.postSettlementProviderEvidence = undefined;
       }
-      return { outcome: finalized, ...(settlement === undefined ? {} : { settlement }) };
+      return {
+        outcome: finalized,
+        ...(settlement === undefined ? {} : { settlement }),
+      };
     };
     const persistAfterTurn = async (
       settlement: AfterTurnSettlement,
@@ -1842,7 +2222,9 @@ export class WorkerGeneration {
       const committedTurns = this.selectedTurns.map(({ turn, messages }) =>
         Object.freeze({
           turn,
-          messages: Object.freeze(messages.map((message) => freezeData(message))),
+          messages: Object.freeze(
+            messages.map((message) => freezeData(message)),
+          ),
         })
       );
       const afterTurnOutcome = freezeData(
@@ -1853,9 +2235,12 @@ export class WorkerGeneration {
         ),
       );
       let effectiveCheckpoint = this.checkpoint;
-      const postSettlementEvidence = this.postSettlementEvidenceForCurrentExecution();
+      const postSettlementEvidence = this
+        .postSettlementEvidenceForCurrentExecution();
       if (postSettlementEvidence === undefined) {
-        throw new Error('post-settlement provider evidence owner is unavailable');
+        throw new Error(
+          'post-settlement provider evidence owner is unavailable',
+        );
       }
       const providerObservations = postSettlementEvidence.observations;
       const providerEvidence = postSettlementEvidence.recorder;
@@ -1954,7 +2339,9 @@ export class WorkerGeneration {
           ...(observations.length === 0 ? {} : { providerObservations: observations }),
         });
         if (!persisted) {
-          throw new Error('Data owner did not acknowledge the after_turn context update');
+          throw new Error(
+            'Data owner did not acknowledge the after_turn context update',
+          );
         }
         if (candidateCheckpoint !== undefined) {
           effectiveCheckpoint = candidateCheckpoint;
@@ -2302,7 +2689,7 @@ export class WorkerGeneration {
       }
       this.canonicalMessageCount += proposal.transcript.length;
       if (this.port.readContextTurn === undefined) {
-        this.localContextTurns = [...this.selectedTurns, {
+        this.localContextTurns = [...this.localContextTurns, {
           turn,
           executionId: executionId ?? `local-turn-${turn}`,
           messages: proposal.transcript,
@@ -2348,7 +2735,9 @@ export class WorkerGeneration {
       this.activeSteering = null;
       this.activeCancellation = null;
       this.active = false;
-      if (this.hookProviderEvidenceScope.current === activeHookProviderEvidence) {
+      if (
+        this.hookProviderEvidenceScope.current === activeHookProviderEvidence
+      ) {
         this.hookProviderEvidenceScope.current = previousHookProviderEvidence;
       }
       if (!skipTurnSettled) this.port.turnSettled?.(correlation);

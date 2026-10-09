@@ -5,6 +5,7 @@ import type { AgentEventSink } from '../core/events.ts';
 import type { ContextView, EffectiveRuntimeConfig, SessionActivation } from '../../api/contract.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
+import type { ContextCapacityMetadata } from '../session/context_budget.ts';
 import { credentialFileFor, credentialFilePresenceAt } from '../provider/credential_file.ts';
 import { chatGPTCredentialPresence } from '../provider/chatgpt_auth.ts';
 import {
@@ -13,6 +14,7 @@ import {
   type ProviderDeclarationV1,
   resolveProviderRegistry,
 } from '../provider/provider_declaration.ts';
+import { LiveModelCatalog } from '../provider/live_model_catalog.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
@@ -66,6 +68,10 @@ export interface WorkerSessionOptions {
   readonly initialModelSelection?: ModelSelection;
   /** Host-resolved declaration snapshot shared with the Worker for this invocation. */
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
+  /** Core-owned, single-route public capacity lookup; Worker never loads a catalog. */
+  readonly resolveModelCapacity?: (
+    selection: ModelSelection,
+  ) => Promise<ContextCapacityMetadata>;
   readonly eventSink?: AgentEventSink;
   readonly applicationObservationSink?: ApplicationObservationSink;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
@@ -522,7 +528,32 @@ export const createWorkerSession = async (
     if (ownsData) await data.close();
     throw error;
   });
+  let standaloneModelCatalog: LiveModelCatalog | undefined;
+  let standaloneCatalogFactCursor = 0;
   try {
+    if (
+      options.resolveModelCapacity === undefined &&
+      options.physicalIoMode !== 'provider-free'
+    ) {
+      standaloneModelCatalog = new LiveModelCatalog({
+        configRoot,
+        credentialRoot,
+        declarations: providerDeclarations,
+      });
+    }
+    const resolveModelCapacity = options.resolveModelCapacity ??
+      (standaloneModelCatalog === undefined
+        ? undefined
+        : async (selection: ModelSelection): Promise<ContextCapacityMetadata> => {
+          try {
+            return await standaloneModelCatalog!.capacity(selection);
+          } finally {
+            const facts = standaloneModelCatalog!.facts;
+            const fresh = facts.slice(standaloneCatalogFactCursor);
+            standaloneCatalogFactCursor = facts.length;
+            if (fresh.length > 0) await data.persistCatalogFacts(fresh);
+          }
+        });
     const openHost = async (
       sessionDescriptor: DataSessionDescriptor,
       startupAbortSignal?: AbortSignal,
@@ -548,6 +579,7 @@ export const createWorkerSession = async (
         auxiliaryStageGapMs: options.auxiliaryStageGapMs,
         baseInstruction,
         providerDeclarations,
+        ...(resolveModelCapacity === undefined ? {} : { resolveModelCapacity }),
         eventSink: options.eventSink,
         applicationObservationSink: options.applicationObservationSink,
         capsuleFactory: options.capsuleFactory,
@@ -619,6 +651,7 @@ export const createWorkerSession = async (
           try {
             await currentHost.close();
           } finally {
+            standaloneModelCatalog?.close();
             try {
               await data.closeSession(currentHost.sessionId);
             } finally {
@@ -632,6 +665,7 @@ export const createWorkerSession = async (
       query,
     };
   } catch (error) {
+    standaloneModelCatalog?.close();
     await data.closeSession(descriptor.id);
     if (ownsData) await data.close();
     throw error;

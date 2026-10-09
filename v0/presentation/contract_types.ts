@@ -47,6 +47,7 @@ export type PresentationFailureStage =
 export type PresentationFailureCode =
   | 'missing_credential'
   | 'invalid_input'
+  | 'context_budget_exceeded'
   | 'request_budget_exhausted'
   | 'provider_timeout'
   | 'transport_error'

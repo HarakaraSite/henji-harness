@@ -10,6 +10,8 @@ import type {
 import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
+import type { ModelSelection } from '../provider/model_selection.ts';
+import type { ContextCapacityMetadata } from '../session/context_budget.ts';
 import type { ApplicationObservationSink } from '../host/application_port.ts';
 import type { SessionActivation } from '../../api/contract.ts';
 
@@ -52,6 +54,10 @@ export interface WorkerHostSessionOptions {
   readonly baseInstruction?: SelectedHenjiBaseInstruction;
   /** Host-validated data-only provider declarations; never contains credential values. */
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
+  /** Core-owned, single-route public capacity lookup; Worker never loads a catalog. */
+  readonly resolveModelCapacity?: (
+    selection: ModelSelection,
+  ) => Promise<ContextCapacityMetadata>;
 }
 
 export interface WorkerHostCapsule {

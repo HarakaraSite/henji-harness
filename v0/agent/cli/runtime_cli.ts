@@ -366,7 +366,13 @@ export const main = async (
 
     const projector = new CliRunEventProjector();
     const streamRenderer = new CliRunStreamRenderer();
-    const sink: AgentEventSink | undefined = mode === 'text' ? undefined : (event) => {
+    const sink: AgentEventSink = (event) => {
+      if (mode === 'text') {
+        if (event.kind === 'context_notice') {
+          stderr.enqueue(`context> ${event.text}\n`);
+        }
+        return;
+      }
       for (const projected of projector.project(event)) {
         if (mode === 'json') {
           stdout.enqueue(serializeCliRunRecord(projected));

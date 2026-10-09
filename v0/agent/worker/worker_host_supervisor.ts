@@ -389,6 +389,9 @@ export class WorkerSupervisor {
 
   async start(): Promise<void> {
     const projection = this.host.projection();
+    const modelCapacity = await this.options.resolveModelCapacity?.(
+      projection.modelSelection,
+    );
     const correlation = this.correlation('start');
     const readyPromise = this.messages.wait((
       message,
@@ -453,6 +456,7 @@ export class WorkerSupervisor {
             ...(this.options.providerDeclarations === undefined
               ? {}
               : { providerDeclarations: this.options.providerDeclarations }),
+            ...(modelCapacity === undefined ? {} : { modelCapacity }),
           },
           undefined,
           [agentDataPort],

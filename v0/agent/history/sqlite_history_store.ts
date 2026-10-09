@@ -244,6 +244,7 @@ const semanticKindForEvent = (
         agentEvent.kind === 'tool_result' || agentEvent.kind === 'tool_progress'
       ) return 'tool_result';
       if (agentEvent.kind === 'hook_context_update') return 'context_update';
+      if (agentEvent.kind === 'context_notice') return 'context_update';
       if (
         agentEvent.kind === 'assistant_message' ||
         agentEvent.kind === 'assistant_progress' ||
@@ -3068,12 +3069,16 @@ export class SqliteHistoryStore implements WorkerSessionStorePort, HistoryPersis
     }
   }
 
-  #acknowledgement(executionId: string, db: DatabaseSync): StoredExecutionRow['acknowledgement'] {
-    const event = this.#coreStore().listControlEvents(executionId, db).findLast((
-      item,
-    ) =>
-      item.kind === 'acknowledgement_sent' ||
-      item.kind === 'acknowledgement_failed'
+  #acknowledgement(
+    executionId: string,
+    db: DatabaseSync,
+  ): StoredExecutionRow['acknowledgement'] {
+    const event = this.#coreStore().listControlEvents(executionId, db).findLast(
+      (
+        item,
+      ) =>
+        item.kind === 'acknowledgement_sent' ||
+        item.kind === 'acknowledgement_failed',
     );
     if (event === undefined) return 'not_sent';
     if (event.kind === 'acknowledgement_failed') return 'delivery_failed';

@@ -93,8 +93,28 @@ export interface HookTranscriptSnapshot {
     readonly omittedThroughTurn: number;
     readonly executionLocators: readonly string[];
     readonly budget: {
-      readonly historyTokens: number;
-      readonly inputLimit: number;
+      readonly historyTokens?: number;
+      readonly inputLimit?: number;
+      readonly inputRatio: number;
+      readonly contextTokens?: number;
+      readonly inputTokens?: number;
+      readonly outputReserve?: number;
+      readonly modelsDevProviderId?: string;
+      readonly capacitySources: {
+        readonly contextTokens:
+          | 'explicit-configuration'
+          | 'models.dev'
+          | 'unknown';
+        readonly inputTokens:
+          | 'explicit-configuration'
+          | 'models.dev'
+          | 'unknown';
+        readonly inputRatio: 'explicit-configuration' | 'default';
+        readonly outputReserve:
+          | 'adapter-request'
+          | 'explicit-configuration'
+          | 'unknown';
+      };
       readonly profile: string;
     };
   };

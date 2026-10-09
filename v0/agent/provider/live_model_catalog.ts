@@ -6,8 +6,10 @@ import {
   createChatGPTAuthService,
 } from './chatgpt_auth.ts';
 import { isReasoningEffort, type ReasoningEffort } from './model_selection.ts';
+import type { ModelSelection } from './model_selection.ts';
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
 import { substituteRequestHeaders, usesCredentialHeader } from './provider_request_headers.ts';
+import type { ContextCapacityMetadata } from '../session/context_budget.ts';
 
 const DEFAULT_METADATA_URL = 'https://models.dev/api.json';
 const CATALOG_DIRECTORY = 'model-catalogs';
@@ -85,6 +87,7 @@ const withPinnedModels = (
 interface MetadataSnapshot {
   readonly status: 'loaded' | 'unavailable';
   readonly models: ReadonlyMap<string, readonly ReasoningEffort[]>;
+  readonly capacities: ReadonlyMap<string, ContextCapacityMetadata>;
 }
 
 interface ModelSnapshot {
@@ -127,8 +130,23 @@ const mapMetadataEffort = (value: unknown): ReasoningEffort | undefined => {
   return isReasoningEffort(value) ? value : undefined;
 };
 
+const metadataProviderForEffort = (declaration: ProviderDeclarationV1): string => {
+  if (declaration.modelsDevProviderId !== undefined) {
+    return declaration.modelsDevProviderId;
+  }
+  if (
+    declaration.providerId === 'openai-responses' ||
+    declaration.providerId === 'openai-chatgpt'
+  ) return 'openai';
+  if (
+    declaration.providerId === 'openrouter-chat' ||
+    declaration.providerId === 'openrouter-responses'
+  ) return 'openrouter';
+  return declaration.providerId;
+};
+
 const parseMetadataSnapshot = (
-  providerId: string,
+  declaration: ProviderDeclarationV1,
   value: unknown,
   addFact: (
     fact: Omit<
@@ -143,73 +161,144 @@ const parseMetadataSnapshot = (
       field: '$',
       valueShape: valueShape(value),
     });
-    return { status: 'unavailable', models: new Map() };
-  }
-  const provider = value[providerId];
-  if (!isRecord(provider) || !isRecord(provider.models)) {
-    return { status: 'loaded', models: new Map() };
+    return { status: 'unavailable', models: new Map(), capacities: new Map() };
   }
 
+  const explicitProviderId = declaration.modelsDevProviderId;
+  const routeApi = normalizeMetadataApi(declaration.endpoint);
+  const capacityProviders = explicitProviderId === undefined
+    ? Object.entries(value).filter(([, candidate]) =>
+      isRecord(candidate) && normalizeMetadataApi(candidate.api) === routeApi
+    )
+    : [[explicitProviderId, value[explicitProviderId]] as const];
+  const validCapacityProviders = capacityProviders.flatMap(([providerId, candidate]) =>
+    isRecord(candidate) && isRecord(candidate.models)
+      ? [{ providerId, models: candidate.models }]
+      : []
+  );
+  const providerCounts = new Map<string, number>();
+  for (const provider of validCapacityProviders) {
+    for (const modelId of Object.keys(provider.models)) {
+      providerCounts.set(modelId, (providerCounts.get(modelId) ?? 0) + 1);
+    }
+  }
   const models = new Map<string, readonly ReasoningEffort[]>();
-  for (const [modelId, rawModel] of Object.entries(provider.models)) {
-    if (!isRecord(rawModel) || !Object.hasOwn(rawModel, 'reasoning_options')) {
-      continue;
+  const capacities = new Map<string, ContextCapacityMetadata>();
+  for (const { providerId, models: providerModels } of validCapacityProviders) {
+    for (const [modelId, rawModel] of Object.entries(providerModels)) {
+      if (!isRecord(rawModel)) continue;
+      if (Object.hasOwn(rawModel, 'limit')) {
+        const limit = rawModel.limit;
+        if (!isRecord(limit)) {
+          addFact({
+            error: 'response_parse_failed',
+            field: `${providerId}.models.${modelId}.limit`,
+            valueShape: valueShape(limit),
+          });
+        } else {
+          const capacity: {
+            contextTokens?: number;
+            inputTokens?: number;
+            source: 'models.dev';
+            modelsDevProviderId: string;
+          } = { source: 'models.dev', modelsDevProviderId: providerId };
+          for (const field of ['context', 'input'] as const) {
+            if (!Object.hasOwn(limit, field)) continue;
+            const value = limit[field];
+            if (typeof value === 'number' && Number.isFinite(value)) {
+              if (field === 'context') capacity.contextTokens = value;
+              else capacity.inputTokens = value;
+            } else {
+              addFact({
+                error: 'unsupported_capacity_value',
+                field: `${providerId}.models.${modelId}.limit.${field}`,
+                valueShape: valueShape(value),
+              });
+            }
+          }
+          if (
+            providerCounts.get(modelId) === 1 &&
+            (capacity.contextTokens !== undefined || capacity.inputTokens !== undefined)
+          ) capacities.set(modelId, Object.freeze(capacity));
+        }
+      }
     }
-    const options = rawModel.reasoning_options;
-    if (!Array.isArray(options)) {
-      addFact({
-        error: 'response_parse_failed',
-        field: `${providerId}.models.${modelId}.reasoning_options`,
-        valueShape: valueShape(options),
-      });
-      continue;
-    }
-    const efforts: ReasoningEffort[] = [];
-    let foundEffortOption = false;
-    for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
-      const option = options[optionIndex];
-      if (!isRecord(option) || option.type !== 'effort') continue;
-      foundEffortOption = true;
-      const values = option.values;
-      if (Array.isArray(values)) {
-        for (let valueIndex = 0; valueIndex < values.length; valueIndex += 1) {
-          const mapped = mapMetadataEffort(values[valueIndex]);
-          if (mapped !== undefined) efforts.push(mapped);
-          else {
+  }
+
+  const effortProviderId = metadataProviderForEffort(declaration);
+  const effortProvider = value[effortProviderId];
+  if (isRecord(effortProvider) && isRecord(effortProvider.models)) {
+    for (const [modelId, rawModel] of Object.entries(effortProvider.models)) {
+      if (!isRecord(rawModel) || !Object.hasOwn(rawModel, 'reasoning_options')) continue;
+      const providerId = effortProviderId;
+      if (!Object.hasOwn(rawModel, 'reasoning_options')) continue;
+      const options = rawModel.reasoning_options;
+      if (!Array.isArray(options)) {
+        addFact({
+          error: 'response_parse_failed',
+          field: `${providerId}.models.${modelId}.reasoning_options`,
+          valueShape: valueShape(options),
+        });
+        continue;
+      }
+      const efforts: ReasoningEffort[] = [];
+      let foundEffortOption = false;
+      for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
+        const option = options[optionIndex];
+        if (!isRecord(option) || option.type !== 'effort') continue;
+        foundEffortOption = true;
+        const values = option.values;
+        if (Array.isArray(values)) {
+          for (let valueIndex = 0; valueIndex < values.length; valueIndex += 1) {
+            const mapped = mapMetadataEffort(values[valueIndex]);
+            if (mapped !== undefined) efforts.push(mapped);
+            else {
+              addFact({
+                error: 'unsupported_effort_value',
+                field:
+                  `${providerId}.models.${modelId}.reasoning_options[${optionIndex}].values[${valueIndex}]`,
+                valueShape: valueShape(values[valueIndex]),
+              });
+            }
+          }
+        } else if (values === null) {
+          efforts.push('auto');
+        } else {
+          addFact({
+            error: 'response_parse_failed',
+            field: `${providerId}.models.${modelId}.reasoning_options[${optionIndex}].values`,
+            valueShape: valueShape(values),
+          });
+        }
+        if (Object.hasOwn(option, 'default')) {
+          const mappedDefault = mapMetadataEffort(option.default);
+          if (mappedDefault !== undefined) efforts.push(mappedDefault);
+          else if (option.default !== undefined) {
             addFact({
               error: 'unsupported_effort_value',
-              field:
-                `${providerId}.models.${modelId}.reasoning_options[${optionIndex}].values[${valueIndex}]`,
-              valueShape: valueShape(values[valueIndex]),
+              field: `${providerId}.models.${modelId}.reasoning_options[${optionIndex}].default`,
+              valueShape: valueShape(option.default),
             });
           }
         }
-      } else if (values === null) {
-        efforts.push('auto');
-      } else {
-        addFact({
-          error: 'response_parse_failed',
-          field: `${providerId}.models.${modelId}.reasoning_options[${optionIndex}].values`,
-          valueShape: valueShape(values),
-        });
       }
-      if (Object.hasOwn(option, 'default')) {
-        const mappedDefault = mapMetadataEffort(option.default);
-        if (mappedDefault !== undefined) efforts.push(mappedDefault);
-        else if (option.default !== undefined) {
-          addFact({
-            error: 'unsupported_effort_value',
-            field: `${providerId}.models.${modelId}.reasoning_options[${optionIndex}].default`,
-            valueShape: valueShape(option.default),
-          });
-        }
+      if (foundEffortOption) {
+        models.set(modelId, Object.freeze(uniqueEfforts(efforts)));
       }
-    }
-    if (foundEffortOption) {
-      models.set(modelId, Object.freeze(uniqueEfforts(efforts)));
     }
   }
-  return { status: 'loaded', models };
+  return { status: 'loaded', models, capacities };
+};
+
+const normalizeMetadataApi = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const url = new URL(value);
+    const pathname = url.pathname.replace(/\/+$/u, '');
+    return `${url.origin}${pathname}${url.search}`;
+  } catch {
+    return undefined;
+  }
 };
 
 const validateStoredCatalog = (value: unknown): StoredCatalog => {
@@ -278,6 +367,7 @@ export class LiveModelCatalog {
   readonly #chatgptAuth: ChatGPTAuthService;
   readonly #requestCancellation = new AbortController();
   readonly #snapshots = new Map<string, ModelSnapshot>();
+  readonly #metadataSnapshots = new Map<string, MetadataSnapshot>();
   readonly #requestFacts: LiveModelCatalogFact[] = [];
   #nextRequestOrder = 0;
 
@@ -342,7 +432,8 @@ export class LiveModelCatalog {
       }
       const metadata = metadataResult.status === 'fulfilled'
         ? metadataResult.value
-        : { status: 'unavailable' as const, models: new Map() };
+        : { status: 'unavailable' as const, models: new Map(), capacities: new Map() };
+      this.#metadataSnapshots.set(provider, metadata);
       const snapshot = { models: withPinnedModels(declaration, providerResult.value), metadata };
       this.#snapshots.set(this.#snapshotKey(provider, credential.registrationId), snapshot);
       return this.#compose(declaration, snapshot, catalogResult.value);
@@ -365,10 +456,23 @@ export class LiveModelCatalog {
     }
     const metadata = metadataResult.status === 'fulfilled'
       ? metadataResult.value
-      : { status: 'unavailable' as const, models: new Map() };
+      : { status: 'unavailable' as const, models: new Map(), capacities: new Map() };
+    this.#metadataSnapshots.set(provider, metadata);
     const snapshot = { models: withPinnedModels(declaration, providerResult.value), metadata };
     this.#snapshots.set(this.#snapshotKey(provider), snapshot);
     return this.#compose(declaration, snapshot, catalogResult.value);
+  }
+
+  /** Resolve only the selected route/model from Core-owned public metadata. */
+  async capacity(selection: ModelSelection): Promise<ContextCapacityMetadata> {
+    const declaration = this.#declarations.find((item) => item.providerId === selection.provider);
+    if (declaration === undefined) return { source: 'unknown' };
+    let metadata = this.#metadataSnapshots.get(selection.provider);
+    if (metadata === undefined) {
+      metadata = await this.#fetchMetadata(declaration);
+      this.#metadataSnapshots.set(selection.provider, metadata);
+    }
+    return metadata.capacities.get(selection.modelId) ?? { source: 'unknown' };
   }
 
   async favorite(
@@ -423,6 +527,9 @@ export class LiveModelCatalog {
         ? this.#declaredSnapshot(declaration)
         : { models: [], metadata: await this.#fetchMetadata(declaration) };
       this.#snapshots.set(key, snapshot);
+      if (declaration.modelListSource !== 'catalog') {
+        this.#metadataSnapshots.set(provider, snapshot.metadata);
+      }
     }
     const catalog = await this.#readCatalog(declaration, accountId);
     const fixed = declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
@@ -813,23 +920,6 @@ export class LiveModelCatalog {
     }
   }
 
-  #modelsDevProviderId(declaration: ProviderDeclarationV1): string {
-    if (declaration.modelsDevProviderId !== undefined) {
-      return declaration.modelsDevProviderId;
-    }
-    if (
-      declaration.providerId === 'openai-responses' ||
-      declaration.providerId === 'openai-chatgpt'
-    ) {
-      return 'openai';
-    }
-    if (
-      declaration.providerId === 'openrouter-chat' ||
-      declaration.providerId === 'openrouter-responses'
-    ) return 'openrouter';
-    return declaration.providerId;
-  }
-
   async #fetchMetadata(
     declaration: ProviderDeclarationV1,
   ): Promise<MetadataSnapshot> {
@@ -840,7 +930,7 @@ export class LiveModelCatalog {
       this.#recordFact(declaration.providerId, 'models.dev', {
         error: 'metadata_url_invalid',
       });
-      return { status: 'unavailable', models: new Map() };
+      return { status: 'unavailable', models: new Map(), capacities: new Map() };
     }
     const requestContext = this.#requestContext();
     let response: Response;
@@ -857,14 +947,14 @@ export class LiveModelCatalog {
         { error: 'network_error' },
         requestContext,
       );
-      return { status: 'unavailable', models: new Map() };
+      return { status: 'unavailable', models: new Map(), capacities: new Map() };
     }
     if (!response.ok) {
       this.#recordFact(declaration.providerId, 'models.dev', {
         httpStatus: response.status,
         error: 'http_error',
       }, requestContext);
-      return { status: 'unavailable', models: new Map() };
+      return { status: 'unavailable', models: new Map(), capacities: new Map() };
     }
     let payload: unknown;
     try {
@@ -874,10 +964,10 @@ export class LiveModelCatalog {
         httpStatus: response.status,
         error: 'invalid_json',
       }, requestContext);
-      return { status: 'unavailable', models: new Map() };
+      return { status: 'unavailable', models: new Map(), capacities: new Map() };
     }
     const snapshot = parseMetadataSnapshot(
-      this.#modelsDevProviderId(declaration),
+      declaration,
       payload,
       (fact) =>
         this.#recordFact(declaration.providerId, 'models.dev', {
@@ -969,6 +1059,7 @@ export class LiveModelCatalog {
         models: new Map(
           declaration.modelCatalog.entries.map(({ modelId, efforts }) => [modelId, efforts]),
         ),
+        capacities: new Map(),
       },
     };
   }

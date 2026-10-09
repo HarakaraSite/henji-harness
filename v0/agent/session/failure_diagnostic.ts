@@ -39,6 +39,7 @@ export type FailureStage =
 export type FailureCode =
   | 'missing_credential'
   | 'invalid_input'
+  | 'context_budget_exceeded'
   | 'request_budget_exhausted'
   | 'provider_timeout'
   | 'transport_error'
@@ -117,7 +118,8 @@ export const projectFailureDiagnosticFact = (
   const value = candidate as Record<string, unknown>;
   if (
     typeof value.stage !== 'string' || typeof value.code !== 'string' ||
-    typeof value.requestCount !== 'number' || !Number.isSafeInteger(value.requestCount) ||
+    typeof value.requestCount !== 'number' ||
+    !Number.isSafeInteger(value.requestCount) ||
     value.requestCount < 0 || typeof value.retryCount !== 'number' ||
     !Number.isSafeInteger(value.retryCount) || value.retryCount < 0 ||
     value.retryCount > value.requestCount
@@ -130,7 +132,9 @@ export const projectFailureDiagnosticFact = (
     retryCount: value.retryCount,
     ...(typeof value.httpStatus === 'number' ? { httpStatus: value.httpStatus } : {}),
     ...(typeof value.parseReason === 'string'
-      ? { parseReason: value.parseReason as FailureDiagnosticFact['parseReason'] }
+      ? {
+        parseReason: value.parseReason as FailureDiagnosticFact['parseReason'],
+      }
       : {}),
   };
 };
@@ -164,6 +168,7 @@ const STAGES: readonly FailureStage[] = [
 const CODES: readonly FailureCode[] = [
   'missing_credential',
   'invalid_input',
+  'context_budget_exceeded',
   'request_budget_exhausted',
   'provider_timeout',
   'transport_error',
@@ -263,7 +268,8 @@ export const validateFailureDiagnostic = (
     !requestCount(record.providerRequestCount) ||
     !validTimestamp(record.occurredAt) ||
     !positiveTurn(record.turnNumber) || !modelStep(record.modelStep) ||
-    !retryCount(record.retryCount) || record.retryCount > record.providerRequestCount
+    !retryCount(record.retryCount) ||
+    record.retryCount > record.providerRequestCount
   ) {
     return false;
   }
@@ -286,7 +292,8 @@ export const validateFailureDiagnostic = (
       return code === 'missing_credential' && count >= 0 && !hasStatus &&
         !hasReason;
     case 'request_build':
-      return (code === 'invalid_input' || code === 'limit_exceeded') &&
+      return (code === 'invalid_input' || code === 'limit_exceeded' ||
+        code === 'context_budget_exceeded') &&
         count >= 0 &&
         !hasStatus && !hasReason;
     case 'request_admission':
@@ -408,9 +415,12 @@ export class FailureDiagnosticOwner {
     if (this.persistenceError !== undefined) return 'failed';
     return 'unknown';
   }
-  get persistenceErrorCode(): FailureDiagnosticPersistenceErrorCode | undefined {
+  get persistenceErrorCode():
+    | FailureDiagnosticPersistenceErrorCode
+    | undefined {
     if (this.persistenceError === undefined) return undefined;
-    const code = typeof this.persistenceError === 'object' && this.persistenceError !== null
+    const code = typeof this.persistenceError === 'object' &&
+        this.persistenceError !== null
       ? (this.persistenceError as { readonly code?: unknown }).code
       : undefined;
     return code === 'diagnostic_not_found' || code === 'diagnostic_busy' ||

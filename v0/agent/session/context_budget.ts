@@ -6,13 +6,31 @@ export interface ContextBudgetValues {
   readonly inputTokens?: number;
   readonly contextTokens?: number;
   readonly outputReserve?: number;
+  readonly inputRatio?: number;
 }
 export interface ContextBudgetConfiguration {
   readonly defaults?: ContextBudgetValues;
   readonly providers?: Readonly<Record<string, ContextBudgetValues>>;
   readonly models?: Readonly<Record<string, ContextBudgetValues>>;
 }
-export const readContextBudget = async (root: string): Promise<ContextBudgetConfiguration> => {
+
+/** Capacity fields returned by Core's model catalog for one selected route. */
+export interface ContextCapacityMetadata {
+  readonly contextTokens?: number;
+  readonly inputTokens?: number;
+  readonly source: 'models.dev' | 'unknown';
+  readonly modelsDevProviderId?: string;
+}
+
+type BudgetValueSource =
+  | 'explicit-configuration'
+  | 'models.dev'
+  | 'default'
+  | 'unknown';
+
+export const readContextBudget = async (
+  root: string,
+): Promise<ContextBudgetConfiguration> => {
   try {
     return JSON.parse(await Deno.readTextFile(`${root}/context-budget.json`));
   } catch (error) {
@@ -24,25 +42,56 @@ export const resolveContextBudget = (
   configuration: ContextBudgetConfiguration,
   selection: ModelSelection,
   requestOutputReserve?: number,
+  capacity: ContextCapacityMetadata = { source: 'unknown' },
 ) => {
-  const values = {
-    historyTokens: 32_768,
+  const values: ContextBudgetValues = {
     ...configuration.defaults,
     ...configuration.providers?.[selection.provider],
     ...configuration.models?.[`${selection.provider}/${selection.modelId}`],
   };
-  const outputReserve = requestOutputReserve ?? values.outputReserve ?? 65_536;
-  const inputLimit = Math.min(
-    values.inputTokens ?? Infinity,
-    values.contextTokens === undefined ? Infinity : values.contextTokens - outputReserve,
-  );
+  const contextTokens = values.contextTokens ?? capacity.contextTokens;
+  const inputTokens = values.inputTokens ?? capacity.inputTokens;
+  const inputRatio = values.inputRatio ?? 0.8;
+  const outputReserve = requestOutputReserve ?? values.outputReserve;
+  const inputBounds: number[] = [];
+  if (contextTokens !== undefined) {
+    inputBounds.push(Math.floor(contextTokens * inputRatio));
+  }
+  if (inputTokens !== undefined) inputBounds.push(inputTokens);
+  if (contextTokens !== undefined && outputReserve !== undefined) {
+    inputBounds.push(contextTokens - outputReserve);
+  }
+  const inputLimit = inputBounds.length === 0 ? undefined : Math.min(...inputBounds);
+  const contextTokensSource: BudgetValueSource = values.contextTokens !== undefined
+    ? 'explicit-configuration'
+    : capacity.contextTokens !== undefined
+    ? capacity.source
+    : 'unknown';
+  const inputTokensSource: BudgetValueSource = values.inputTokens !== undefined
+    ? 'explicit-configuration'
+    : capacity.inputTokens !== undefined
+    ? capacity.source
+    : 'unknown';
   return {
     ...values,
-    outputReserve,
-    inputLimit: inputLimit === Infinity ? 65_536 : inputLimit,
-    capacitySource: values.inputTokens === undefined && values.contextTokens === undefined
-      ? 'operational-estimate'
-      : 'explicit-configuration',
+    ...(contextTokens === undefined ? {} : { contextTokens }),
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    inputRatio,
+    ...(outputReserve === undefined ? {} : { outputReserve }),
+    ...(inputLimit === undefined ? {} : { inputLimit }),
+    capacitySources: Object.freeze({
+      contextTokens: contextTokensSource,
+      inputTokens: inputTokensSource,
+      inputRatio: values.inputRatio === undefined ? 'default' : 'explicit-configuration',
+      outputReserve: requestOutputReserve !== undefined
+        ? 'adapter-request'
+        : values.outputReserve !== undefined
+        ? 'explicit-configuration'
+        : 'unknown',
+    }),
+    ...(capacity.modelsDevProviderId === undefined
+      ? {}
+      : { modelsDevProviderId: capacity.modelsDevProviderId }),
     profile: 'wire-utf8-bytes/3+framing-estimate',
     guarantee: 'estimated-tokens',
   };
@@ -60,13 +109,23 @@ export const contextCost = (
   // admission, but measure only completed turns/current draft against H.
   const conversationWire = conversationTranscript === request.transcript
     ? wire
-    : model.measureRequestWire?.({ ...request, transcript: conversationTranscript });
+    : model.measureRequestWire?.({
+      ...request,
+      transcript: conversationTranscript,
+    });
   // The real adapter requires a user transcript even for measurement. Measure prefix
   // contribution with a legal minimal user, then subtract that same user-only baseline.
-  const dummy = [{ role: 'user' as const, content: { kind: 'text' as const, text: 'x' } }];
-  const prefixWire = model.measureRequestWire?.({ ...request, transcript: dummy });
+  const dummy = [{
+    role: 'user' as const,
+    content: { kind: 'text' as const, text: 'x' },
+  }];
+  const prefixWire = model.measureRequestWire?.({
+    ...request,
+    transcript: dummy,
+  });
   const bareWire = model.measureRequestWire?.({ transcript: dummy, tools: [] });
-  const neutralPrefix = bytes(request.systemInstruction ?? '') + bytes(request.tools);
+  const neutralPrefix = bytes(request.systemInstruction ?? '') +
+    bytes(request.tools);
   const instructionPrefixBytes = prefixWire === undefined || bareWire === undefined
     ? neutralPrefix
     : prefixWire.bodyBytes - bareWire.bodyBytes;
@@ -75,15 +134,18 @@ export const contextCost = (
     : wire === undefined || conversationWire === undefined
     ? bytes(request.transcript) - bytes(conversationTranscript)
     : wire.bodyBytes - conversationWire.bodyBytes;
-  const historyBytes =
-    conversationWire === undefined || prefixWire === undefined || bareWire === undefined
-      ? bytes(conversationTranscript)
-      : conversationWire.messagesBytes - prefixWire.messagesBytes + bareWire.messagesBytes;
+  const historyBytes = conversationWire === undefined || prefixWire === undefined ||
+      bareWire === undefined
+    ? bytes(conversationTranscript)
+    : conversationWire.messagesBytes - prefixWire.messagesBytes +
+      bareWire.messagesBytes;
   const prefixTokens = Math.ceil((instructionPrefixBytes + transcriptPrefixBytes) / 3) +
     8 * (request.transcript.length - conversationTranscript.length);
-  const historyUsedTokens = Math.ceil(historyBytes / 3) + 8 * conversationTranscript.length;
-  const inputTokens =
-    Math.ceil((wire?.bodyBytes ?? neutralPrefix + bytes(request.transcript)) / 3) +
+  const historyUsedTokens = Math.ceil(historyBytes / 3) +
+    8 * conversationTranscript.length;
+  const inputTokens = Math.ceil(
+    (wire?.bodyBytes ?? neutralPrefix + bytes(request.transcript)) / 3,
+  ) +
     16 + 8 * request.transcript.length;
   return {
     inputTokens,
@@ -94,5 +156,7 @@ export const contextCost = (
     historyUsedTokens,
     messagesBytes: wire?.messagesBytes ?? bytes(request.transcript),
     bodyBytes: wire?.bodyBytes ?? bytes(request),
+    ...(wire?.messageLimitBytes === undefined ? {} : { messageLimitBytes: wire.messageLimitBytes }),
+    ...(wire?.bodyLimitBytes === undefined ? {} : { bodyLimitBytes: wire.bodyLimitBytes }),
   };
 };

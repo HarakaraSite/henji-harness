@@ -5,7 +5,16 @@
 
 ## 現在地（2026-10-09）
 
-- [Increment 220](../docs/increments/increment-220.md)が現在の作業正本。
+- [Increment 221](../docs/increments/increment-221.md)のlocal実装・検証が完了。
+  各スライスの実装・focused test・独立reviewと、最後のcompiled localhost／実provider e2eを実施した。
+  結果・準備失敗・実request数・情報省略とメモリの制約は221第11節。
+  利用者の「コミット配置して」により221のcommit・常用配置を実施中。全体review結果は第11.11節。
+  構想・architecture・roadmapの反映案は221第8節。 コンパクションとsearch改善は対象外。
+- 今回の未commit文書は`.handoff/handoff.md`、新規`docs/increments/increment-221.md`と、
+  `docs/experience/normal-use-inbox.md`。通常利用メモには先行する利用者依頼による
+  searchとrg/lsの出力量・gitignore・名前検索の比較を追記した。221の実装source/testも未commit。
+  未追跡`scripts/diagnostics/__pycache__/`は既存の生成物として保持し、commit対象外。
+- [Increment 220](../docs/increments/increment-220.md)に直前の実装・配置結果を保持する。
   別アプリの`henji`との衝突を避けるため、利用者がCLI実行名`hjh`を採用した。
   compile/package/install・CLI案内・通常利用手順を更新し、focused確認と隔離standalone
   Core/TUI操作まで検証済み。設定・履歴・公開API名は維持。実provider 0。
@@ -75,6 +84,9 @@
 
 ## 次の一手
 
+- 利用者が承認した221のcommit・常用配置を完了する。手順と結果は第11.12節へ記録する。
+  構想・architecture・roadmapの反映案は221第8節に留め、別途承認するまで正本を編集しない。
+  今回の実provider確認は終了し、追加runは行わない。
 - 220のlocal実装・検証・commit/push・常用配置は実施済み。追加作業は利用者指示に従う。
   architectureの現行CLI表記更新案は220末尾に保持し、別途承認してから反映する。
 - 218のlocalhost確認・全体review指摘対応・実provider基本e2e・20turnメモリ同時計測と、
@@ -111,6 +123,10 @@
 
 ## 承認境界
 
+- 221の計画作成・通常/批判的review・指摘反映・中断記録と再開時の限定再確認は利用者指示で実施済み。
+  続く利用者指示で各スライスの実装・test・reviewと最後のe2e、最小限の実provider利用を承認済み。
+  実providerの対象route・回数・隔離保存先を提示して実施済み。途中のroute不一致と全結果は221第11節。
+  続く「コミット配置して」により221のcommitと常用配置を承認済み。pushは含めない。
 - 217までの完了判断と最新binaryの常用配置は利用者の明示指示により実施済み。
 - 220のcommit/push/配置は利用者の明示指示により実施済み。218・219の変更も`hjh`へ配置済み。
 - 本workspaceのschema1実DBを保全したschema3コピー変換・照合・切替は個別承認で実施済み。

@@ -73,7 +73,10 @@ Deno.test('Increment 218 production deferred Chat reserves the output it sends b
       model.requestOutputReserve,
     );
     strictEqual(budget.outputReserve, PRODUCTION_PROFILE.maxCompletionTokens);
-    strictEqual(budget.inputLimit, 100_000 - PRODUCTION_PROFILE.maxCompletionTokens);
+    strictEqual(
+      budget.inputLimit,
+      100_000 - PRODUCTION_PROFILE.maxCompletionTokens,
+    );
     await model.generate(request);
     strictEqual(budget.outputReserve, JSON.parse(sent).max_completion_tokens);
   }
@@ -129,7 +132,7 @@ Deno.test('Increment 218 counts the same Chat body that the adapter sends and re
     model.requestOutputReserve,
   );
   strictEqual(budget.outputReserve, 2048);
-  strictEqual(budget.inputLimit, 6144);
+  strictEqual(budget.inputLimit, 8192 - 2048);
 });
 
 Deno.test('Increment 218 Responses budget includes actual reasoning and namespace wire fields', async () => {

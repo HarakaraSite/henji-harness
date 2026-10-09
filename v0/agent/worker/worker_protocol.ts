@@ -17,6 +17,7 @@ import type {
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ConfigurationRejection } from '../configuration/agent_configuration.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
+import type { ContextCapacityMetadata } from '../session/context_budget.ts';
 import type { WorkerConfigurationSnapshot } from './worker_configuration.ts';
 import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
@@ -106,6 +107,8 @@ export type WorkerHostCommand =
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
     readonly modelSelection?: ModelSelection;
+    /** Selected model capacity resolved by Core's LiveModelCatalog. */
+    readonly modelCapacity?: ContextCapacityMetadata;
     readonly privateStateFromTurn?: number;
     readonly baseInstruction?: SelectedHenjiBaseInstruction;
     readonly providerDeclarations?: readonly ProviderDeclarationV1[];
@@ -114,6 +117,8 @@ export type WorkerHostCommand =
     readonly kind: 'select_model';
     readonly correlation: WorkerCorrelation;
     readonly selection: ModelSelection;
+    /** Selected model capacity resolved by Core's LiveModelCatalog. */
+    readonly modelCapacity?: ContextCapacityMetadata;
     readonly privateStateFromTurn: number;
   }
   | {

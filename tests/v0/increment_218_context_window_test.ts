@@ -1,5 +1,5 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
-import type { Message, ModelRequest } from '../../v0/agent/core/contracts.ts';
+import type { LoopOutcome, Message, ModelRequest } from '../../v0/agent/core/contracts.ts';
 import type { ContextModelRequestDelta } from '../../v0/agent/history/context_attribution.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
@@ -31,7 +31,7 @@ Deno.test('Increment 218 checkpoint and recall use input capacity while H retain
   const wireModel = new OpenRouterAgentModel();
   const requests: ModelRequest[] = [];
   const deltas: ContextModelRequestDelta[] = [];
-  const failures: string[] = [];
+  const failures: LoopOutcome[] = [];
   const composition = {
     role: 'parent',
     maxSteps: 1,
@@ -51,7 +51,7 @@ Deno.test('Increment 218 checkpoint and recall use input capacity while H retain
     checkpointProposal: () => Promise.resolve(false),
     commitProposal: () => Promise.resolve(true),
     turnFailed: (_correlation, outcome) => {
-      failures.push(outcome.error ?? outcome.stopReason);
+      failures.push(outcome);
     },
     contextObservation: (_correlation, delta) => {
       deltas.push(delta);
@@ -116,7 +116,7 @@ Deno.test('Increment 218 checkpoint and recall use input capacity while H retain
   ok(expected.prefixTokens > 8000);
   await createGeneration(2000).runTurn(correlation, 'Current task.', recall);
   strictEqual(requests.length, 1);
-  ok(failures.some((failure) => failure.includes('context_budget_exceeded')));
+  strictEqual(failures.at(-1)?.diagnostic?.code, 'context_budget_exceeded');
 });
 
 Deno.test('Increment 218 growing current tool result replaces a newest whole-turn window and saves only the current suffix', async () => {

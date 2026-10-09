@@ -50,7 +50,9 @@ export class RemoteSystemNotices {
   private draftReceipt?: RetainedNotice;
 
   resolveDraft(): void {
-    if (this.draftReceipt !== undefined) this.draftReceipt.unresolvedDraft = false;
+    if (this.draftReceipt !== undefined) {
+      this.draftReceipt.unresolvedDraft = false;
+    }
     this.draftReceipt = undefined;
   }
 
@@ -268,7 +270,9 @@ export class RemoteSystemNotices {
       bytes += notice.entry.textByteLength ??
         new TextEncoder().encode(notice.entry.text).byteLength;
       count += 1;
-      if (count > 32 || (bytes > 2 * 1024 * 1024 && count > 1)) this.deleteNotice(state, id);
+      if (count > 32 || (bytes > 2 * 1024 * 1024 && count > 1)) {
+        this.deleteNotice(state, id);
+      }
     }
   }
 
@@ -293,6 +297,15 @@ export class RemoteSystemNotices {
     sessionId: string,
     execution: import('../conversation/model.ts').ConversationExecutionMetadata,
   ): void {
+    for (const notice of execution.contextNotices ?? []) {
+      this.retain(
+        sessionId,
+        'context:' + execution.executionId + ':' + notice.notice,
+        notice.text,
+        undefined,
+        execution.executionId,
+      );
+    }
     if (
       execution.lifecycle !== 'settled' || execution.outcome === 'completed'
     ) return;

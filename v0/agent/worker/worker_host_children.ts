@@ -557,6 +557,9 @@ export class ChildRunRegistry {
       ...(this.deps.options.providerDeclarations === undefined
         ? {}
         : { providerDeclarations: this.deps.options.providerDeclarations }),
+      ...(this.deps.options.resolveModelCapacity === undefined
+        ? {}
+        : { resolveModelCapacity: this.deps.options.resolveModelCapacity }),
     };
   }
 

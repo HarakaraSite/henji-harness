@@ -82,10 +82,17 @@ interface AgentTurnOptions extends AgentLoopOptions {
   readonly projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,
-  ) => {
-    readonly request: ModelRequest;
-    readonly sources: ModelRequestSourceAttribution;
-  } | Promise<{ readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution }>;
+  ) =>
+    | {
+      readonly request: ModelRequest;
+      readonly sources: ModelRequestSourceAttribution;
+    }
+    | Promise<
+      {
+        readonly request: ModelRequest;
+        readonly sources: ModelRequestSourceAttribution;
+      }
+    >;
   /** Worker-provided causal source factory used as messages are appended to the transcript. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
   /** Worker-owned ordered hook composition before a model-issued tool call is dispatched. */
@@ -367,11 +374,20 @@ const runAgentTurnInternal = async (
   const applySteering = (): boolean => {
     const text = steering?.consume();
     if (text === undefined) return false;
-    const message: Message = { role: 'user', content: { kind: 'text', text }, steering: true };
+    const message: Message = {
+      role: 'user',
+      content: { kind: 'text', text },
+      steering: true,
+    };
     transcript.push(message);
     deliverEvent(sink, { kind: 'steering_message', turn, message });
     transcriptSources.push(
-      requestMessageSource?.(message, 'steering', transcript.length - 1, steps) ?? [],
+      requestMessageSource?.(
+        message,
+        'steering',
+        transcript.length - 1,
+        steps,
+      ) ?? [],
     );
     return true;
   };
@@ -627,7 +643,9 @@ const runAgentTurnInternal = async (
       // observers and the model receive nested values independent of every step and owner.
       preparedRequest = snapshot(projected);
     } catch (error) {
-      if (isTurnCancelledError(error) || signal?.aborted === true) return finishCancelled();
+      if (isTurnCancelledError(error) || signal?.aborted === true) {
+        return finishCancelled();
+      }
       return finishContractFailure(
         `context preparation failure: ${errorText(error)}`,
         {
@@ -635,6 +653,7 @@ const runAgentTurnInternal = async (
           code: 'invalid_input',
           modelStep: 0,
         },
+        error,
       );
     }
     try {
@@ -764,11 +783,14 @@ const runAgentTurnInternal = async (
       if (at === undefined || !isValidAssistantProgressSnapshot(progressText)) {
         return;
       }
-      deliverLive({
-        kind: 'assistant_progress',
-        turn,
-        text: progressText,
-      }, () => evidence?.recordAssistantProgress(progressText, steps, evidenceLane));
+      deliverLive(
+        {
+          kind: 'assistant_progress',
+          turn,
+          text: progressText,
+        },
+        () => evidence?.recordAssistantProgress(progressText, steps, evidenceLane),
+      );
       lastProgressText = progressText;
       progressDue.accept(at);
     };
@@ -865,14 +887,21 @@ const runAgentTurnInternal = async (
       return finishContractFailure('model contract failure: invalid result', {
         stage: 'model_result_validation',
         code: 'invalid_model_result',
-        details: captureFailureDetails('Model result did not satisfy the current contract', {
-          operation: 'model_result_validation',
-          facts: {
-            field: 'result',
-            expectedShape: 'final or tool_calls model result',
-            actualShape: result === null ? 'null' : Array.isArray(result) ? 'array' : typeof result,
+        details: captureFailureDetails(
+          'Model result did not satisfy the current contract',
+          {
+            operation: 'model_result_validation',
+            facts: {
+              field: 'result',
+              expectedShape: 'final or tool_calls model result',
+              actualShape: result === null
+                ? 'null'
+                : Array.isArray(result)
+                ? 'array'
+                : typeof result,
+            },
           },
-        }),
+        ),
       });
     }
     emitThinking(true, result.providerState);
@@ -967,7 +996,11 @@ const runAgentTurnInternal = async (
         });
         toolResultCount += 1;
         if (modelResultAttribution !== undefined) {
-          evidence?.recordToolResult(resultContent, callIndex, modelResultAttribution);
+          evidence?.recordToolResult(
+            resultContent,
+            callIndex,
+            modelResultAttribution,
+          );
         }
         continue;
       }
@@ -1064,7 +1097,10 @@ const runAgentTurnInternal = async (
               cancellation,
               reportProgress,
             };
-          const effectiveCall = snapshot({ ...call, arguments: effectiveArguments });
+          const effectiveCall = snapshot({
+            ...call,
+            arguments: effectiveArguments,
+          });
           const dispatchPromise = registry.dispatch(effectiveCall, toolContext);
           // Register before awaiting so the settlement gate closes before any continuation can
           // invoke a retained reporter after dispatch has resolved or rejected.
@@ -1098,7 +1134,9 @@ const runAgentTurnInternal = async (
             name: call.name,
             text: `tool execution error: ${errorText(error)}`,
             outcome: 'error',
-            failure: captureFailureDetails(error, { operation: 'tool_dispatch' }),
+            failure: captureFailureDetails(error, {
+              operation: 'tool_dispatch',
+            }),
           };
         } finally {
           progressSettled = true;
@@ -1129,7 +1167,10 @@ const runAgentTurnInternal = async (
         const supplement = `\n\n[Input used by tool after before_tool processing: ${
           JSON.stringify(effectiveArguments)
         }]`;
-        resultContent = { ...resultContent, text: `${resultContent.text}${supplement}` };
+        resultContent = {
+          ...resultContent,
+          text: `${resultContent.text}${supplement}`,
+        };
       }
       results.push(resultContent);
       deliverEvent(sink, {

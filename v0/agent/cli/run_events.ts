@@ -9,14 +9,22 @@ const CLI_RUN_EVENT_VERSION = 1 as const;
  */
 type CliRunEvent =
   | { readonly kind: 'turn_start'; readonly turn: number }
-  | { readonly kind: 'user_message'; readonly turn: number; readonly text: string }
+  | {
+    readonly kind: 'user_message';
+    readonly turn: number;
+    readonly text: string;
+  }
   | {
     readonly kind: 'assistant_delta';
     readonly turn: number;
     readonly text: string;
     readonly reset?: true;
   }
-  | { readonly kind: 'assistant_message'; readonly turn: number; readonly text: string }
+  | {
+    readonly kind: 'assistant_message';
+    readonly turn: number;
+    readonly text: string;
+  }
   | {
     readonly kind: 'tool_call';
     readonly turn: number;
@@ -32,7 +40,22 @@ type CliRunEvent =
     readonly outcome: string;
     readonly text: string;
   }
-  | { readonly kind: 'steering_message'; readonly turn: number; readonly text: string };
+  | {
+    readonly kind: 'steering_message';
+    readonly turn: number;
+    readonly text: string;
+  }
+  | {
+    readonly kind: 'context_notice';
+    readonly turn: number;
+    readonly notice:
+      | 'trimmed'
+      | 'history_partial'
+      | 'history_omitted'
+      | 'exceeded';
+    readonly text: string;
+    readonly budget?: Readonly<Record<string, unknown>>;
+  };
 
 interface CliRunResult {
   readonly kind: 'result';
@@ -79,7 +102,11 @@ export class CliRunEventProjector {
         this.lastProgress = '';
         return [{ kind: 'turn_start', turn: event.turn }];
       case 'user_message':
-        return [{ kind: 'user_message', turn: event.turn, text: event.message.content.text }];
+        return [{
+          kind: 'user_message',
+          turn: event.turn,
+          text: event.message.content.text,
+        }];
       case 'assistant_progress': {
         if (event.text.startsWith(this.lastProgress)) {
           const delta = event.text.slice(this.lastProgress.length);
@@ -89,7 +116,12 @@ export class CliRunEventProjector {
             : [{ kind: 'assistant_delta', turn: event.turn, text: delta }];
         }
         this.lastProgress = event.text;
-        return [{ kind: 'assistant_delta', turn: event.turn, text: event.text, reset: true }];
+        return [{
+          kind: 'assistant_delta',
+          turn: event.turn,
+          text: event.text,
+          reset: true,
+        }];
       }
       case 'assistant_message': {
         this.lastProgress = '';
@@ -118,7 +150,19 @@ export class CliRunEventProjector {
       case 'tool_progress':
         return [];
       case 'steering_message':
-        return [{ kind: 'steering_message', turn: event.turn, text: event.message.content.text }];
+        return [{
+          kind: 'steering_message',
+          turn: event.turn,
+          text: event.message.content.text,
+        }];
+      case 'context_notice':
+        return [{
+          kind: 'context_notice',
+          turn: event.turn,
+          notice: event.notice,
+          text: event.text,
+          ...(event.budget === undefined ? {} : { budget: event.budget }),
+        }];
       case 'turn_end':
         this.committed = event.committed;
         return [];
@@ -188,11 +232,15 @@ export class CliRunStreamRenderer {
       case 'tool_call':
         this.currentText = '';
         this.completed = false;
-        return { stderr: `tool> ${event.name} ${argumentPreview(event.arguments)}\n` };
+        return {
+          stderr: `tool> ${event.name} ${argumentPreview(event.arguments)}\n`,
+        };
       case 'tool_result':
         this.currentText = '';
         this.completed = false;
         return { stderr: `tool< ${event.name} ${event.outcome}\n` };
+      case 'context_notice':
+        return { stderr: `context> ${event.text}\n` };
       default:
         return {};
     }
@@ -201,7 +249,9 @@ export class CliRunStreamRenderer {
   finish(finalText: string): StreamOutput {
     const hadText = this.currentText.length > 0;
     const output = this.complete(finalText);
-    if (!hadText && output.stdout !== undefined && !output.stdout.endsWith('\n')) {
+    if (
+      !hadText && output.stdout !== undefined && !output.stdout.endsWith('\n')
+    ) {
       return this.write(`${output.stdout}\n`);
     }
     return output;

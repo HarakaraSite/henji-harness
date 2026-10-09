@@ -210,6 +210,8 @@ export const presentationFailureReason = (
       return 'credential unavailable';
     case 'invalid_input':
       return 'invalid input';
+    case 'context_budget_exceeded':
+      return 'context budget exceeded';
     case 'request_budget_exhausted':
       return 'request budget exhausted';
     case 'provider_timeout':
