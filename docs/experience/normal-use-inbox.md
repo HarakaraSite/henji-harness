@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-08（自己拡張と構成操作の利用者判断を反映）。直前のsource照合: 2026-10-07、source
+更新日: 2026-10-09（生成toolの継続利用を契機に`/reload`を未採用候補として再記録）。直前のsource照合: 2026-10-07、source
 `68ab5dd0`（S20・B5の現行境界）。基盤の照合: 2026-10-05、source `a78c2076`・Increment
 182まで。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11はIncrement
 190へ採用・移設。A23はIncrement 191の計画へ採用・移設。 2026-10-06にA31を追加し、A32・A33はIncrement
@@ -36,6 +36,9 @@ AgentへDB操作を依頼する。
 同日にA38（searchのmode命名と機能の発見性）を追加した。推測と対処案3つを併記する。
 同日にA39（git書き込み系tool）を追加した。tool grant粒度の衝突と案A（tool分割）／案B（mode単位grant）
 を併記する。
+2026-10-09に利用者の「`/reload`は改めてメモして」という指示でS4を再記録した。
+run_typescriptで生成した処理を永続toolへ登録し、同じ会話の続きで使う用途を再検討の契機とする。
+現行の不採用方針を変更する承認ではなく、未採用候補としてのメモである。
 
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
@@ -57,6 +60,7 @@ Definition/transportを候補の必須前提として復活させず、候補自
 
 | ID  | 領域           | 候補                                                                 | 再検討の主な契機                                                                                                       |
 | --- | -------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| S4  | Surface        | `/reload`によるinstruction・Agent設定・toolの再読込                  | 生成・登録・編集したtoolを、Core再起動なしに同じ会話の続きで使いたいとき                                               |
 | S20 | Surface        | 巨大表示領域での画面サイズ・frame上限の見直し                        | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                      | browserから通常利用する画面が必要になるとき                                                                            |
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                              | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
@@ -91,6 +95,27 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP）                         | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み      |
 
 ## Surface
+
+### S4 — `/reload`によるinstruction・Agent設定・toolの再読込（再検討、未採用、メモのみ）
+
+- 利用者の相談（2026-10-09）: run_typescriptで作ったプログラムをhenjiへtoolとして登録し、永続的に
+  使えるかを確認したうえで、`/reload`の必要性を再検討し、改めてメモするよう指示した。
+- 現行確認: run_typescriptの生成codeは自動でtool登録されないが、ToolFactory形式のentryとtool.jsonを
+  保存し、tools.jsonのfolder登録とAgentのtools一覧への追加で継続利用できる。設定・toolは新Worker
+  起動時に読み込み、起動済みWorkerへの即時反映はない。現行は新Worker起動・Session再開・Core再起動を使う。
+- 必要な動作の候補: 生成・登録・編集したtoolを、Core全体の再起動で作業を中断せず、同じSessionの
+  会話履歴を保って次のturnから使う。人間がidle時に`/reload`を実行し、instruction・Agent設定・toolを
+  読み直す案。
+- 実装案（未決定）: 同じSessionの履歴を引き継いでWorkerを作り直し、現在の設定とTypeScript entryを
+  読み込む。既存Workerの構成をその場で書き換える方式や、Agent向けreload toolの追加は今回合意していない。
+- 過去判断との関係: 2026-10-07はCore再起動で足りるため不採用とした。生成toolを同じ会話で続けて使う
+  用途が、その判断を再検討する具体的な契機となる。今回の記載は採用・実装認可ではない。
+- 未確認: 通常利用でのtool生成・更新頻度と再起動の負担。reload時に維持するSession状態と再読込対象の
+  詳細は、採用時に現行経路へ照合する。
+- 再検討条件: 生成・登録・編集したtoolを、Core再起動なしに同じ会話の続きで使いたいとき。
+- 関連: R2、A2（Host操作のmodel向けtool化とは別候補）、
+  [現行の設定・tool変更の反映](../architecture/henji-host-agent-worker.md#設定tool変更の反映)、
+  [外部toolの登録形式](../../README.ja.md#agent設定とtool)。
 
 ### S20 — 巨大表示領域での画面サイズ・frame上限の見直し（F01）
 

@@ -52,9 +52,9 @@
   退避先と検証結果は[配置記録](../docs/operations/native-0.11.0-deployment.md)を参照する。
 - 217までの実装sourceは`6315beed`までorigin/mainへpush済み。217の完了・メモリ観測・配置記録と、
   通常利用メモのA37・A38（searchの`!`除外とmode命名）はcommit済み。
-  218の実装・test・結果と219の5分周期trim・追加測定記録を加え、origin/mainより5commit先。pushは未実施。
-  別件の通常利用メモS4（`/reload`）更新は未commitで保全する。
-  未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`は保全し、commit対象外。
+  218の実装・test・結果と219の5分周期trim・追加測定記録を加え、origin/mainより6commit先。pushは未実施。
+  別件の通常利用メモS4（`/reload`）更新と商品集計結果`191-result.json`も、利用者指示でcommit済み。
+  未追跡の生成キャッシュ`scripts/diagnostics/__pycache__/`は保全し、commit対象外。
 
 ## 次の一手
 
