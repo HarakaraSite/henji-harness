@@ -113,9 +113,9 @@ printf 'このworkspaceの構成を説明して\n' | /path/to/henji-harness/dist
 ```
 
 providerは`/provider`、modelは`/model`、reasoning effortは`/effort`で切り替える。OpenAI directを
-使う場合は同じcredential rootの`openai-api-key`へkeyを保存し、Responses APIなら
-`hjh --root-provider openai-responses`、Chat Completionsなら`hjh --root-provider openai-chat`で
-起動する。ChatGPTは`/login`のsign-inで登録し、`openai-chatgpt`を選ぶ。OpenRouterは既定の
+使う場合は同じcredential rootの`openai-api-key`へkeyを保存し、Responses APIでは
+`hjh --root-provider openai-responses`で起動する。ChatGPTは`/login`のsign-inで登録し、
+`openai-chatgpt`を選ぶ。OpenRouterは既定の
 `openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
 `providers/*.json`のdata-only declarationで、対応protocolを使う別provider IDも追加できる。
 
