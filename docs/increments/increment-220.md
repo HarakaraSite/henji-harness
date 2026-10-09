@@ -83,6 +83,13 @@ build
 identityと退避先・証跡は[配置記録](../operations/native-0.11.0-deployment.md#increment-220のhjh常用配置--2026-10-09)
 と`.tools/increment-220-deployment/`を参照する。配置記録も続けてcommit/pushする。
 
+## 常用DBによる起動失敗と復旧
+
+常用配置後にschema1実DBで起動できないことを観測し、利用者の個別承認でschema3のコピーへ切り替えた。
+元DBを保全し、切替前後の全保存tuple/hash一致と常用binaryでの既存Session再開・履歴閲覧を確認済み。
+詳細は[復旧記録](../operations/native-0.11.0-deployment.md#increment-218の常用dbコピー変換と起動復旧--2026-10-09)と
+[218第11.21節](increment-218.md#1121-常用dbの明示コピー変換と復旧2026-10-09)を参照する。
+
 ## 正本文書への反映案
 
 architectureの現行操作・process図にある`henji`／`henji run`表記を`hjh`／`hjh run`へ変更する案を

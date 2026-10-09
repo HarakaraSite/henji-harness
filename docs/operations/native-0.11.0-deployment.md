@@ -197,3 +197,49 @@ test等は220の実装時に成功済みで、full gateは繰り返していな�
 
 現在のPATHで`hjh`が常用配置先へ解決されることを確認済み。既存の稼働Core/TUIは停止・再起動せず、
 新規に`hjh`で起動するCore/TUIから反映する。JSR追加公開・releaseは実施していない。
+
+## Increment 218の常用DBコピー変換と起動復旧 — 2026-10-09
+
+配置後、利用者がrepository workspaceで`hjh`を起動すると
+`Core startup failed: startup_failed`となった。foregroundの`hjh serve --json`で
+`unsupported history schema version: 1`を確認した。配置binaryはschema3を使うが、既存の常用DBは
+schema1だった。配置時の隔離新規DBでの確認だけでは既存DBとの接続を保証できず、実DBとの確認が不足した。
+
+利用者が「元DBを保全し、変換コピーの履歴一致を確認してから切り替える」操作を明示承認した。
+対象は`/home/agent/projects/henji-harness`のworkspace DBだけで、他workspaceのDBは変更していない。
+通常runtimeへのmigration追加は行わず、既存の`scripts/copy_increment_218_history.ts`を使用した。
+
+- 元DB:
+  `/home/agent/.local/state/henji-harness/v1/96e1aca163459f35e2878b7efe3fb4e46719bd09c427a91bd492227958d9c3cd/history.sqlite3`
+- 元DBサイズ: 620,830,720 byte、schema1。
+- 保全先: 同directoryの`history-schema1-before-218-20261009T050440Z/`。 元DB本体と既存の`-wal`（0
+  byte）・`-shm`を移動して保持した。
+- 元DB SHA-256: `735c255ae444839ce08650bdb24cfb846113e7dd86227811ebfe7a39021cdd2b`。
+  変換前後・切替後とも元DB本体のbyte不変を確認した。
+
+開始前と切替直前に、対象workspaceの稼働Coreが0、元DBを開くprocessが0であることを確認した。 SQLite
+backupによる一貫したコピーをschema3へ変換し、独立したread-only照合で元の15テーブルの
+全行・全既存columnの型/値/hash一致を確認した。変更するmetadataのschema_versionだけは比較から除外した。
+元の40 Session、236 Execution、5,784 message、12,019 content、122,031 semantic recordを保持し、
+schema3のexecution表示位置236件とSQLite quick_check=okを確認した。
+
+コピーに対して常用`hjh`のSession一覧と既存Sessionのsession/canonical/detailの全履歴出力を確認した後、
+元DBとsidecarを上記保全先へ移動し、変換コピーを元の`history.sqlite3`へrenameして切り替えた。
+
+切替後、実HOME/config/state・元workspaceから常用`hjh`をtmux起動し、Coreの自己起動とTUI
+readyを確認した。 既存Session
+`6bb28c60-46a4-4901-8222-26b74287ea46`の再開は`hjh --session ID`のproduction経路で確認し、 135
+message・18 committed turnと会話page28 entityを読み出した。3種類のhistory出力のbyte量/hashは
+切替前のコピーの出力と完全一致した。確認用TUIはdetachし、Coreは正常停止した。
+切替・起動・停止の後にも元の15テーブル全行の一致を再確認し、40 Session・236 Execution・5,784
+messageを維持した。 会話は投入せず、実provider requestは0。
+
+初回の確認helperはコピー用directoryを0755で作り、既存runtimeが要求する0700に合わせて修正した。
+別HTTP
+clientでSessionを切り替えた後のTUI表示追随も仮定していたため、CLIの明示Session再開で確認し直した。
+いずれもgit管理外helperの訂正で、production source・設定・credential・binaryの追加変更はない。
+
+証跡はgit管理外`.tools/increment-220-db-switch/`の`preflight.json`、`conversion.log`、
+`conversion-time.json`、`copy-verification.json`、`copy-readback.json`、`switch.json`、
+`production-verification.json`、`post-switch-verification.json`と実行helperを参照する。
+全件hash照合結果だけを記録し、会話本文やcredential値はtool出力へ出していない。

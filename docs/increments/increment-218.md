@@ -1409,6 +1409,22 @@ provider待機が実行時間の大半を占める。10時間耐久、CPU/alloca
 `.tools/increment-218-active-trim-spike-20261009/`を参照する。
 通常実装への組込み・実DB/config/常用配置・構想/architecture/roadmap変更・commit/pushは行っていない。
 
+### 11.21. 常用DBの明示コピー変換と復旧（2026-10-09）
+
+220の常用配置後、元workspaceのschema1 DBをschema3 binaryが拒否する起動失敗を観測した。
+利用者が元DB保全・コピー変換・全保存data照合・常用切替を明示承認したため、S7の既存toolを
+このworkspaceの実DBへ適用した。元DBとsidecarは保全し、15テーブルの全行・全既存columnの一致と
+元DB本体のSHA-256不変、SQLite quick_check=okを確認してschema3コピーへ切り替えた。
+
+常用binaryでCore/TUI起動と既存Sessionの再開・履歴閲覧、正常停止を確認した。
+切替後の元テーブルの全数照合にも成功し、40 Session・236 Execution・5,784 messageを保持した。
+会話は投入せず、実provider requestは0。対象外workspaceの実DBは変更していない。
+本作業は通常openへのmigrationやproduct正本の変更、increment全体の完了判断を含まない。
+
+操作、保全先、照合、既存Session/3種類の履歴出力の確認結果は
+[復旧記録](../operations/native-0.11.0-deployment.md#increment-218の常用dbコピー変換と起動復旧--2026-10-09)と
+git管理外`.tools/increment-220-db-switch/`を参照する。
+
 ## 12. 本実装に伴う正本変更の具体案
 
 個別incrementの承認と正本変更の承認を混同しないため、以下を実装計画から分けて提示する。

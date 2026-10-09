@@ -13,6 +13,11 @@
   sourceから`dist/hjh`と常用`hjh`へ配置し、配置binaryの隔離Core/TUI確認まで完了。
   [配置記録](../docs/operations/native-0.11.0-deployment.md#increment-220のhjh常用配置--2026-10-09)と
   `.tools/increment-220-deployment/`を参照する。既存`henji`は保持。もう一方のアプリは変更対象外。
+  配置後に本workspaceのschema1実DBによる起動失敗を観測。利用者の個別承認で元DBを保全し、
+  全保存tuple/hashを照合したschema3コピーへ切り替えて復旧した。常用Core/TUIと既存Session再開・
+  履歴閲覧・停止を確認済み。詳細は[復旧記録](../docs/operations/native-0.11.0-deployment.md#increment-218の常用dbコピー変換と起動復旧--2026-10-09)、
+  [218第11.21節](../docs/increments/increment-218.md#1121-常用dbの明示コピー変換と復旧2026-10-09)と
+  `.tools/increment-220-db-switch/`を参照する。他workspaceのDBは変更していない。
 - [Increment 219](../docs/increments/increment-219.md)を参照する。利用者が5分周期Core
   trimの実装と「約6分×2ターン＋短い確認会話」の隔離計測を選択した。
   local実装・一回の隔離計測・全照合済み。実provider 0、CPU時間とpage faultも記録済み。
@@ -48,7 +53,8 @@
   続く指示で、長い1ターンの実行中にCoreから周期trimする隔離スパイクを完了した。
   結果と未確認範囲は218第11.20節と
   [実行中trimスパイク](../docs/research/increment-218-active-trim-spike-2026-10-09.md)を参照する。
-  追加測定の文書は219の実装と合わせてcommit済み。実DBコピー/切替は未実施。
+  追加測定の文書は219の実装と合わせてcommit済み。本workspaceの実DBコピー/切替は
+  220配置後の個別承認で実施し、結果は218第11.21節へ記録した。
   常用配置とpushは220の`hjh`配置に含めて実施済み。
 - 利用者判断により217までの既存incrementを一律完了とした。209〜217の冒頭へ完了状態を追記し、
   208以前の2026-10-07完了記録は保持した。各作業時点の実施・未実施記録は現在の残作業として扱わない。
@@ -73,7 +79,7 @@
   architectureの現行CLI表記更新案は220末尾に保持し、別途承認してから反映する。
 - 218のlocalhost確認・全体review指摘対応・実provider基本e2e・20turnメモリ同時計測と、
   最新commitのlocalhost 200turn再測定・1/200turnのAgent終了前後・native
-  allocator/stack測定は記録済み。218の受入判断/実DB操作は利用者指示に従う。基本e2eは
+  allocator/stack測定は記録済み。218の受入判断と追加の実DB操作は利用者指示に従う。基本e2eは
   `.tools/increment-218-basic-e2e/`、20turn同時計測は `.tools/increment-218-real-memory/`。
   200turn再測定は `.tools/increment-218-local-memory-200-20261009/`。Agent終了比較は
   `.tools/increment-218-agent-release-memory-20261009/`。 native allocator測定は
@@ -107,6 +113,8 @@
 
 - 217までの完了判断と最新binaryの常用配置は利用者の明示指示により実施済み。
 - 220のcommit/push/配置は利用者の明示指示により実施済み。218・219の変更も`hjh`へ配置済み。
+- 本workspaceのschema1実DBを保全したschema3コピー変換・照合・切替は個別承認で実施済み。
+  他workspaceへの変換や追加の実provider callはこの承認に含めない。
 - 後続の実装、commit/push、追加build/配置、公開/release、実データ操作は利用者指示に従う。
 - 218の実providerは利用者がOpenCode Go / DeepSeek V4.1 Flash・約20turnを承認済み。
   続く「最小限の実プロバイダを使って基本e2e」の許可により、同routeで4turnを実施した。
