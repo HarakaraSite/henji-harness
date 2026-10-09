@@ -166,9 +166,9 @@ Deno.test('Increment 218 conversation details preserve large task, message, and 
   const writer = new ConversationWriter(store);
   const sessionId = `detail:${crypto.randomUUID()}`;
   const executionId = crypto.randomUUID();
-  const task = `task🌱${'説明'.repeat(1800)}`;
+  const task = `task🌱${'説明'.repeat(8000)}`;
   const assistantText = '葉🌱'.repeat(50_000);
-  const argumentsValue = { zeta: '記録🌿'.repeat(800), alpha: 'first' };
+  const argumentsValue = { zeta: '記録🌿'.repeat(4000), alpha: 'first' };
   const correlation = {
     session: sessionId,
     instanceCorrelation: 'increment-218-detail-instance',

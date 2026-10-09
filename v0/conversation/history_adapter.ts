@@ -38,7 +38,7 @@ const stringField = (value: unknown, name: string): string | undefined => {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
-const CONVERSATION_PREVIEW_BYTES = 2_048;
+const CONVERSATION_PREVIEW_BYTES = 20_480;
 
 const utf8Prefix = (bytes: Uint8Array, limit: number): string => {
   let end = Math.min(bytes.byteLength, limit);

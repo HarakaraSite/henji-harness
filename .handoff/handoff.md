@@ -5,14 +5,25 @@
 
 ## 現在地（2026-10-09）
 
-- [Increment 221](../docs/increments/increment-221.md)のlocal実装・検証が完了。
+- [Increment 222](../docs/increments/increment-222.md)の表示上限十倍化（2,048→20,480 bytes）は
+  利用者指示でlocal実装・focused確認・隔離compiled Core/TUI確認を完了した。
+  検証済みcandidateを後続の「配置して　配置後の確認は省略」で常用配置した。
+  配置後確認は省略し、既存Core/TUIは再起動していない。後続のcommit/push指示で今回の対象とした。
+  完全な表示・保持方式の修正は通常利用メモS38へ残す。
+- [Increment 221](../docs/increments/increment-221.md)は2026-10-09の利用者判断で完了。
   各スライスの実装・focused test・独立reviewと、最後のcompiled localhost／実provider e2eを実施した。
   結果・準備失敗・実request数・情報省略とメモリの制約は221第11節。
   利用者の「コミット配置して」により221を`90696061`へcommitし、常用`hjh`へ配置済み。
-  全体reviewは第11.11節、配置結果は第11.12節と配置記録を参照する。
+  全体reviewは第11.11節、配置結果は第11.12節と配置記録、通常利用の追加観測・完了判断は第11.13節。
+  221の既存commitと、222・配置記録・利用メモ・今回の完了記録をcommit/push対象とした。
   構想・architecture・roadmapの反映案は221第8節。 コンパクションとsearch改善は対象外。
-- 未commitの通常利用メモ`docs/experience/normal-use-inbox.md`は別件の先行修正として保持する。
-  searchとrg/lsの出力量・gitignore・名前検索の比較を追記したもの。221のsource/testはcommit済み。
+- ホーム`/home/agent`の起動失敗は旧schema1 DBが原因だった。利用者の「削除していい」で
+  当該DB/sidecarだけを削除し、常用`hjh`の通常起動と空schema3 DB、Core/TUI readyを確認済み。
+  詳細は[ホーム起動復旧記録](../docs/operations/native-0.11.0-deployment.md#ホームworkspaceの旧履歴db削除と起動復旧--2026-10-09)。
+  source/binary変更はない。この復旧記録も今回のcommit対象とした。
+- 通常利用メモ`docs/experience/normal-use-inbox.md`の会話中の追記も今回のcommit対象とした。
+  表示の本格対応S38、入力見積もりのフッター表示S39、cache usage取得・分析A29、searchの比較を保持する。
+  記載だけでは採用・実装を意味しない。別途作成された`docs/plans/search-tool-revision.md`は今回の対象外。
   未追跡`scripts/diagnostics/__pycache__/`は既存の生成物として保持し、commit対象外。
 - [Increment 220](../docs/increments/increment-220.md)に直前の実装・配置結果を保持する。
   別アプリの`henji`との衝突を避けるため、利用者がCLI実行名`hjh`を採用した。
@@ -71,8 +82,9 @@
 - [Increment 217](../docs/increments/increment-217.md)に、214〜217適用後のcompiled
   Core/TUIメモリ観測と
   利用者指示による常用配置の結果を追記した。詳細な条件・結果・未確認範囲は217を参照する。
-- 常用binaryは`hjh` 0.11.0、build入力clean source `90696061`、build `595db794…`。
-  `dist/hjh`と常用binaryへ配置し、配置binaryの隔離Core/TUI確認を完了した。
+- 常用binaryは`hjh` 0.11.0、build入力`b085bcf5`＋222のlocal source変更、build `b3ac4ac1…`。
+  `dist/hjh`と常用binaryへ配置した。隔離Core/TUI確認は配置前candidateで完了し、配置後確認は
+  利用者の明示指示で省略した。
   既存の稼働Core/TUIは再起動していない。新しいCore/TUI起動から適用する。
   退避先と検証結果は[配置記録](../docs/operations/native-0.11.0-deployment.md)を参照する。
 - 217までの実装sourceは`6315beed`までorigin/mainへpush済み。217の完了・メモリ観測・配置記録と、
@@ -84,7 +96,9 @@
 
 ## 次の一手
 
-- 221のcommit・常用配置は完了。結果は第11.12節。追加作業は利用者指示に従う。
+- 222のlocal変更は検証・常用配置済みで今回のcommit/push対象。追加作業は利用者指示に従う。新上限も超える本文の表示省略は
+  暫定対応の残制約で、完全な修正はS38の採用判断を待つ。
+- 221は利用者判断で完了。結果は第11.12〜11.13節。追加作業は利用者指示に従う。
   構想・architecture・roadmapの反映案は221第8節に留め、別途承認するまで正本を編集しない。
   今回の実provider確認は終了し、追加runは行わない。
 - 220のlocal実装・検証・commit/push・常用配置は実施済み。追加作業は利用者指示に従う。
@@ -123,14 +137,19 @@
 
 ## 承認境界
 
+- 222の表示上限十倍化は利用者指示で実装・確認済み。後続の「配置して　配置後の確認は省略」で
+  常用配置を実施し、配置後確認は省略した。後続指示に合わせcommit/push対象とした。既存Core/TUIは再起動していない。
 - 221の計画作成・通常/批判的review・指摘反映・中断記録と再開時の限定再確認は利用者指示で実施済み。
   続く利用者指示で各スライスの実装・test・reviewと最後のe2e、最小限の実provider利用を承認済み。
   実providerの対象route・回数・隔離保存先を提示して実施済み。途中のroute不一致と全結果は221第11節。
-  続く「コミット配置して」により221のcommitと常用配置を承認し、実施済み。pushは含めない。
+  続く「コミット配置して」により221のcommitと常用配置を承認し、実施済み。当時はpushを含めなかった。
+  後続の「切り詰めのインクリメントは完了とします　コミットしてプッシュまでして」により完了とcommit/pushを指示した。
 - 217までの完了判断と最新binaryの常用配置は利用者の明示指示により実施済み。
 - 220のcommit/push/配置は利用者の明示指示により実施済み。218・219の変更も`hjh`へ配置済み。
 - 本workspaceのschema1実DBを保全したschema3コピー変換・照合・切替は個別承認で実施済み。
   他workspaceへの変換や追加の実provider callはこの承認に含めない。
+- ホームworkspaceの旧履歴DB/sidecar削除は「削除していい」の明示承認で実施済み。
+  他workspaceの削除・変換や追加実provider利用には広げない。
 - 後続の実装、commit/push、追加build/配置、公開/release、実データ操作は利用者指示に従う。
 - 218の実providerは利用者がOpenCode Go / DeepSeek V4.1 Flash・約20turnを承認済み。
   続く「最小限の実プロバイダを使って基本e2e」の許可により、同routeで4turnを実施した。

@@ -2,7 +2,7 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
-更新日: 2026-10-09（生成toolの継続利用を契機に`/reload`を未採用候補として再記録）。直前のsource照合: 2026-10-07、source
+更新日: 2026-10-09（`/reload`の再記録、search返却量とmode誤用、回答・thinking等の表示省略の追加観測、フッターの入力見積もり使用率表示案、キャッシュusage保存案の追加照合）。直前のsource照合: 2026-10-07、source
 `68ab5dd0`（S20・B5の現行境界）。基盤の照合: 2026-10-05、source `a78c2076`・Increment
 182まで。S26はIncrement 183、A18はIncrement 185へ採用・移設。B11はIncrement
 190へ採用・移設。A23はIncrement 191の計画へ採用・移設。 2026-10-06にA31を追加し、A32・A33はIncrement
@@ -66,6 +66,8 @@ Definition/transportを候補の必須前提として復活させず、候補自
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                              | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                        | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                     | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| S38 | Surface        | 回答・thinking・assistant noteの一律表示省略で判断に必要な情報が読めない | 通常画面で回答や判断材料が途中で切れる。必要な情報を最後まで読める動作の回復を個別incrementへ採用するとき                  |
+| S39 | Surface        | フッターに入力トークンの見積もり使用率を表示する                     | 利用者が上限への接近と履歴切り詰め後の使用率を通常画面で把握する機能を採用するとき                                      |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                            | AIがSession列挙・詳細取得・選択や自身の実効構成readbackを実taskで必要とするとき                                        |
 | A3  | Agent実行      | Context Strategyの外部化                                             | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）           | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -179,6 +181,62 @@ Definition/transportを候補の必須前提として復活させず、候補自
 - 候補: TUI helpとCLI helpの内容を整理・統合する。対象となる内容と統合方法は未決。
 - 再検討条件: 利用者がヘルプ内容の統合を個別Incrementへ採用するとき。
 - 関連: [Increment 159](../increments/increment-159.md)、TUIの`/help`、CLI help。
+
+### S38 — 回答・thinking・assistant noteの一律表示省略が人間の判断を妨げる（完全な修正は未採用）
+
+- 暫定対応の採用（2026-10-09）: 利用者が表示上限の十倍化を指示したため、2,048→20,480 bytesの
+  上限変更とその確認を[Increment 222](../increments/increment-222.md)へ移した。
+  完全な取得・保持・表示方式の修正は後回しとする。本項目は暫定上限を超える場合も含む残候補である。
+
+- 原観測（2026-10-09、production TUI）: Session `17c48f73-7d8d-4965-b5e9-2445cbe76c62`の
+  第6ターン（Execution `2d457f42-89eb-4d9e-bebd-369f9a0280eb`）は正常完了したが、最終回答
+  3,187 UTF-8 bytes／1,757文字が第3項の途中で`… [3187 bytes; open detail]`へ置き換わった。
+  後半の要点と限界・未確認事項を通常画面で読めない。モデル結果、runtime outcome、保存済み最終messageの
+  本文は末尾まで一致し、モデル出力や保存履歴の欠落ではない。
+- 観測時の経路（source `90696061`）: `v0/conversation/history_adapter.ts`の`boundedText`が表示用本文を
+  `CONVERSATION_PREVIEW_BYTES = 2_048`で省略し、`v0/tui/keyed_conversation_store.ts`はそのtextを表示する。
+  最終回答だけでなく、assistant progress／tool callを伴う本文（`assistant note>`）、thinking／summaryにも
+  同じ規則が適用される。thinkingの途中省略も実TUIで観測した。assistant noteは確認した実例が短いため
+  省略を観測していないが、長い場合に同じ処理を通ることはsourceで確認した。tool引数・結果・進捗にも
+  表示用省略がある。モデルへ送るcontextの予算・projectionとは別経路である。
+- 導入意図と問題: [Increment 218 §11.4](../increments/increment-218.md#114-会話page大きい本文全出力)は
+  Data／Core／TUIへの全文の重複保持・更新ごとのコピーを減らし、page／detailで必要部分を取得する設計だった。
+  2,048 bytesは実装上の固定値で、確認した設計文書にこの値の指定はない。今回の約3KBの回答を省略する
+  必要性を示す実測根拠は未確認であり、メモリ削減が通常利用の読み取り・判断を損なっている。
+- 利用者の判断・必要な動作（2026-10-09）: 問題はRAM上の重複保持・コピーであり、大きい本文でも
+  人間の判断に必要な情報を省略する理由にはしない。回答、thinking、assistant noteの必要な内容を
+  通常利用で最後まで読めることを守る。「全文は保存されている」「別操作でdetailを開ける」だけを
+  成功条件の代替にしない。メモリ削減そのものを目的にしてproduct機能を損なわない。
+- 本文閲覧UIへの利用者評価（同日）: `/view`で会話ページを開き、項目を選択してEnterで本文を開く
+  現行手順は、本文省略の救済策として「使えない」と判断した。通常の回答を読むために別画面で項目を
+  探す操作を要求せず、通常表示で必要な内容を最後まで読める動作を回復する。これは`/view`自体の
+  廃止・再設計を採用したという意味ではない。
+- 改善候補: 重複保持・全文コピーを減らす内部設計と、人間が読める内容を分ける。必要な本文を順次取得・
+  表示するなど、通常の読み取りを途中で切らずに成立させる。具体的な取得・保持・表示方式は採用時に決める。
+  暫定上限の十倍化を、完全な修正の完了として扱わない。
+- 証拠: local観測は`.tools/session-17c48f73-observation-20261009/turn-6-final-answer-display.json`、
+  保存本文の読出しは同directoryの`turn-6-final-answer.txt`。生成artifactはgit管理外であり、
+  元のExecution／semantic履歴を正本として再照合できる。
+- 再検討条件: 利用者が完全な表示・保持方式の修正を個別incrementへ採用するとき。
+  十倍化の採用・実装認可を完全な修正の承認へ広げない。
+
+### S39 — フッターに入力トークンの見積もり使用率を表示する（未採用、メモのみ）
+
+- 利用者意向（2026-10-09）: Session `17c48f73`の履歴切り詰めは機能していそうだと判断し、
+  フッターに見積もりトークン量の使用率を表示してほしいとメモを指示した。
+- 表示案: 左側にprovider／model／effort、右側に`tokens 99%`を表示する。
+
+  ```text
+  opencode-go-chat / deepseek-v4.1-flash / effort                                  tokens 99%
+  ```
+
+- 使用率の意味: 直近のモデルrequestの入力トークン見積もりを、実効入力上限で割った割合。
+  Session全体の累計消費量ではなく、履歴を含むそのrequestが切り詰め判定の上限にどれだけ近いかを示す。
+- 観測根拠: 第17ターンの最後は見積もり798,515／上限800,000（約99.8%）、provider実測は
+  635,155 tokensだった。第18ターンでは第1ターンが送信対象から外れ、最後の見積もりは735,952
+  （約92.0%）へ下がった。利用者が通常画面でこの変化を把握できる表示を候補とする。
+- 再検討条件: 利用者が本表示を個別incrementへ採用するとき。今回はメモのみで実装しない。
+- 関連: [Increment 221](../increments/increment-221.md)、A29（request単位の実測usage保存・readback）。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
@@ -424,6 +482,28 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### A29 — request単位のtoken usage・cache再利用量の保存とreadback（未採用、メモのみ）
 
+- 利用者の追加依頼・現行確認（2026-10-09）:
+  入力予算上限の引き上げと、キャッシュを含む利用枠消費の釣り合いを判断するため、cache命中量の
+  取得・分析方法とDB変更の要否を相談し、メモを指示した。今回は採用・実装の指示ではない。
+  現行の`provider_evidence.ts`はinput/output/totalと入力見積もり・差分を保存するが、cache項目は
+  抽出していない。Session `17c48f73`の確認した151 requestの保存usageにもcache項目はない。
+  未保存をcache未使用または命中0と扱わない。
+- 保存・分析の実装候補（同日）:
+  API応答から取得可能なcache命中・書込み量等を抽出し、usageの型・検証とJSON保存項目を追加する。
+  現行DBの`semantic_records.payload_json`で保存でき、SQLiteテーブル／column変更・schema移行・
+  既存履歴の書き換えは不要。追加後のrequestから数値を記録し、read-onlyで集計できる。
+  既存DBに保存していない過去のcache量は、このDBからは復元できない。raw応答の常設保存は不要。
+- 公式仕様の追加照合（同日）:
+  DeepSeekは`usage.prompt_cache_hit_tokens`／`prompt_cache_miss_tokens`を返す。
+  OpenCode Go経由でも同じ項目が返るかは未観測のため、採用時に実応答で確認する。
+  OpenAI Responsesは`usage.input_tokens_details.cached_tokens`、Chat Completionsは
+  `usage.prompt_tokens_details.cached_tokens`。OpenRouter Chat Completionsにも取得可能な場合に
+  `usage.prompt_tokens_details.cached_tokens`と`cache_write_tokens`があり、現在はstreamの最後のSSEにも
+  usageを自動で含める。OpenRouterではActivity詳細やgeneration IDによる後からの確認も可能。
+  根拠は[DeepSeek cache仕様](https://api-docs.deepseek.com/guides/kv_cache/)、
+  [OpenAI cache実測項目](https://developers.openai.com/api/docs/guides/prompt-caching/diagnostics)、
+  [OpenRouter usage仕様](https://openrouter.ai/docs/cookbook/administration/usage-accounting)。
+  入力総量だけでなくcache量を使って、切り詰め前後の命中率と利用枠消費を比較する。
 - 2026-10-07の追加検討:
   usage保存と三参照のtoken節約策を分けて比較し、cacheは必要な共通contextの再利用に使うと整理した。
   A3の履歴整理・再取得、要約やwarmingの追加費用を含めて評価する材料とする。採用・実装は未承認。
@@ -432,7 +512,7 @@ Pi／OpenCode／Henjiの画面表示比較
   Henjiの`openai-chatgpt / gpt-6.1-sol`でtoken消費が激しく感じられる。
   Codexのcache活用と、完了turnのtool結果をcontextから外すA3案との関係を検討した。
   usage記録の候補をメモするよう指示された。変更・実装の承認は含まない。
-- 現行確認:
+- 当時の確認（2026-10-05）:
   `openai_responses_model.ts`は`response.completed`のresponseを受けるが、usageを抽出・保存していない。
   `2bc2699f`の確認した直近実行のsemantic記録にもinput/cache/reasoning token項目がない。
   cache未使用と観測欠落は区別できず、token消費の主因・削減効果は未測定。
@@ -496,6 +576,23 @@ Pi／OpenCode／Henjiの画面表示比較
   - `stats` mode（wc相当: path/lines/words/bytes）も同じglob filterを使う。騒音源の事前把握に使える
     （実測: `.tools/tool-trend-0cd5c22e/detail.json`は9,250行で34,770,332 bytesの巨大行JSONL。
     c5d830b5の騒音の正体で、content searchの前に`stats`1回で特定できた）。
+- 追加観測（2026-10-09、Session `7814247a-916e-4211-a2fd-e351b1bfb4cd`、Execution
+  `287fd3fc-8777-410a-bf4e-d34927a500bb`、保存済みtool結果のUTF-8本文量）: search 4回で
+  26,797 bytes。`files`＋`pattern:"README*"`は8,650 bytes・返却100パス中96件が`.tools/`、
+  `content`＋`pattern:"openai-chat\\b"`＋`glob:"*.md"`は13,453 bytes・返却60一致行すべてが
+  `.tools/`だった。この2回がsearch返却量の約82%を占め、長い測定用コピーのパスと一致本文が
+  contextへ入った。残りは`entries`で2,314 bytes、`v0/**/*.ts`内の`files`で2,380 bytes。
+- bashの`rg`／`ls`との比較からの改善観点（利用者の指示でメモ、採用・実装は未承認）:
+  - 通常の`rg`はgitignore対象の`.tools/`等を除外する。searchの既定scopeと除外指定を検討する際は、
+    過去の測定用コピーやdependencyが通常のrepository調査へ混ざる返却量を比較する。
+  - `rg --files -g 'README*'`ならREADMEの名前だけを探せる。searchでは`mode:"paths"`＋
+    `glob:"README*"`が対応する。本文検索との取り違えを避ける発見性はA38にも関係する。
+  - `ls`の名前だけの一覧なら、`entries`が常に返す種類・bytes・更新日時等を省ける。
+    調査目的に必要な情報量に合わせた返却形式を候補とする。
+  - 一致行をplain textで返せば、JSONの項目名・括弧・文字列エスケープの分を減らせる。
+    今回はJSONの付加量より検索範囲とmodeの選択による増加が大きかったため、両者を区別して比較する。
+  - 同じ調査目的を適切な範囲・modeの`rg`／`ls`で行う場合、4回合計は数KB〜10KB程度と推定した。
+    追加実行による実測ではない。同じ範囲・同じ一致件数を返す場合はbashでも本文量が残る。
 - 議論の整理: 除外という能力はこのtool設計では有用で、騒音を含む世界を1 callで絞れる。`!`書式は
   人・modelに既知で習得コストが無いが、**単独指定の意味論**（全体からの除外か、includeとの組み合わせ
   か）を契約として決める必要がある。
@@ -525,6 +622,10 @@ Pi／OpenCode／Henjiの画面表示比較
   mode→慣習コマンド対応（ls-style／find or rg --files／rg -l／grep or rg／grep -c相当／wc-style）と具体例を
   記載。statsの詳細は2段落目、prompt guidelinesにも「Use search instead of bash ls, find, grep, rg, or wc」
   「do not pipe a listing into wc」の記載あり。説明文自体は発見性を補完済み。
+- 追加観測（2026-10-09、Session `7814247a`、保存済みcall確認）: Agentが`mode:"files"`で
+  `pattern:"README*"`と`pattern:"provider*"`を使った。現行の`files`は`rg -l`相当の本文一致ファイル
+  一覧であり、ファイル名の探索には`paths`＋`glob`を使う。返却量の内訳と`rg`／`ls`との比較観点は
+  A37を参照。名前が誤用の原因だったかは未確認だが、操作上の取り違えを再検討する材料とする。
 - 推測（未確認、根拠限定的）: 観測された誤用（A37の`!`によるrg的除外、広いsweep前のstats未使用）は
   「search＝grep」という機能名アンカー＋rg priorsで説明がつく。ツール名よりも、**mode名が慣習コマンドの
   信号を持たない**（特に`stats`をwcとして見つけるには説明文の読解が必要）ことが本体の可能性。

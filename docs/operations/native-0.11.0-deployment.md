@@ -272,3 +272,49 @@ Esc復帰・detach、detach後のCore存続、`core stop`と解放を確認し�
 push・JSR追加公開・releaseは指示範囲に含めず実施していない。
 証跡は`.tools/increment-221-deployment/compile.log`、`deployment.json`、
 `runtime-diagnostics.json`、`core-status.json`、`tui-ready.txt`、`tui-help.txt`、`verification.json`。
+
+## ホームworkspaceの旧履歴DB削除と起動復旧 — 2026-10-09
+
+利用者が`/home/agent`から`hjh`を起動すると`Core startup failed: startup_failed`となった。
+ホーム用DBはschema1のままで、常用binaryが要求するschema3と不一致だった。
+repository用DBとは別のworkspace DBであり、先行するrepository用の変換承認は適用しなかった。
+配置時の隔離新規DB確認だけでは、この既存DBとの不一致を確認できていなかった。
+
+元DBをread-onlyで扱い、別のschema3コピーを準備した。元の15テーブルの全行・既存column
+（schema_version変更を除く）の型/値/hash一致、2 Session・3 Execution・44 messageの保持と
+quick_check=okを確認した。コピーを使う全Sessionの3種類の履歴読出しと、実workspace・
+実config・隔離stateによる配置binaryのCore/TUI再開も成功した。元DBはここまで変更していない。
+
+利用者は切替確認に対し「削除していい」と明示したため、変換コピーへ切り替える代わりに、
+ホーム用の旧DBと`-wal`/`-shm`だけを削除した。削除前に対象workspaceのCoreとDB利用processが
+0であること、元DBのhashが準備時と一致することを確認した。削除対象は次のDBとsidecarである。
+
+`/home/agent/.local/state/henji-harness/v1/e08c2bf6920bcfecc673e0fb5afd11cddb3d96ccaba7b01a9b4b7b4ab6fbc0c5/history.sqlite3`
+
+実HOME/config/stateと`/home/agent`のcwdで、常用`hjh`を引数なしでtmux起動した。 Core自己起動とTUI
+ready、新規DBのschema3・messages/executions=0を確認した。 TUI
+detach後のCore存続と`core stop`による正常停止、停止後のquick_check=okも確認した。
+新DBは空で、旧履歴の変換コピーは実DBへ取り込んでいない。会話投入・実provider requestは0。
+他workspaceのDB、設定・credential・source・配置binaryは変更していない。
+
+証跡はgit管理外`.tools/home-workspace-schema3-20261009/`の`preflight.json`、
+`copy-verification.json`、`copy-startup-verification.json`、`reset.json`、
+`home-core-status.json`、`home-tui-ready.txt`、`production-reset-verification.json`。
+
+## Increment 222の表示上限十倍化配置 — 2026-10-09
+
+利用者の「配置して　配置後の確認は省略」により、[Increment 222](../increments/increment-222.md)の
+検証済みcandidateを`dist/hjh`と`/home/agent/.local/bin/hjh`へatomicに配置した。
+通常表示・保存Sessionの再表示で使う本文上限は2,048から20,480 UTF-8 bytesへ拡張した。
+
+- source: `b085bcf5ed63bbbfc32a691012e4ec04e7e3bb7f`＋222のlocal source変更、sourceDirty: `true`
+- build ID: `b3ac4ac19c7cdad177a651a7181c330e98c45c72bac952fb8ed38d9d5893f119`
+- runtime SHA-256: `801d9c8c9cab3708f80cef57272ba53273e860e2837b765b07d23fbcdccefca4`
+- 配置前candidateのbinary SHA-256: `2afead8b8a851c290672e3def41802c3ad8702694ce4bfdfe7010eed6a9c30eb`
+- 旧binary退避先: `.tools/increment-222-deployment/hjh.dist.previous`と`hjh.local.previous`
+
+配置前candidateのfocused test・type/format/lintと隔離compiled Core/TUI確認は222へ記録済み。
+配置後の起動・表示・readback確認は利用者指示で省略した。配置先のhash再照合も行っていない。
+既存Core/TUIは再起動せず、新しいCore/TUI起動から適用する。追加provider callは0。
+実config・履歴DBは変更せず、配置時点ではcommit/pushを実施していない。
+配置操作の記録は`.tools/increment-222-deployment/deployment.json`。
