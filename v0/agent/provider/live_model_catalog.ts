@@ -276,6 +276,7 @@ export class LiveModelCatalog {
   readonly #metadataUrl?: string;
   readonly #fetcher: typeof fetch;
   readonly #chatgptAuth: ChatGPTAuthService;
+  readonly #requestCancellation = new AbortController();
   readonly #snapshots = new Map<string, ModelSnapshot>();
   readonly #requestFacts: LiveModelCatalogFact[] = [];
   #nextRequestOrder = 0;
@@ -294,6 +295,11 @@ export class LiveModelCatalog {
 
   get facts(): readonly LiveModelCatalogFact[] {
     return Object.freeze([...this.#requestFacts]);
+  }
+
+  /** Stop catalog HTTP requests and response-body reads before Core drains its operations. */
+  close(): void {
+    this.#requestCancellation.abort();
   }
 
   async models(
@@ -605,7 +611,11 @@ export class LiveModelCatalog {
     const requestContext = this.#requestContext();
     let response: Response;
     try {
-      response = await this.#fetcher(url, { method: 'GET', headers });
+      response = await this.#fetcher(url, {
+        method: 'GET',
+        headers,
+        signal: this.#requestCancellation.signal,
+      });
     } catch {
       this.#recordFact(declaration.providerId, 'models', {
         error: 'network_error',
@@ -703,7 +713,11 @@ export class LiveModelCatalog {
     try {
       response = await this.#fetcher(
         `${declaration.endpoint.replace(/\/+$/u, '')}/models`,
-        { method: 'GET', headers: { authorization: `Bearer ${accessToken}` } },
+        {
+          method: 'GET',
+          headers: { authorization: `Bearer ${accessToken}` },
+          signal: this.#requestCancellation.signal,
+        },
       );
     } catch {
       this.#recordFact(declaration.providerId, 'models', {
@@ -832,7 +846,10 @@ export class LiveModelCatalog {
     let response: Response;
     try {
       // Public metadata is deliberately fetched without the provider credential or headers.
-      response = await this.#fetcher(url, { method: 'GET' });
+      response = await this.#fetcher(url, {
+        method: 'GET',
+        signal: this.#requestCancellation.signal,
+      });
     } catch {
       this.#recordFact(
         declaration.providerId,

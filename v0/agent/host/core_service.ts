@@ -479,6 +479,7 @@ export const createCoreService = async (
   const beginShutdown = (): void => {
     if (admissionClosed) return;
     admissionClosed = true;
+    modelCatalog.close();
     const executionId = slot?.service.tasks.activeExecutionId();
     if (executionId !== undefined) slot!.service.tasks.cancel(executionId);
     for (const closeStream of [...liveSubscriptions]) closeStream();

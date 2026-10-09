@@ -9,7 +9,10 @@
   trimの実装と「約6分×2ターン＋短い確認会話」の隔離計測を選択した。
   local実装・一回の隔離計測・全照合済み。実provider 0、CPU時間とpage faultも記録済み。
   [5分周期測定報告書](../docs/research/increment-219-five-minute-memory-2026-10-09.md)を参照する。
-  利用者指示で実装・test・測定記録をcommit済み。完了判断、常用配置、pushは未実施。
+  利用者指示で実装・test・測定記録を`e38aa074`へcommit済み。完了判断、常用配置、pushは未実施。
+  続く全体俯瞰reviewで採用したP1（catalog通信待ちが正常停止を阻害）はlocal修正・検証・
+  限定re-review済み、利用者指示でcommit済み。詳細は219末尾、証跡は
+  `.tools/increment-219-catalog-shutdown-fix/`。
 - [Increment 218](../docs/increments/increment-218.md)に先行実装・測定結果を保持する。
   S1〜S7の実装・focused確認・独立review指摘対応と、S8のlocalhost統合確認を終えた。
   修正候補の200turn×3＋保存Sessionの新Core再開20turn、全620turn/1,240requestの照合は成功。
@@ -49,7 +52,7 @@
   退避先と検証結果は[配置記録](../docs/operations/native-0.11.0-deployment.md)を参照する。
 - 217までの実装sourceは`6315beed`までorigin/mainへpush済み。217の完了・メモリ観測・配置記録と、
   通常利用メモのA37・A38（searchの`!`除外とmode命名）はcommit済み。
-  218の実装・test・結果と219の5分周期trim・追加測定記録を加え、origin/mainより4commit先。pushは未実施。
+  218の実装・test・結果と219の5分周期trim・追加測定記録を加え、origin/mainより5commit先。pushは未実施。
   別件の通常利用メモS4（`/reload`）更新は未commitで保全する。
   未追跡`191-result.json`と`scripts/diagnostics/__pycache__/`は保全し、commit対象外。
 
@@ -64,7 +67,7 @@
   `.tools/increment-218-native-memory-20261009/`。 実行中trimスパイクは
   `.tools/increment-218-active-trim-spike-20261009/`。
   5分周期trimの実装と検証は219へ採用済み。Worker運用変更は未採用。
-  219の結果は記録済み。commitは今回の利用者指示で実施済み。
+  219の実装・測定記録は`e38aa074`へcommit済み。後続の全体review採用P1修正も利用者指示でcommit済み。
   完了判断、常用配置、push、追加最適化は利用者指示に従う。
   219のarchitecture/roadmap反映案は219文書末尾に保持し、別途承認してから反映する。
   実負荷はread一回＋19会話。旧準備案の毎turn read/15＋再開5とは区別し、追加runは行っていない。

@@ -1,7 +1,7 @@
 # Increment 219: Coreの5分周期nativeメモリ返却
 
 状態: local実装・隔離測定・照合済み（2026-10-09）。利用者指示で実装・test・測定記録をcommit済み。
-利用者の完了判断、常用配置、pushは未実施。
+利用者の完了判断、常用配置、pushは未実施。後続の全体review採用P1もlocal修正・検証後、利用者指示でcommit済み。
 
 ## 要件と範囲
 
@@ -108,3 +108,49 @@ process全threadのuser/system CPUは各9.80/2.83秒、12.56/2.79秒。
   最適間隔、CPU連続占有・複数Session・長時間耐久、他platformは確認済み範囲へ含めない。
 
 構想に意味上の変更はない。architecture/roadmap本体は変更していない。
+
+## 全体俯瞰reviewのP1対応（2026-10-09）
+
+利用者がcommit `e38aa074`を対象に全体コードのBlocker/P1限定reviewを依頼した。
+Rootと3領域の独立reviewで、Blocker 0件、P1 1件を採用した。
+起動/provider、Data/履歴/実行、TUI/tool/childの主要利用経路を確認し、
+通常のfocused確認33件は成功した。全行の証明、実provider追加実行、full gateは行っていない。
+元review記録は `/tmp/codex-agent-context/henji-overview-20261009/review.md`。
+
+採用P1は、モデル一覧のprovider/メタデータ通信が応答しない場合、API handler/RPCのdrainが
+それを待ち続け、`core stop`・SIGTERMからCoreを正常終了できない問題。
+実localhostのmetadata応答を保留したCore/APIで、応答の解放だけで終了する因果関係を確認した。
+production source `serve`＋`core stop`でも停止待ちと追加SIGTERMで解除されないことを再現した。
+実providerは0。既存architectureの通常停止動作に対するcorrectness問題として採用した。
+
+利用者の「p1を修正して」に基づき、`LiveModelCatalog`がlifetime共通のAbortControllerを所有し、
+provider一覧・ChatGPT一覧・public metadataの3 fetchへ同じsignalを渡す。 Coreの`beginShutdown`がAPI
+drainの前にcatalogをcloseし、進行中fetch/response body読取りをabortする。 既存のcatalog
+fact保存とhandler/RPC完了を待ってからDataを閉じる順序は維持する。
+通常取得に新しいdeadlineや拒否条件は加えていない。
+
+### 修正確認
+
+- 実localhost HTTPでprovider/metadataのresponse headersを両方保留し、解放前にCore
+  shutdownが完了する。 metadataのheadersは返してJSON
+  bodyだけを未完了にした場合も、解放前に正常終了する。
+- 上記回帰test 1件/2stepと通常catalog・ChatGPT catalogの既存test 5件が成功。 既存HTTP
+  shutdownのBash/SSE/準備中Session清算test 3件も成功した。
+- production source `serve`で同じmetadata保留を維持したまま、`core stop`が約90.4ms、
+  SIGTERMが約12.3msでCore exit 0。`core stop`のCLIもexit 0。外部SIGKILLは不要。
+- 変更source/testのtype check、format、lint、diff checkが成功。
+- 元P1を出したreviewerが15分以内の限定re-reviewで解消と終了順序を確認し、
+  新しいBlocker/P1なし。新規回帰test 2stepも独立実行して成功した。
+
+追加した既存Bash終了testの初回起動は、コマンド側の`NODE_V8_COVERAGE` env読取り許可不足により
+Bashが動かず、fixtureの待機/cleanupで停止した。隔離test processを終了し、repositoryの通常test taskに
+合わせて必要env許可を補った再実行が3/3成功。初回をproductの回帰や成功証拠に含めない。
+
+証跡は `.tools/increment-219-catalog-shutdown-fix/`。
+通常のsource修正だけを行い、実DB/config、常用配置、commit/push、構想/architecture/roadmapは変更していない。
+再compile、実provider、full gate、メモリ再測定は追加していない。
+
+### P1修正のコミット
+
+修正・検証・限定re-review完了後、利用者の明示指示でP1修正、回帰test、結果記録をcommitした。
+pushと常用配置は未実施。
