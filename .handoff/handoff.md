@@ -8,11 +8,11 @@
 - [Increment 221](../docs/increments/increment-221.md)のlocal実装・検証が完了。
   各スライスの実装・focused test・独立reviewと、最後のcompiled localhost／実provider e2eを実施した。
   結果・準備失敗・実request数・情報省略とメモリの制約は221第11節。
-  利用者の「コミット配置して」により221のcommit・常用配置を実施中。全体review結果は第11.11節。
+  利用者の「コミット配置して」により221を`90696061`へcommitし、常用`hjh`へ配置済み。
+  全体reviewは第11.11節、配置結果は第11.12節と配置記録を参照する。
   構想・architecture・roadmapの反映案は221第8節。 コンパクションとsearch改善は対象外。
-- 今回の未commit文書は`.handoff/handoff.md`、新規`docs/increments/increment-221.md`と、
-  `docs/experience/normal-use-inbox.md`。通常利用メモには先行する利用者依頼による
-  searchとrg/lsの出力量・gitignore・名前検索の比較を追記した。221の実装source/testも未commit。
+- 未commitの通常利用メモ`docs/experience/normal-use-inbox.md`は別件の先行修正として保持する。
+  searchとrg/lsの出力量・gitignore・名前検索の比較を追記したもの。221のsource/testはcommit済み。
   未追跡`scripts/diagnostics/__pycache__/`は既存の生成物として保持し、commit対象外。
 - [Increment 220](../docs/increments/increment-220.md)に直前の実装・配置結果を保持する。
   別アプリの`henji`との衝突を避けるため、利用者がCLI実行名`hjh`を採用した。
@@ -71,7 +71,7 @@
 - [Increment 217](../docs/increments/increment-217.md)に、214〜217適用後のcompiled
   Core/TUIメモリ観測と
   利用者指示による常用配置の結果を追記した。詳細な条件・結果・未確認範囲は217を参照する。
-- 常用binaryは`hjh` 0.11.0、clean source `59dcdd71`、build `10c9d4a0…`。
+- 常用binaryは`hjh` 0.11.0、build入力clean source `90696061`、build `595db794…`。
   `dist/hjh`と常用binaryへ配置し、配置binaryの隔離Core/TUI確認を完了した。
   既存の稼働Core/TUIは再起動していない。新しいCore/TUI起動から適用する。
   退避先と検証結果は[配置記録](../docs/operations/native-0.11.0-deployment.md)を参照する。
@@ -84,7 +84,7 @@
 
 ## 次の一手
 
-- 利用者が承認した221のcommit・常用配置を完了する。手順と結果は第11.12節へ記録する。
+- 221のcommit・常用配置は完了。結果は第11.12節。追加作業は利用者指示に従う。
   構想・architecture・roadmapの反映案は221第8節に留め、別途承認するまで正本を編集しない。
   今回の実provider確認は終了し、追加runは行わない。
 - 220のlocal実装・検証・commit/push・常用配置は実施済み。追加作業は利用者指示に従う。
@@ -126,7 +126,7 @@
 - 221の計画作成・通常/批判的review・指摘反映・中断記録と再開時の限定再確認は利用者指示で実施済み。
   続く利用者指示で各スライスの実装・test・reviewと最後のe2e、最小限の実provider利用を承認済み。
   実providerの対象route・回数・隔離保存先を提示して実施済み。途中のroute不一致と全結果は221第11節。
-  続く「コミット配置して」により221のcommitと常用配置を承認済み。pushは含めない。
+  続く「コミット配置して」により221のcommitと常用配置を承認し、実施済み。pushは含めない。
 - 217までの完了判断と最新binaryの常用配置は利用者の明示指示により実施済み。
 - 220のcommit/push/配置は利用者の明示指示により実施済み。218・219の変更も`hjh`へ配置済み。
 - 本workspaceのschema1実DBを保全したschema3コピー変換・照合・切替は個別承認で実施済み。

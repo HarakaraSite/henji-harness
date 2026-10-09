@@ -243,3 +243,32 @@ clientでSessionを切り替えた後のTUI表示追随も仮定していたた�
 `conversion-time.json`、`copy-verification.json`、`copy-readback.json`、`switch.json`、
 `production-verification.json`、`post-switch-verification.json`と実行helperを参照する。
 全件hash照合結果だけを記録し、会話本文やcredential値はtool出力へ出していない。
+
+## Increment 221の容量予算・切り詰め配置 — 2026-10-09
+
+利用者の「コミット配置して」により、[Increment 221](../increments/increment-221.md)の
+容量連動入力予算、request投影だけの交換単位切り詰め、全文保存、TUI/CLIの通知・超過診断を
+commitし、常用`hjh`へ配置した。各sliceと全体の通常/批判的review、compiled localhostおよび
+最小限の実provider e2eを終えたsourceを使った。
+
+- source: `90696061ecfa79e9dbf38551e91aa75a7e7a92e4`
+- version: `hjh 0.11.0`、sourceDirty: `false`
+- build ID: `595db794c0fca85d1a9ed2ea6d8e1adc96d0761ee6e214f5457afe3fc4f2bcf0`
+- runtime SHA-256: `c61f9b6c68deeabd0c797c91f6972f581eb48b24bb6b7d3f0036777957556f6d`
+- binary SHA-256: `5d6632c46e04db4efeab7d1cf969d065c38dcc1678e226d8217088d781a14c06`
+- Deno: `2.9.7`、target: `x86_64-unknown-linux-gnu`
+
+公式buildでcompileしたcandidateは、221最終e2e候補とruntime hashが一致した。
+`dist/hjh`と`/home/agent/.local/bin/hjh`をatomicに置き換え、旧binaryを
+`.tools/increment-221-deployment/hjh.dist.previous`と`hjh.local.previous`へ保存した。
+
+配置先の常用binaryから隔離HOME/XDG/workspaceと外部DenoのないPATHでtmux起動した。
+version/help/error、Core自己起動・一覧/statusとsource/clean/build一致、TUI ready・`/help`・
+Esc復帰・detach、detach後のCore存続、`core stop`と解放を確認した。
+新しい常用binaryがPATHへ解決されることも確認した。配置確認の追加実provider requestは0。
+既存Core/TUIは停止・再起動せず、新規Core起動から適用する。
+
+実config・履歴DB・credential・外部tool/hookは変更していない。旧`henji`のbinaryは保全した。
+push・JSR追加公開・releaseは指示範囲に含めず実施していない。
+証跡は`.tools/increment-221-deployment/compile.log`、`deployment.json`、
+`runtime-diagnostics.json`、`core-status.json`、`tui-ready.txt`、`tui-help.txt`、`verification.json`。

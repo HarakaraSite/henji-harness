@@ -314,7 +314,7 @@ roadmapには、モデル容量連動予算とターン内切り詰めの実装�
 ## 9. 結果
 
 S1〜S4の実装・focused test・独立reviewと、最終compiled localhost／実provider e2eを終えた。
-結果・途中失敗・制約は第11節。続く全体reviewを終え、利用者指示でcommit・常用配置を実施中。
+結果・途中失敗・制約は第11節。続く全体reviewを終え、利用者指示でcommit・常用配置も完了した。
 pushと正本文書への反映は対象外。
 
 ## 10. 計画レビューと指摘反映（2026-10-09）
@@ -624,3 +624,25 @@ reviewerは変更・full gate・追加実provider利用を行っていない。
 hashが第11.7節の検証候補と一致すること、buildのsource/clean、
 隔離XDGのCore/TUI起動・操作・終了を確認する。配置確認に追加実providerは使わない。
 構想・architecture・roadmap、実config・DB・外部tool/hookは変更しない。
+
+221のsource/test/記録を`90696061ecfa79e9dbf38551e91aa75a7e7a92e4`へcommitした。
+先行する通常利用メモの別件修正と既存pycacheは、このcommitに含めず保持した。
+公式`build_henji.ts`でbuild入力cleanのcommitからcompileし、e2e候補と embedded runtime
+hashが一致することを配置前に確認した。
+
+- version: `hjh 0.11.0`、sourceDirty: `false`
+- source: `90696061ecfa79e9dbf38551e91aa75a7e7a92e4`
+- build ID: `595db794c0fca85d1a9ed2ea6d8e1adc96d0761ee6e214f5457afe3fc4f2bcf0`
+- runtime SHA-256: `c61f9b6c68deeabd0c797c91f6972f581eb48b24bb6b7d3f0036777957556f6d`
+- binary SHA-256: `5d6632c46e04db4efeab7d1cf969d065c38dcc1678e226d8217088d781a14c06`
+
+`dist/hjh`と`/home/agent/.local/bin/hjh`をatomic配置し、両方のversion/hashを候補と照合した。
+旧binaryは`.tools/increment-221-deployment/hjh.dist.previous`と`hjh.local.previous`へ保存した。
+常用配置先そのものを隔離HOME/XDG/workspace、外部DenoのないPATH、tmuxから起動し、
+Core自己起動、buildのsource/clean、一覧/status、TUI ready、`/help`、Esc復帰、detach後の
+Core存続、`core stop`と解放を確認した。通常PATHも常用`hjh`へ解決された。 実provider追加0、full
+gate再実行0。配置証跡は`.tools/increment-221-deployment/`。
+
+既存の稼働Core/TUIは停止・再起動しておらず、新規Core起動から反映される。
+実config・DB・credential・外部tool/hookと旧`henji`は変更していない。
+push・JSR公開・release・構想/architecture/roadmap反映は行っていない。
