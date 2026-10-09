@@ -339,7 +339,7 @@ export const listLocalCores = async (
 export const resolveCoreId = (epochs: readonly string[], id: string): string => {
   const matches = epochs.filter((epoch) => epoch.startsWith(id));
   if (matches.length === 0) {
-    throw new Error(`Core ${id} was not found or has stopped; use henji core list`);
+    throw new Error(`Core ${id} was not found or has stopped; use hjh core list`);
   }
   if (matches.length > 1) {
     throw new Error(`Core ID ${id} is ambiguous; specify a longer ID:\n${matches.join('\n')}`);

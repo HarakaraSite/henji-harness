@@ -27,8 +27,8 @@ contract and adapter remain under `v0/presentation`.
 The compiled command dispatches both Surfaces through the same headless Worker capsule and Host
 commit path:
 
-- `henji [TUI flags]` starts the interactive terminal Surface and optionally persists a Session.
-- `henji run` starts one noninteractive turn without persisting a Session transcript; diagnostics,
+- `hjh [TUI flags]` starts the interactive terminal Surface and optionally persists a Session.
+- `hjh run` starts one noninteractive turn without persisting a Session transcript; diagnostics,
   provider evidence, and execution artifacts still use the workspace state root. It prints
   final-only stdout by default, `--json` for a curated NDJSON event stream (`{"v":1,"kind":...}`,
   ending in a `result` record), or `--stream` for live assistant text on stdout and tool activity on
@@ -77,8 +77,8 @@ efforts take precedence over models.dev. Both default to `medium`; Sol supports 
 `high`, `xhigh`, and `max`, while Luna also supports `none`. The API inventory retains its order and
 missing pinned models are appended once.
 
-The interactive launcher and `henji run` accept `--provider-timeout-ms N` for a positive
-safe-integer request deadline. It defaults to 300,000 ms and applies to each root, async child, and
+The interactive launcher and `hjh run` accept `--provider-timeout-ms N` for a positive safe-integer
+request deadline. It defaults to 300,000 ms and applies to each root, async child, and
 context-compaction model request in that Worker invocation. Both also accept `--max-steps N` to
 override the root Agent's model-step limit; the built-in default Definition allows 128 steps when no
 override is supplied. Neither option is Session state, so a Session switch keeps the TUI invocation

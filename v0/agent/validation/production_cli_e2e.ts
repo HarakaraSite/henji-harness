@@ -13,7 +13,7 @@ import {
   type ProductionCliE2eReport,
 } from './production_cli_e2e_contract.ts';
 
-export const PRODUCTION_CLI_LAUNCHER = new URL('../../../dist/henji', import.meta.url).pathname;
+export const PRODUCTION_CLI_LAUNCHER = new URL('../../../dist/hjh', import.meta.url).pathname;
 const PRODUCTION_CLI_E2E_PATH = '/usr/bin:/bin' as const;
 const RUN_PARENT = '/tmp' as const;
 const RUN_PREFIX = 'henji-production-e2e-' as const;

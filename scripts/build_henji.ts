@@ -127,11 +127,11 @@ export const hasDirtyBuildInputs = async (
   ).trim().length > 0;
 
 const parseOutput = (args: readonly string[], root: string): string => {
-  if (args.length === 0) return `${root}/dist/henji`;
+  if (args.length === 0) return `${root}/dist/hjh`;
   if (args.length === 2 && args[0] === '--output' && args[1].length > 0) {
     return args[1].startsWith('/') ? args[1] : `${Deno.cwd()}/${args[1]}`;
   }
-  throw new Error('usage: henji:compile [--output PATH]');
+  throw new Error('usage: hjh:compile [--output PATH]');
 };
 
 interface StagedCompileInputs {

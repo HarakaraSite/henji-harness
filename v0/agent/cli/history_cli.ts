@@ -114,7 +114,7 @@ const fileExists = async (path: string): Promise<boolean> => {
   }
 };
 
-/** Read-only history viewer: `henji history [--session <id>|--latest] [--view session|canonical|detail]`. */
+/** Read-only history viewer: `hjh history [--session <id>|--latest] [--view session|canonical|detail]`. */
 export const main = async (args: readonly string[]): Promise<number> => {
   let command: HistoryCliCommand;
   try {

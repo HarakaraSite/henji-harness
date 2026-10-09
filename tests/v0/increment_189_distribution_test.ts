@@ -70,7 +70,7 @@ Deno.test('Increment 189 packages and installs editable hooks while retaining us
     target: 'x86_64-unknown-linux-gnu',
     buildId: 'test-build-id',
   };
-  const fakeBinary = `${root}/henji`;
+  const fakeBinary = `${root}/hjh`;
   const fakeBinarySource = [
     '#!/bin/sh',
     'if [ "$1" = "diagnostics" ] && [ "$2" = "runtime" ]; then',
@@ -126,6 +126,8 @@ Deno.test('Increment 189 packages and installs editable hooks while retaining us
     }).output();
     assert(archive.success);
     const archiveEntries = new TextDecoder().decode(archive.stdout).split('\n');
+    assert(archiveEntries.some((path) => path.endsWith('/hjh')));
+    assert(!archiveEntries.some((path) => path.endsWith('/henji')));
     assert(
       archiveEntries.some((path) => path.endsWith('/hooks/runtime-start-time/index.ts')),
       'the archive includes the default hook source',
@@ -135,6 +137,9 @@ Deno.test('Increment 189 packages and installs editable hooks while retaining us
     const configHome = `${root}/xdg-config`;
     const configRoot = `${configHome}/henji-harness`;
     const binDir = `${root}/bin`;
+    const otherApplication = '#!/bin/sh\necho other-henji-application\n';
+    await Deno.mkdir(binDir);
+    await Deno.writeTextFile(`${binDir}/henji`, otherApplication);
     const agentFile = `${configRoot}/agents/reviewer.json`;
     const agentSource = '{"name":"reviewer","hooks":[]}\n';
     await Deno.mkdir(`${configRoot}/agents`, { recursive: true });
@@ -160,6 +165,8 @@ Deno.test('Increment 189 packages and installs editable hooks while retaining us
     };
 
     await install();
+    assertEquals(await Deno.readTextFile(`${binDir}/hjh`), fakeBinarySource);
+    assertEquals(await Deno.readTextFile(`${binDir}/henji`), otherApplication);
     const hooksConfig = `${configRoot}/hooks.json`;
     const initialCatalogSource = await Deno.readTextFile(hooksConfig);
     assertEquals(JSON.parse(initialCatalogSource), {

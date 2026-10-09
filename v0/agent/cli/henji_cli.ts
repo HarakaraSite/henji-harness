@@ -17,7 +17,7 @@ const writeInvalid = async (message: string): Promise<number> => {
 const versionLine = (): string => {
   const manifest = buildManifest();
   return [
-    `henji ${manifest.productVersion}`,
+    `hjh ${manifest.productVersion}`,
     `build=${manifest.buildId}`,
     `source=${manifest.sourceRevision}${manifest.sourceDirty ? '+dirty' : ''}`,
     `deno=${manifest.denoVersion}`,
@@ -130,7 +130,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   }
   return await writeInvalid(
     `Unknown command '${args[0]}'.${
-      args[0] === 'list' ? " To list Cores, use 'henji core list'." : ''
+      args[0] === 'list' ? " To list Cores, use 'hjh core list'." : ''
     }`,
   );
 };

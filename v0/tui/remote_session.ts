@@ -2055,7 +2055,7 @@ export const runRemoteTui = async (
           commandId,
           error instanceof HenjiApiError
             ? `FAILED · core.shutdown · ${error.message}`
-            : 'UNCONFIRMED · core.shutdown · check Core with henji core status',
+            : 'UNCONFIRMED · core.shutdown · check Core with hjh core status',
           error instanceof HenjiApiError ? 'FAILED' : 'UNCONFIRMED',
         );
       }

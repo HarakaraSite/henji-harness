@@ -1,7 +1,6 @@
 # Henji package and external tools
 
-The package contains the `henji` executable, four editable tool folders, and an editable runtime
-hook:
+The package contains the `hjh` executable, four editable tool folders, and an editable runtime hook:
 
 - `search`: workspace directory listings (`ls`), recursive file lists (`find`, `rg --files`), text
   search (`grep`, `rg`), occurrence counts, and per-file line/word/byte counts (`wc`), using rg or
@@ -132,16 +131,16 @@ Authorization headers remain in Henji's request dispatcher and are not passed to
 To register a tool manually, select its folder and declare it in the Agent's `tools` array:
 
 ```sh
-henji tool activate --name search --folder /path/to/tools/search
-henji tool inspect --name search
+hjh tool activate --name search --folder /path/to/tools/search
+hjh tool inspect --name search
 ```
 
 The repository source lives under `external-tools/`. Build the executable with the official build
 script, then create a distribution package:
 
 ```sh
-deno task --config deno.v0.json henji:compile
-deno task --config deno.v0.json henji:package
+deno task --config deno.v0.json hjh:compile
+deno task --config deno.v0.json hjh:package
 ```
 
 Packaging creates a directory and a `.tar.gz` archive under `dist/`, with a manifest identifying the

@@ -6,6 +6,8 @@ Henji Harnessは、Denoで開発しているローカル実行向けのagent har
 executableから、対話型TUIと非対話実行、Session履歴、切り替え可能なproviderとmodel、JSONによるAgent
 設定、folder-based toolを利用できる。Henjiという名前は、日本語の「返事」に由来する。
 
+実行コマンド名は、Henji Harnessを略した`hjh`とする。
+
 現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker lifecycle、SQLiteへ保存する履歴、
 Sessionで使用する現在のJSON Agent設定の選択を担う。headlessなAgent Workerは、選択された設定を現在の
 model、共通instructions、具体的なtoolと組み合わせる。Agentは`agents`
@@ -29,9 +31,9 @@ formatは自動migrationしない。利用時はversionを固定し、更新前�
 ```sh
 git clone https://forge.harakara.site/littleisland/henji-harness.git
 cd henji-harness
-deno task --config deno.v0.json henji:compile
-./dist/henji --version
-deno task --config deno.v0.json henji:package
+deno task --config deno.v0.json hjh:compile
+./dist/hjh --version
+deno task --config deno.v0.json hjh:package
 # 上のcommandが出力したpackage directoryでinstall.shを実行する。
 ```
 
@@ -42,7 +44,7 @@ read-onlyで調べる。既存の外部sourceは対応する
 `--replace-tools`または`--replace-hooks`を指定しない限り維持する。配置先等は
 [package手順](external-tools/README.md)を参照する。
 
-利用できるcommandとoptionは`henji --help`と`henji COMMAND --help`で確認できる。
+利用できるcommandとoptionは`hjh --help`と`hjh COMMAND --help`で確認できる。
 
 既定providerのOpenRouter API keyを、所有者だけが読めるfileへ保存する。credential値はconfig root
 ではなくstate配下のcredential rootへ置く。
@@ -84,18 +86,18 @@ credentialを登録するものであり、service側のrequest動作は外部to
 
 ```sh
 cd /path/to/your/workspace
-/path/to/henji-harness/dist/henji
+/path/to/henji-harness/dist/hjh
 ```
 
 非対話実行、保存済みSessionの一覧、保存履歴の閲覧も同じbinaryから利用できる。
 
 ```sh
-printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
-/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して'
-/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --json
-/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --stream
-/path/to/henji-harness/dist/henji sessions list
-/path/to/henji-harness/dist/henji history --latest
+printf 'READMEを要約して\n' | /path/to/henji-harness/dist/hjh run
+/path/to/henji-harness/dist/hjh run --task 'このworkspaceの構成を説明して'
+/path/to/henji-harness/dist/hjh run --task 'このworkspaceの構成を説明して' --json
+/path/to/henji-harness/dist/hjh run --task 'このworkspaceの構成を説明して' --stream
+/path/to/henji-harness/dist/hjh sessions list
+/path/to/henji-harness/dist/hjh history --latest
 ```
 
 `run`は既定でfinal textのみをstdoutへ出す。`--json`はturn中のeventを1行1
@@ -107,48 +109,48 @@ stderrへ出す。`--json`と`--stream`は排他。未知の`kind`は無視し�
 非TTYのcallerから `run` を呼ぶときはtaskをstdinから渡す。`--task` はTTYで利用する。
 
 ```sh
-printf 'このworkspaceの構成を説明して\n' | /path/to/henji-harness/dist/henji run --json
+printf 'このworkspaceの構成を説明して\n' | /path/to/henji-harness/dist/hjh run --json
 ```
 
 providerは`/provider`、modelは`/model`、reasoning effortは`/effort`で切り替える。OpenAI directを
 使う場合は同じcredential rootの`openai-api-key`へkeyを保存し、Responses APIなら
-`henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で
+`hjh --root-provider openai-responses`、Chat Completionsなら`hjh --root-provider openai-chat`で
 起動する。ChatGPTは`/login`のsign-inで登録し、`openai-chatgpt`を選ぶ。OpenRouterは既定の
 `openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
 `providers/*.json`のdata-only declarationで、対応protocolを使う別provider IDも追加できる。
 
 ## CLI commands
 
-`henji --help`が示すcommandは次のとおり。
+`hjh --help`が示すcommandは次のとおり。
 
-- `henji tui` — TUIを接続する。引数なしの`henji`と同じで、対象がなければ新しいCoreを起動する
-- `henji serve` — UIを持たないCoreをforegroundで実行する
-- `henji core list | status | stop` — このworkspaceのCoreを一覧・照会・停止する
-- `henji run` — localのheadless Hostで1 taskを実行する
-- `henji history` — localまたは`--connect URL`で保存履歴を読む
-- `henji sessions list | delete --session ID --yes` — 保存済みSessionを管理する
-- `henji agent list | inspect | activate | deactivate` — 現在のJSON Agent設定を選択・確認する
-- `henji tool list | inspect | activate | deactivate` — 外部tool folderを選択・確認する
-- `henji diagnostics runtime | list | latest | show | delete | executions` —
+- `hjh tui` — TUIを接続する。引数なしの`hjh`と同じで、対象がなければ新しいCoreを起動する
+- `hjh serve` — UIを持たないCoreをforegroundで実行する
+- `hjh core list | status | stop` — このworkspaceのCoreを一覧・照会・停止する
+- `hjh run` — localのheadless Hostで1 taskを実行する
+- `hjh history` — localまたは`--connect URL`で保存履歴を読む
+- `hjh sessions list | delete --session ID --yes` — 保存済みSessionを管理する
+- `hjh agent list | inspect | activate | deactivate` — 現在のJSON Agent設定を選択・確認する
+- `hjh tool list | inspect | activate | deactivate` — 外部tool folderを選択・確認する
+- `hjh diagnostics runtime | list | latest | show | delete | executions` —
   runtime配置と診断情報を読む
-- `henji webui` — 将来のWebUI用に予約されており、現在は利用できない
+- `hjh webui` — 将来のWebUI用に予約されており、現在は利用できない
 
 `tui`・`serve`・`run`は`--agent NAME`または`--agent-file FILE`、`--max-steps N`、
 `--provider-timeout-ms MS`、`--root-provider ID`も受け付ける。
 
 ## 複数Coreの並行利用と明示的な再接続
 
-同じworkspaceで `henji` や `henji tui` を起動するたびに、新しいCoreとSessionを作る。
+同じworkspaceで `hjh` や `hjh tui` を起動するたびに、新しいCoreとSessionを作る。
 二つのterminalで独立した仕事を並行に進め、画面上のCore IDとSession IDで識別できる。
-`henji serve`は、指定しない限りSessionを開かず、foregroundで新しいCoreを起動する。
+`hjh serve`は、指定しない限りSessionを開かず、foregroundで新しいCoreを起動する。
 
 ```sh
-henji core list
-henji --core <core-idまたは一意なprefix>
-henji --core <core-id> --new
-henji --session <saved-session-id>
-henji core status --core <core-id> --json
-henji core stop --core <core-id>
+hjh core list
+hjh --core <core-idまたは一意なprefix>
+hjh --core <core-id> --new
+hjh --session <saved-session-id>
+hjh core status --core <core-id> --json
+hjh core stop --core <core-id>
 ```
 
 `/detach`・Ctrl-DでTUIをdetachしても、Coreと受付済みの仕事は継続する。
@@ -157,7 +159,7 @@ henji core stop --core <core-id>
 再接続はCore IDまたは `--connect URL` で明示する。 Core指定なしの `--session`
 は保存Sessionを新Coreで再開する。対象を省略した `core stop` は一覧と指定方法だけを表示する。
 履歴DB・config・credentialは共有し、稼働Sessionのmodel選択と各Coreの親子agent・tool管理は独立する。
-`henji run` はHTTP Coreとは別のheadless入口を維持する。
+`hjh run` はHTTP Coreとは別のheadless入口を維持する。
 詳しい操作は[HTTP API](docs/operations/http-api.md)を参照する。
 
 ## 現在使える主な機能
@@ -173,7 +175,7 @@ henji core stop --core <core-id>
 - Henji base instructionのuser file読込みと実行時attribution
 - `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換Skillの読込み
 
-runtime配置は、credential値を表示しない`henji diagnostics runtime`で確認できる。既定ではconfigを
+runtime配置は、credential値を表示しない`hjh diagnostics runtime`で確認できる。既定ではconfigを
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataを
 `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Session stateを
 `${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`、credential値を
@@ -222,10 +224,10 @@ inputを解析し、結果をfileへ保存できる。`code`の先頭の一行�
 ```
 
 ```sh
-henji agent list
-henji agent inspect --name reviewer
-henji agent activate --file agents/reviewer.json --name reviewer
-henji agent deactivate --name reviewer
+hjh agent list
+hjh agent inspect --name reviewer
+hjh agent activate --file agents/reviewer.json --name reviewer
+hjh agent deactivate --name reviewer
 ```
 
 `tools.json`はtool名をfolderへ対応付ける。各folderは、一致する名前、任意のrevision label、API
@@ -244,10 +246,10 @@ factoryである。factoryはWorker起動時に一度実行され、同じfolder
 別fileをimportできる。Agentが選んだtoolにfolder mappingがある場合、その名前の同梱実装を置き換える。
 
 ```sh
-henji tool list
-henji tool inspect --name marker
-henji tool activate --name marker --folder tools/marker
-henji tool deactivate --name marker
+hjh tool list
+hjh tool inspect --name marker
+hjh tool activate --name marker --folder tools/marker
+hjh tool deactivate --name marker
 ```
 
 ## 外部hook

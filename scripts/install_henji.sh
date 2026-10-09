@@ -29,9 +29,9 @@ if [[ $(basename -- "$config_root") != henji-harness ]]; then
   printf '%s\n' '--config-root must name a henji-harness directory' >&2
   exit 2
 fi
-installed_binary=$binary_dir/henji
-staged_binary=$(mktemp "$binary_dir/.henji-install-XXXXXXXX")
-cp -- "$package_root/henji" "$staged_binary"
+installed_binary=$binary_dir/hjh
+staged_binary=$(mktemp "$binary_dir/.hjh-install-XXXXXXXX")
+cp -- "$package_root/hjh" "$staged_binary"
 chmod 755 -- "$staged_binary"
 mv -f -- "$staged_binary" "$installed_binary"
 for name in search git_inspect web_search web_fetch; do

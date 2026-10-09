@@ -47,15 +47,15 @@ export const packageHenji = async (
     throw new Error(new TextDecoder().decode(diagnostic.stderr));
   }
   const { build } = JSON.parse(new TextDecoder().decode(diagnostic.stdout));
-  const name = `henji-${build.productVersion}-${build.target}-${crypto.randomUUID().slice(0, 8)}`;
+  const name = `hjh-${build.productVersion}-${build.target}-${crypto.randomUUID().slice(0, 8)}`;
   const destination = resolve(outputDirectory);
   await Deno.mkdir(destination, { recursive: true });
-  const staging = await Deno.makeTempDir({ dir: destination, prefix: '.henji-package-' });
+  const staging = await Deno.makeTempDir({ dir: destination, prefix: '.hjh-package-' });
   const folder = join(staging, name);
   await Deno.mkdir(folder);
   try {
-    await Deno.copyFile(executable, join(folder, 'henji'));
-    await Deno.chmod(join(folder, 'henji'), 0o755);
+    await Deno.copyFile(executable, join(folder, 'hjh'));
+    await Deno.chmod(join(folder, 'hjh'), 0o755);
     await Deno.copyFile(join(repository, 'scripts/install_henji.sh'), join(folder, 'install.sh'));
     await Deno.chmod(join(folder, 'install.sh'), 0o755);
     await Deno.copyFile(join(repository, 'external-tools/README.md'), join(folder, 'README.md'));
@@ -99,7 +99,7 @@ export const packageHenji = async (
 
 if (import.meta.main) {
   const args = Deno.args;
-  let binary = join(repository, 'dist/henji');
+  let binary = join(repository, 'dist/hjh');
   let output = join(repository, 'dist');
   for (let index = 0; index < args.length; index += 2) {
     const value = args[index + 1];

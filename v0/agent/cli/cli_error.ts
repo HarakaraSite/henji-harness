@@ -1,6 +1,6 @@
 /** Shared presentation for human CLI failures; machine run records stay in runtime_cli. */
 export const cliErrorText = (command: string, message: string, usage = false): string => {
-  const invocation = command.length === 0 ? 'henji' : `henji ${command}`;
+  const invocation = command.length === 0 ? 'hjh' : `hjh ${command}`;
   return `${invocation}: ${message}\n${usage ? `Try '${invocation} --help' for usage.\n` : ''}`;
 };
 

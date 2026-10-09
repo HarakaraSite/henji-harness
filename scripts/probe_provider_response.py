@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument("--effort", help="Effort; defaults to the selected model's default")
     parser.add_argument("--max-steps", type=int, default=2)
     parser.add_argument("--output", type=Path, help="New output directory (default: /tmp)")
-    parser.add_argument("--henji", type=Path, default=Path(__file__).resolve().parents[1] / "dist/henji")
+    parser.add_argument("--henji", type=Path, default=Path(__file__).resolve().parents[1] / "dist/hjh")
     args = parser.parse_args()
     if args.max_steps < 1:
         parser.error("--max-steps must be positive")

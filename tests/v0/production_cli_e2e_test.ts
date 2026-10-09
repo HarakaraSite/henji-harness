@@ -233,8 +233,8 @@ Deno.test('offline gate cannot reach the production E2E live task', async () => 
   };
   const live = config.tasks['agent:e2e:live'];
   const offline = config.tasks['agent:e2e:test'];
-  assert(live.includes('--allow-run=./dist/henji'));
-  assert(PRODUCTION_CLI_LAUNCHER.endsWith('/dist/henji'));
+  assert(live.includes('--allow-run=./dist/hjh'));
+  assert(PRODUCTION_CLI_LAUNCHER.endsWith('/dist/hjh'));
   assert(!offline.includes('--allow-run'));
   assert(!offline.includes('--allow-net'));
   assert(config.tasks['v0:test'].endsWith(' tests/v0'));

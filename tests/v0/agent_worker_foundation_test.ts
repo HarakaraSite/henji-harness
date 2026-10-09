@@ -778,7 +778,7 @@ Deno.test('runtime CLI explains max-step failure on stderr and preserves exit co
   assertEquals(stdout, '');
   assertEquals(
     stderr,
-    'henji run: agent request limit reached: maximum model steps reached\n',
+    'hjh run: agent request limit reached: maximum model steps reached\n',
   );
 });
 

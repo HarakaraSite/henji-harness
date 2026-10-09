@@ -15,21 +15,21 @@ credential登録はCore全体の操作なので、idleなら保存Session閲覧�
 ## 起動と接続
 
 ```sh
-henji
-henji tui --continue
-henji tui --new --agent generic
-henji serve --port 5270
-henji serve --port 0 --json
-henji serve --port 5270 --session <saved-session-id>
-henji tui --connect http://127.0.0.1:5270
-henji tui --connect http://127.0.0.1:5270 --session <saved-session-id>
-henji history --connect http://127.0.0.1:5270 --latest --view session
-henji core list
-henji --core <core-id>
-henji --core <core-id> --new
-henji --session <saved-session-id>
-henji core status --core <core-id> --json
-henji core stop --core <core-id>
+hjh
+hjh tui --continue
+hjh tui --new --agent generic
+hjh serve --port 5270
+hjh serve --port 0 --json
+hjh serve --port 5270 --session <saved-session-id>
+hjh tui --connect http://127.0.0.1:5270
+hjh tui --connect http://127.0.0.1:5270 --session <saved-session-id>
+hjh history --connect http://127.0.0.1:5270 --latest --view session
+hjh core list
+hjh --core <core-id>
+hjh --core <core-id> --new
+hjh --session <saved-session-id>
+hjh core status --core <core-id> --json
+hjh core stop --core <core-id>
 ```
 
 `serve`はforegroundで待機する。既定hostは`127.0.0.1`、portは`0`（OS割当）。
@@ -42,7 +42,7 @@ SessionのDefinition、provider、最大step、timeoutの指定は既存TUIと�
 接続TUIの`--session`は、稼働中の同IDならattach、保存済みなら明示openで継続する。 保存閲覧はTUI
 pickerのview、またはGET APIで行い、実行slotを変更しない。
 TUIの終了・入力EOF・signalはclientのdetachであり、Coreや受付済みtaskを停止しない。
-`henji core list [--json]`と対象省略の`core status`は、このworkspaceのCore一覧を返す。 Core
+`hjh core list [--json]`と対象省略の`core status`は、このworkspaceのCore一覧を返す。 Core
 ID、PID、workspace、Session ID/titleまたは未open、phase、URLを確認できる。
 `core status --core ID [--json]`と`core stop --core ID`はfull IDまたは一意なprefixで一つを指定する。
 複数一致なら候補を表示し、停止済み・未発見なら状態を返す。代替Coreは起動しない。
@@ -51,14 +51,14 @@ ID、PID、workspace、Session ID/titleまたは未open、phase、URLを確認�
 明示stopとserve自身へのSIGINT／SIGTERMはHTTP shutdownと同じ資源清算へ入る。
 同じworkspace・XDGでも、serveと通常TUIは毎回新PID・epoch・URLのCoreを起動する。
 launcherはspawn前にepochを採番し、そのepochのdescriptor・boot結果・APIを照合する。
-引数なし`henji`と`henji tui`は同じHTTP clientへ入り、新Coreの空slotへ新Sessionを開く。
+引数なし`hjh`と`hjh tui`は同じHTTP clientへ入り、新Coreの空slotへ新Sessionを開く。
 `--core ID`では一覧のfull
 IDまたは一意なprefix、`--connect URL`では指定先だけへ接続し、新Coreを起動しない。
 再接続は現在の稼働Sessionへattachし、
 `--new`は新規Sessionを明示する。`--help`でcommandとoptionの所属を確認できる。
 起動ヘッダは接続先の短いCore IDとSession IDを表示する。Session切替後もCore IDは保持する。
-`henji --core ID --new`は選んだidle CoreのSessionだけを切り替える。
-Core指定なしの`henji --session ID`は新Coreで保存Sessionを再開し、生存Coreへのattachとは別操作となる。
+`hjh --core ID --new`は選んだidle CoreのSessionだけを切り替える。
+Core指定なしの`hjh --session ID`は新Coreで保存Sessionを再開し、生存Coreへのattachとは別操作となる。
 同じ保存Sessionが生存writerに所有されている間は二重writerを開かない。
 config・credentialは共有、新Sessionの既定modelは共有config、稼働Sessionの選択はSession
 stateに属する。 Core間で同じworkspace fileを編集する順番の調停は行わない。
@@ -172,8 +172,8 @@ UIの終了やHTTP接続の切断は、この明示cancel操作を送らず、�
 接続TUIでは履歴閲覧中のEscが最新表示へ戻り、最新表示中のEscが対象実行へのcancel。
 Ctrl-Cはbusy中もdraftを消す。
 `/detach`・Ctrl-D・TERM／HUPはdetachし、受付済み実行とfollow-upを継続する。
-通常の`henji`は毎回新Core・新Sessionを開く。
-生存Coreの稼働Sessionへ戻るときは`henji --core ID`または`henji --connect URL`で再接続する。
+通常の`hjh`は毎回新Core・新Sessionを開く。
+生存Coreの稼働Sessionへ戻るときは`hjh --core ID`または`hjh --connect URL`で再接続する。
 working／cancellingと経過時間はフッター二行目の先頭に表示する。
 経過時間はexecution開始時刻から表示し、再接続でも引き継ぐ。
 

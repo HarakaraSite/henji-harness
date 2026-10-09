@@ -7,6 +7,8 @@ it provides an interactive TUI and non-interactive runs, Session history, switch
 models, JSON Agent configuration, and folder-based tools. The name Henji comes from the Japanese
 word "henji" (返事), meaning "reply".
 
+The executable command is `hjh`, short for Henji Harness.
+
 In the current Henji runtime, the Host handles the TUI and headless Surfaces, Worker lifecycle,
 history stored in SQLite, and selection of the current JSON Agent configuration for a Session. The
 headless Agent Worker composes the selected configuration with the current model, common
@@ -34,9 +36,9 @@ to install Deno.
 ```sh
 git clone https://forge.harakara.site/littleisland/henji-harness.git
 cd henji-harness
-deno task --config deno.v0.json henji:compile
-./dist/henji --version
-deno task --config deno.v0.json henji:package
+deno task --config deno.v0.json hjh:compile
+./dist/hjh --version
+deno task --config deno.v0.json hjh:package
 # Run install.sh in the package directory printed by the command above.
 ```
 
@@ -47,7 +49,7 @@ and enable the default hook. Local search prefers rg and uses grep when rg is un
 retained unless the corresponding `--replace-tools` or `--replace-hooks` option is specified. See
 the [package instructions](external-tools/README.md) for installation options.
 
-Use `henji --help` and `henji COMMAND --help` to see the available commands and options.
+Use `hjh --help` and `hjh COMMAND --help` to see the available commands and options.
 
 Save the OpenRouter API key for the default provider in a file readable only by its owner.
 Credential values live in the credential root under the state directory, not in the config root.
@@ -93,19 +95,19 @@ use `/help` to see the commands.
 
 ```sh
 cd /path/to/your/workspace
-/path/to/henji-harness/dist/henji
+/path/to/henji-harness/dist/hjh
 ```
 
 Non-interactive runs, listing saved Sessions, and reading saved history are also available from the
 same binary.
 
 ```sh
-printf 'Summarize the README\n' | /path/to/henji-harness/dist/henji run
-/path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace'
-/path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace' --json
-/path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace' --stream
-/path/to/henji-harness/dist/henji sessions list
-/path/to/henji-harness/dist/henji history --latest
+printf 'Summarize the README\n' | /path/to/henji-harness/dist/hjh run
+/path/to/henji-harness/dist/hjh run --task 'Explain the structure of this workspace'
+/path/to/henji-harness/dist/hjh run --task 'Explain the structure of this workspace' --json
+/path/to/henji-harness/dist/hjh run --task 'Explain the structure of this workspace' --stream
+/path/to/henji-harness/dist/hjh sessions list
+/path/to/henji-harness/dist/hjh history --latest
 ```
 
 By default `run` writes only the final text to stdout. `--json` writes the turn's events as one JSON
@@ -117,52 +119,52 @@ writes assistant text incrementally to stdout and a summary of tool activity to 
 Non-TTY callers pass the task on stdin; `--task` is available from a TTY.
 
 ```sh
-printf 'Explain the structure of this workspace\n' | /path/to/henji-harness/dist/henji run --json
+printf 'Explain the structure of this workspace\n' | /path/to/henji-harness/dist/hjh run --json
 ```
 
 Switch provider with `/provider`, model with `/model`, and reasoning effort with `/effort`. To use
 OpenAI direct, save the key as `openai-api-key` in the same credential root, and start with
-`henji --root-provider openai-responses` for the Responses API. Register ChatGPT with `/login`
-sign-in and select `openai-chatgpt`. For OpenRouter you can choose the default `openrouter-chat` or
+`hjh --root-provider openai-responses` for the Responses API. Register ChatGPT with `/login` sign-in
+and select `openai-chatgpt`. For OpenRouter you can choose the default `openrouter-chat` or
 `openrouter-responses`, which uses the same `openrouter-api-key`. Data-only declarations in
 `providers/*.json` let you add other provider IDs that speak a supported protocol.
 
 ## CLI commands
 
-`henji --help` lists the following commands.
+`hjh --help` lists the following commands.
 
-- `henji tui` — connect a TUI; the same as `henji` with no arguments, starting a fresh Core when
-  there is no target
-- `henji serve` — run a Core in the foreground without a UI
-- `henji core list | status | stop` — list, inspect, or stop this workspace's Cores
-- `henji run` — execute one task with a local headless Host
-- `henji history` — read saved history locally or via `--connect URL`
-- `henji sessions list | delete --session ID --yes` — manage saved Sessions
-- `henji agent list | inspect | activate | deactivate` — select and inspect current JSON Agent
+- `hjh tui` — connect a TUI; the same as `hjh` with no arguments, starting a fresh Core when there
+  is no target
+- `hjh serve` — run a Core in the foreground without a UI
+- `hjh core list | status | stop` — list, inspect, or stop this workspace's Cores
+- `hjh run` — execute one task with a local headless Host
+- `hjh history` — read saved history locally or via `--connect URL`
+- `hjh sessions list | delete --session ID --yes` — manage saved Sessions
+- `hjh agent list | inspect | activate | deactivate` — select and inspect current JSON Agent
   settings
-- `henji tool list | inspect | activate | deactivate` — select and inspect external tool folders
-- `henji diagnostics runtime | list | latest | show | delete | executions` — read the runtime layout
+- `hjh tool list | inspect | activate | deactivate` — select and inspect external tool folders
+- `hjh diagnostics runtime | list | latest | show | delete | executions` — read the runtime layout
   and diagnostics
-- `henji webui` — reserved for the future WebUI; currently unavailable
+- `hjh webui` — reserved for the future WebUI; currently unavailable
 
 `tui`, `serve`, and `run` also accept `--agent NAME` or `--agent-file FILE`, `--max-steps N`,
 `--provider-timeout-ms MS`, and `--root-provider ID`.
 
 ## Parallel Cores and explicit reconnect
 
-Each `henji` or `henji tui` invocation starts a fresh Core and Session, even in the same workspace.
+Each `hjh` or `hjh tui` invocation starts a fresh Core and Session, even in the same workspace.
 Independent work can proceed in parallel in two terminals, identified by the Core ID and Session ID
-shown on screen. `henji serve` starts a fresh foreground Core without opening a Session unless
+shown on screen. `hjh serve` starts a fresh foreground Core without opening a Session unless
 requested. Cores share workspace history, config, and credentials; each Core owns its active
-Session, child Agents, and tools. `henji run` keeps a headless entry separate from HTTP Cores.
+Session, child Agents, and tools. `hjh run` keeps a headless entry separate from HTTP Cores.
 
 ```sh
-henji core list
-henji --core <core-id-or-unique-prefix>
-henji --core <core-id> --new
-henji --session <saved-session-id>
-henji core status --core <core-id> --json
-henji core stop --core <core-id>
+hjh core list
+hjh --core <core-id-or-unique-prefix>
+hjh --core <core-id> --new
+hjh --session <saved-session-id>
+hjh core status --core <core-id> --json
+hjh core stop --core <core-id>
 ```
 
 The TUI header shows both Core and Session IDs. `/detach` or Ctrl-D detaches the TUI and leaves
@@ -188,7 +190,7 @@ resumes saved work in a fresh Core. `core stop` without a target lists Cores and
 - Loading of the Henji base instruction from a user file, and runtime attribution
 - Loading of `AGENTS.md` and of workspace/user-scoped Zot, Claude, and Agents-compatible Skills
 
-You can check the runtime layout with `henji diagnostics runtime`, which does not display credential
+You can check the runtime layout with `hjh diagnostics runtime`, which does not display credential
 values. By default it stores config in `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`, managed
 data in `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`, Session state in
 `${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`, and credential values in
@@ -241,10 +243,10 @@ one-line purpose comment that the tool row shows:
 ```
 
 ```sh
-henji agent list
-henji agent inspect --name reviewer
-henji agent activate --file agents/reviewer.json --name reviewer
-henji agent deactivate --name reviewer
+hjh agent list
+hjh agent inspect --name reviewer
+hjh agent activate --file agents/reviewer.json --name reviewer
+hjh agent deactivate --name reviewer
 ```
 
 `tools.json` maps tool names to folders. Each folder contains `tool.json` with the matching name, an
@@ -263,10 +265,10 @@ other files in its folder. A folder mapping for an Agent's selected tool replace
 implementation of that name.
 
 ```sh
-henji tool list
-henji tool inspect --name marker
-henji tool activate --name marker --folder tools/marker
-henji tool deactivate --name marker
+hjh tool list
+hjh tool inspect --name marker
+hjh tool activate --name marker --folder tools/marker
+hjh tool deactivate --name marker
 ```
 
 ## External hooks

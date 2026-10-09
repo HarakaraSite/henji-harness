@@ -5,7 +5,13 @@
 
 ## 現在地（2026-10-09）
 
-- [Increment 219](../docs/increments/increment-219.md)が現在の作業正本。 利用者が5分周期Core
+- [Increment 220](../docs/increments/increment-220.md)が現在の作業正本。
+  別アプリの`henji`との衝突を避けるため、利用者がCLI実行名`hjh`を採用した。
+  compile/package/install・CLI案内・通常利用手順を更新し、focused確認と隔離standalone
+  Core/TUI操作まで検証済み。設定・履歴・公開API名は維持。実provider 0。
+  `dist/hjh`をbuild済み、証跡は`.tools/increment-220-hjh/`。
+  常用配置・旧binary削除・commit/pushは未実施。もう一方のアプリは変更対象外。
+- [Increment 219](../docs/increments/increment-219.md)を参照する。利用者が5分周期Core
   trimの実装と「約6分×2ターン＋短い確認会話」の隔離計測を選択した。
   local実装・一回の隔離計測・全照合済み。実provider 0、CPU時間とpage faultも記録済み。
   [5分周期測定報告書](../docs/research/increment-219-five-minute-memory-2026-10-09.md)を参照する。
@@ -58,6 +64,8 @@
 
 ## 次の一手
 
+- 220のlocal実装・検証結果は記録済み。常用配置・commit/pushは利用者指示に従う。
+  architectureの現行CLI表記更新案は220末尾に保持し、別途承認してから反映する。
 - 218のlocalhost確認・全体review指摘対応・実provider基本e2e・20turnメモリ同時計測と、
   最新commitのlocalhost 200turn再測定・1/200turnのAgent終了前後・native
   allocator/stack測定は記録済み。 218の受入判断/実DB操作/配置/pushは利用者指示に従う。基本e2eは

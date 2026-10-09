@@ -288,7 +288,7 @@ Deno.test('Increment 104 rejects --json with --stream', async () => {
   assertEquals(exit, 1);
   assertEquals(state.stdout, '');
   assert(state.stderr.includes('--json and --stream are mutually exclusive'));
-  assert(state.stderr.includes('henji run --help'));
+  assert(state.stderr.includes('hjh run --help'));
 });
 
 Deno.test('Increment 104 --json reports a failed run as a result record', async () => {

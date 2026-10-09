@@ -73,7 +73,7 @@ Deno.test('Increment 146 invalid invocation and an unreachable explicit URL fail
     1,
   );
   strictEqual(text.includes('unexpected TUI option --definition-revision'), true);
-  strictEqual(text.includes('henji tui --help'), true);
+  strictEqual(text.includes('hjh tui --help'), true);
   strictEqual(terminal.rawCalls, 0);
   text = '';
   const listener = Deno.listen({ hostname: '127.0.0.1', port: 0 });
@@ -104,6 +104,6 @@ Deno.test('Increment 146 root and command help work without local environment or
       stderr: 'piped',
     }).output();
     strictEqual(result.code, 0, new TextDecoder().decode(result.stderr));
-    strictEqual(new TextDecoder().decode(result.stdout).startsWith('Usage: henji'), true);
+    strictEqual(new TextDecoder().decode(result.stdout).startsWith('Usage: hjh'), true);
   }
 });

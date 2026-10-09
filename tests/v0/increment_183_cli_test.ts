@@ -51,7 +51,7 @@ Deno.test('183 public CLI errors explain unknown commands and options on stderr'
     strictEqual(root.code, 1);
     strictEqual(root.stdout, '');
     ok(root.stderr.includes("Unknown command 'list'"));
-    ok(root.stderr.includes('henji core list'));
+    ok(root.stderr.includes('hjh core list'));
     for (
       const args of [
         ['--unknown'],
@@ -71,7 +71,7 @@ Deno.test('183 public CLI errors explain unknown commands and options on stderr'
       const result = await cli.invoke(args);
       strictEqual(result.code, 1, result.stderr);
       strictEqual(result.stdout, '', args.join(' '));
-      ok(result.stderr.startsWith('henji'), result.stderr);
+      ok(result.stderr.startsWith('hjh'), result.stderr);
       ok(result.stderr.includes('--unknown'), result.stderr);
       ok(result.stderr.includes('--help'), result.stderr);
     }
@@ -120,6 +120,10 @@ Deno.test('183 CLI reports missing values and invalid values with the relevant u
 Deno.test('183 subcommand help succeeds and run JSON errors retain the machine contract', async () => {
   const cli = await isolatedCli();
   try {
+    const version = await cli.invoke(['--version']);
+    strictEqual(version.code, 0, version.stderr);
+    ok(version.stdout.startsWith('hjh '), version.stdout);
+    strictEqual(version.stderr, '');
     for (
       const args of [
         ['core', 'list', '--help'],
@@ -131,7 +135,7 @@ Deno.test('183 subcommand help succeeds and run JSON errors retain the machine c
     ) {
       const result = await cli.invoke(args);
       strictEqual(result.code, 0, result.stderr);
-      ok(result.stdout.startsWith('Usage: henji'));
+      ok(result.stdout.startsWith('Usage: hjh'));
       strictEqual(result.stderr, '');
     }
     const result = await cli.invoke(['run', '--json', '--unknown']);
