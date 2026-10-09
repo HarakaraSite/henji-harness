@@ -20,7 +20,13 @@ const scope = globalThis as unknown as DataWorkerScope;
 let service: DataService | undefined;
 const conversationWatches = new Map<string, () => void>();
 const descriptorWatches = new Map<string, () => void>();
+const conversationDeliveryAcks = new Map<string, () => void>();
 let unsubscribeAgentEvents: (() => void) | undefined;
+
+const conversationDeliveryKey = (
+  sessionId: string,
+  deliverySequence: number,
+): string => `${sessionId}\u0000${deliverySequence}`;
 
 const asDataError = (error: unknown): DataServiceError =>
   error instanceof DataServiceError ? error : new DataServiceError(
@@ -51,8 +57,19 @@ const replyValue = (
   scope.postMessage({ id, kind: 'value', value }, transfer);
 };
 
-const postConversationDelta = (update: DataConversationUpdate): void => {
-  scope.postMessage({ kind: 'conversation_delta', update }, [update.bytes.buffer]);
+const postConversationDelta = (update: DataConversationUpdate): Promise<void> => {
+  const key = conversationDeliveryKey(update.sessionId, update.deliverySequence);
+  return new Promise<void>((resolve, reject) => {
+    conversationDeliveryAcks.set(key, resolve);
+    try {
+      scope.postMessage({ kind: 'conversation_delta', update }, [
+        update.bytes.buffer,
+      ]);
+    } catch (error) {
+      conversationDeliveryAcks.delete(key);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
 };
 
 const postSessionDescriptorDelta = (
@@ -109,6 +126,21 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
         ]);
         return;
       }
+      case 'history_stream_open':
+        replyValue(
+          request.id,
+          await data.historyStreamOpen(request.input),
+        );
+        return;
+      case 'history_stream_read': {
+        const chunk = await data.historyStreamRead(request.streamId);
+        replyValue(request.id, chunk, [chunk.bytes.buffer]);
+        return;
+      }
+      case 'history_stream_close':
+        await data.historyStreamClose(request.streamId);
+        replyValue(request.id, undefined);
+        return;
       case 'context_read': {
         const result = await data.contextRead(
           request.sessionId,
@@ -130,6 +162,34 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
           kind: 'execution',
           result: await data.executionRead(request.executionId),
         });
+        return;
+      case 'command_receipt_read':
+        replyValue(
+          request.id,
+          await data.commandReceiptRead(request.coreEpoch, request.commandId),
+        );
+        return;
+      case 'command_receipt_save':
+        await data.commandReceiptSave(request.receipt);
+        replyValue(request.id, undefined);
+        return;
+      case 'core_session_cursor_read':
+        replyValue(
+          request.id,
+          await data.coreSessionCursorRead(request.coreEpoch, request.sessionId),
+        );
+        return;
+      case 'core_session_cursor_save':
+        await data.coreSessionCursorSave(
+          request.coreEpoch,
+          request.sessionId,
+          request.revision,
+        );
+        replyValue(request.id, undefined);
+        return;
+      case 'execution_completion_control_save':
+        await data.saveExecutionCompletionControl(request.control);
+        replyValue(request.id, undefined);
         return;
       case 'session_open':
         replyValue(request.id, await data.openSession(request.input));
@@ -153,6 +213,48 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
         replyValue(request.id, snapshot, [snapshot.bytes.buffer]);
         return;
       }
+      case 'conversation_page_read': {
+        const page = await data.conversationPageRead(
+          request.sessionId,
+          request.cursor,
+          request.direction,
+        );
+        replyValue(request.id, page, [page.bytes.buffer]);
+        return;
+      }
+      case 'conversation_content_read':
+        replyValue(
+          request.id,
+          await data.conversationContentRead(
+            request.locator,
+            request.offset,
+            request.length,
+          ),
+        );
+        return;
+      case 'follow_up_save':
+        await data.followUpSave(
+          request.receipt.coreEpoch,
+          request.receipt.sessionId,
+          request.receipt.followUp,
+        );
+        replyValue(request.id, undefined);
+        return;
+      case 'follow_up_read':
+        replyValue(
+          request.id,
+          await data.followUpRead(request.queueId),
+        );
+        return;
+      case 'follow_up_page_read':
+        replyValue(
+          request.id,
+          await data.followUpPageRead(
+            request.sessionId,
+            request.cursor,
+          ),
+        );
+        return;
       case 'watch_conversation': {
         const existing = conversationWatches.get(request.sessionId);
         if (existing !== undefined) {
@@ -160,18 +262,24 @@ const handle = async (request: DataWorkerRequest): Promise<void> => {
           replyValue(request.id, snapshot, [snapshot.bytes.buffer]);
           return;
         }
-        const buffered: DataConversationUpdate[] = [];
-        let registering = true;
-        const watched = await data.watchConversation(request.sessionId, (update) => {
-          if (registering) buffered.push(update);
-          else postConversationDelta(update);
-        });
+        const watched = await data.watchConversation(
+          request.sessionId,
+          postConversationDelta,
+        );
         conversationWatches.set(request.sessionId, watched.unsubscribe);
-        replyValue(request.id, watched.snapshot, [watched.snapshot.bytes.buffer]);
-        registering = false;
-        for (const update of buffered) {
-          if (update.cut > watched.snapshot.cut) postConversationDelta(update);
-        }
+        replyValue(request.id, watched.snapshot, [
+          watched.snapshot.bytes.buffer,
+        ]);
+        return;
+      }
+      case 'conversation_delta_ack': {
+        const key = conversationDeliveryKey(
+          request.sessionId,
+          request.deliverySequence,
+        );
+        conversationDeliveryAcks.get(key)?.();
+        conversationDeliveryAcks.delete(key);
+        replyValue(request.id, undefined);
         return;
       }
       case 'unwatch_conversation': {

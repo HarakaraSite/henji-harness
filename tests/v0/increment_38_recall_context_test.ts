@@ -50,8 +50,10 @@ const correlation = (command: string) => ({
 Deno.test('Increment 113 restored steering answer survives the next live Worker turn', async () => {
   let committedTranscript: readonly Message[] | undefined;
   let requests = 0;
+  let latestRequest: ModelRequest | undefined;
   const model: Model = {
-    generate(): ModelResult {
+    generate(request): ModelResult {
+      latestRequest = structuredClone(request);
       requests += 1;
       if (requests === 1) {
         return {
@@ -120,7 +122,7 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
   await generation.runTurn(correlation('next-turn'), 'next task');
   assert(committedTranscript !== undefined);
   assert(
-    committedTranscript.some((message) =>
+    latestRequest?.transcript.some((message) =>
       message.role === 'assistant' && 'kind' in message.content &&
       message.content.text === 'saved answer'
     ),
@@ -698,7 +700,12 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
       ),
   );
   assert(proposal !== undefined);
-  assertEquals(proposal.slice(0, initialTranscript.length), initialTranscript);
+  assertEquals(proposal[0], {
+    role: 'user',
+    content: { kind: 'text', text: 'current checkpoint task' },
+  });
+  assert(!JSON.stringify(proposal).includes('old answer two'));
+  assert(JSON.stringify(request.transcript).includes('old answer two'));
   assert(!JSON.stringify(proposal).includes('[henji-recalled-execution:v1]'));
   assert(contextDelta !== undefined);
   const checkpointOccurrence = contextDelta.occurrences.find((occurrence) =>
@@ -709,7 +716,7 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
   );
   const recallOccurrence = contextDelta.occurrences.find((occurrence) =>
     occurrence.sourceRelations.some((source) =>
-      source.logicalIdentity === `recall:${SOURCE_ID}->${SESSION_ID}:turn:3:message:4` &&
+      source.logicalIdentity === `recall:${SOURCE_ID}->${SESSION_ID}:turn:3` &&
       source.sourceLocator === `execution:${SOURCE_ID}`
     )
   );

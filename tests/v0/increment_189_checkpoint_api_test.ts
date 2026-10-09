@@ -57,6 +57,8 @@ const configure = async (root: string, delayMs: number) => {
     record + `export default () => ({
       before_turn: ({ runtime, context }) => record({
         phase: 'before_turn', turn: runtime.turnNumber,
+        nextTurn: context.transcript.nextTurn, messageCount: context.transcript.messageCount,
+        range: context.transcript.range,
         checkpoint: context.checkpoint,
         turns: context.transcript.turns.map((turn) => turn.turn),
         retained: context.projectedContext.retainedTurns.map((turn) => turn.turn),
@@ -169,8 +171,10 @@ Deno.test('Increment 189 root after_turn waits for durable checkpoints and resto
     const third = (await readLog(logPath)).find((event) =>
       event.phase === 'before_turn' && event.turn === 3
     )!;
-    deepStrictEqual(third.turns, [1, 2]);
+    deepStrictEqual(third.turns, [2]);
     deepStrictEqual(third.retained, [2]);
+    strictEqual(third.nextTurn, 3);
+    strictEqual(third.messageCount, 4);
     strictEqual((third.checkpoint as { summary: string }).summary, 'SUMMARY_B');
     const history = JSON.parse(new TextDecoder().decode(
       (await service.data.historyRead({
@@ -193,7 +197,7 @@ Deno.test('Increment 189 root after_turn waits for durable checkpoints and resto
     const reopened = (await readLog(logPath)).find((event) =>
       event.phase === 'before_turn' && event.turn === 4
     )!;
-    deepStrictEqual(reopened.turns, [1, 2, 3]);
+    deepStrictEqual(reopened.turns, [2, 3]);
     deepStrictEqual(reopened.retained, [2, 3]);
     strictEqual((reopened.checkpoint as { summary: string }).summary, 'SUMMARY_B');
   } finally {
@@ -225,8 +229,47 @@ Deno.test('Increment 189 headless root adopts its own context despite noncanonic
     const third = log.find((event) => event.phase === 'before_turn' && event.turn === 3)!;
     ok(third.checkpoint, `checkpoint missing: ${workerErrors.join('; ')}`);
     strictEqual((third.checkpoint as { summary: string }).summary, 'SUMMARY_B');
-    deepStrictEqual(third.turns, [1, 2]);
+    deepStrictEqual(third.turns, [2]);
     deepStrictEqual(third.retained, [2]);
+    strictEqual(third.nextTurn, 3);
+    strictEqual(third.messageCount, 4);
+  } finally {
+    await service?.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 218 restores a large saved checkpoint without spending the conversation budget', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-218-checkpoint-budget-' });
+  const { options, logPath } = await configure(root, 0);
+  const summary = 's'.repeat(12_000);
+  await Deno.writeTextFile(
+    `${options.configRoot}/hooks/observer.ts`,
+    `export default () => ({ after_turn: ({ runtime }) => runtime.turnNumber === 2
+      ? { checkpoint: { summary: ${JSON.stringify(summary)}, coveredThroughTurn: 1 } }
+      : undefined });`,
+  );
+  await writeJson(`${options.configRoot}/context-budget.json`, {
+    defaults: { historyTokens: 2000, inputTokens: 65_536 },
+  });
+  let service: Application | undefined;
+  try {
+    service = await createApplicationService({ ...options, persistence: 'new' });
+    const sessionId = service.currentSession().sessionId;
+    await complete(service, 'FIRST');
+    await complete(service, 'SECOND');
+    await service.close();
+    service = await createApplicationService({ ...options, persistence: 'session', sessionId });
+    await complete(service, 'REOPENED');
+    const reopened = (await readLog(logPath)).find((event) =>
+      event.phase === 'before_turn' && event.turn === 3
+    )!;
+    strictEqual((reopened.checkpoint as { summary: string }).summary, summary);
+    deepStrictEqual(reopened.turns, [2]);
+    const canonical = JSON.parse(new TextDecoder().decode(
+      (await service.data.historyRead({ sessionRef: sessionId, view: 'canonical' })).bytes,
+    )).text as string;
+    ok(canonical.includes('worker answer: REOPENED'));
   } finally {
     await service?.close();
     await Deno.remove(root, { recursive: true });

@@ -14,15 +14,15 @@ import type {
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import {
   applyHistoryAppendResults,
-  applyHistoryCommitDelta,
   replaySessionConversation,
 } from '../../conversation/history_adapter.ts';
 import {
   compareConversationPositions,
   type ConversationChange,
+  type ConversationEntity,
+  type ConversationPageMetadata,
   type ConversationState,
 } from '../../conversation/model.ts';
-import { applyObservation, conversationJson } from '../../conversation/normalizer.ts';
 
 interface ConversationWriterChange {
   readonly sessionId: string;
@@ -39,6 +39,7 @@ export interface ConversationWriterSnapshot {
   readonly sessionId: string;
   readonly cut: number;
   readonly storeRevision: number;
+  readonly page: ConversationPageMetadata;
   readonly bytes: Uint8Array<ArrayBuffer>;
 }
 
@@ -61,7 +62,8 @@ interface SessionConversation {
     typeof replaySessionConversation
   >['normalizer'];
   readonly listeners: Set<ConversationWriterListener>;
-  nextExecutionOrder: number;
+  readonly executionIds: Set<string>;
+  page: ConversationPageMetadata;
 }
 
 interface SessionSaveCursor {
@@ -105,11 +107,42 @@ const coalesceEntityUpdates = (
   return result;
 };
 
+const samePublishedEntity = (
+  left: ConversationEntity,
+  right: ConversationEntity,
+): boolean => {
+  const leftDetails = 'details' in left ? left.details : undefined;
+  const rightDetails = 'details' in right ? right.details : undefined;
+  const leftEntity = 'details' in left
+    ? (({ details: _details, ...entity }) => entity)(left)
+    : left;
+  const rightEntity = 'details' in right
+    ? (({ details: _details, ...entity }) => entity)(right)
+    : right;
+  if (JSON.stringify(leftEntity) !== JSON.stringify(rightEntity)) return false;
+  if (leftDetails === undefined || rightDetails === undefined) {
+    return leftDetails === rightDetails;
+  }
+  return leftDetails.length === rightDetails.length &&
+    leftDetails.every((locator, index) => {
+      const other = rightDetails[index];
+      return other !== undefined && locator.sessionId === other.sessionId &&
+        locator.executionId === other.executionId &&
+        locator.entityId === other.entityId &&
+        locator.field === other.field && locator.digest === other.digest &&
+        locator.version === other.version &&
+        locator.totalBytes === other.totalBytes &&
+        locator.sourceEventOrdinal === other.sourceEventOrdinal &&
+        locator.sourceIndex === other.sourceIndex;
+    });
+};
+
 const snapshotValue = (
   sessionId: string,
   state: ConversationState,
   cut: number,
   storeRevision: number,
+  page: ConversationPageMetadata,
 ) => {
   const entities = Object.fromEntries(state.entities);
   const order = [...state.order.entries()]
@@ -119,45 +152,56 @@ const snapshotValue = (
     )
     .map(([id]) => id);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut,
     storeRevision,
     entities,
     order,
+    page,
   } as const;
 };
 
-const executionEntity = (
-  session: SessionConversation,
-  input: BeginExecutionInput,
+const stateChanges = (
+  previous: ConversationState,
+  next: ConversationState,
 ): readonly ConversationChange[] => {
-  const executionOrder = session.nextExecutionOrder++;
-  return applyObservation(session.state, session.normalizer, {
-    kind: 'execution',
-    execution: {
-      executionId: input.executionId,
-      taskId: input.taskId,
-      task: input.task,
-      sessionId: input.sessionCorrelation,
-      ...(input.canonicalSessionId === undefined
-        ? {}
-        : { canonicalSessionId: input.canonicalSessionId }),
-      ...(input.parentExecutionId === undefined
-        ? {}
-        : { parentExecutionId: input.parentExecutionId }),
-      ...(input.spawnCallId === undefined ? {} : { spawnCallId: input.spawnCallId }),
-      turn: input.turn,
-      createdAt: input.createdAt,
-      lifecycle: 'active',
-      outcome: 'unknown',
-      adoption: 'non_canonical',
-      baseRevision: input.baseStateRevision,
-      agent: input.agent,
-      model: conversationJson(input.model),
-    },
-    executionOrder,
-  });
+  const changes: ConversationChange[] = [];
+  for (const id of previous.order.keys()) {
+    if (!next.order.has(id)) {
+      changes.push({ kind: 'order', action: 'remove', id }, {
+        kind: 'remove',
+        id,
+      });
+    }
+  }
+  for (const [id, entity] of next.entities) {
+    const previousEntity = previous.entities.get(id);
+    if (
+      previousEntity === undefined ||
+      !samePublishedEntity(previousEntity, entity)
+    ) {
+      changes.push({ kind: 'upsert', entity });
+    }
+    const oldPosition = previous.order.get(id);
+    const nextPosition = next.order.get(id);
+    if (
+      nextPosition !== undefined &&
+      (oldPosition === undefined ||
+        compareConversationPositions(oldPosition, nextPosition) !== 0)
+    ) {
+      if (oldPosition !== undefined) {
+        changes.push({ kind: 'order', action: 'remove', id });
+      }
+      changes.push({
+        kind: 'order',
+        action: 'insert',
+        id,
+        position: nextPosition,
+      });
+    }
+  }
+  return changes;
 };
 
 /**
@@ -167,6 +211,7 @@ const executionEntity = (
 export class ConversationWriter {
   readonly #sessions = new Map<string, SessionSaveCursor>();
   readonly #executionSessions = new Map<string, string>();
+  readonly #sessionExecutions = new Map<string, Set<string>>();
   readonly #closedSessions = new Set<string>();
   #closed = false;
 
@@ -182,9 +227,14 @@ export class ConversationWriter {
     const cursor = this.#ensureCursor(input.sessionCorrelation);
     await this.store.beginExecution(input);
 
-    this.#executionSessions.set(input.executionId, input.sessionCorrelation);
-    cursor.storeRevision = Math.max(cursor.storeRevision, input.baseStateRevision);
-    const changes = cursor.view === undefined ? [] : executionEntity(cursor.view, input);
+    this.#rememberExecution(input.executionId, input.sessionCorrelation);
+    cursor.storeRevision = Math.max(
+      cursor.storeRevision,
+      input.baseStateRevision,
+    );
+    const changes = cursor.view === undefined
+      ? []
+      : this.#refreshLatestPage(input.sessionCorrelation, cursor);
     const delta = this.#publish(
       input.sessionCorrelation,
       cursor,
@@ -213,11 +263,14 @@ export class ConversationWriter {
       const sessionId = sessionsByExecution.get(result.event.executionId);
       if (sessionId === undefined) continue;
       const view = this.#sessions.get(sessionId)?.view;
-      if (view === undefined) continue;
+      if (
+        view === undefined || !view.executionIds.has(result.event.executionId)
+      ) continue;
       const changes = applyHistoryAppendResults(
         view.state,
         view.normalizer,
         [result],
+        this.#sessions.get(sessionId)!.cut + 1,
       );
       const group = changesBySession.get(sessionId) ?? [];
       group.push(...changes);
@@ -247,11 +300,15 @@ export class ConversationWriter {
     const sessionId = this.#sessionIdForExecution(input.event.executionId);
     const cursor = this.#ensureCursor(sessionId);
     const result = this.store.appendPostSettlementSemanticEvent(input);
-    const changes = cursor.view === undefined ? [] : applyHistoryAppendResults(
-      cursor.view.state,
-      cursor.view.normalizer,
-      [result],
-    );
+    const changes = cursor.view === undefined ||
+        !cursor.view.executionIds.has(input.event.executionId)
+      ? []
+      : applyHistoryAppendResults(
+        cursor.view.state,
+        cursor.view.normalizer,
+        [result],
+        cursor.cut + 1,
+      );
     return {
       result,
       deltas: [this.#publish(sessionId, cursor, changes)],
@@ -283,17 +340,11 @@ export class ConversationWriter {
     );
     return {
       result,
-      deltas: [
-        this.#publish(
-          sessionId,
-          cursor,
-          cursor.view === undefined ? [] : applyHistoryCommitDelta(
-            cursor.view.state,
-            cursor.view.normalizer,
-            delta,
-          ),
-        ),
-      ],
+      deltas: [this.#publish(
+        sessionId,
+        cursor,
+        cursor.view === undefined ? [] : this.#refreshLatestPage(sessionId, cursor),
+      )],
     };
   }
 
@@ -315,17 +366,11 @@ export class ConversationWriter {
     );
     return {
       result,
-      deltas: [
-        this.#publish(
-          sessionId,
-          cursor,
-          cursor.view === undefined ? [] : applyHistoryCommitDelta(
-            cursor.view.state,
-            cursor.view.normalizer,
-            delta,
-          ),
-        ),
-      ],
+      deltas: [this.#publish(
+        sessionId,
+        cursor,
+        cursor.view === undefined ? [] : this.#refreshLatestPage(sessionId, cursor),
+      )],
     };
   }
 
@@ -343,17 +388,11 @@ export class ConversationWriter {
     );
     return {
       result,
-      deltas: [
-        this.#publish(
-          sessionId,
-          cursor,
-          cursor.view === undefined ? [] : applyHistoryCommitDelta(
-            cursor.view.state,
-            cursor.view.normalizer,
-            result,
-          ),
-        ),
-      ],
+      deltas: [this.#publish(
+        sessionId,
+        cursor,
+        cursor.view === undefined ? [] : this.#refreshLatestPage(sessionId, cursor),
+      )],
     };
   }
 
@@ -362,6 +401,34 @@ export class ConversationWriter {
     this.#assertOpen();
     this.#ensureCursor(sessionId);
     this.#closedSessions.delete(sessionId);
+  }
+
+  sessionCursorState(sessionId: string):
+    | Readonly<{
+      cut: number;
+      storeRevision: number;
+    }>
+    | undefined {
+    const cursor = this.#sessions.get(sessionId);
+    return cursor === undefined
+      ? undefined
+      : { cut: cursor.cut, storeRevision: cursor.storeRevision };
+  }
+
+  /** Restore the last acknowledged Data-local cursor before a detached Session is read. */
+  restoreSessionCursor(
+    sessionId: string,
+    cut: number,
+    storeRevision: number,
+  ): void {
+    this.#assertOpen();
+    if (
+      sessionId.length === 0 || !Number.isSafeInteger(cut) || cut < 0 ||
+      !Number.isSafeInteger(storeRevision) || storeRevision < 0
+    ) throw new Error('invalid conversation cursor');
+    const cursor = this.#ensureCursor(sessionId);
+    cursor.cut = Math.max(cursor.cut, cut);
+    cursor.storeRevision = Math.max(cursor.storeRevision, storeRevision);
   }
 
   snapshotSession(sessionId: string): ConversationWriterSnapshot {
@@ -373,6 +440,23 @@ export class ConversationWriter {
       cursor.view = undefined;
     }
     return snapshot;
+  }
+
+  snapshotPage(
+    sessionId: string,
+    cursorValue?: number,
+    direction: ConversationPageMetadata['direction'] = 'latest',
+  ): ConversationWriterSnapshot {
+    this.#assertOpen();
+    const cursor = this.#ensureCursor(sessionId);
+    const loaded = this.#loadPage(
+      sessionId,
+      cursor.cut,
+      cursorValue,
+      direction,
+    );
+    cursor.storeRevision = Math.max(cursor.storeRevision, loaded.storeRevision);
+    return this.#snapshot(sessionId, cursor, loaded.view);
   }
 
   /** Snapshot creation and watch registration run synchronously at the same cut. */
@@ -411,20 +495,32 @@ export class ConversationWriter {
     cursor?.view?.listeners.clear();
     this.#sessions.delete(sessionId);
     this.#closedSessions.delete(sessionId);
-    for (const [executionId, executionSessionId] of this.#executionSessions) {
-      if (executionSessionId === sessionId) {
-        this.#executionSessions.delete(executionId);
-      }
+    for (const executionId of this.#sessionExecutions.get(sessionId) ?? []) {
+      this.#executionSessions.delete(executionId);
     }
+    this.#sessionExecutions.delete(sessionId);
+  }
+
+  /** Drop an execution's in-memory Session locator after its live consumer releases it. */
+  releaseExecution(executionId: string): void {
+    const sessionId = this.#executionSessions.get(executionId);
+    if (sessionId === undefined) return;
+    this.#executionSessions.delete(executionId);
+    const executions = this.#sessionExecutions.get(sessionId);
+    executions?.delete(executionId);
+    if (executions?.size === 0) this.#sessionExecutions.delete(sessionId);
   }
 
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    for (const session of this.#sessions.values()) session.view?.listeners.clear();
+    for (const session of this.#sessions.values()) {
+      session.view?.listeners.clear();
+    }
     this.#sessions.clear();
     this.#closedSessions.clear();
     this.#executionSessions.clear();
+    this.#sessionExecutions.clear();
     if (this.options.ownsStore === true) this.store.close();
   }
 
@@ -432,30 +528,56 @@ export class ConversationWriter {
     if (this.#closed) throw new Error('conversation writer closed');
   }
 
-  #loadSession(sessionId: string): LoadedSessionConversation {
-    const facts = this.store.readSessionConversationFacts(sessionId);
+  #loadSession(sessionId: string, cut: number): LoadedSessionConversation {
+    return this.#loadPage(sessionId, cut);
+  }
+
+  #loadPage(
+    sessionId: string,
+    cut: number,
+    cursor?: number,
+    direction: ConversationPageMetadata['direction'] = 'latest',
+  ): LoadedSessionConversation {
+    const page = this.store.readSessionConversationPageFacts(
+      sessionId,
+      cursor,
+      direction,
+    );
     let storeRevision = 0;
-    let nextExecutionOrder = 0;
-    function* trackedFacts() {
-      for (const item of facts) {
-        nextExecutionOrder += 1;
-        storeRevision = Math.max(
-          storeRevision,
-          item.execution.committedRevision ?? item.execution.baseRevision,
-        );
-        yield item;
-      }
+    for (const item of page.executions) {
+      storeRevision = Math.max(
+        storeRevision,
+        item.execution.committedRevision ?? item.execution.baseRevision,
+      );
     }
-    const replay = replaySessionConversation(sessionId, trackedFacts());
+    const replay = replaySessionConversation(sessionId, page.executions, cut);
     return {
       view: {
         state: replay.state,
         normalizer: replay.normalizer,
         listeners: new Set(),
-        nextExecutionOrder,
+        executionIds: new Set(
+          page.executions.map((item) => item.execution.executionId),
+        ),
+        page: page.page,
       },
       storeRevision,
     };
+  }
+
+  #refreshLatestPage(
+    sessionId: string,
+    cursor: SessionSaveCursor,
+  ): readonly ConversationChange[] {
+    const previous = cursor.view;
+    if (previous === undefined) return [];
+    const loaded = this.#loadPage(sessionId, cursor.cut + 1);
+    for (const listener of previous.listeners) {
+      loaded.view.listeners.add(listener);
+    }
+    cursor.view = loaded.view;
+    cursor.storeRevision = Math.max(cursor.storeRevision, loaded.storeRevision);
+    return stateChanges(previous.state, loaded.view.state);
   }
 
   #ensureCursor(sessionId: string): SessionSaveCursor {
@@ -472,7 +594,7 @@ export class ConversationWriter {
     cursor: SessionSaveCursor,
   ): SessionConversation {
     if (cursor.view !== undefined) return cursor.view;
-    const loaded = this.#loadSession(sessionId);
+    const loaded = this.#loadSession(sessionId, cursor.cut);
     cursor.storeRevision = Math.max(cursor.storeRevision, loaded.storeRevision);
     cursor.view = loaded.view;
     return loaded.view;
@@ -481,9 +603,27 @@ export class ConversationWriter {
   #sessionIdForExecution(executionId: string): string {
     const known = this.#executionSessions.get(executionId);
     if (known !== undefined) return known;
-    const sessionId = this.store.readExecutionMetadata(executionId).sessionCorrelation;
+    // Historical access uses SQLite without repopulating the live execution index.
+    return this.store.readExecutionMetadata(executionId).sessionCorrelation;
+  }
+
+  #rememberExecution(executionId: string, sessionId: string): void {
+    const previous = this.#executionSessions.get(executionId);
+    if (previous === sessionId) return;
+    if (previous !== undefined) {
+      const previousExecutions = this.#sessionExecutions.get(previous);
+      previousExecutions?.delete(executionId);
+      if (previousExecutions?.size === 0) {
+        this.#sessionExecutions.delete(previous);
+      }
+    }
     this.#executionSessions.set(executionId, sessionId);
-    return sessionId;
+    let executions = this.#sessionExecutions.get(sessionId);
+    if (executions === undefined) {
+      executions = new Set();
+      this.#sessionExecutions.set(sessionId, executions);
+    }
+    executions.add(executionId);
   }
 
   #sessionForTerminal(executionId: string, expectedSessionId: string): string {
@@ -499,16 +639,19 @@ export class ConversationWriter {
     cursor: SessionSaveCursor,
     view: SessionConversation,
   ): ConversationWriterSnapshot {
+    const page = view.page;
     return {
       sessionId,
       cut: cursor.cut,
       storeRevision: cursor.storeRevision,
+      page,
       bytes: encode(
         snapshotValue(
           sessionId,
           view.state,
           cursor.cut,
           cursor.storeRevision,
+          page,
         ),
       ),
     };
@@ -530,12 +673,13 @@ export class ConversationWriter {
       const delta: ConversationWriterDelta = {
         ...change,
         bytes: encode({
-          schemaVersion: 2,
+          schemaVersion: 3,
           kind: 'delta',
           sessionId,
           cut: cursor.cut,
           storeRevision: cursor.storeRevision,
           changes: coalesceEntityUpdates(changes),
+          page: view.page,
         }),
       };
       for (const listener of view.listeners) listener(delta);

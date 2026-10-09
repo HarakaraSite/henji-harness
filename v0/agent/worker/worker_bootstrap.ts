@@ -1,3 +1,4 @@
+import { readContextBudget } from '../session/context_budget.ts';
 import { captureFailureDetails } from '../core/failure_details.ts';
 import type { AfterTurnSettlement } from '../core/hook_effect.ts';
 import { WorkerProcessExecutor } from './worker_process_executor.ts';
@@ -282,6 +283,8 @@ const awaitCheckpointAcknowledgement = (
 };
 
 const makeGenerationPort = (): WorkerGenerationPort => ({
+  readContextTurn: (correlation, beforeTurn) =>
+    requireAgentDataClient().readContextTurn(correlation, beforeTurn),
   runtimeEvent: (correlation, event) => {
     const sequence = generationRuntimeEvent(correlation, {
       kind: 'agent_event',
@@ -503,6 +506,9 @@ const createGeneration = async (
     get measureRequestWire() {
       return rootModel.measureRequestWire;
     },
+    get requestOutputReserve() {
+      return rootModel.requestOutputReserve;
+    },
     generate: (request, options) => rootModel.generate(request, options),
   };
   processExecutor = new WorkerProcessExecutor(
@@ -603,6 +609,7 @@ const createGeneration = async (
     configured.hooks,
     runtimeIdentity,
     configured.hookProviderEvidenceScope,
+    await readContextBudget(configRoot),
   );
 };
 
@@ -854,6 +861,11 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             startupSnapshot: startupContext,
           });
         }
+        workerGeneration.setContextBasis(
+          command.correlation,
+          generationBasis.canonicalMessageCount,
+          generationBasis.historySource,
+        );
         await workerGeneration.start();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

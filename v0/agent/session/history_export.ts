@@ -69,6 +69,29 @@ const markdownChunks = function* (
   runtime: HistoryExportRequest['runtime'],
 ): Generator<string> {
   const throughTurn = index.turns.at(-1)?.turn ?? 0;
+  yield* markdownHeaderChunks(
+    workspaceRoot,
+    agent,
+    session,
+    createdAt,
+    title,
+    runtime,
+    throughTurn,
+  );
+  for (const turn of index.turns) {
+    yield* markdownTurnChunks(turn.turn, turn.messages);
+  }
+};
+
+const markdownHeaderChunks = function* (
+  workspaceRoot: string,
+  agent: SessionRecord['agent'],
+  session: HistoryExportSessionIdentity,
+  createdAt: string,
+  title: string | undefined,
+  runtime: HistoryExportRequest['runtime'],
+  throughTurn: number,
+): Generator<string> {
   const sessionLabel = session.kind === 'none' ? 'no-session' : session.sessionId;
   yield '# Henji Session History\n\n';
   yield `- Title: ${inlineCode(title ?? 'untitled')}\n`;
@@ -90,21 +113,23 @@ const markdownChunks = function* (
     yield '- Trust: `trusted-local`\n';
     yield `- Hard sandbox: ${runtime.hardSandbox ? 'yes' : 'no'}\n`;
   }
-  for (const turn of index.turns) {
-    yield `\n## Turn ${turn.turn}\n\n`;
-    for (let offset = 0; offset < turn.messages.length; offset += 1) {
-      const message = turn.messages[offset];
-      if (message.role === 'user') {
-        yield `### ${offset === 0 ? 'user>' : 'steer>'}\n\n`;
+};
+
+const markdownTurnChunks = function* (
+  turnNumber: number,
+  messages: Iterable<Message>,
+): Generator<string> {
+  yield `\n## Turn ${turnNumber}\n\n`;
+  let offset = 0;
+  for (const message of messages) {
+    if (message.role === 'user') {
+      yield `### ${offset === 0 ? 'user>' : 'steer>'}\n\n`;
+      yield fenced(message.content.text);
+    } else if (message.role === 'assistant') {
+      if ('text' in message.content) {
+        yield '### assistant>\n\n';
         yield fenced(message.content.text);
-        continue;
-      }
-      if (message.role === 'assistant') {
-        if ('text' in message.content) {
-          yield '### assistant>\n\n';
-          yield fenced(message.content.text);
-          continue;
-        }
+      } else {
         if (message.text !== undefined) {
           yield '### assistant>\n\n';
           yield fenced(message.text);
@@ -114,16 +139,50 @@ const markdownChunks = function* (
           yield `- Call: \`${call.callId}\`\n\n`;
           yield fenced(JSON.stringify(call.arguments, null, 2), 'json');
         }
-        continue;
       }
+    } else {
       for (const result of message.content) {
         yield `### tool< ${result.name} · ${result.outcome}\n\n`;
         yield `- Call: \`${result.callId}\`\n\n`;
         yield fenced(result.text);
       }
     }
+    offset += 1;
   }
 };
+
+/** Render a canonical transcript one stored turn at a time. */
+export function* renderHistoryMarkdownTurns(
+  request: Readonly<{
+    readonly agent: SessionRecord['agent'];
+    readonly sessionId: string;
+    readonly createdAt: string;
+    readonly title: string | undefined;
+    readonly committedTurn: number;
+    readonly turns: Iterable<Readonly<{ turn: number; messages: Iterable<Message> }>>;
+  }>,
+  workspaceRoot: string,
+): Generator<string> {
+  if (!SESSION_ID.test(request.sessionId)) throw new Error('history export failed');
+  yield* markdownHeaderChunks(
+    workspaceRoot,
+    request.agent,
+    { kind: 'durable', sessionId: request.sessionId },
+    request.createdAt,
+    request.title,
+    undefined,
+    request.committedTurn,
+  );
+  let expectedTurn = 1;
+  for (const turn of request.turns) {
+    if (turn.turn !== expectedTurn) throw new Error('history export failed');
+    yield* markdownTurnChunks(turn.turn, turn.messages);
+    expectedTurn += 1;
+  }
+  if (expectedTurn - 1 !== request.committedTurn) {
+    throw new Error('history export failed');
+  }
+}
 
 const writeBytes = async (file: Deno.FsFile, bytes: Uint8Array): Promise<void> => {
   let offset = 0;

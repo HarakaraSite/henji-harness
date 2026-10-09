@@ -189,7 +189,7 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
       readonly cut: number;
       readonly entities: Record<string, ConversationEntity>;
     }>(watched.snapshot.bytes);
-    strictEqual(initialSnapshot.schemaVersion, 2);
+    strictEqual(initialSnapshot.schemaVersion, 3);
     strictEqual(initialSnapshot.sessionId, sessionId);
     strictEqual(initialSnapshot.cut, 0);
     strictEqual(Object.keys(initialSnapshot.entities).length, 0);
@@ -439,9 +439,15 @@ Deno.test('Increment 170 S3 Data Worker owns the conversation cut, admission and
     );
     ports.push(secondPort);
     const nextBasis = await secondPort.generationContext(secondCorrelation);
-    deepStrictEqual(nextBasis.initialTranscript, transcript);
+    deepStrictEqual(nextBasis.initialTranscript, []);
     strictEqual(nextBasis.nextTurn, 2);
     strictEqual(nextBasis.stateRevision, 2);
+    strictEqual(nextBasis.canonicalMessageCount, transcript.length);
+    strictEqual(nextBasis.historySource, 'canonical');
+    deepStrictEqual(
+      (await secondPort.readContextTurn(secondCorrelation, 2))?.messages,
+      transcript,
+    );
     const secondExecutionId = '17000000-0000-4000-8000-000000000183';
     await secondPort.ready(readyFor(secondCorrelation));
     const secondAdmission = await data.executionAdmit(sessionId, {

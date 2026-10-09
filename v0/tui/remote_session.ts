@@ -1,3 +1,10 @@
+import {
+  browseDetailLocator,
+  browseEntries,
+  browseLines,
+  browseSelectedBody,
+  type ConversationBrowseState,
+} from './conversation_browser.ts';
 import type {
   PresentationLifecycle,
   PresentationNavigationListing,
@@ -689,6 +696,10 @@ export const runRemoteTui = async (
   let slashPickerSuppressedText: string | undefined;
   let commandPoll: ReturnType<typeof setTimeout> | undefined;
   let navigationPending = false;
+  let conversationBrowse: ConversationBrowseState | undefined;
+  let browseGeneration = 0;
+  let browsePending = false;
+  let inlineBrowseDetail = false;
   let commandMutationPending = false;
   let navigationGeneration = 0;
   let subscriptionGeneration = 0;
@@ -793,7 +804,14 @@ export const runRemoteTui = async (
     failureWord?: string,
     executionId?: string,
   ): void => {
-    systemNotices.retain(sessionId, identity, text, failureWord, executionId);
+    systemNotices.retain(
+      sessionId,
+      identity,
+      text,
+      failureWord,
+      executionId,
+      text.includes('draft kept'),
+    );
     if (snapshot().session.id === sessionId) {
       notice = undefined;
       const store = renderer.stateSnapshot().keyedConversation;
@@ -1036,6 +1054,7 @@ export const runRemoteTui = async (
     pendingSubmission = undefined;
     acceptedSubmission = accepted;
     finishDraft(submission, true);
+    systemNotices.resolveDraft();
     syncCoreObservations();
     updateStatus();
   };
@@ -1288,6 +1307,7 @@ export const runRemoteTui = async (
     generation: number,
     noticeSessionId: string,
     operationIdentity: string,
+    browse = false,
   ): Promise<boolean> => {
     if (hasPendingLocalCommand()) {
       retainNotice(
@@ -1376,6 +1396,7 @@ export const runRemoteTui = async (
     notice = undefined;
     updateStatus();
     waitForFrame(nextFrameWait());
+    if (browse) readBrowsePage();
     previousAbort.abort();
     try {
       const closing = previousIterator.return?.(undefined);
@@ -1439,6 +1460,67 @@ export const runRemoteTui = async (
     );
   };
 
+  const renderBrowse = (): void => {
+    if (conversationBrowse === undefined) return;
+    renderer.renderReadOnlyHelp(
+      browseLines(
+        conversationBrowse,
+        snapshot().conversation.cut,
+        Math.max(1, renderer.stateSnapshot().terminalSize.rows - 10),
+      ),
+    );
+  };
+  const readBrowsePage = (
+    cursor?: number,
+    direction: 'older' | 'newer' | 'latest' = 'latest',
+  ): void => {
+    const sessionId = snapshot().session.id;
+    const generation = ++browseGeneration;
+    browsePending = true;
+    void client.conversationPageRead(sessionId, cursor, direction).then((page) => {
+      if (exitRequested || generation !== browseGeneration || snapshot().session.id !== sessionId) {
+        return;
+      }
+      conversationBrowse = { page, selected: 0, openedCut: page.cut };
+      inlineBrowseDetail = false;
+      browsePending = false;
+      renderBrowse();
+    }, () => {
+      if (generation !== browseGeneration) return;
+      browsePending = false;
+      notice = '会話ページを取得できません。接続を確認して再試行してください。';
+      updateStatus();
+    });
+  };
+  const readBrowseDetail = (offset = 0): void => {
+    if (conversationBrowse === undefined) return;
+    const locator = conversationBrowse.detail?.locator ?? browseDetailLocator(conversationBrowse);
+    if (locator === undefined) {
+      inlineBrowseDetail = true;
+      renderer.renderReadOnlyHelp([
+        '本文 · Esc 会話ページへ',
+        '',
+        ...browseSelectedBody(conversationBrowse),
+      ]);
+      return;
+    }
+    const generation = ++browseGeneration;
+    browsePending = true;
+    void client.conversationContentRead(locator, offset).then((detail) => {
+      if (exitRequested || generation !== browseGeneration || conversationBrowse === undefined) {
+        return;
+      }
+      conversationBrowse = { ...conversationBrowse, detail };
+      browsePending = false;
+      renderBrowse();
+    }, () => {
+      if (generation !== browseGeneration) return;
+      browsePending = false;
+      notice = '本文を取得できません。会話ページを開き直してください。';
+      updateStatus();
+    });
+  };
+
   const viewSession = (targetSessionId: string): void => {
     const sourceSessionId = snapshot().session.id;
     if (hasPendingLocalCommand() || navigationPending) {
@@ -1452,6 +1534,7 @@ export const runRemoteTui = async (
     }
     if (targetSessionId === selectedSessionId) {
       clearRemoteOverlay();
+      readBrowsePage();
       return;
     }
     const generation = ++navigationGeneration;
@@ -1477,6 +1560,7 @@ export const runRemoteTui = async (
           generation,
           sourceSessionId,
           operationIdentity,
+          true,
         );
       },
       () => {
@@ -2007,10 +2091,8 @@ export const runRemoteTui = async (
     } else if (name === 'help') renderer.renderReadOnlyHelp(helpLines());
     else if (name === 'sessions') showSessionPicker();
     else if (name === 'view') {
-      if (argument.length === 0) {
-        notice = 'usage: /view ID';
-        updateStatus();
-      } else viewSession(argument);
+      if (argument.length === 0 || argument === snapshot().session.id) readBrowsePage();
+      else viewSession(argument);
     } else if (name === 'resume') {
       if (argument.length === 0 || argument === 'latest') {
         openSession({ kind: 'continue' });
@@ -2121,6 +2203,71 @@ export const runRemoteTui = async (
             continue;
           }
           if (shutdownPending) continue;
+          if (conversationBrowse !== undefined || browsePending) {
+            if (event.kind === 'escape') {
+              browseGeneration += 1;
+              browsePending = false;
+              if (inlineBrowseDetail) {
+                inlineBrowseDetail = false;
+                renderBrowse();
+              } else if (conversationBrowse?.detail !== undefined) {
+                conversationBrowse = { ...conversationBrowse, detail: undefined };
+                renderBrowse();
+              } else {
+                conversationBrowse = undefined;
+                renderer.clearModal();
+                renderSnapshot(
+                  renderer,
+                  state!,
+                  core.workspace,
+                  false,
+                  conversationProjector,
+                  systemNotices,
+                  cancellationRequested ? cancellationExecutionId : undefined,
+                );
+                renderEditor();
+              }
+            } else if (!browsePending && conversationBrowse !== undefined) {
+              const current = conversationBrowse;
+              if (event.kind === 'page_up' || event.kind === 'page_down') {
+                if (inlineBrowseDetail) {
+                  renderer.scrollHelp(event.kind === 'page_up' ? 'up' : 'down');
+                } else if (current.detail !== undefined) {
+                  if (event.kind === 'page_up' && current.detail.offset > 0) {
+                    readBrowseDetail(Math.max(0, current.detail.offset - 256 * 1024));
+                  } else if (event.kind === 'page_down' && !current.detail.done) {
+                    readBrowseDetail(current.detail.nextOffset);
+                  }
+                } else if (event.kind === 'page_up' && current.page.page.hasOlder) {
+                  readBrowsePage(current.page.page.lowerExecutionOrder, 'older');
+                } else if (event.kind === 'page_down' && current.page.page.hasNewer) {
+                  readBrowsePage(current.page.page.upperExecutionOrder, 'newer');
+                }
+              } else if (
+                current.detail !== undefined && (event.kind === 'up' || event.kind === 'down')
+              ) {
+                renderer.scrollHelp(event.kind === 'up' ? 'up' : 'down');
+              } else if (
+                !inlineBrowseDetail && current.detail === undefined &&
+                (event.kind === 'up' || event.kind === 'down')
+              ) {
+                conversationBrowse = {
+                  ...current,
+                  selected: Math.max(
+                    0,
+                    Math.min(
+                      browseEntries(current.page).length - 1,
+                      current.selected + (event.kind === 'up' ? -1 : 1),
+                    ),
+                  ),
+                };
+                renderBrowse();
+              } else if (
+                !inlineBrowseDetail && current.detail === undefined && event.kind === 'enter'
+              ) readBrowseDetail();
+            }
+            continue;
+          }
           const overlay = renderer.stateSnapshot().overlay;
           if (catalogUi.isOpen || overlay.kind === 'choicePicker') {
             catalogUi.process(event);
@@ -2264,9 +2411,8 @@ export const runRemoteTui = async (
       }
 
       if (ready.kind === 'resync') {
-        state = reduceSessionStreamFrame(undefined, ready.frame);
+        state = reduceSessionStreamFrame(state, ready.frame);
         selectedModel = snapshot().session.selection;
-        unconfirmedSubmissions.delete(snapshot().session.id);
         connected = true;
         connectionLossReported = false;
         syncCoreObservations();
@@ -2308,6 +2454,10 @@ export const runRemoteTui = async (
         systemNotices,
         cancellationRequested ? cancellationExecutionId : undefined,
       );
+      if (
+        conversationBrowse !== undefined && conversationBrowse.detail === undefined &&
+        !inlineBrowseDetail
+      ) renderBrowse();
       updateStatus();
       waitForFrame(nextFrameWait());
     }

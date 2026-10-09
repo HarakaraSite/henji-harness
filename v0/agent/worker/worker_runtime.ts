@@ -1,3 +1,9 @@
+import {
+  type ContextBudgetConfiguration,
+  contextCost,
+  resolveContextBudget,
+} from '../session/context_budget.ts';
+import type { ContextTurnRead } from '../data/agent_data_contract.ts';
 import type { AgentEvent, AgentEventSink } from '../core/events.ts';
 import { type JsonValue, type LoopOutcome, type Message } from '../core/contracts.ts';
 import type {
@@ -11,8 +17,7 @@ import type {
   ToolHookEffect,
 } from '../core/hook_effect.ts';
 import { causalTranscriptIndex } from '../session/session_store.ts';
-import { projectSemanticContext } from '../session/semantic_context.ts';
-import { indexSessionHistory } from '../session/session_history.ts';
+import { checkpointMessage } from '../session/semantic_context.ts';
 import {
   type SemanticContextCheckpointV1,
   validateSemanticContextCheckpoint,
@@ -105,6 +110,10 @@ import {
 import type { WorkerHookFailure } from './worker_protocol.ts';
 
 export interface WorkerGenerationPort {
+  readonly readContextTurn?: (
+    correlation: WorkerCorrelation,
+    beforeTurn: number,
+  ) => Promise<ContextTurnRead | null>;
   readonly runtimeEvent: (
     correlation: WorkerCorrelation,
     event: AgentEvent,
@@ -275,6 +284,12 @@ const errorText = (error: unknown): string =>
 export class WorkerGeneration {
   private committedTranscript: readonly Message[] = [];
   private nextTurn = 1;
+  private canonicalMessageCount = 0;
+  private selectedTurns: readonly ContextTurnRead[] = [];
+  private budgetFacts: Record<string, unknown> = {};
+  private localContextTurns: readonly ContextTurnRead[] = [];
+  private basisCorrelation: WorkerCorrelation | undefined;
+  private historySource: 'canonical' | 'runtime' = 'runtime';
   private checkpoint: SemanticContextCheckpointV1 | undefined;
   private activeCancellation: TurnCancellationOwner | null = null;
   private activeSteering: SteeringOwner | null = null;
@@ -336,13 +351,26 @@ export class WorkerGeneration {
     hooks: readonly LoadedWorkerHook[] = [],
     runtimeIdentity?: HookRuntimeIdentity,
     private readonly hookProviderEvidenceScope: HookProviderEvidenceScope = {},
+    private readonly contextBudgetConfiguration: ContextBudgetConfiguration = {},
   ) {
     this.composition = composition;
     this.hooks = hooks;
     this.startupSnapshotValue = startupSnapshot;
     this.configurationValue = configuration;
     this.runtimeIdentity = runtimeIdentity;
-    this.committedTranscript = snapshotMessages(initialTranscript);
+    this.canonicalMessageCount = initialTranscript.length;
+    this.localContextTurns = hookTranscriptTurns(snapshotMessages(initialTranscript)).map((
+      entry,
+    ) => ({
+      ...entry,
+      executionId: `local-turn-${entry.turn}`,
+      byteLength: 0,
+      messageStart: hookTranscriptTurns(initialTranscript).filter((prior) =>
+        prior.turn < entry.turn
+      ).reduce((n, prior) => n + prior.messages.length, 0),
+      source: 'runtime' as const,
+    }));
+    this.committedTranscript = [];
     this.nextTurn = initialNextTurn;
     this.checkpoint = initialCheckpoint === undefined
       ? undefined
@@ -399,6 +427,9 @@ export class WorkerGeneration {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    if (this.hooks.some((hook) => hook.handlers.runtime_start !== undefined)) {
+      await this.prepareHookView();
+    }
     const accepted: LoadedWorkerHook[] = [];
     const startupRejections: ConfigurationRejection[] = [];
     let turns: readonly HookTranscriptTurn[] | undefined;
@@ -408,7 +439,12 @@ export class WorkerGeneration {
           [hook],
           'runtime_start',
           () => {
-            turns ??= hookTranscriptTurns(this.committedTranscript);
+            turns ??= this.selectedTurns.map(({ turn, messages }) =>
+              Object.freeze({
+                turn,
+                messages: Object.freeze(messages.map((message) => freezeData(message))),
+              })
+            );
             return {
               runtime: this.requireRuntimeIdentity(),
               context: this.hookContext(turns),
@@ -453,6 +489,9 @@ export class WorkerGeneration {
   async stop(reason: string): Promise<readonly WorkerHookFailure[]> {
     if (this.stopped) return this.stopFailures;
     this.stopped = true;
+    if (this.hooks.some((hook) => hook.handlers.runtime_stop !== undefined)) {
+      await this.prepareHookView();
+    }
     const failures: WorkerHookFailure[] = [];
     const contributions: RuntimeStopHookEffect['contributions'][number][] = [];
     const settlement = this.lastSettlement?.settlement;
@@ -652,8 +691,11 @@ export class WorkerGeneration {
   }
 
   private hookContext(
-    turns: readonly HookTranscriptTurn[] = hookTranscriptTurns(
-      this.committedTranscript,
+    turns: readonly HookTranscriptTurn[] = this.selectedTurns.map(({ turn, messages }) =>
+      Object.freeze({
+        turn,
+        messages: Object.freeze(messages.map((message) => freezeData(message))),
+      })
     ),
     systemInstruction = this.composition.systemInstruction ?? '',
     currentInstructionComponents = this.composition.instructionComponents ?? [],
@@ -670,7 +712,32 @@ export class WorkerGeneration {
     const tools = freezeData(
       structuredClone(this.composition.registry.definitions()),
     );
-    const transcript = Object.freeze({ turns });
+    const budget = resolveContextBudget(
+      this.contextBudgetConfiguration,
+      this.rootModelSelection,
+      this.composition.model.requestOutputReserve,
+    );
+    const retainedFromTurn = turns[0]?.turn ?? this.nextTurn;
+    const transcript = Object.freeze({
+      turns: Object.freeze(turns),
+      nextTurn: this.nextTurn,
+      messageCount: this.canonicalMessageCount,
+      range: Object.freeze({
+        basis: this.historySource === 'runtime'
+          ? 'runtime-adopted' as const
+          : 'session-canonical' as const,
+        retainedFromTurn,
+        omittedThroughTurn: retainedFromTurn - 1,
+        executionLocators: Object.freeze(
+          this.selectedTurns.map((entry) => `execution:${entry.executionId}`),
+        ),
+        budget: Object.freeze({
+          historyTokens: budget.historyTokens,
+          inputLimit: budget.inputLimit,
+          profile: budget.profile,
+        }),
+      }),
+    });
     return Object.freeze({
       systemInstruction,
       instructionComponents,
@@ -736,6 +803,80 @@ export class WorkerGeneration {
     });
   }
 
+  setContextBasis(
+    correlation: WorkerCorrelation,
+    count: number,
+    source: 'canonical' | 'runtime',
+  ): void {
+    this.historySource = source;
+    this.basisCorrelation = correlation;
+    this.canonicalMessageCount = count;
+  }
+
+  private readHistoryTurn(
+    correlation: WorkerCorrelation,
+    beforeTurn: number,
+  ): Promise<ContextTurnRead | null> {
+    if (this.port.readContextTurn !== undefined) {
+      return this.port.readContextTurn(correlation, beforeTurn);
+    }
+    return Promise.resolve(
+      [...this.localContextTurns].reverse().find((entry) => entry.turn < beforeTurn) ?? null,
+    );
+  }
+
+  private historyMessages(candidate: ContextTurnRead): readonly Message[] {
+    return candidate.messages.map((message) => {
+      if (
+        candidate.turn >= this.privateStateFromTurn || message.role !== 'assistant' ||
+        message.providerState === undefined
+      ) return message;
+      const { providerState: _state, ...semantic } = message;
+      return semantic;
+    });
+  }
+
+  /** Prepare only a budgeted canonical view for a hook phase; current outcome is separate. */
+  private async prepareHookView(task = 'x'): Promise<void> {
+    const budget = resolveContextBudget(
+      this.contextBudgetConfiguration,
+      this.rootModelSelection,
+      this.composition.model.requestOutputReserve,
+    );
+    const prefix = this.checkpoint === undefined ? [] : [checkpointMessage(this.checkpoint)];
+    let request: import('../core/contracts.ts').ModelRequest = {
+      systemInstruction: this.composition.systemInstruction,
+      transcript: [...prefix, { role: 'user', content: { kind: 'text', text: task } }],
+      tools: this.composition.registry.definitions(),
+    };
+    const selected: ContextTurnRead[] = [];
+    let before = this.nextTurn;
+    const correlation = this.basisCorrelation;
+    while (true) {
+      const candidate = correlation === undefined
+        ? [...this.localContextTurns].reverse().find((entry) => entry.turn < before) ?? null
+        : await this.readHistoryTurn(correlation, before);
+      if (candidate === null || candidate.turn < (this.checkpoint?.retainedFromTurn ?? 1)) break;
+      const messages = this.historyMessages(candidate);
+      const next = {
+        ...request,
+        transcript: [...prefix, ...messages, ...request.transcript.slice(prefix.length)],
+      };
+      const cost = contextCost(
+        this.composition.model,
+        next,
+        prefix.length === 0 ? next.transcript : next.transcript.slice(prefix.length),
+      );
+      if (cost.historyUsedTokens > budget.historyTokens || cost.inputTokens > budget.inputLimit) {
+        break;
+      }
+      selected.unshift({ ...candidate, messages });
+      request = next;
+      before = candidate.turn;
+    }
+    this.selectedTurns = selected;
+  }
+
   transcriptSnapshot(): readonly Message[] {
     return snapshotMessages(this.committedTranscript);
   }
@@ -771,9 +912,11 @@ export class WorkerGeneration {
       return;
     }
     if (generationBasis !== undefined) {
-      this.committedTranscript = snapshotMessages(
-        generationBasis.initialTranscript,
-      );
+      this.committedTranscript = [];
+      this.localContextTurns = [];
+      this.basisCorrelation = correlation;
+      this.historySource = generationBasis.historySource;
+      this.canonicalMessageCount = generationBasis.canonicalMessageCount;
       this.nextTurn = generationBasis.nextTurn;
       this.checkpoint = generationBasis.checkpoint === undefined
         ? undefined
@@ -824,7 +967,12 @@ export class WorkerGeneration {
     let turnSystemInstruction = baseSystemInstruction;
     let turnHookTurns: readonly HookTranscriptTurn[] | undefined;
     const currentTurnHookContext = (): HookContextSnapshot => {
-      turnHookTurns ??= hookTranscriptTurns(this.committedTranscript);
+      turnHookTurns = this.selectedTurns.map(({ turn, messages }) =>
+        Object.freeze({
+          turn,
+          messages: Object.freeze(messages.map((message) => freezeData(message))),
+        })
+      );
       return this.hookContext(
         turnHookTurns,
         turnSystemInstruction ?? '',
@@ -911,8 +1059,8 @@ export class WorkerGeneration {
       readonly systemCount: number;
       readonly transcriptCount: number;
       readonly toolCount: number;
+      readonly items: readonly ContextOccurrenceInput[];
     }>();
-    const committedHistoryIndex = indexSessionHistory(this.committedTranscript);
     let skipTurnSettled = false;
     let contextObservationFailed = false;
     let contextRequestOrdinal = 0;
@@ -942,26 +1090,12 @@ export class WorkerGeneration {
     const sourceForMessage = (
       message: Message,
       kind: RequestMessageSourceKind,
-      messageIndex: number,
+      _messageIndex: number,
       modelStep?: number,
     ): readonly ContextOccurrenceSource[] => {
       const lane = 'parent' as const;
       if (kind === 'committed') {
-        const canonicalTurn = committedHistoryIndex?.turns.find((candidate) =>
-          messageIndex >= candidate.start && messageIndex < candidate.end
-        );
-        const messagePosition = canonicalTurn === undefined
-          ? messageIndex + 1
-          : messageIndex - canonicalTurn.start + 1;
-        return [{
-          stage: 'projected',
-          resourceKind: 'message',
-          logicalIdentity:
-            `canonical:${correlation.session}:revision:${correlation.baseStateRevision}:turn:${
-              canonicalTurn?.turn ?? 'unknown'
-            }:message:${messagePosition}`,
-          lane,
-        }];
+        throw new Error('canonical sources are produced during bounded range preparation');
       }
       if (kind === 'task') {
         const sequence = runtimeSequences.get('user-message');
@@ -1168,18 +1302,13 @@ export class WorkerGeneration {
           'model request source sidecar does not match transcript',
         );
       }
+      evidence.setInputTokenEstimate(
+        contextCost(this.composition.model, observation.request).inputTokens,
+      );
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
         const lane = 'parent' as const;
         const previous = revisionStates.get(lane);
-        if (
-          observation.previousTranscriptLength !==
-            (previous?.transcriptCount ?? 0) ||
-          observation.request.transcript.length <
-            observation.previousTranscriptLength
-        ) {
-          throw new Error('model request transcript delta is not append-only');
-        }
         const hydrateSource = async (
           source: ContextOccurrenceSource,
           itemDigest: string,
@@ -1221,7 +1350,6 @@ export class WorkerGeneration {
         let systemCount = previous?.systemCount ?? 0;
         let toolCount = previous?.toolCount ?? 0;
         if (
-          previous === undefined &&
           observation.request.systemInstruction !== undefined
         ) {
           const blob = await textBlob(observation.request.systemInstruction);
@@ -1266,11 +1394,9 @@ export class WorkerGeneration {
           );
           systemCount = 1;
         }
-        const newMessages = observation.request.transcript.slice(
-          observation.previousTranscriptLength,
-        );
+        const newMessages = observation.request.transcript;
         for (const [offset, message] of newMessages.entries()) {
-          const messageIndex = observation.previousTranscriptLength + offset;
+          const messageIndex = offset;
           const blob = await jsonBlob(
             message as unknown as import('../core/contracts.ts').JsonValue,
             'application/vnd.henji.message+json',
@@ -1289,7 +1415,7 @@ export class WorkerGeneration {
             await occurrenceFor(lane, 'message', blob, sourceRelations),
           );
         }
-        if (previous === undefined) {
+        {
           for (const tool of observation.request.tools) {
             const blob = await jsonBlob(
               tool as unknown as import('../core/contracts.ts').JsonValue,
@@ -1316,29 +1442,41 @@ export class WorkerGeneration {
             );
           }
         }
-        if (previous === undefined) {
-          toolCount = observation.request.tools.length;
-        }
-        if (
-          previous !== undefined &&
-          (systemCount !==
-              (observation.request.systemInstruction === undefined ? 0 : 1) ||
-            toolCount !== observation.request.tools.length)
-        ) {
-          throw new Error(
-            'model request fixed context changed inside one execution lane',
-          );
-        }
-        const insertions = occurrences.map((occurrence) => ({
-          occurrenceId: occurrence.occurrenceId,
-          occurrenceDigest: occurrence.occurrenceDigest,
-        }));
-        const splice = previous === undefined ? { start: 0, deleteCount: 0, insertions } : {
-          start: previous.systemCount + previous.transcriptCount,
-          deleteCount: 0,
+        systemCount = observation.request.systemInstruction === undefined ? 0 : 1;
+        toolCount = observation.request.tools.length;
+        const itemKey = (item: ContextOccurrenceInput) =>
+          JSON.stringify([
+            item.kind,
+            item.content.digest,
+            item.sourceRelations,
+          ]);
+        const reusable = new Map((previous?.items ?? []).map((item) => [itemKey(item), item]));
+        const resultItems = occurrences.map((item) => reusable.get(itemKey(item)) ?? item);
+        const newOccurrences = resultItems.filter((item) => !reusable.has(itemKey(item)));
+        let commonPrefix = 0;
+        while (
+          commonPrefix < resultItems.length && commonPrefix < (previous?.items.length ?? 0) &&
+          resultItems[commonPrefix].occurrenceId === previous?.items[commonPrefix].occurrenceId
+        ) commonPrefix++;
+        let commonSuffix = 0;
+        while (
+          commonSuffix < resultItems.length - commonPrefix &&
+          commonSuffix < (previous?.items.length ?? 0) - commonPrefix &&
+          resultItems[resultItems.length - commonSuffix - 1].occurrenceId ===
+            previous?.items[previous.items.length - commonSuffix - 1].occurrenceId
+        ) commonSuffix++;
+        const insertions = resultItems.slice(commonPrefix, resultItems.length - commonSuffix).map(
+          (item) => ({
+            occurrenceId: item.occurrenceId,
+            occurrenceDigest: item.occurrenceDigest,
+          }),
+        );
+        const splice = {
+          start: commonPrefix,
+          deleteCount: (previous?.items.length ?? 0) - commonPrefix - commonSuffix,
           insertions,
         };
-        const resultItemCount = (previous?.itemCount ?? 0) + insertions.length;
+        const resultItemCount = resultItems.length;
         const digestInput: Pick<
           ContextModelRequestDelta,
           | 'lane'
@@ -1363,7 +1501,8 @@ export class WorkerGeneration {
           }),
           ...digestInput,
           revisionDigest,
-          occurrences,
+          occurrences: newOccurrences,
+          budget: this.budgetFacts as Readonly<Record<string, JsonValue>>,
         };
         revisionStates.set(lane, {
           revisionDigest,
@@ -1371,8 +1510,10 @@ export class WorkerGeneration {
           systemCount,
           transcriptCount: observation.request.transcript.length,
           toolCount,
+          items: resultItems,
         });
         contextRequests.push(requestDelta);
+
         await this.port.contextObservation?.(correlation, requestDelta);
         this.reportAuxiliaryStage?.('aux_context_await_resumed');
       })();
@@ -1388,6 +1529,9 @@ export class WorkerGeneration {
     const observeAuxiliaryRequest = async (
       observation: AuxiliaryRequestObservation,
     ): Promise<number> => {
+      evidence.setInputTokenEstimate(
+        Math.ceil(new TextEncoder().encode(observation.body).byteLength / 3) + 16,
+      );
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
         const lane = 'parent' as const;
@@ -1439,6 +1583,9 @@ export class WorkerGeneration {
           occurrences: [occurrence],
         };
         contextRequests.push(requestDelta);
+        evidence.setInputTokenEstimate(
+          Math.ceil(new TextEncoder().encode(observation.body).byteLength / 3) + 16,
+        );
         await this.port.contextObservation?.(correlation, requestDelta);
       })();
       contextObservations.push(task);
@@ -1452,81 +1599,138 @@ export class WorkerGeneration {
     };
     // Keep messages and source sidecars aligned without mutating the borrowed request.
     // The loop snapshots the completed projection before observation and model generation.
-    const projectParentRequestWithSources = (
+    const projectParentRequestWithSources = async (
       request: import('../core/contracts.ts').ModelRequest,
       sources: import('../core/execution_context.ts').ModelRequestSourceAttribution,
-    ): {
+    ): Promise<{
       readonly request: import('../core/contracts.ts').ModelRequest;
       readonly sources: import('../core/execution_context.ts').ModelRequestSourceAttribution;
-    } => {
-      let projected = request;
-      let projectedTranscriptSources = sources.transcript;
-      let currentUserMessageIndex = this.committedTranscript.length;
-      const privateStateCutoff = this.privateStateFromTurn === 1
-        ? 0
-        : this.privateStateFromTurn === this.nextTurn
-        ? this.committedTranscript.length
-        : committedHistoryIndex?.turns[this.privateStateFromTurn - 2]?.end;
-      if (privateStateCutoff === undefined) {
-        throw new Error('provider switch boundary is invalid');
-      }
-      if (privateStateCutoff > 0) {
-        projected = {
-          ...projected,
-          transcript: projected.transcript.map((message, index) => {
-            if (
-              index >= privateStateCutoff || message.role !== 'assistant' ||
-              message.providerState === undefined
-            ) return message;
-            const { providerState: _privateState, ...semanticMessage } = message;
-            return semanticMessage;
-          }),
-        };
-      }
-      if (this.checkpoint !== undefined) {
-        const coveredEnd = committedHistoryIndex
-          ?.turns[this.checkpoint.coveredThroughTurn - 1]?.end;
-        if (coveredEnd === undefined) {
-          throw new Error('checkpoint boundary is invalid');
-        }
-        projected = projectSemanticContext(projected, this.checkpoint);
-        projectedTranscriptSources = [
-          [{
-            stage: 'projected',
-            resourceKind: 'message',
-            logicalIdentity:
-              `checkpoint:${this.checkpoint.sessionId}:turn:${this.checkpoint.coveredThroughTurn}`,
-            sourceLocator: `session:${this.checkpoint.sessionId}`,
-          }],
-          ...sources.transcript.slice(coveredEnd),
-        ];
-        currentUserMessageIndex = 1 + this.committedTranscript.length -
-          coveredEnd;
-      }
+    }> => {
+      const budget = resolveContextBudget(
+        this.contextBudgetConfiguration,
+        this.rootModelSelection,
+        this.composition.model.requestOutputReserve,
+      );
+      const prefixMessages: Message[] = this.checkpoint === undefined
+        ? []
+        : [checkpointMessage(this.checkpoint)];
+      const prefixSources: readonly ContextOccurrenceSource[][] = this.checkpoint === undefined
+        ? []
+        : [[{
+          stage: 'projected',
+          resourceKind: 'message',
+          logicalIdentity:
+            `checkpoint:${this.checkpoint.sessionId}:turn:${this.checkpoint.coveredThroughTurn}`,
+          sourceLocator: `session:${this.checkpoint.sessionId}`,
+        }]];
+      let currentRequest: import('../core/contracts.ts').ModelRequest = {
+        ...request,
+        transcript: prefixMessages.length === 0
+          ? request.transcript
+          : [...prefixMessages, ...request.transcript],
+      };
+      let currentSources = [...prefixSources, ...sources.transcript];
       if (recalledContext !== undefined) {
-        projected = projectRecalledExecutionContext(
-          projected,
+        currentRequest = projectRecalledExecutionContext(
+          currentRequest,
           recalledContext,
-          currentUserMessageIndex,
+          prefixMessages.length,
         );
-        projectedTranscriptSources = [
-          ...projectedTranscriptSources.slice(0, currentUserMessageIndex),
+        currentSources = [
+          ...currentSources.slice(0, prefixMessages.length),
           [{
             stage: 'projected',
             resourceKind: 'message',
             logicalIdentity:
-              `recall:${recalledContext.sourceExecutionId}->${correlation.session}:turn:${turn}:message:${
-                currentUserMessageIndex + 1
-              }`,
+              `recall:${recalledContext.sourceExecutionId}->${correlation.session}:turn:${turn}`,
             sourceLocator: `execution:${recalledContext.sourceExecutionId}`,
           }],
-          ...projectedTranscriptSources.slice(currentUserMessageIndex),
+          ...currentSources.slice(prefixMessages.length),
         ];
       }
-      return {
-        request: projected,
-        sources: { transcript: projectedTranscriptSources },
+      const fits = (cost: ReturnType<typeof contextCost>) =>
+        cost.withinWireLimits &&
+        cost.historyUsedTokens <= budget.historyTokens &&
+        cost.inputTokens <= budget.inputLimit;
+      let conversationTranscript = request.transcript;
+      let cost = contextCost(this.composition.model, currentRequest, conversationTranscript);
+      this.selectedTurns = [];
+      if (!fits(cost)) {
+        this.budgetFacts = { ...budget, ...cost, currentOnly: true, exceeded: true };
+        throw new Error(
+          `context_budget_exceeded: prefix/current input=${cost.inputTokens}, history=${cost.historyUsedTokens}; input limit=${budget.inputLimit}, history budget=${budget.historyTokens}; execution is saved; adjust context-budget.json/model/task`,
+        );
+      }
+      const selected: ContextTurnRead[] = [];
+      let beforeTurn = this.nextTurn;
+      while (true) {
+        const candidate = await this.readHistoryTurn(correlation, beforeTurn);
+        if (
+          candidate === null ||
+          (this.checkpoint !== undefined && candidate.turn < this.checkpoint.retainedFromTurn)
+        ) break;
+        const messages = this.historyMessages(candidate);
+        const candidateRequest = {
+          ...currentRequest,
+          transcript: [
+            ...prefixMessages,
+            ...messages,
+            ...currentRequest.transcript.slice(prefixMessages.length),
+          ],
+        };
+        const candidateConversation = prefixMessages.length === 0 && recalledContext === undefined
+          ? candidateRequest.transcript
+          : [...messages, ...conversationTranscript];
+        let candidateCost: ReturnType<typeof contextCost>;
+        try {
+          candidateCost = contextCost(
+            this.composition.model,
+            candidateRequest,
+            candidateConversation,
+          );
+        } catch (error) {
+          // The selected adapter enforces the existing serialized messages limit during encoding.
+          if (
+            error instanceof Error &&
+            error.message.includes('serialized model messages exceed 5 MiB')
+          ) break;
+          throw error;
+        }
+        if (!fits(candidateCost)) break;
+        selected.unshift({ ...candidate, messages });
+        const candidateSources = messages.map((
+          _message,
+          index,
+        ): readonly ContextOccurrenceSource[] => [{
+          stage: 'projected',
+          resourceKind: 'message',
+          lane: 'parent',
+          logicalIdentity: `${
+            candidate.source === 'canonical' ? 'canonical' : 'runtime'
+          }:${this.sessionId}:turn:${candidate.turn}:execution:${candidate.executionId}:message:${
+            index + 1
+          }`,
+          sourceLocator: `execution:${candidate.executionId}#message=${index + 1}`,
+        }]);
+        currentSources = [
+          ...prefixSources,
+          ...candidateSources,
+          ...currentSources.slice(prefixMessages.length),
+        ];
+        currentRequest = candidateRequest;
+        conversationTranscript = candidateConversation;
+        cost = candidateCost;
+        beforeTurn = candidate.turn;
+      }
+      this.selectedTurns = selected;
+      this.budgetFacts = {
+        ...budget,
+        ...cost,
+        selectedTurns: selected.map((t) => t.turn),
+        currentMessages: request.transcript.length,
+        selectedMessages: selected.reduce((n, t) => n + t.messages.length, 0),
       };
+      return { request: currentRequest, sources: { transcript: currentSources } };
     };
     const executionContext = new ParentTurnExecutionContext(
       turn,
@@ -1626,7 +1830,7 @@ export class WorkerGeneration {
     const persistAfterTurn = async (
       settlement: AfterTurnSettlement,
       outcome: LoopOutcome,
-      canonicalOutcome: boolean,
+      _canonicalOutcome: boolean,
     ): Promise<void> => {
       const afterTurnHooks = this.hooks.filter((hook) => hook.handlers.after_turn !== undefined);
       if (afterTurnHooks.length === 0) return;
@@ -1634,14 +1838,18 @@ export class WorkerGeneration {
         executionId === undefined || this.port.afterTurnContext === undefined
       ) throw new Error('after_turn Data settlement port is unavailable');
 
-      // This one structural snapshot is shared by every handler and context projection.
-      const canonicalTranscript = Object.freeze([...this.committedTranscript]);
-      const committedTurns = hookTranscriptTurns(canonicalTranscript);
+      await this.prepareHookView();
+      const committedTurns = this.selectedTurns.map(({ turn, messages }) =>
+        Object.freeze({
+          turn,
+          messages: Object.freeze(messages.map((message) => freezeData(message))),
+        })
+      );
       const afterTurnOutcome = freezeData(
         withTerminalOutcome(
           outcome,
           settlement.terminalOutcome,
-          canonicalOutcome ? canonicalTranscript : outcome.transcript,
+          outcome.transcript,
         ),
       );
       let effectiveCheckpoint = this.checkpoint;
@@ -1912,6 +2120,9 @@ export class WorkerGeneration {
       requestCountAtAdmission = this.requestCounter.count();
       userTurnAdmitted = true;
 
+      if (this.hooks.some((hook) => hook.handlers.before_turn !== undefined)) {
+        await this.prepareHookView(task);
+      }
       let beforeTurnContext: HookContextSnapshot | undefined;
       let activeBeforeTurnHook: LoadedWorkerHook | undefined;
       let turnContextContribution = 0;
@@ -2034,10 +2245,7 @@ export class WorkerGeneration {
           beforeTool,
           afterTool,
           requestMessageSource: sourceForMessage,
-          projectParentRequestWithSources:
-            this.checkpoint === undefined && recalledContext === undefined
-              ? undefined
-              : projectParentRequestWithSources,
+          projectParentRequestWithSources,
           commit: (transcript) => {
             proposal = {
               kind: 'commit_proposal',
@@ -2092,7 +2300,18 @@ export class WorkerGeneration {
         }
         return;
       }
-      this.committedTranscript = proposal.transcript;
+      this.canonicalMessageCount += proposal.transcript.length;
+      if (this.port.readContextTurn === undefined) {
+        this.localContextTurns = [...this.selectedTurns, {
+          turn,
+          executionId: executionId ?? `local-turn-${turn}`,
+          messages: proposal.transcript,
+          byteLength: 0,
+          messageStart: this.canonicalMessageCount - proposal.transcript.length,
+          source: 'runtime' as const,
+        }];
+      }
+      this.committedTranscript = [];
       this.nextTurn = proposal.nextTurn;
       if (settlement?.durable === true && executionId !== undefined) {
         this.lastSettlement = {
@@ -2123,6 +2342,8 @@ export class WorkerGeneration {
       ));
       await afterSettlement(failed.settlement, failed.outcome, false);
     } finally {
+      this.selectedTurns = [];
+      this.budgetFacts = {};
       steering.close();
       this.activeSteering = null;
       this.activeCancellation = null;

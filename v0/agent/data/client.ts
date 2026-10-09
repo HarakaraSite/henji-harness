@@ -8,6 +8,7 @@ import type {
 } from '../worker/worker_protocol.ts';
 import {
   type DataAgentEventListener,
+  type DataCommandReceipt,
   type DataCommitDecision,
   type DataConversationDeltaListener,
   type DataConversationSnapshot,
@@ -15,8 +16,14 @@ import {
   type DataExecutionAdmissionResult,
   type DataExecutionAdmitRequest,
   type DataExecutionArtifactMetadataInput,
+  type DataExecutionCompletionControl,
   type DataExecutionControlInput,
   type DataExecutionStartupAdmitRequest,
+  type DataFollowUpCursor,
+  type DataFollowUpPage,
+  type DataFollowUpReceipt,
+  type DataHistoryStreamChunk,
+  type DataHistoryStreamOpenResult,
   type DataPrepareProposalRequest,
   type DataProposalToken,
   type DataSealGenerationRequest,
@@ -35,6 +42,10 @@ import {
   type EncodedDataReply,
 } from './data_contract.ts';
 import type { SessionsListResult } from '../../api/contract.ts';
+import type {
+  ConversationContentChunk,
+  ConversationContentLocator,
+} from '../../conversation/model.ts';
 
 export { DataServiceError } from './data_contract.ts';
 export type { EncodedDataReply } from './data_contract.ts';
@@ -54,9 +65,7 @@ type DataWorker = Worker & {
 
 interface LocalWatchListener {
   readonly callback: DataConversationDeltaListener;
-  initializing: boolean;
   afterCut: number;
-  readonly buffered: DataConversationUpdate[];
 }
 
 interface LocalWatch {
@@ -95,7 +104,9 @@ class DataClient implements DataService {
     worker.onmessage = (event: MessageEvent<DataWorkerResponse>): void => {
       const response = event.data;
       if (response.kind === 'conversation_delta') {
-        this.receiveConversationUpdate(response.update);
+        void this.receiveConversationUpdate(response.update)
+          .catch(() => undefined)
+          .finally(() => this.acknowledgeConversationUpdate(response.update));
         return;
       }
       if (response.kind === 'session_descriptor_delta') {
@@ -169,13 +180,24 @@ class DataClient implements DataService {
     return response.value as T;
   }
 
-  private receiveConversationUpdate(update: DataConversationUpdate): void {
+  private async receiveConversationUpdate(
+    update: DataConversationUpdate,
+  ): Promise<void> {
     const watch = this.conversationWatches.get(update.sessionId);
     if (watch === undefined) return;
-    for (const subscriber of [...watch.listeners]) {
-      if (subscriber.initializing) subscriber.buffered.push(update);
-      else if (update.cut > subscriber.afterCut) subscriber.callback(update);
-    }
+    await Promise.all(
+      [...watch.listeners]
+        .filter((subscriber) => update.cut > subscriber.afterCut)
+        .map((subscriber) => subscriber.callback(update)),
+    );
+  }
+
+  private acknowledgeConversationUpdate(update: DataConversationUpdate): void {
+    void this.request({
+      kind: 'conversation_delta_ack',
+      sessionId: update.sessionId,
+      deliverySequence: update.deliverySequence,
+    }, true).catch(() => undefined);
   }
 
   private receiveSessionDescriptorUpdate(
@@ -302,6 +324,20 @@ class DataClient implements DataService {
     return { bytes: response.bytes };
   }
 
+  async historyStreamOpen(
+    input: HistoryReadInput,
+  ): Promise<DataHistoryStreamOpenResult> {
+    return await this.value({ kind: 'history_stream_open', input });
+  }
+
+  async historyStreamRead(streamId: string): Promise<DataHistoryStreamChunk> {
+    return await this.value({ kind: 'history_stream_read', streamId });
+  }
+
+  async historyStreamClose(streamId: string): Promise<void> {
+    await this.value<void>({ kind: 'history_stream_close', streamId });
+  }
+
   async contextRead(
     sessionId: string,
     pendingRecall?: ContextView['pendingRecall'],
@@ -330,6 +366,46 @@ class DataClient implements DataService {
     return response.result;
   }
 
+  commandReceiptRead(
+    coreEpoch: string,
+    commandId: string,
+  ): Promise<DataCommandReceipt | null> {
+    return this.value({ kind: 'command_receipt_read', coreEpoch, commandId });
+  }
+
+  async commandReceiptSave(receipt: DataCommandReceipt): Promise<void> {
+    await this.value<void>({ kind: 'command_receipt_save', receipt });
+  }
+
+  coreSessionCursorRead(
+    coreEpoch: string,
+    sessionId: string,
+  ): Promise<number | null> {
+    return this.value({ kind: 'core_session_cursor_read', coreEpoch, sessionId });
+  }
+
+  async coreSessionCursorSave(
+    coreEpoch: string,
+    sessionId: string,
+    revision: number,
+  ): Promise<void> {
+    await this.value<void>({
+      kind: 'core_session_cursor_save',
+      coreEpoch,
+      sessionId,
+      revision,
+    });
+  }
+
+  async saveExecutionCompletionControl(
+    control: DataExecutionCompletionControl,
+  ): Promise<void> {
+    await this.value<void>({
+      kind: 'execution_completion_control_save',
+      control,
+    });
+  }
+
   openSession(input: DataSessionOpenInput): Promise<DataSessionDescriptor> {
     return this.value({ kind: 'session_open', input });
   }
@@ -352,6 +428,58 @@ class DataClient implements DataService {
 
   conversationSnapshot(sessionId: string): Promise<DataConversationSnapshot> {
     return this.value({ kind: 'conversation_snapshot', sessionId });
+  }
+
+  conversationPageRead(
+    sessionId: string,
+    cursor?: number,
+    direction: 'older' | 'newer' | 'latest' = 'latest',
+  ): Promise<EncodedDataReply> {
+    return this.value({
+      kind: 'conversation_page_read',
+      sessionId,
+      cursor,
+      direction,
+    });
+  }
+
+  conversationContentRead(
+    locator: ConversationContentLocator,
+    offset: number,
+    length: number,
+  ): Promise<ConversationContentChunk> {
+    return this.value({
+      kind: 'conversation_content_read',
+      locator,
+      offset,
+      length,
+    });
+  }
+
+  async followUpSave(
+    coreEpoch: string,
+    sessionId: string,
+    followUp: import('../../api/contract.ts').FollowUpRecord,
+  ): Promise<void> {
+    await this.value<void>({
+      kind: 'follow_up_save',
+      receipt: { coreEpoch, sessionId, followUp },
+    });
+  }
+
+  followUpRead(queueId: string): Promise<DataFollowUpReceipt | null> {
+    return this.value({ kind: 'follow_up_read', queueId });
+  }
+
+  followUpPageRead(
+    sessionId: string,
+    cursor?: DataFollowUpCursor,
+  ): Promise<DataFollowUpPage> {
+    return this.value({
+      kind: 'follow_up_page_read',
+      sessionId,
+      cursor,
+    });
   }
 
   async watchConversation(
@@ -378,9 +506,7 @@ class DataClient implements DataService {
     }
     const subscriber: LocalWatchListener = {
       callback: listener,
-      initializing: true,
       afterCut: -1,
-      buffered: [],
     };
     watch.listeners.add(subscriber);
     try {
@@ -391,11 +517,6 @@ class DataClient implements DataService {
         })
         : await this.initializeConversationWatch(sessionId, watch);
       subscriber.afterCut = snapshot.cut;
-      subscriber.initializing = false;
-      for (const update of subscriber.buffered) {
-        if (update.cut > subscriber.afterCut) listener(update);
-      }
-      subscriber.buffered.length = 0;
       let active = true;
       return {
         snapshot,
@@ -410,7 +531,9 @@ class DataClient implements DataService {
       };
     } catch (error) {
       watch.listeners.delete(subscriber);
-      if (watch.listeners.size === 0) this.conversationWatches.delete(sessionId);
+      if (watch.listeners.size === 0) {
+        this.conversationWatches.delete(sessionId);
+      }
       throw error;
     }
   }
@@ -620,7 +743,9 @@ class DataClient implements DataService {
     return this.value({ kind: 'consume_compaction_notice', sessionId });
   }
 
-  async persistCatalogFacts(facts: readonly LiveModelCatalogFact[]): Promise<void> {
+  async persistCatalogFacts(
+    facts: readonly LiveModelCatalogFact[],
+  ): Promise<void> {
     await this.value<void>({ kind: 'persist_catalog_facts', facts });
   }
 

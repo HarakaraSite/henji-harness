@@ -10,7 +10,7 @@ const checkpointMessageText = (
     coveredThroughTurn + 1
   }\nsummary:\n${summary}`;
 
-const checkpointMessage = (
+export const checkpointMessage = (
   checkpoint: SemanticContextCheckpointV1,
 ): Message => ({
   role: 'user',

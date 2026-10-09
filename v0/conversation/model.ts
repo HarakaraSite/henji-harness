@@ -36,6 +36,57 @@ export interface ConversationPosition {
   readonly itemOrdinal: number;
 }
 
+/** Stable page cursor uses exclusive execution-order bounds from SQLite. */
+export interface ConversationPageMetadata {
+  readonly direction: 'latest' | 'older' | 'newer';
+  /** The exclusive request cursor supplied to the page read, when present. */
+  readonly cursor?: number;
+  readonly lowerExecutionOrder?: number;
+  readonly upperExecutionOrder?: number;
+  readonly hasOlder: boolean;
+  readonly hasNewer: boolean;
+}
+
+/** Immutable source bytes for opening a large conversation field in detail. */
+export interface ConversationContentLocator {
+  readonly sessionId: string;
+  readonly executionId: string;
+  readonly entityId: string;
+  readonly field:
+    | 'task'
+    | 'message'
+    | 'thinking'
+    | 'tool_arguments'
+    | 'tool_progress'
+    | 'tool_result'
+    | 'steering';
+  readonly digest: string;
+  readonly version: number;
+  /** Snapshot cut at which this locator was published; content is digest-addressed. */
+  readonly cut: number;
+  readonly totalBytes: number;
+  /** Event ordinal is absent only for execution task content. */
+  readonly sourceEventOrdinal?: number;
+  /** Zero-based declaration index for multiple tool arguments in one event. */
+  readonly sourceIndex?: number;
+}
+
+/** Adapter input; the normalizer adds the final keyed entity identity. */
+export type ConversationContentReference = Omit<
+  ConversationContentLocator,
+  'entityId'
+>;
+
+/** One UTF-8-safe chunk; offsets and lengths are measured in source bytes. */
+export interface ConversationContentChunk {
+  readonly locator: ConversationContentLocator;
+  readonly offset: number;
+  readonly totalBytes: number;
+  readonly nextOffset: number;
+  readonly done: boolean;
+  readonly text: string;
+}
+
 export interface ConversationExecutionMetadata {
   readonly executionId: string;
   readonly taskId: string;
@@ -67,6 +118,7 @@ interface ConversationExecutionEntity {
   readonly version: number;
   readonly position: ConversationPosition;
   readonly execution: ConversationExecutionMetadata;
+  readonly details?: readonly ConversationContentLocator[];
 }
 
 interface ConversationRequestEntity {
@@ -99,6 +151,7 @@ export interface ConversationMessageEntity {
   readonly toolOccurrenceIds?: readonly string[];
   /** Stable entity references, including model-declared calls not yet started by a tool worker. */
   readonly toolIds?: readonly string[];
+  readonly details?: readonly ConversationContentLocator[];
 }
 
 interface ConversationThinkingEntity {
@@ -112,6 +165,7 @@ interface ConversationThinkingEntity {
   readonly position: ConversationPosition;
   readonly text: string;
   readonly complete: boolean;
+  readonly details?: readonly ConversationContentLocator[];
 }
 
 interface ConversationToolEntity {
@@ -139,6 +193,7 @@ interface ConversationToolEntity {
     outcome: 'success' | 'error';
     terminal?: string;
   }>;
+  readonly details?: readonly ConversationContentLocator[];
 }
 
 interface ConversationSteeringEntity {
@@ -149,6 +204,7 @@ interface ConversationSteeringEntity {
   readonly position: ConversationPosition;
   readonly status: 'requested' | 'sent' | 'failed';
   readonly text: string;
+  readonly details?: readonly ConversationContentLocator[];
 }
 
 export type ConversationEntity =
@@ -185,6 +241,7 @@ export type ConversationObservation =
     kind: 'execution';
     execution: ConversationExecutionMetadata;
     executionOrder: number;
+    taskDetails?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'request_start';
@@ -203,6 +260,7 @@ export type ConversationObservation =
     request: ConversationRequestReference;
     text: string;
     semanticOccurrenceId?: string;
+    details?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'model_result';
@@ -213,10 +271,12 @@ export type ConversationObservation =
     request: ConversationRequestReference;
     text?: string;
     semanticOccurrenceId?: string;
+    details?: readonly ConversationContentReference[];
     declaredCalls?: readonly Readonly<{
       callId: string;
       name: string;
       arguments: ConversationValue;
+      details?: readonly ConversationContentReference[];
     }>[];
   }>
   | Readonly<{
@@ -228,6 +288,7 @@ export type ConversationObservation =
     thinkingKind: 'text' | 'summary';
     text: string;
     complete: boolean;
+    details?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'tool_call';
@@ -240,6 +301,7 @@ export type ConversationObservation =
     callId: string;
     name: string;
     arguments: ConversationValue;
+    details?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'tool_progress';
@@ -265,6 +327,7 @@ export type ConversationObservation =
       outcome: 'success' | 'error';
       terminal?: string;
     }>;
+    details?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'steering_operation';
@@ -272,6 +335,7 @@ export type ConversationObservation =
     eventOrdinal: number;
     status: 'requested' | 'sent' | 'failed';
     text: string;
+    details?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'steering_applied';
@@ -280,6 +344,7 @@ export type ConversationObservation =
     eventOrdinal: number;
     semanticOccurrenceId: string;
     text: string;
+    details?: readonly ConversationContentReference[];
   }>
   | Readonly<{
     kind: 'execution_settled';
@@ -314,7 +379,9 @@ export const compareConversationPositions = (
   left.eventOrdinal - right.eventOrdinal ||
   left.itemOrdinal - right.itemOrdinal;
 
-export const createConversationState = (sessionId: string): ConversationState => ({
+export const createConversationState = (
+  sessionId: string,
+): ConversationState => ({
   sessionId,
   entities: new Map(),
   order: new Map(),

@@ -13,11 +13,7 @@ import {
   type OpenRouterAgentModelOptions,
   type OpenRouterAgentProfile,
 } from './openrouter_contract.ts';
-import {
-  encodeRequest,
-  invalidRequestError,
-  measureModelRequestWire,
-} from './openrouter_request.ts';
+import { buildModelRequestWire, measureModelRequestWire } from './openrouter_request.ts';
 import {
   cancelResponseBody,
   decodeResponse,
@@ -28,7 +24,7 @@ import {
   withResponseStatus,
 } from './openrouter_response.ts';
 import { readSseResponse } from './openrouter_sse.ts';
-import { bytes, safeJson } from './openrouter_value.ts';
+import { bytes } from './openrouter_value.ts';
 import { substituteRequestHeaders, usesCredentialHeader } from './provider_request_headers.ts';
 
 const valueShape = (value: unknown): string =>
@@ -227,6 +223,9 @@ const withRequestCount = (
 /** Additive offline-composable adapter for the existing provider-neutral Model contract. */
 export class OpenRouterAgentModel implements Model {
   readonly measureRequestWire: Model['measureRequestWire'];
+  get requestOutputReserve(): number {
+    return this.profile.maxCompletionTokens;
+  }
   private readonly fetcher: typeof fetch;
   private readonly options: OpenRouterAgentModelOptions;
   private readonly profile: OpenRouterAgentProfile;
@@ -239,7 +238,7 @@ export class OpenRouterAgentModel implements Model {
       measureModelRequestWire(
         request,
         this.profile,
-        this.options.responseMode ?? 'sse',
+        this.options.responseMode ?? 'json',
         this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
       );
   }
@@ -248,27 +247,13 @@ export class OpenRouterAgentModel implements Model {
     request: ModelRequest,
     generateOptions: ModelGenerateOptions = {},
   ): Promise<ModelResult> {
-    const encoded = encodeRequest(
+    const { body } = buildModelRequestWire(
       request,
-      true,
+      this.profile,
+      this.options.responseMode ?? 'json',
       this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
-      this.profile.model,
+      true,
     );
-    const body = safeJson({
-      model: this.profile.model,
-      messages: encoded.messages,
-      tools: encoded.tools,
-      stream: this.options.responseMode === 'sse' ? true : this.profile.stream,
-      max_completion_tokens: this.profile.maxCompletionTokens,
-      ...(this.profile.reasoningEffort === undefined
-        ? {}
-        : this.profile.reasoningEffortField === 'reasoning_effort'
-        ? { reasoning_effort: this.profile.reasoningEffort }
-        : { reasoning: { effort: this.profile.reasoningEffort } }),
-    });
-    if (body === undefined) {
-      throw invalidRequestError('provider request is not JSON serializable');
-    }
     if (bytes(body) > MAX_REQUEST_BYTES) {
       throw new OpenRouterAgentError(
         'limit_exceeded',
@@ -614,6 +599,11 @@ export class OpenRouterAgentModel implements Model {
           payload,
           this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
           this.profile.model,
+        );
+        evidence?.recordUsage(
+          typeof payload === 'object' && payload !== null && 'usage' in payload
+            ? payload.usage
+            : undefined,
         );
         return decoded;
       } catch (error) {

@@ -32,7 +32,9 @@ const deferred = <T>(): Deferred<T> => {
 };
 
 const replyTransfer = (value: unknown): Transferable[] => {
-  if (typeof value !== 'object' || value === null || !('bytes' in value)) return [];
+  if (typeof value !== 'object' || value === null || !('bytes' in value)) {
+    return [];
+  }
   const bytes = (value as EncodedDataReply).bytes;
   return bytes instanceof Uint8Array && bytes.buffer instanceof ArrayBuffer ? [bytes.buffer] : [];
 };
@@ -42,7 +44,9 @@ export const startCoreServer = async (
   service: CoreService,
   options: CoreServerOptions = {},
 ): Promise<CoreServerHandle> => {
-  const worker = new Worker(new URL('./api_bootstrap.ts', import.meta.url), { type: 'module' });
+  const worker = new Worker(new URL('./api_bootstrap.ts', import.meta.url), {
+    type: 'module',
+  });
   const ready = deferred<string>();
   const drained = deferred<void>();
   const listenerClosed = deferred<void>();
@@ -52,13 +56,19 @@ export const startCoreServer = async (
   const operations = new Set<Promise<void>>();
   const subscriptions = new Map<number, () => void>();
   const cancelledSubscriptions = new Set<number>();
+  const subscribing = new Set<number>();
+  const credits = new Map<number, { sequence: number; resolve: () => void }>();
+  let nextFrameSequence = 1;
   let workerAlive = true;
   let failure: Error | undefined;
   let coreClosePromise: Promise<void> | undefined;
   let shutdownPromise: Promise<void> | undefined;
   let failureCleanup: Promise<void> | undefined;
 
-  const send = (message: MainToApiWorker, transfer: Transferable[] = []): void => {
+  const send = (
+    message: MainToApiWorker,
+    transfer: Transferable[] = [],
+  ): void => {
     if (!workerAlive) return;
     worker.postMessage(message, transfer);
   };
@@ -97,13 +107,34 @@ export const startCoreServer = async (
       let value: unknown;
       if (operation === 'subscribeSession') {
         const subscriptionId = message.subscriptionId;
-        if (subscriptionId === undefined) throw new CoreServiceError(500, 'invalid_subscription');
+        if (subscriptionId === undefined) {
+          throw new CoreServiceError(500, 'invalid_subscription');
+        }
+        subscribing.add(subscriptionId);
         const subscription = await service.subscribeSession(
           args[0] as string,
-          (bytes) => send({ kind: 'session.frame', subscriptionId, bytes }),
+          (bytes) => {
+            const sequence = nextFrameSequence++;
+            if (bytes === undefined) {
+              send({ kind: 'session.frame', subscriptionId, sequence });
+              return;
+            }
+            return new Promise<void>((resolve) => {
+              credits.set(subscriptionId, { sequence, resolve });
+              const frame = bytes.slice();
+              send({
+                kind: 'session.frame',
+                subscriptionId,
+                sequence,
+                bytes: frame,
+              }, [frame.buffer]);
+            });
+          },
         );
-        if (cancelledSubscriptions.delete(subscriptionId)) subscription.unsubscribe();
-        else subscriptions.set(subscriptionId, subscription.unsubscribe);
+        subscribing.delete(subscriptionId);
+        if (cancelledSubscriptions.delete(subscriptionId)) {
+          subscription.unsubscribe();
+        } else subscriptions.set(subscriptionId, subscription.unsubscribe);
         value = undefined;
       } else if (operation === 'coreShutdown') {
         value = await service.coreShutdown(
@@ -136,10 +167,20 @@ export const startCoreServer = async (
         () => operations.delete(operation),
         () => operations.delete(operation),
       );
+    } else if (message.kind === 'session.ack') {
+      const credit = credits.get(message.subscriptionId);
+      if (credit?.sequence === message.sequence) {
+        credits.delete(message.subscriptionId);
+        credit.resolve();
+      }
     } else if (message.kind === 'unsubscribe') {
+      credits.get(message.subscriptionId)?.resolve();
+      credits.delete(message.subscriptionId);
       const unsubscribe = subscriptions.get(message.subscriptionId);
-      if (unsubscribe === undefined) cancelledSubscriptions.add(message.subscriptionId);
-      else {
+      if (
+        unsubscribe === undefined && subscribing.has(message.subscriptionId)
+      ) cancelledSubscriptions.add(message.subscriptionId);
+      else if (unsubscribe !== undefined) {
         subscriptions.delete(message.subscriptionId);
         unsubscribe();
       }

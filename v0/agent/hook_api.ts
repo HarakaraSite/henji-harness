@@ -7,7 +7,7 @@ import type { ProcessExecutor } from './runtime/process_contract.ts';
 import type { Workspace, WorkToolSeams } from './tools/work_tool_contract.ts';
 
 /** Contract implemented by modules listed in hooks.json. */
-export const HOOK_API_CONTRACT = 'henji-hooks/v1' as const;
+export const HOOK_API_CONTRACT = 'henji-hooks/v2' as const;
 
 export type HookPhase =
   | 'runtime_start'
@@ -84,6 +84,20 @@ export interface HookCheckpointSnapshot {
 /** Turn-range view over canonical history, kept as message references rather than a second copy. */
 export interface HookTranscriptSnapshot {
   readonly turns: readonly HookTranscriptTurn[];
+  /** Global position; turns above are only a bounded view, never a full transcript. */
+  readonly nextTurn: number;
+  readonly messageCount: number;
+  readonly range: {
+    readonly basis: 'session-canonical' | 'runtime-adopted';
+    readonly retainedFromTurn: number;
+    readonly omittedThroughTurn: number;
+    readonly executionLocators: readonly string[];
+    readonly budget: {
+      readonly historyTokens: number;
+      readonly inputLimit: number;
+      readonly profile: string;
+    };
+  };
 }
 
 /** The projected request context is described by its checkpoint and retained canonical turns. */

@@ -111,6 +111,16 @@ Deno.test('Increment 89 sends one initial context revision and suffix-only delta
     undefined,
     undefined,
     ROOT_DEFAULT_MODEL_SELECTION,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { defaults: { historyTokens: 524288, inputTokens: 524288 } },
   );
   await generation.runTurn({
     session: '70000000-0000-4000-8000-000000000089',
@@ -132,8 +142,8 @@ Deno.test('Increment 89 sends one initial context revision and suffix-only delta
     deltas.map((delta) => delta.occurrences.map((item) => item.kind)),
     [
       ['message', 'message', 'message', 'message', 'message', 'tool_contract'],
-      ['message', 'message'],
-      ['message', 'message'],
+      ['message', 'message', 'tool_contract'],
+      ['message', 'message', 'tool_contract'],
     ],
   );
 
@@ -155,10 +165,13 @@ Deno.test('Increment 89 sends one initial context revision and suffix-only delta
     ),
     'a later delta resent the long committed context',
   );
-  assertEquals(
-    deltas.slice(1).flatMap((delta) => delta.occurrences)
-      .filter((occurrence) => occurrence.kind === 'tool_contract').length,
-    0,
+  const laterToolContracts = deltas.slice(1).flatMap((delta) => delta.occurrences).filter((
+    occurrence,
+  ) => occurrence.kind === 'tool_contract');
+  assertEquals(laterToolContracts.length, 2);
+  assert(
+    laterToolContracts.every((occurrence) => occurrence.bytesBase64 === undefined),
+    'unchanged tool bytes were resent despite new request-step source metadata',
   );
   const resultOccurrences = deltas.slice(1).map((delta) =>
     delta.occurrences.find((occurrence) =>

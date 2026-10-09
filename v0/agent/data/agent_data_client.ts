@@ -7,6 +7,7 @@ import type {
   AgentGenerationContextBasis,
   AgentPostSettlementHookUpdate,
   AgentProposalBarrier,
+  ContextTurnRead,
 } from './agent_data_contract.ts';
 import type {
   WorkerCheckpointProposalMessage,
@@ -21,6 +22,7 @@ type PendingRequest = {
   readonly correlation: WorkerCorrelation;
   readonly responseKind:
     | 'generation_context_result'
+    | 'context_turn_result'
     | 'checkpoint_acknowledgement'
     | 'after_turn_acknowledgement'
     | 'post_settlement_hook_acknowledgement'
@@ -89,6 +91,22 @@ export class AgentDataPortClientImpl implements AgentDataPortClient {
         }
         return response.basis;
       });
+  }
+
+  readContextTurn(
+    correlation: WorkerCorrelation,
+    beforeTurn: number,
+  ): Promise<ContextTurnRead | null> {
+    const requestId = this.allocateRequestId();
+    return this.request(
+      { kind: 'context_turn_read', requestId, correlation, beforeTurn },
+      correlation,
+    ).then((response) => {
+      if (response.kind !== 'context_turn_result') {
+        throw new Error('unexpected Agent Data context turn response');
+      }
+      return response.turn;
+    });
   }
 
   ready(message: WorkerReadyMessage): Promise<void> {
@@ -253,6 +271,8 @@ export class AgentDataPortClientImpl implements AgentDataPortClient {
     if (this.closed) return Promise.reject(new Error('Agent Data port closed'));
     const responseKind = message.kind === 'generation_context'
       ? 'generation_context_result'
+      : message.kind === 'context_turn_read'
+      ? 'context_turn_result'
       : message.kind === 'checkpoint_proposal'
       ? 'checkpoint_acknowledgement'
       : message.kind === 'after_turn_context'

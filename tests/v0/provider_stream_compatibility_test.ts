@@ -709,6 +709,7 @@ Deno.test('SSE above 1 MiB and 4096 events reaches terminal result without raw e
   assertEquals(observations.map((observation) => observation.kind), [
     'request_start',
     'response_start',
+    'request_usage',
   ]);
   assert(JSON.stringify(observations).length < 2_000);
 });

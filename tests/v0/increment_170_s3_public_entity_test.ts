@@ -50,7 +50,7 @@ Deno.test('Increment 170 public entity frames apply saved Data batches without r
     await writer.beginExecution(execution);
     const selection = ROOT_DEFAULT_MODEL_SELECTION;
     const control: SessionControlSnapshot = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       cursor: { coreEpoch: crypto.randomUUID(), sessionId, revision: 0 },
       session: {
         id: sessionId,

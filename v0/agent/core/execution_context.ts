@@ -128,7 +128,7 @@ export interface ModelExecutionContext {
   ) => {
     readonly request: ModelRequest;
     readonly sources: ModelRequestSourceAttribution;
-  };
+  } | Promise<{ readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution }>;
   /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
   readonly providerRequestCount?: () => number;
   /** Runtime-process cumulative fetch count, supplied by the host adapter. */
@@ -161,10 +161,14 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     readonly projectParentRequestWithSources?: (
       request: ModelRequest,
       sources: ModelRequestSourceAttribution,
-    ) => {
-      readonly request: ModelRequest;
-      readonly sources: ModelRequestSourceAttribution;
-    },
+    ) =>
+      | {
+        readonly request: ModelRequest;
+        readonly sources: ModelRequestSourceAttribution;
+      }
+      | Promise<
+        { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution }
+      >,
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
@@ -208,7 +212,7 @@ export const createTurnExecutionContext = (
   ) => {
     readonly request: ModelRequest;
     readonly sources: ModelRequestSourceAttribution;
-  },
+  } | Promise<{ readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution }>,
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,

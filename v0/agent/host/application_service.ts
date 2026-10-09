@@ -1,3 +1,4 @@
+import type { FollowUpRecord } from '../../api/contract.ts';
 import { ApplicationTaskService } from './task_service.ts';
 import type { ApplicationObservation, ApplicationObservationSink } from './application_port.ts';
 import {
@@ -13,7 +14,15 @@ export interface ApplicationService extends WorkerSessionResult {
 
 /** Composition owner for one in-process Host Session and its query/observation ports. */
 export const createApplicationService = async (
-  options: WorkerSessionOptions,
+  options: WorkerSessionOptions & {
+    readonly persistFollowUp?: (record: FollowUpRecord) => Promise<void>;
+    readonly persistTaskCompletion?: (control: {
+      readonly executionId: string;
+      readonly sessionId: string;
+      readonly submittedByCommandId: string;
+      readonly processSettlement: 'running' | 'complete';
+    }) => Promise<void>;
+  },
 ): Promise<ApplicationService> => {
   const listeners = new Set<ApplicationObservationSink>();
   const upstream = options.applicationObservationSink;
@@ -46,6 +55,8 @@ export const createApplicationService = async (
         executionChanges,
       });
     },
+    options.persistTaskCompletion,
+    options.persistFollowUp,
   );
   taskOwner.current = owner;
   return {

@@ -112,15 +112,16 @@ const snapshot = (options: {
     entities[row.id] = row;
   }
   const conversation: ConversationSnapshot = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut: options.conversationCut ?? 1,
     storeRevision: options.conversationCut ?? 1,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities,
     order: Object.keys(entities),
   };
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cursor: {
       coreEpoch,
       sessionId,
@@ -161,6 +162,7 @@ const snapshot = (options: {
 
 const coreRead = {
   apiVersion: 1,
+  conversationSchema: 3,
   coreEpoch,
   build,
   workspace: '/tmp/increment-142-workspace',
@@ -400,7 +402,7 @@ Deno.test('Increment 142 busy Enter keeps its draft until F3 steers and reconnec
     queueId,
     commandId: 'discarded-command',
     sessionId,
-    afterExecutionId: 'older-execution',
+    afterExecutionId: executionId,
     text: 'Human decides whether to resend this retained body',
     status: 'discarded' as const,
     reason: 'cancelled',
@@ -453,12 +455,14 @@ Deno.test('Increment 142 busy Enter keeps its draft until F3 steers and reconnec
   });
   const terminal = new FakeTerminal();
   let detached = false;
+  let displayedScreen: string | undefined;
   terminal.onWrite = (text) => {
     if (
       !detached && text.includes('Additional instruction received') &&
       text.includes('steering body')
     ) {
       detached = true;
+      displayedScreen = terminal.frame?.rows.join('\n');
       terminal.pushInput('\x04');
     }
   };
@@ -478,7 +482,7 @@ Deno.test('Increment 142 busy Enter keeps its draft until F3 steers and reconnec
     strictEqual(taskCount, 0);
     strictEqual((received as { text: string }).text, 'steering body');
     const rendered = terminal.output.join('');
-    const currentScreen = terminal.frame?.rows.join('\n') ?? '';
+    const currentScreen = displayedScreen ?? '';
     for (
       const value of [
         'NOT STARTED',
@@ -489,7 +493,7 @@ Deno.test('Increment 142 busy Enter keeps its draft until F3 steers and reconnec
     strictEqual(
       /cance\s*lled/u.test(currentScreen),
       true,
-      'queue reason is visible across line wrap',
+      'queue reason is visible before terminal restoration across line wrap',
     );
     strictEqual(currentScreen.includes('Additional instruction received'), true);
     strictEqual(

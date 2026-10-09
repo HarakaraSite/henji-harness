@@ -7,7 +7,9 @@ import type {
   StoredSessionConversationExecution,
 } from '../agent/history/history_store_contract.ts';
 import type { HistorySemanticOccurrence } from '../agent/history/history_semantic_model.ts';
+import { canonicalJsonBytes } from '../agent/history/context_attribution.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../agent/provider/provider_evidence.ts';
+import { exactByteDigest } from '../agent/history/exact_byte_plan.ts';
 import {
   applyObservation,
   conversationJson,
@@ -16,6 +18,7 @@ import {
 } from './normalizer.ts';
 import {
   type ConversationChange,
+  type ConversationContentReference,
   type ConversationExecutionMetadata,
   type ConversationObservation,
   type ConversationRequestReference,
@@ -33,10 +36,112 @@ const stringField = (value: unknown, name: string): string | undefined => {
   return typeof field === 'string' ? field : undefined;
 };
 
-const executionMetadata = (row: StoredExecutionRow): ConversationExecutionMetadata => ({
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
+const CONVERSATION_PREVIEW_BYTES = 2_048;
+
+const utf8Prefix = (bytes: Uint8Array, limit: number): string => {
+  let end = Math.min(bytes.byteLength, limit);
+  while (
+    end > 0 && end < bytes.byteLength && (bytes[end] & 0xc0) === 0x80
+  ) end -= 1;
+  return decoder.decode(bytes.subarray(0, end));
+};
+
+const contentReference = (
+  sessionId: string,
+  executionId: string,
+  field: ConversationContentReference['field'],
+  version: number,
+  cut: number,
+  text: string,
+  sourceEventOrdinal?: number,
+  sourceIndex?: number,
+): ConversationContentReference => {
+  const bytes = encoder.encode(text);
+  return {
+    sessionId,
+    executionId,
+    field,
+    digest: exactByteDigest(bytes),
+    version,
+    cut,
+    totalBytes: bytes.byteLength,
+    ...(sourceEventOrdinal === undefined ? {} : { sourceEventOrdinal }),
+    ...(sourceIndex === undefined ? {} : { sourceIndex }),
+  };
+};
+
+const boundedText = (
+  text: string,
+  details: ConversationContentReference,
+  includeFullText = false,
+): Readonly<
+  { text: string; details?: readonly ConversationContentReference[] }
+> => {
+  const bytes = encoder.encode(text);
+  if (includeFullText || bytes.byteLength <= CONVERSATION_PREVIEW_BYTES) return { text };
+  return {
+    text: `${
+      utf8Prefix(bytes, CONVERSATION_PREVIEW_BYTES)
+    }… [${bytes.byteLength} bytes; open detail]`,
+    details: [details],
+  };
+};
+
+const boundedValue = (
+  value: unknown,
+  budget = CONVERSATION_PREVIEW_BYTES,
+): import('./model.ts').ConversationValue => {
+  const serialized = JSON.stringify(value);
+  if (
+    serialized === undefined || encoder.encode(serialized).byteLength <= budget
+  ) {
+    return conversationJson(value);
+  }
+  if (typeof value === 'string') {
+    const bytes = encoder.encode(value);
+    return `${utf8Prefix(bytes, budget)}…`;
+  }
+  if (Array.isArray(value)) {
+    const preview: import('./model.ts').ConversationValue[] = [];
+    for (const item of value) {
+      const candidate = [
+        ...preview,
+        boundedValue(item, Math.max(32, budget - 64)),
+      ];
+      if (encoder.encode(JSON.stringify(candidate)).byteLength > budget) break;
+      preview.push(candidate.at(-1)!);
+    }
+    if (preview.length < value.length) {
+      preview.push(`… ${value.length - preview.length} more`);
+    }
+    return preview;
+  }
+  const record = object(value);
+  if (record === undefined) return null;
+  const preview: Record<string, import('./model.ts').ConversationValue> = {};
+  for (const [key, item] of Object.entries(record)) {
+    const candidate = {
+      ...preview,
+      [key]: boundedValue(item, Math.max(32, budget - 96)),
+    };
+    if (encoder.encode(JSON.stringify(candidate)).byteLength > budget) break;
+    preview[key] = candidate[key];
+  }
+  if (Object.keys(preview).length < Object.keys(record).length) {
+    preview['…'] = `${Object.keys(record).length - Object.keys(preview).length} more fields`;
+  }
+  return preview;
+};
+
+const executionMetadata = (
+  row: StoredExecutionRow,
+  task = row.task,
+): ConversationExecutionMetadata => ({
   executionId: row.executionId,
   taskId: row.taskId,
-  task: row.task,
+  task,
   sessionId: row.sessionCorrelation,
   ...(row.canonicalSessionId === undefined ? {} : { canonicalSessionId: row.canonicalSessionId }),
   ...(row.parentExecutionId === undefined ? {} : { parentExecutionId: row.parentExecutionId }),
@@ -64,7 +169,9 @@ const requestReference = (
   value: unknown,
 ): ConversationRequestReference | undefined => {
   const record = object(value);
-  if (record === undefined || typeof record.modelStep !== 'number') return undefined;
+  if (record === undefined || typeof record.modelStep !== 'number') {
+    return undefined;
+  }
   return {
     ...(record.lane === 'parent' || record.lane === 'planner' ? { lane: record.lane } : {}),
     modelStep: record.modelStep,
@@ -86,7 +193,9 @@ const nestedProviderEvent = (event: StoredExecutionEvent):
   const observation = object(payload.observation);
   if (observation?.kind !== 'runtime_event') return undefined;
   const providerEvent = object(observation.event);
-  if (providerEvent === undefined || typeof providerEvent.kind !== 'string') return undefined;
+  if (providerEvent === undefined || typeof providerEvent.kind !== 'string') {
+    return undefined;
+  }
   return {
     event: providerEvent as unknown as ProviderEvidenceRuntimeEvent,
     turn: typeof payload.turn === 'number' ? payload.turn : 0,
@@ -117,6 +226,9 @@ const requestFromRuntime = (
 const eventObservation = (
   event: StoredExecutionEvent,
   semanticOccurrenceId?: string,
+  sessionId = '',
+  cut = 0,
+  includeFullText = false,
 ): readonly ConversationObservation[] => {
   const executionId = event.executionId;
   const payload = payloadObject(event);
@@ -152,6 +264,20 @@ const eventObservation = (
     event.kind === 'steer_requested' || event.kind === 'steer_sent' ||
     event.kind === 'steer_failed'
   ) {
+    const text = typeof payload.text === 'string' ? payload.text : '';
+    const detail = boundedText(
+      text,
+      contentReference(
+        sessionId,
+        executionId,
+        'steering',
+        event.ordinal,
+        cut,
+        text,
+        event.ordinal,
+      ),
+      includeFullText,
+    );
     return [{
       kind: 'steering_operation',
       executionId,
@@ -161,7 +287,8 @@ const eventObservation = (
         : event.kind === 'steer_sent'
         ? 'sent'
         : 'failed',
-      text: typeof payload.text === 'string' ? payload.text : '',
+      text: detail.text,
+      ...(detail.details === undefined ? {} : { details: detail.details }),
     }];
   }
 
@@ -169,7 +296,8 @@ const eventObservation = (
     const outcome = stringField(payload, 'outcome');
     const adoption = stringField(payload, 'adoption');
     if (
-      (outcome === 'unknown' || outcome === 'completed' || outcome === 'cancelled' ||
+      (outcome === 'unknown' || outcome === 'completed' ||
+        outcome === 'cancelled' ||
         outcome === 'failed' || outcome === 'interrupted') &&
       (adoption === 'canonical' || adoption === 'non_canonical')
     ) {
@@ -213,34 +341,109 @@ const eventObservation = (
       request: requestFromRuntime(input),
     };
     switch (input.kind) {
-      case 'assistant_progress':
+      case 'assistant_progress': {
+        const progressDetail = boundedText(
+          input.text,
+          contentReference(
+            sessionId,
+            executionId,
+            'message',
+            event.ordinal,
+            cut,
+            input.text,
+            event.ordinal,
+          ),
+          includeFullText,
+        );
         return [{
           ...base,
           kind: 'assistant_progress',
-          text: input.text,
+          text: progressDetail.text,
+          ...(progressDetail.details === undefined ? {} : {
+            details: progressDetail.details,
+          }),
           ...(event.firstEventOrdinal === undefined
             ? {}
             : { firstEventOrdinal: event.firstEventOrdinal }),
           ...(semanticOccurrenceId === undefined ? {} : { semanticOccurrenceId }),
         }];
-      case 'model_result':
+      }
+      case 'model_result': {
+        const resultText = input.result.text;
+        const resultDetail = resultText === undefined ? undefined : boundedText(
+          resultText,
+          contentReference(
+            sessionId,
+            executionId,
+            'message',
+            event.ordinal,
+            cut,
+            resultText,
+            event.ordinal,
+          ),
+          includeFullText,
+        );
         return [{
           ...base,
           kind: 'model_result',
           ...(event.firstEventOrdinal === undefined
             ? {}
             : { firstEventOrdinal: event.firstEventOrdinal }),
-          ...(input.result.text === undefined ? {} : { text: input.result.text }),
-          ...(input.result.kind !== 'tool_calls' || input.result.calls.length === 0 ? {} : {
-            declaredCalls: input.result.calls.map((call) => ({
-              callId: call.callId,
-              name: call.name,
-              arguments: conversationJson(call.arguments),
-            })),
+          ...(resultDetail === undefined ? {} : {
+            text: resultDetail.text,
+            ...(resultDetail.details === undefined ? {} : { details: resultDetail.details }),
           }),
+          ...(input.result.kind !== 'tool_calls' ||
+              input.result.calls.length === 0
+            ? {}
+            : {
+              declaredCalls: input.result.calls.map((call, index) => {
+                const text = decoder.decode(canonicalJsonBytes(call.arguments));
+                const detail = boundedText(
+                  text,
+                  contentReference(
+                    sessionId,
+                    executionId,
+                    'tool_arguments',
+                    event.ordinal,
+                    cut,
+                    text,
+                    event.ordinal,
+                    index,
+                  ),
+                  includeFullText,
+                );
+                return {
+                  callId: call.callId,
+                  name: call.name,
+                  arguments: detail.details === undefined
+                    ? conversationJson(call.arguments)
+                    : boundedValue(call.arguments),
+                  ...(detail.details === undefined ? {} : { details: detail.details }),
+                };
+              }),
+            }),
           ...(semanticOccurrenceId === undefined ? {} : { semanticOccurrenceId }),
         }];
-      case 'tool_call':
+      }
+      case 'tool_call': {
+        const callJson = decoder.decode(
+          canonicalJsonBytes(input.call.arguments),
+        );
+        const callDetail = boundedText(
+          callJson,
+          contentReference(
+            sessionId,
+            executionId,
+            'tool_arguments',
+            event.ordinal,
+            cut,
+            callJson,
+            event.ordinal,
+            input.callIndex ?? 0,
+          ),
+          includeFullText,
+        );
         return semanticOccurrenceId === undefined ? [] : [{
           ...base,
           kind: 'tool_call',
@@ -248,17 +451,52 @@ const eventObservation = (
           ...(input.callIndex === undefined ? {} : { callIndex: input.callIndex }),
           callId: input.call.callId,
           name: input.call.name,
-          arguments: conversationJson(input.call.arguments),
+          arguments: callDetail.details === undefined
+            ? conversationJson(input.call.arguments)
+            : boundedValue(input.call.arguments),
+          ...(callDetail.details === undefined ? {} : { details: callDetail.details }),
         }];
-      case 'tool_progress':
+      }
+      case 'tool_progress': {
+        const progressText = input.text;
+        const toolProgressDetail = boundedText(
+          progressText,
+          contentReference(
+            sessionId,
+            executionId,
+            'tool_progress',
+            event.ordinal,
+            cut,
+            progressText,
+            event.ordinal,
+          ),
+          includeFullText,
+        );
         return [{
           ...base,
           kind: 'tool_progress',
           ...(input.callIndex === undefined ? {} : { callIndex: input.callIndex }),
           callId: input.callId,
-          text: input.text,
+          text: toolProgressDetail.text,
+          ...(toolProgressDetail.details === undefined ? {} : {
+            details: toolProgressDetail.details,
+          }),
         }];
-      case 'tool_result':
+      }
+      case 'tool_result': {
+        const toolResultDetail = boundedText(
+          input.result.text,
+          contentReference(
+            sessionId,
+            executionId,
+            'tool_result',
+            event.ordinal,
+            cut,
+            input.result.text,
+            event.ordinal,
+          ),
+          includeFullText,
+        );
         return [{
           ...base,
           kind: 'tool_result',
@@ -266,11 +504,15 @@ const eventObservation = (
           result: {
             callId: input.result.callId,
             name: input.result.name,
-            text: input.result.text,
+            text: toolResultDetail.text,
             outcome: input.result.outcome,
             ...(!('terminal' in input.result) ? {} : { terminal: input.result.terminal }),
           },
+          ...(toolResultDetail.details === undefined ? {} : {
+            details: toolResultDetail.details,
+          }),
         }];
+      }
       case 'turn_outcome':
         return [];
     }
@@ -282,6 +524,19 @@ const eventObservation = (
       ? { modelStep: item.modelStep }
       : requestReference(item.requestKey);
     if (request === undefined) return [];
+    const detail = boundedText(
+      item.text,
+      contentReference(
+        sessionId,
+        executionId,
+        'thinking',
+        event.ordinal,
+        cut,
+        item.text,
+        event.ordinal,
+      ),
+      includeFullText,
+    );
     return [{
       kind: 'thinking',
       executionId,
@@ -289,21 +544,38 @@ const eventObservation = (
       eventOrdinal: event.ordinal,
       request,
       thinkingKind: item.thinkingKind,
-      text: item.text,
+      text: detail.text,
       complete: item.complete,
+      ...(detail.details === undefined ? {} : { details: detail.details }),
     }];
   }
   if (
     item?.kind === 'steering_message' &&
-    typeof item.message.content.text === 'string' && semanticOccurrenceId !== undefined
+    typeof item.message.content.text === 'string' &&
+    semanticOccurrenceId !== undefined
   ) {
+    const text = item.message.content.text;
+    const detail = boundedText(
+      text,
+      contentReference(
+        sessionId,
+        executionId,
+        'message',
+        event.ordinal,
+        cut,
+        text,
+        event.ordinal,
+      ),
+      includeFullText,
+    );
     return [{
       kind: 'steering_applied',
       executionId,
       turn: item.turn,
       eventOrdinal: event.ordinal,
       semanticOccurrenceId,
-      text: item.message.content.text,
+      text: detail.text,
+      ...(detail.details === undefined ? {} : { details: detail.details }),
     }];
   }
   return [];
@@ -319,18 +591,27 @@ const occurrenceEvent = (
 
 export const observationsFromAppendResults = (
   results: readonly HistoryAppendResult[],
+  sessionId = '',
+  cut = 0,
 ): readonly ConversationObservation[] =>
   results.flatMap(({ event, semanticOccurrenceId }) =>
-    eventObservation(event, semanticOccurrenceId)
+    eventObservation(event, semanticOccurrenceId, sessionId, cut)
   );
 
 export const applyHistoryAppendResults = (
   state: ConversationState,
   normalizer: ConversationNormalizer,
   results: readonly HistoryAppendResult[],
+  cut = 0,
 ): readonly ConversationChange[] => {
   const changes: ConversationChange[] = [];
-  for (const observation of observationsFromAppendResults(results)) {
+  for (
+    const observation of observationsFromAppendResults(
+      results,
+      state.sessionId,
+      cut,
+    )
+  ) {
     changes.push(...applyObservation(state, normalizer, observation));
   }
   return changes;
@@ -338,6 +619,8 @@ export const applyHistoryAppendResults = (
 
 const observationsFromCommitDelta = (
   delta: HistoryCommitDelta,
+  sessionId: string,
+  cut: number,
 ): readonly ConversationObservation[] => {
   const events = delta.occurrences.flatMap((occurrence) => {
     const event = occurrenceEvent(occurrence);
@@ -352,7 +635,7 @@ const observationsFromCommitDelta = (
   );
   return [
     ...events.flatMap(({ event, semanticOccurrenceId }) =>
-      eventObservation(event, semanticOccurrenceId)
+      eventObservation(event, semanticOccurrenceId, sessionId, cut)
     ),
     {
       kind: 'execution_settled',
@@ -375,9 +658,16 @@ export const applyHistoryCommitDelta = (
   state: ConversationState,
   normalizer: ConversationNormalizer,
   delta: HistoryCommitDelta,
+  cut = 0,
 ): readonly ConversationChange[] => {
   const changes: ConversationChange[] = [];
-  for (const observation of observationsFromCommitDelta(delta)) {
+  for (
+    const observation of observationsFromCommitDelta(
+      delta,
+      state.sessionId,
+      cut,
+    )
+  ) {
     changes.push(...applyObservation(state, normalizer, observation));
   }
   return changes;
@@ -386,18 +676,50 @@ export const applyHistoryCommitDelta = (
 export const replaySessionConversation = (
   sessionId: string,
   executions: Iterable<StoredSessionConversationExecution>,
-): Readonly<{ state: ConversationState; normalizer: ConversationNormalizer }> => {
+  cut = 0,
+  options: Readonly<{ includeFullText?: boolean }> = {},
+): Readonly<
+  { state: ConversationState; normalizer: ConversationNormalizer }
+> => {
   const state = createConversationState(sessionId);
   const normalizer = createConversationNormalizer();
-  let executionOrder = 0;
+  let fallbackExecutionOrder = 0;
   for (const facts of executions) {
+    const executionOrder = facts.executionOrder ?? fallbackExecutionOrder;
+    fallbackExecutionOrder = Math.max(
+      fallbackExecutionOrder,
+      executionOrder + 1,
+    );
+    const task = boundedText(
+      facts.execution.task,
+      contentReference(
+        sessionId,
+        facts.execution.executionId,
+        'task',
+        0,
+        cut,
+        facts.execution.task,
+      ),
+      options.includeFullText === true,
+    );
     applyObservation(state, normalizer, {
       kind: 'execution',
-      execution: executionMetadata(facts.execution),
-      executionOrder: executionOrder++,
+      execution: executionMetadata(facts.execution, task.text),
+      executionOrder,
+      ...(task.details === undefined ? {} : {
+        taskDetails: task.details,
+      }),
     });
     for (const { event, semanticOccurrenceId } of facts.events) {
-      for (const observation of eventObservation(event, semanticOccurrenceId)) {
+      for (
+        const observation of eventObservation(
+          event,
+          semanticOccurrenceId,
+          sessionId,
+          cut,
+          options.includeFullText === true,
+        )
+      ) {
         applyObservation(state, normalizer, observation);
       }
     }

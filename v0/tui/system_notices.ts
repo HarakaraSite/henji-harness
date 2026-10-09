@@ -8,6 +8,7 @@ interface RetainedNotice {
   anchor?: string;
   afterExecutionId?: string;
   steeringText?: string;
+  unresolvedDraft?: boolean;
 }
 
 interface SessionNotices {
@@ -26,6 +27,12 @@ interface NoticeSyncResult {
   readonly structureChanged: boolean;
 }
 
+const recordsQueued = (snapshot: SessionSnapshot): string[] =>
+  [
+    ...(snapshot.pending.followUp === undefined ? [] : [snapshot.pending.followUp]),
+    ...snapshot.pending.followUps,
+  ].filter((record) => record.status === 'queued').map((record) => record.queueId);
+
 const steeringKey = (executionId: string, text: string): string =>
   JSON.stringify([executionId, text]);
 
@@ -40,6 +47,12 @@ const placementOf = (notice: RetainedNotice): KeyedNoticePlacement => ({
 /** UI-local receipts keyed by session and source identity; semantic rows stay in Data order. */
 export class RemoteSystemNotices {
   private readonly sessions = new Map<string, SessionNotices>();
+  private draftReceipt?: RetainedNotice;
+
+  resolveDraft(): void {
+    if (this.draftReceipt !== undefined) this.draftReceipt.unresolvedDraft = false;
+    this.draftReceipt = undefined;
+  }
 
   retain(
     sessionId: string,
@@ -47,12 +60,14 @@ export class RemoteSystemNotices {
     text: string,
     failureWord?: string,
     executionId?: string,
+    unresolvedDraft = false,
   ): void {
     const state = this.forSession(sessionId);
     const id = `system:${sessionId}:${identity}`;
     const previous = state.notices.get(id);
     if (
-      previous?.entry.text === text && previous.entry.failureWord === failureWord &&
+      previous?.entry.text === text &&
+      previous.entry.failureWord === failureWord &&
       (executionId === undefined || previous.afterExecutionId === executionId)
     ) return;
     const anchor = previous === undefined
@@ -73,9 +88,15 @@ export class RemoteSystemNotices {
         live: false,
       }),
     };
+    if (unresolvedDraft) {
+      this.resolveDraft();
+      retained.unresolvedDraft = true;
+      this.draftReceipt = retained;
+    }
     state.notices.set(id, retained);
     this.reindexSteeringNotice(state, id, previous, retained);
     state.dirtyNoticeIds.add(id);
+    this.trimResolved(state);
   }
 
   /** Apply only changed execution entities and changed Core pending state. */
@@ -89,7 +110,8 @@ export class RemoteSystemNotices {
     const state = this.forSession(sessionId);
     const configuration = snapshot.runtime.effectiveConfig?.configuration;
     if (
-      configuration !== null && typeof configuration === 'object' && !Array.isArray(configuration)
+      configuration !== null && typeof configuration === 'object' &&
+      !Array.isArray(configuration)
     ) {
       const facts = configuration as { [key: string]: unknown };
       if (Array.isArray(facts.rejections)) {
@@ -111,9 +133,10 @@ export class RemoteSystemNotices {
       }
     }
     const semanticIds = store.semanticIds();
-    const pendingChanged = options.reset === true || state.pending !== snapshot.pending;
+    const pendingChanged = options.reset === true ||
+      state.pending !== snapshot.pending;
     if (options.reset === true || options.structureChanged === true) {
-      this.rebaseAnchors(state, semanticIds);
+      // Source anchors remain stable; notices outside this page are released below.
       state.semanticIds = semanticIds;
     }
 
@@ -131,13 +154,16 @@ export class RemoteSystemNotices {
 
     for (const entityId of client.dirtyEntityIds) {
       const entity = snapshot.conversation.entities[entityId];
-      if (entity?.kind === 'execution') this.retainExecution(sessionId, entity.execution);
+      if (entity?.kind === 'execution') {
+        this.retainExecution(sessionId, entity.execution);
+      }
       if (options.reset !== true) {
         this.removeAppliedSteering(state, entityId);
         this.addAppliedSteering(state, entityId, entity);
       }
       if (
-        entity?.kind === 'message' && entity.role === 'user' && entity.position.requestOrder >= 0
+        entity?.kind === 'message' && entity.role === 'user' &&
+        entity.position.requestOrder >= 0
       ) {
         const noticeIds = state.steeringNoticeIdsByKey.get(
           steeringKey(entity.executionId, entity.text),
@@ -151,6 +177,33 @@ export class RemoteSystemNotices {
       state.pending = snapshot.pending;
     }
 
+    // Only the displayed page and unresolved Core operations retain local receipts.
+    const executions = new Set(
+      Object.values(snapshot.conversation.entities).map((entity) => entity.executionId),
+    );
+    const rows = new Set(semanticIds);
+    const unresolved = new Set<string>([
+      ...(snapshot.pending.steering === undefined ? [] : [
+        `system:${sessionId}:steering:${snapshot.pending.steering.commandId}`,
+      ]),
+      ...recordsQueued(snapshot).map((id) => `system:${sessionId}:queue:${id}`),
+    ]);
+    for (const [id, notice] of state.notices) {
+      if (unresolved.has(id) || notice.unresolvedDraft) continue;
+      if (
+        (notice.afterExecutionId !== undefined &&
+          !executions.has(notice.afterExecutionId)) ||
+        (notice.anchor !== undefined && !rows.has(notice.anchor))
+      ) this.deleteNotice(state, id);
+    }
+    this.trimResolved(state);
+    for (const [id, other] of this.sessions) {
+      if (
+        id !== sessionId && other.pending?.steering === undefined &&
+        (other.pending?.followUp?.status !== 'queued') &&
+        ![...other.notices.values()].some((notice) => notice.unresolvedDraft)
+      ) this.sessions.delete(id);
+    }
     const changedIds = new Set<string>();
     let structureChanged = false;
     if (options.reset === true) {
@@ -201,6 +254,24 @@ export class RemoteSystemNotices {
     });
   }
 
+  private trimResolved(state: SessionNotices): void {
+    let bytes = 0;
+    let count = 0;
+    for (const [id, notice] of [...state.notices].reverse()) {
+      if (
+        notice.unresolvedDraft ||
+        (state.pending?.steering !== undefined &&
+          id.endsWith(`:steering:${state.pending.steering.commandId}`)) ||
+        (state.pending?.followUp?.status === 'queued' &&
+          id.endsWith(`:queue:${state.pending.followUp.queueId}`))
+      ) continue;
+      bytes += notice.entry.textByteLength ??
+        new TextEncoder().encode(notice.entry.text).byteLength;
+      count += 1;
+      if (count > 32 || (bytes > 2 * 1024 * 1024 && count > 1)) this.deleteNotice(state, id);
+    }
+  }
+
   private forSession(sessionId: string): SessionNotices {
     let state = this.sessions.get(sessionId);
     if (state === undefined) {
@@ -222,7 +293,9 @@ export class RemoteSystemNotices {
     sessionId: string,
     execution: import('../conversation/model.ts').ConversationExecutionMetadata,
   ): void {
-    if (execution.lifecycle !== 'settled' || execution.outcome === 'completed') return;
+    if (
+      execution.lifecycle !== 'settled' || execution.outcome === 'completed'
+    ) return;
     const word = execution.outcome.toUpperCase();
     const reason = execution.diagnostic === undefined
       ? execution.stopReason === 'max_steps'
@@ -242,7 +315,8 @@ export class RemoteSystemNotices {
     this.retain(
       sessionId,
       `execution:${execution.executionId}`,
-      (reason === execution.outcome ? word : `${word} · ${reason}`) + recallHint,
+      (reason === execution.outcome ? word : `${word} · ${reason}`) +
+        recallHint,
       execution.outcome === 'cancelled' ? undefined : word,
       execution.executionId,
     );
@@ -260,7 +334,10 @@ export class RemoteSystemNotices {
         : record.status === 'started'
         ? 'STARTED'
         : 'NOT STARTED';
-      const reason = record.reason?.replace(/[A-Z]/gu, (letter) => ` ${letter.toLowerCase()}`);
+      const reason = record.reason?.replace(
+        /[A-Z]/gu,
+        (letter) => ` ${letter.toLowerCase()}`,
+      );
       this.retain(
         sessionId,
         `queue:${record.queueId}`,
@@ -295,7 +372,10 @@ export class RemoteSystemNotices {
     }
   }
 
-  private rebaseAnchors(state: SessionNotices, nextIds: readonly string[]): void {
+  private rebaseAnchors(
+    state: SessionNotices,
+    nextIds: readonly string[],
+  ): void {
     const next = new Set(nextIds);
     for (const notice of state.notices.values()) {
       if (notice.afterExecutionId !== undefined) continue;
@@ -322,11 +402,13 @@ export class RemoteSystemNotices {
     entity: SessionSnapshot['conversation']['entities'][string] | undefined,
   ): void {
     if (
-      entity?.kind !== 'message' || entity.role !== 'user' || entity.position.requestOrder < 0
+      entity?.kind !== 'message' || entity.role !== 'user' ||
+      entity.position.requestOrder < 0
     ) return;
     const key = steeringKey(entity.executionId, entity.text);
     state.appliedSteeringByEntityId.set(entityId, key);
-    const entities = state.appliedSteeringEntitiesByKey.get(key) ?? new Set<string>();
+    const entities = state.appliedSteeringEntitiesByKey.get(key) ??
+      new Set<string>();
     entities.add(entityId);
     state.appliedSteeringEntitiesByKey.set(key, entities);
   }
@@ -340,13 +422,21 @@ export class RemoteSystemNotices {
     if (entities?.size === 0) state.appliedSteeringEntitiesByKey.delete(key);
   }
 
-  private addSteeringNoticeId(state: SessionNotices, key: string, id: string): void {
+  private addSteeringNoticeId(
+    state: SessionNotices,
+    key: string,
+    id: string,
+  ): void {
     const ids = state.steeringNoticeIdsByKey.get(key) ?? new Set<string>();
     ids.add(id);
     state.steeringNoticeIdsByKey.set(key, ids);
   }
 
-  private removeSteeringNoticeId(state: SessionNotices, key: string, id: string): void {
+  private removeSteeringNoticeId(
+    state: SessionNotices,
+    key: string,
+    id: string,
+  ): void {
     const ids = state.steeringNoticeIdsByKey.get(key);
     ids?.delete(id);
     if (ids?.size === 0) state.steeringNoticeIdsByKey.delete(key);
@@ -362,13 +452,17 @@ export class RemoteSystemNotices {
         previous.entry.executionId === undefined
       ? undefined
       : steeringKey(previous.entry.executionId, previous.steeringText);
-    const currentKey =
-      current?.steeringText === undefined || current.entry.executionId === undefined
-        ? undefined
-        : steeringKey(current.entry.executionId, current.steeringText);
+    const currentKey = current?.steeringText === undefined ||
+        current.entry.executionId === undefined
+      ? undefined
+      : steeringKey(current.entry.executionId, current.steeringText);
     if (previousKey !== currentKey) {
-      if (previousKey !== undefined) this.removeSteeringNoticeId(state, previousKey, id);
-      if (currentKey !== undefined) this.addSteeringNoticeId(state, currentKey, id);
+      if (previousKey !== undefined) {
+        this.removeSteeringNoticeId(state, previousKey, id);
+      }
+      if (currentKey !== undefined) {
+        this.addSteeringNoticeId(state, currentKey, id);
+      }
     }
   }
 

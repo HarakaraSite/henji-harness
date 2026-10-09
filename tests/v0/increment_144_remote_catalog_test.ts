@@ -33,7 +33,7 @@ let selected: ApiSelection = {
 };
 
 const snapshot = (): SessionSnapshot => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   cursor: { coreEpoch, sessionId, revision: 1 },
   session: {
     id: sessionId,
@@ -58,10 +58,11 @@ const snapshot = (): SessionSnapshot => ({
     operations: ['task.submit', 'selection.change', 'credential.register'],
   },
   conversation: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut: 0,
     storeRevision: 0,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: {},
     order: [],
   },
@@ -76,7 +77,7 @@ const snapshotFor = (
   credentialStatus: 'present' | 'missing' | 'unknown',
   revision = 1,
 ): SessionSnapshot => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   cursor: { coreEpoch, sessionId: targetSessionId, revision },
   session: {
     id: targetSessionId,
@@ -103,10 +104,11 @@ const snapshotFor = (
       : ['credential.register'],
   },
   conversation: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId: targetSessionId,
     cut: 0,
     storeRevision: 0,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: {},
     order: [],
   },
@@ -129,6 +131,7 @@ const operations = [
 
 const coreRead = {
   apiVersion: 1,
+  conversationSchema: 3,
   coreEpoch,
   build,
   workspace: '/srv/core-workspace',

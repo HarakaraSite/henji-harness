@@ -35,6 +35,7 @@ type FollowUpAcceptance =
 export class ApplicationTaskService {
   private active: Lane | undefined;
   private preparing = false;
+  private handoffPending = false;
   private closing = false;
   private steering: Lane | undefined;
   private steeringAccepted = false;
@@ -42,6 +43,7 @@ export class ApplicationTaskService {
   private cancellationRequested = false;
   private queued: MutableFollowUp | undefined;
   private chain: Completion | undefined;
+  private followUpWrites: Promise<void> = Promise.resolve();
   private readonly records = new Map<string, MutableFollowUp>();
 
   constructor(
@@ -49,10 +51,16 @@ export class ApplicationTaskService {
     private readonly publish: (
       executionChanges?: readonly ExecutionTrackingChange[],
     ) => void,
+    private readonly persistCompletion: (
+      execution: TaskExecutionState,
+    ) => Promise<void> = () => Promise.resolve(),
+    private readonly persistFollowUp: (
+      record: FollowUpRecord,
+    ) => Promise<void> = () => Promise.resolve(),
   ) {}
 
   isBusy(): boolean {
-    return this.preparing || this.active !== undefined;
+    return this.preparing || this.handoffPending || this.active !== undefined;
   }
   isPreparing(): boolean {
     return this.preparing;
@@ -73,7 +81,9 @@ export class ApplicationTaskService {
   pendingView(sessionId = this.currentSession().sessionId): PendingView {
     const active = this.active?.sessionId === sessionId ? this.active : undefined;
     const steering = this.steering?.sessionId === sessionId ? this.steering : undefined;
-    const queued = this.queued?.sessionId === sessionId ? this.queued : undefined;
+    const queued = this.queued?.sessionId === sessionId
+      ? this.records.get(this.queued.queueId)
+      : undefined;
     return {
       kind: 'core-owned',
       ...(active === undefined ? {} : {
@@ -95,10 +105,6 @@ export class ApplicationTaskService {
         .filter((record) => record.sessionId === sessionId && record.status !== 'queued')
         .map((record) => structuredClone(record)),
     };
-  }
-  followUpRead(queueId: string): FollowUpRecord | undefined {
-    const record = this.records.get(queueId);
-    return record === undefined ? undefined : structuredClone(record);
   }
 
   async admit(
@@ -170,11 +176,11 @@ export class ApplicationTaskService {
     }
     return { kind: 'accepted' };
   }
-  queueFollowUp(
+  async queueFollowUp(
     afterExecutionId: string,
     text: string,
     commandId: string,
-  ): FollowUpAcceptance {
+  ): Promise<FollowUpAcceptance> {
     const active = this.active;
     if (
       active === undefined || active.executionId !== afterExecutionId ||
@@ -193,8 +199,8 @@ export class ApplicationTaskService {
       text,
       status: 'queued',
     };
-    this.records.set(record.queueId, record);
     this.queued = record;
+    await this.saveFollowUp(record);
     this.publish();
     return { kind: 'accepted', queueId: record.queueId };
   }
@@ -223,6 +229,7 @@ export class ApplicationTaskService {
     this.closing = true;
     await closeHost();
     await this.chain?.catch(() => {});
+    await this.flushFollowUps();
   }
 
   private async begin(
@@ -241,6 +248,7 @@ export class ApplicationTaskService {
     };
     this.active = { sessionId: host.sessionId, executionId, commandId, text };
     this.preparing = true;
+    this.handoffPending = false;
     this.cancellationRequested = false;
     this.steeringAccepted = false;
     this.steeringApplied = false;
@@ -262,6 +270,7 @@ export class ApplicationTaskService {
         } else if (reservation.status === 'queued') {
           reservation.status = 'startRejected';
           reservation.reason = 'admissionFailed';
+          await this.saveFollowUp(reservation);
           if (this.queued === reservation) this.queued = undefined;
         }
       }
@@ -276,6 +285,7 @@ export class ApplicationTaskService {
       if (reservation.status === 'queued') {
         reservation.status = 'started';
       }
+      await this.saveFollowUp(reservation);
       if (this.queued === reservation) this.queued = undefined;
     }
     const accepted = { ...admission, executionId };
@@ -290,6 +300,24 @@ export class ApplicationTaskService {
     record.status = 'discarded';
     record.reason = reason;
     this.queued = undefined;
+    void this.saveFollowUp(record).then(() => this.publish());
+  }
+  async flushFollowUps(): Promise<void> {
+    for (;;) {
+      const pending = this.followUpWrites;
+      await pending;
+      if (pending === this.followUpWrites) return;
+    }
+  }
+  private saveFollowUp(record: FollowUpRecord): Promise<void> {
+    const saved = structuredClone(record);
+    const write = this.followUpWrites.then(async () => {
+      await this.persistFollowUp(saved);
+      if (saved.status === 'queued') this.records.set(saved.queueId, saved);
+      else this.records.delete(saved.queueId);
+    });
+    this.followUpWrites = write;
+    return write;
   }
   private executionChange(
     execution: TaskExecutionState,
@@ -311,21 +339,31 @@ export class ApplicationTaskService {
       outcome = await admission.completion;
     } catch (error) {
       tracked.processSettlement = 'complete';
+      await this.persistCompletion(tracked);
+      this.handoffPending = true;
       this.active = undefined;
       this.steering = undefined;
       this.steeringAccepted = false;
       this.steeringApplied = false;
       this.cancellationRequested = false;
       if (this.queued !== undefined) this.discard(this.queued, 'failed');
+      await this.flushFollowUps();
+      this.handoffPending = false;
       this.publish([this.executionChange(tracked)]);
+      this.publish([{ kind: 'remove', executionId: tracked.executionId }]);
       throw error;
     }
     tracked.processSettlement = 'complete';
+    await this.persistCompletion(tracked);
+    this.handoffPending = true;
     this.active = undefined;
     this.steering = undefined;
     this.steeringAccepted = false;
     this.steeringApplied = false;
     this.cancellationRequested = false;
+    this.publish([this.executionChange(tracked)]);
+    this.publish([{ kind: 'remove', executionId: tracked.executionId }]);
+    await this.flushFollowUps();
     const reservation = this.queued;
     if (reservation !== undefined) {
       if (
@@ -340,7 +378,7 @@ export class ApplicationTaskService {
             reservation.text,
             reservation.commandId,
             reservation,
-            [this.executionChange(tracked)],
+            [],
           );
         } catch {
           // Failed durable admission is retained as startRejected by begin().
@@ -353,7 +391,9 @@ export class ApplicationTaskService {
         this.closing ? 'core_closed' : outcome.stopReason,
       );
     }
-    this.publish([this.executionChange(tracked)]);
+    await this.flushFollowUps();
+    this.handoffPending = false;
+    this.publish();
     return outcome;
   }
 }

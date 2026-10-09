@@ -294,6 +294,8 @@ childDataTest(
         tools: requestBody.tools,
         stream: requestBody.stream,
         store: requestBody.store,
+        include: requestBody.include,
+        reasoning: requestBody.reasoning,
       })).byteLength,
     );
     deepStrictEqual(model.measureRequestWire?.(request), measured);

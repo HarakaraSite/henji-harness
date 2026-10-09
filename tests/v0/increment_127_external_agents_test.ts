@@ -61,7 +61,7 @@ Deno.test('Increment 127 keeps the bundled JSON default and has no bundled plann
     assert(!selected.agent.configuration.agents.includes('planner'));
     assertEquals(buildManifest().agentConfigurationSchemaVersion, 1);
     assertEquals(buildManifest().supportedToolApiContracts, ['henji-tool/v1']);
-    assertEquals(buildManifest().supportedHookApiContracts, ['henji-hooks/v1']);
+    assertEquals(buildManifest().supportedHookApiContracts, ['henji-hooks/v2']);
   } finally {
     await Deno.remove(root, { recursive: true });
   }

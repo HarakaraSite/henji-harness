@@ -8,6 +8,7 @@ import type {
   WorkerRuntimeEventMessage,
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
+import type { ConversationContentLocator } from '../../v0/conversation/model.ts';
 import type { Message } from '../../v0/agent/core/contracts.ts';
 import type {
   Model,
@@ -920,7 +921,14 @@ Deno.test('Worker uses the requested root maxSteps as the turn budget', async ()
 
 Deno.test('Worker root request admission follows maxSteps beyond the former eight-step ceiling', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-max-steps-ten-' });
+  const configRoot = `${stateRoot}/config`;
+  await Deno.mkdir(configRoot);
+  await Deno.writeTextFile(
+    `${configRoot}/context-budget.json`,
+    JSON.stringify({ defaults: { historyTokens: 524288, inputTokens: 524288 } }),
+  );
   const created = await createWorkerSession({
+    configRoot,
     stateRoot,
     persistence: 'none',
     rootMaxSteps: 10,
@@ -928,7 +936,7 @@ Deno.test('Worker root request admission follows maxSteps beyond the former eigh
   });
   try {
     const outcome = await created.session.submit('ten-step worker turn');
-    assert(outcome.ok);
+    assert(outcome.ok, JSON.stringify(outcome));
     assertEquals({ stopReason: outcome.stopReason, steps: outcome.steps }, {
       stopReason: 'final',
       steps: 10,
@@ -999,13 +1007,23 @@ Deno.test('Slice 3 commits long user turns through Data without installing a che
           readonly kind: string;
           readonly role?: string;
           readonly text?: string;
+          readonly details?: readonly ConversationContentLocator[];
         }>
       >;
     };
-    const userText = Object.values(publicConversation.entities)
-      .filter((entity) => entity.kind === 'message' && entity.role === 'user')
-      .map((entity) => entity.text);
-    for (const task of tasks) assert(userText.includes(task));
+    for (const task of tasks) {
+      const message = Object.values(publicConversation.entities).find((entity) =>
+        entity.kind === 'message' && entity.role === 'user' &&
+        entity.text?.startsWith(task.slice(0, 80))
+      );
+      assert(message);
+      const locator = message.details?.[0];
+      if (locator) {
+        const chunk = await harness.data.conversationContentRead(locator, 0, 256 * 1024);
+        assert(chunk.done);
+        assertEquals(chunk.text, task);
+      } else assertEquals(message.text, task);
+    }
   } finally {
     await host?.close();
     await harness.close();

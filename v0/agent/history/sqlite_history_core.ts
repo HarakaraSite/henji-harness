@@ -314,6 +314,21 @@ export class SqliteHistoryCore {
         admission.instanceCorrelation ?? null,
         admission.workerGeneration ?? null,
       );
+      const nextDisplayOrdinal = Number(
+        (this.#db.prepare(`
+        SELECT coalesce(max(execution_ordinal), -1) + 1 AS ordinal
+        FROM execution_display_positions WHERE session_correlation=?
+      `).get(admission.sessionCorrelation) as Row).ordinal,
+      );
+      this.#db.prepare(`
+        INSERT INTO execution_display_positions(
+          session_correlation, execution_ordinal, execution_id
+        ) VALUES(?, ?, ?)
+      `).run(
+        admission.sessionCorrelation,
+        nextDisplayOrdinal,
+        input.executionId,
+      );
     });
   }
 
@@ -615,8 +630,11 @@ export class SqliteHistoryCore {
     return result;
   }
 
-  listControlEvents(executionId: string): readonly StoredExecutionEvent[] {
-    const records = this.#db.prepare(`
+  listControlEvents(
+    executionId: string,
+    db: DatabaseSync = this.#db,
+  ): readonly StoredExecutionEvent[] {
+    const records = db.prepare(`
       SELECT payload_json FROM semantic_records
       WHERE execution_id=? AND kind='control_decision'
       ORDER BY ordinal

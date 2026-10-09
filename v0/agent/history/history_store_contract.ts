@@ -1,3 +1,10 @@
+import type { CommandResult, CoreCommandValue, CoreOperationName } from '../../api/contract.ts';
+import type {
+  ConversationContentChunk,
+  ConversationContentLocator,
+  ConversationPageMetadata,
+} from '../../conversation/model.ts';
+import type { FollowUpRecord } from '../../api/contract.ts';
 import type { LoopOutcome, LoopOutcomeMetadata, Message } from '../core/contracts.ts';
 export type {
   HistoryAssistantTextKey,
@@ -74,6 +81,7 @@ type ExecutionEventKind =
   | 'effect_observation'
   | 'provider_request_start'
   | 'provider_response_start'
+  | 'provider_request_usage'
   | 'provider_parser_transition'
   | 'provider_request_failure'
   | 'context_observation'
@@ -206,6 +214,7 @@ export type ExecutionEventPayloadByKind = {
   context_observation: import('../worker/worker_protocol.ts').WorkerContextObservationMessage;
   provider_request_start: ProviderObservationPayload<'request_start'>;
   provider_response_start: ProviderObservationPayload<'response_start'>;
+  provider_request_usage: ProviderObservationPayload<'request_usage'>;
   provider_parser_transition: ProviderObservationPayload<'parser_transition'>;
   provider_request_failure: ProviderObservationPayload<'request_failure'>;
   execution_settled: {
@@ -428,7 +437,31 @@ export interface StoredSessionConversationEvent {
 /** Consume events before advancing to the next execution in the same SQLite snapshot. */
 export interface StoredSessionConversationExecution {
   readonly execution: StoredExecutionRow;
+  /** Stable Session-wide ordinal allocated when the execution row is created. */
+  readonly executionOrder: number;
   readonly events: Iterable<StoredSessionConversationEvent>;
+}
+
+export interface StoredSessionConversationPage {
+  readonly page: ConversationPageMetadata;
+  readonly executions: readonly StoredSessionConversationExecution[];
+}
+
+export interface DataFollowUpReceipt {
+  readonly coreEpoch: string;
+  readonly sessionId: string;
+  readonly followUp: FollowUpRecord;
+}
+
+export interface DataFollowUpCursor {
+  readonly createdAt: string;
+  readonly queueId: string;
+}
+
+export interface DataFollowUpPage {
+  readonly followUps: readonly DataFollowUpReceipt[];
+  readonly nextCursor?: DataFollowUpCursor;
+  readonly hasMore: boolean;
 }
 
 /** Facts made durable by one terminal COMMIT, returned without a follow-up history read. */
@@ -448,6 +481,8 @@ export interface HistoryCommitDelta {
 export interface BeginExecutionInput extends HistoryExecutionInput {
   /** Admission owner boundary is explicit so a persistent Session cannot be mistaken for detached mode. */
   readonly sessionMode: 'persistent' | 'no_session';
+  /** Global message start for the next runtime-adopted turn when no canonical Session row exists. */
+  readonly runtimeMessageStart?: number;
   /** Empty Session materialization for the first persistent turn. */
   readonly initialSession?: WorkerSessionMetadataWrite;
 }
@@ -524,6 +559,44 @@ export interface HistoryCaptureResult {
   readonly commitDelta?: HistoryCommitDelta;
 }
 
+export interface StoredContextTurn {
+  readonly turn: number;
+  readonly executionId: string;
+  readonly messages: readonly Message[];
+  /** Zero-based global message position recorded when the execution began. */
+  readonly messageStart: number;
+  readonly source: 'canonical' | 'runtime';
+  readonly byteLength: number;
+}
+
+export interface DataSessionReadCursor {
+  readonly dataInstanceId: string;
+  readonly sessionCorrelation: string;
+  readonly cut: number;
+  readonly storeRevision: number;
+  readonly descriptorSequence: number;
+  readonly anchor: import('../core/contracts.ts').JsonValue;
+  readonly latestExecutionId?: string;
+}
+
+/** Durable result used to reconnect commandRead and commandId resubmission. */
+export interface DataCommandReceipt {
+  readonly coreEpoch: string;
+  readonly commandId: string;
+  readonly operation: CoreOperationName;
+  readonly signatureDigest: string;
+  readonly result: CommandResult<CoreCommandValue>;
+  readonly completedAt: string;
+}
+
+/** Completion facts saved after Worker/child cleanup and its final control writes. */
+export interface DataExecutionCompletionControl {
+  readonly executionId: string;
+  readonly sessionId: string;
+  readonly submittedByCommandId: string;
+  readonly processSettlement: 'complete';
+}
+
 export interface HistoryPersistencePort {
   /** Internal protocol sequence is diagnostic detail and may be disabled by the selected store. */
   capturesProtocolTrace?(): boolean;
@@ -558,6 +631,49 @@ export interface HistoryPersistencePort {
   listExecutions(): readonly StoredExecutionRow[];
   /** Indexed v6 path used by normal Session recall selection. */
   listExecutionsForSession?(sessionId: string): readonly StoredExecutionRow[];
+  readContextTurn(
+    sessionId: string,
+    beforeTurn: number,
+    source: 'canonical' | 'runtime',
+  ): Promise<StoredContextTurn | null>;
+  writeDataSessionReadCursor(cursor: DataSessionReadCursor): void;
+  readDataSessionReadCursor(
+    dataInstanceId: string,
+    sessionCorrelation: string,
+  ): DataSessionReadCursor | undefined;
+  readCoreSessionCursor(coreEpoch: string, sessionId: string): number | null;
+  writeCoreSessionCursor(
+    coreEpoch: string,
+    sessionId: string,
+    revision: number,
+  ): void;
+  readCommandReceipt(
+    coreEpoch: string,
+    commandId: string,
+  ): DataCommandReceipt | null;
+  writeCommandReceipt(receipt: DataCommandReceipt): void;
+  readExecutionCompletionControl(
+    executionId: string,
+  ): DataExecutionCompletionControl | null;
+  writeExecutionCompletionControl(
+    control: DataExecutionCompletionControl,
+  ): void;
+  readSessionConversationPageFacts(
+    sessionId: string,
+    cursor?: number,
+    direction?: ConversationPageMetadata['direction'],
+  ): StoredSessionConversationPage;
+  readConversationContent(
+    locator: ConversationContentLocator,
+    offset: number,
+    length: number,
+  ): ConversationContentChunk;
+  readFollowUpReceipt(queueId: string): DataFollowUpReceipt | null;
+  writeFollowUpReceipt(receipt: DataFollowUpReceipt): void;
+  readFollowUpPage(
+    sessionId: string,
+    cursor?: DataFollowUpCursor,
+  ): DataFollowUpPage;
   readLatestExecutionForSession?(
     sessionId: string,
   ): StoredExecutionDescriptorSummary | undefined;

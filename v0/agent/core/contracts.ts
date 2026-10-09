@@ -151,10 +151,14 @@ export type ModelResult =
   };
 
 export interface Model {
+  /** Actual output reservation sent by the adapter, when declared by its request profile. */
+  readonly requestOutputReserve?: number;
   /** Provider-specific wire measurement used by context admission and compaction. */
   readonly measureRequestWire?: (request: ModelRequest) => {
     readonly messagesBytes: number;
     readonly bodyBytes: number;
+    readonly messageLimitBytes?: number;
+    readonly bodyLimitBytes?: number;
   };
   generate(
     request: ModelRequest,

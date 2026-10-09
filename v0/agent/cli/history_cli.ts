@@ -1,15 +1,11 @@
 import { cliErrorMessage, cliErrorText } from './cli_error.ts';
 import { launcherStateRoot, sessionPaths } from '../session/session_store_paths.ts';
-import { isSessionId } from '../session/session_store_contract.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
-import { renderCanonicalView, renderConversationTimeline } from '../history/history_view.ts';
 import { HenjiApiClient } from '../../api/client.ts';
-import { replaySessionConversation } from '../../conversation/history_adapter.ts';
 
 const encoder = new TextEncoder();
 /** Full UUID or a hex short-id prefix as shown by the TUI footer / session picker. */
 const SESSION_REF = /^[0-9a-f][0-9a-f-]{7,}$/iu;
-const isFullSessionId = (value: string): boolean => isSessionId(value);
 
 type HistoryView = 'session' | 'canonical' | 'detail';
 
@@ -91,8 +87,13 @@ export const parseHistoryArgs = (args: readonly string[]): HistoryCliCommand => 
   };
 };
 
-const writeStdout = async (text: string): Promise<void> => {
-  await Deno.stdout.write(encoder.encode(text));
+const writeStdoutBytes = async (bytes: Uint8Array): Promise<void> => {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const written = await Deno.stdout.write(bytes.subarray(offset));
+    if (written <= 0) throw new Error('history output failed');
+    offset += written;
+  }
 };
 
 const writeStderr = async (text: string): Promise<void> => {
@@ -122,15 +123,24 @@ export const main = async (args: readonly string[]): Promise<number> => {
     return await fail(error, true);
   }
   if (command.connect !== undefined) {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const history = await new HenjiApiClient(command.connect).historyRead(command);
+      const history = await new HenjiApiClient(command.connect).historyStream(command);
       await writeStderr(
         history.sessionId === null ? '# no history\n' : `# session ${history.sessionId}\n`,
       );
-      await writeStdout(history.text);
+      reader = history.stream.getReader();
+      for (;;) {
+        const item = await reader.read();
+        if (item.done) break;
+        await writeStdoutBytes(item.value);
+      }
       return 0;
     } catch (error) {
+      await reader?.cancel().catch(() => undefined);
       return await fail(error);
+    } finally {
+      reader?.releaseLock();
     }
   }
   const workspaceRoot = Deno.cwd();
@@ -156,51 +166,32 @@ export const main = async (args: readonly string[]): Promise<number> => {
   } catch (error) {
     return await fail(error);
   }
-  let sessionId = command.sessionRef;
-  if (sessionId === undefined) {
-    try {
-      sessionId = (await store.listWorker()).sessions[0]?.id;
-    } catch (error) {
-      return await fail(error);
-    }
-  } else if (!isFullSessionId(sessionId)) {
-    try {
-      const prefix = sessionId.toLowerCase();
-      const matches = (await store.listWorker()).sessions.filter((entry) =>
-        entry.id.startsWith(prefix)
-      );
-      sessionId = matches.length === 1 ? matches[0].id : undefined;
-    } catch (error) {
-      return await fail(error);
-    }
-    if (sessionId === undefined) {
-      return await fail(
-        `Session prefix '${command.sessionRef}' was not found or is ambiguous; use 'henji sessions list' to choose a full ID`,
-      );
-    }
-  }
-  if (sessionId === undefined) {
-    await writeStderr('# no history\n');
-    return 0;
-  }
-  await writeStderr(`# session ${sessionId}\n`);
+  const input = {
+    ...(command.sessionRef === undefined ? {} : { sessionRef: command.sessionRef }),
+    ...(command.latest ? { latest: true } : {}),
+    view: command.view,
+  } as const;
+  let cursor: ReturnType<SqliteHistoryStore['openHistoryText']>;
   try {
-    if (command.view === 'detail') {
-      for (const record of store.streamHumanHistoryExport(sessionId)) {
-        await writeStdout(`${JSON.stringify(record)}\n`);
-      }
-      return 0;
-    }
-    if (command.view === 'session') {
-      const facts = store.readSessionConversationFacts(sessionId);
-      const { state } = replaySessionConversation(sessionId, facts);
-      await writeStdout(renderConversationTimeline(state));
-    } else {
-      const record = await store.readWorker(sessionId);
-      await writeStdout(renderCanonicalView(record, workspaceRoot));
+    cursor = store.openHistoryText(input, workspaceRoot);
+  } catch (error) {
+    store.close();
+    return await fail(error);
+  }
+  try {
+    await writeStderr(
+      cursor.sessionId === null ? '# no history\n' : `# session ${cursor.sessionId}\n`,
+    );
+    for (;;) {
+      const chunk = cursor.read();
+      await writeStdoutBytes(chunk.bytes);
+      if (chunk.done) break;
     }
     return 0;
   } catch (error) {
     return await fail(error);
+  } finally {
+    cursor.close();
+    store.close();
   }
 };

@@ -76,10 +76,11 @@ Deno.test('Increment 170 S4 applies each body revision synchronously and coalesc
     ], {
       cursor: { coreEpoch: 'tui-core', sessionId: 'tui-entity-session', revision: version + 1 },
       conversation: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sessionId: 'tui-entity-session',
         cut: version + 1,
         storeRevision: version + 1,
+        page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
         entities: { ...initialEntities, answer: assistantEntity(text, version) },
         order: ['task', 'answer'],
       },

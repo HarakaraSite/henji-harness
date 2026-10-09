@@ -28,7 +28,16 @@ export const reduceSessionStreamFrame = (
   state: SessionClientState | undefined,
   frame: SessionStreamFrame,
 ): SessionClientState => {
-  if (frame.kind === 'session.snapshot') return initialSessionClientState(frame.snapshot);
+  if (frame.kind === 'session.snapshot') {
+    const next = initialSessionClientState(frame.snapshot);
+    return {
+      ...next,
+      dirtyEntityIds: new Set([
+        ...Object.keys(state?.snapshot.conversation.entities ?? {}),
+        ...next.dirtyEntityIds,
+      ]),
+    };
+  }
   if (state === undefined) throw new Error('session stream update arrived before snapshot');
   const previous = state.snapshot;
   if (
@@ -102,7 +111,12 @@ export const reduceSessionStreamFrame = (
     }
     snapshot = {
       ...snapshot,
-      conversation: { ...conversation, cut: delta.cut, storeRevision: delta.storeRevision },
+      conversation: {
+        ...conversation,
+        cut: delta.cut,
+        storeRevision: delta.storeRevision,
+        ...(delta.page === undefined ? {} : { page: delta.page }),
+      },
     };
   }
   return {

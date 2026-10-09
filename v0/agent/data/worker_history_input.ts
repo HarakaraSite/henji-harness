@@ -32,6 +32,8 @@ export const workerObservationInput = (
       ? 'provider_request_start' as const
       : message.observation.kind === 'response_start'
       ? 'provider_response_start' as const
+      : message.observation.kind === 'request_usage'
+      ? 'provider_request_usage' as const
       : message.observation.kind === 'parser_transition'
       ? 'provider_parser_transition' as const
       : message.observation.kind === 'request_failure'

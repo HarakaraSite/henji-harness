@@ -48,6 +48,7 @@ export interface UiLogEntry {
   /** Semantic tool name retained only in Host-local display state for activity prefix styling. */
   readonly toolName?: string;
   readonly executionId?: string;
+  readonly position?: import('../conversation/model.ts').ConversationPosition;
 }
 
 export type UiOverlay =
@@ -95,7 +96,12 @@ export type UiOverlay =
 
 /** Display facts supplied by the remote controller, independent of conversation notices. */
 export interface UiFooter {
-  readonly activity: 'ready' | 'working' | 'cancelling' | 'READ-ONLY' | 'DISCONNECTED';
+  readonly activity:
+    | 'ready'
+    | 'working'
+    | 'cancelling'
+    | 'READ-ONLY'
+    | 'DISCONNECTED';
   readonly controls: readonly string[];
   readonly hint?: string;
 }
@@ -248,11 +254,14 @@ export const freezeUiLogEntry = freezeEntry;
 export const uiConversationCount = (state: UiState): number =>
   state.keyedConversation?.size ?? state.log.entries.length;
 
-export const uiConversationEntryAt = (state: UiState, index: number): UiLogEntry | undefined =>
-  state.keyedConversation?.entryAt(index) ?? state.log.entries[index];
+export const uiConversationEntryAt = (
+  state: UiState,
+  index: number,
+): UiLogEntry | undefined => state.keyedConversation?.entryAt(index) ?? state.log.entries[index];
 
 export const uiConversationIndexOf = (state: UiState, id: string): number =>
-  state.keyedConversation?.indexOf(id) ?? state.log.entries.findIndex((entry) => entry.id === id);
+  state.keyedConversation?.indexOf(id) ??
+    state.log.entries.findIndex((entry) => entry.id === id);
 
 export const uiConversationWindow = (
   state: UiState,
@@ -788,7 +797,10 @@ const applyKeyedConversation = (
   const store = action.store;
   return Object.freeze({
     ...state,
-    log: Object.freeze({ entries: Object.freeze([]), omittedCount: store.omitted }),
+    log: Object.freeze({
+      entries: Object.freeze([]),
+      omittedCount: store.omitted,
+    }),
     keyedConversation: store,
   });
 };

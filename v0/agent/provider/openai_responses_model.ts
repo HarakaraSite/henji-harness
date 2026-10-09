@@ -24,9 +24,8 @@ import type {
   OpenRouterResponsesModelSelection,
 } from './model_selection.ts';
 import {
+  buildResponsesRequest,
   measureResponsesRequestWire,
-  responsesRequestInput,
-  responsesRequestTools,
   type ResponsesWireConfig,
 } from './openai_responses_request.ts';
 import { substituteRequestHeaders } from './provider_request_headers.ts';
@@ -179,7 +178,12 @@ class ResponsesApiModel implements Model {
   ) {}
 
   readonly measureRequestWire = (request: ModelRequest) =>
-    measureResponsesRequestWire(request, this.options.selection.modelId, this.config);
+    measureResponsesRequestWire(
+      request,
+      this.options.selection.modelId,
+      this.config,
+      this.options.selection.effort,
+    );
 
   async generate(
     request: ModelRequest,
@@ -253,7 +257,6 @@ class ResponsesApiModel implements Model {
         sessionId: this.options.sessionId,
       }),
     };
-    const requestTools = responsesRequestTools(request, this.config.namespaceTools);
     const client = new OpenAI({
       apiKey: credential,
       baseURL: this.config.baseURL,
@@ -270,33 +273,19 @@ class ResponsesApiModel implements Model {
       timeout: timeoutMs,
     });
     try {
-      const stream = await client.responses.create({
-        model: this.options.selection.modelId,
-        instructions: request.systemInstruction,
-        input: responsesRequestInput(
-          request.transcript,
-          this.config.stateProvider,
+      const stream = await client.responses.create(
+        buildResponsesRequest(
+          request,
           this.options.selection.modelId,
-        ) as never,
-        ...(requestTools === undefined ? {} : {
-          tools: requestTools as never,
-        }),
-        include: ['reasoning.encrypted_content'],
-        reasoning: {
-          summary: 'auto',
-          // Henji's effort `auto` leaves the thinking amount to the provider. It is separate
-          // from summary `auto`, which requests a readable summary of that thinking.
-          ...(this.options.selection.effort === 'auto'
-            ? {}
-            : { effort: this.options.selection.effort as never }),
+          this.config,
+          this.options.selection.effort,
+        ) as OpenAI.Responses.ResponseCreateParamsStreaming,
+        {
+          signal: controller.signal,
+          maxRetries: 0,
+          timeout: timeoutMs,
         },
-        stream: true,
-        ...(this.config.includeStore ? { store: false } : {}),
-      }, {
-        signal: controller.signal,
-        maxRetries: 0,
-        timeout: timeoutMs,
-      });
+      );
       operation = 'response_stream';
       let completed: Record<string, unknown> | undefined;
       const completedItems = new Map<number, unknown>();
@@ -373,6 +362,7 @@ class ResponsesApiModel implements Model {
         } else if (event.type === 'response.completed') {
           completedReceived = true;
           completed = event.response as unknown as Record<string, unknown>;
+          generateOptions.providerEvidence?.recordUsage(completed.usage);
         } else if (
           event.type === 'response.failed' ||
           event.type === 'response.incomplete'

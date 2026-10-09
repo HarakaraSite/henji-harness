@@ -6,7 +6,7 @@ const sessionId = '14600000-0000-4000-8000-000000000001';
 export const sessionSnapshotFixture = (
   conversation: SessionSnapshot['conversation'],
 ): SessionSnapshot => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   cursor: { coreEpoch: 'presentation-test', sessionId, revision: 1 },
   session: {
     id: sessionId,

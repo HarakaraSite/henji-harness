@@ -105,7 +105,9 @@ const readSessionOpenInput = async (
   return value as unknown as SessionOpenInput;
 };
 
-const readSessionDeleteInput = async (request: Request): Promise<SessionDeleteInput> => {
+const readSessionDeleteInput = async (
+  request: Request,
+): Promise<SessionDeleteInput> => {
   const value = await readJson(request);
   if (!object(value) || typeof value.commandId !== 'string') {
     throw new CoreServiceError(400, 'invalid_session_delete');
@@ -158,14 +160,21 @@ const readCredentialRegisterInput = async (
   return { authProfile: value.authProfile, value: value.value };
 };
 
-const readChatGPTOperation = async (request: Request): Promise<ChatGPTOperation> => {
+const readChatGPTOperation = async (
+  request: Request,
+): Promise<ChatGPTOperation> => {
   const value = await readJson(request);
-  if (!object(value)) throw new CoreServiceError(400, 'invalid_chatgpt_operation');
+  if (!object(value)) {
+    throw new CoreServiceError(400, 'invalid_chatgpt_operation');
+  }
   switch (value.kind) {
     case 'status':
       return { kind: 'status' };
     case 'begin':
-      if (value.registrationId === undefined || typeof value.registrationId === 'string') {
+      if (
+        value.registrationId === undefined ||
+        typeof value.registrationId === 'string'
+      ) {
         return {
           kind: 'begin',
           ...(value.registrationId === undefined ? {} : {
@@ -175,8 +184,15 @@ const readChatGPTOperation = async (request: Request): Promise<ChatGPTOperation>
       }
       break;
     case 'complete':
-      if (typeof value.attemptId === 'string' && typeof value.callbackUrl === 'string') {
-        return { kind: 'complete', attemptId: value.attemptId, callbackUrl: value.callbackUrl };
+      if (
+        typeof value.attemptId === 'string' &&
+        typeof value.callbackUrl === 'string'
+      ) {
+        return {
+          kind: 'complete',
+          attemptId: value.attemptId,
+          callbackUrl: value.callbackUrl,
+        };
       }
       break;
     case 'cancel':
@@ -338,76 +354,71 @@ const streamSession = async (
   request: Request,
 ): Promise<Response> => {
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-  const pending: Uint8Array[] = [];
-  let canceled = false;
-  let streamClosed = false;
+  let waiting: { bytes: Uint8Array; resolve: () => void } | undefined;
+  let demand = false;
+  let closed = false;
+  let ended = false;
   const subscriptionId = nextSubscriptionId++;
   const subscriptionRef: { current?: CoreHttpSubscription } = {};
-  const sink: CoreSessionFrameSink = (frame): void => {
+  const drain = (): void => {
+    if (closed || controller === undefined) return;
+    if (demand && waiting !== undefined) {
+      const frame = waiting;
+      waiting = undefined;
+      demand = false;
+      controller.enqueue(frame.bytes);
+      frame.resolve();
+    }
+    if (ended && waiting === undefined) {
+      closed = true;
+      controller.close();
+    }
+  };
+  const unsubscribe = (): void => {
+    closed = true;
+    waiting?.resolve();
+    waiting = undefined;
+    subscriptionRef.current?.unsubscribe();
+    request.signal.removeEventListener('abort', unsubscribe);
+  };
+  const sink: CoreSessionFrameSink = (frame) => {
+    if (closed) return;
     if (frame === undefined) {
-      if (streamClosed || canceled) return;
-      streamClosed = true;
-      try {
-        controller?.close();
-      } catch {
-        // The client may have closed its connection at the same time as core shutdown.
-      }
+      ended = true;
+      drain();
       return;
     }
-    if (streamClosed || canceled) return;
-    const bytes = sseFrame(frame);
-    if (controller === undefined) pending.push(bytes);
-    else {
-      try {
-        controller.enqueue(bytes);
-      } catch {
-        canceled = true;
-        streamClosed = true;
-        subscriptionRef.current?.unsubscribe();
-      }
-    }
+    return new Promise<void>((resolve) => {
+      waiting = { bytes: sseFrame(frame), resolve };
+      drain();
+    });
   };
-
-  const subscription = service.subscribeSession(sessionId, sink, subscriptionId);
-  subscriptionRef.current = subscription;
-  if (canceled) subscription.unsubscribe();
-  const unsubscribe = (): void => subscription?.unsubscribe();
-  const abort = (): void => {
-    canceled = true;
-    streamClosed = true;
-    unsubscribe();
-  };
-  request.signal.addEventListener('abort', abort, { once: true });
-  try {
-    await subscription.ready;
-  } catch (error) {
-    request.signal.removeEventListener('abort', abort);
-    unsubscribe();
-    throw error;
-  }
   const stream = new ReadableStream<Uint8Array>({
     start(value) {
       controller = value;
-      try {
-        for (const frame of pending) controller.enqueue(frame);
-        pending.length = 0;
-        if (streamClosed) controller.close();
-      } catch {
-        canceled = true;
-        streamClosed = true;
-        subscription?.unsubscribe();
-      }
+    },
+    pull() {
+      demand = true;
+      drain();
     },
     cancel() {
-      canceled = true;
-      streamClosed = true;
-      subscription?.unsubscribe();
-      request.signal.removeEventListener('abort', abort);
+      unsubscribe();
     },
-  });
-  if (request.signal.aborted || canceled) {
-    subscription.unsubscribe();
+  }, { highWaterMark: 0 });
+  const subscription = service.subscribeSession(
+    sessionId,
+    sink,
+    subscriptionId,
+  );
+  subscriptionRef.current = subscription;
+  request.signal.addEventListener('abort', unsubscribe, { once: true });
+  try {
+    await subscription.ready;
+  } catch (error) {
+    unsubscribe();
+    throw error;
   }
+  if (request.signal.aborted || closed) unsubscribe();
   return new Response(stream, {
     headers: {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -454,10 +465,13 @@ async (request: Request): Promise<Response> => {
     if (url.pathname === '/api/v1/catalogs' && request.method === 'GET') {
       return json(await service.catalogRead(readCatalogInput(url)));
     }
-    if (url.pathname === '/api/v1/catalogs/favorite' && request.method === 'POST') {
+    if (
+      url.pathname === '/api/v1/catalogs/favorite' && request.method === 'POST'
+    ) {
       const value = await readJson(request);
       if (
-        !object(value) || typeof value.provider !== 'string' || typeof value.modelId !== 'string' ||
+        !object(value) || typeof value.provider !== 'string' ||
+        typeof value.modelId !== 'string' ||
         typeof value.favorite !== 'boolean'
       ) throw new CoreServiceError(400, 'invalid_model_favorite');
       return json(
@@ -469,9 +483,12 @@ async (request: Request): Promise<Response> => {
       );
     }
     if (
-      url.pathname === '/api/v1/credentials/chatgpt' && request.method === 'POST'
+      url.pathname === '/api/v1/credentials/chatgpt' &&
+      request.method === 'POST'
     ) {
-      return json(await service.chatgptAuth(await readChatGPTOperation(request)));
+      return json(
+        await service.chatgptAuth(await readChatGPTOperation(request)),
+      );
     }
     if (
       url.pathname === '/api/v1/credentials/presence' &&
@@ -499,7 +516,9 @@ async (request: Request): Promise<Response> => {
         await service.sessionOpen(await readSessionOpenInput(request)),
       );
     }
-    const deletion = /^\/api\/v1\/sessions\/([^/]+)\/delete$/u.exec(url.pathname);
+    const deletion = /^\/api\/v1\/sessions\/([^/]+)\/delete$/u.exec(
+      url.pathname,
+    );
     if (deletion !== null && request.method === 'POST') {
       return json(
         await service.sessionDelete(
@@ -604,6 +623,49 @@ async (request: Request): Promise<Response> => {
     if (execution !== null && request.method === 'GET') {
       return json(await service.executionRead(decodePathId(execution[1])));
     }
+    const followUps = /^\/api\/v1\/sessions\/([^/]+)\/followups$/u.exec(
+      url.pathname,
+    );
+    if (followUps !== null && request.method === 'GET') {
+      return json(
+        await service.followUpPageRead(
+          decodePathId(followUps[1]),
+          url.searchParams.has('cursor') ? JSON.parse(url.searchParams.get('cursor')!) : undefined,
+        ),
+      );
+    }
+    const page = /^\/api\/v1\/sessions\/([^/]+)\/conversation$/u.exec(
+      url.pathname,
+    );
+    if (page !== null && request.method === 'GET') {
+      return encodedJson(
+        await service.conversationPageRead(
+          decodePathId(page[1]),
+          url.searchParams.has('cursor') ? Number(url.searchParams.get('cursor')) : undefined,
+          (url.searchParams.get('direction') ?? 'latest') as
+            | 'older'
+            | 'newer'
+            | 'latest',
+        ),
+      );
+    }
+    if (
+      url.pathname === '/api/v1/conversation/content' &&
+      request.method === 'POST'
+    ) {
+      const input = await readJson(request) as {
+        locator: import('../../conversation/model.ts').ConversationContentLocator;
+        offset: number;
+        length: number;
+      };
+      return json(
+        await service.conversationContentRead(
+          input.locator,
+          input.offset,
+          input.length,
+        ),
+      );
+    }
     const events = /^\/api\/v1\/sessions\/([^/]+)\/events$/u.exec(
       url.pathname,
     );
@@ -612,21 +674,67 @@ async (request: Request): Promise<Response> => {
     }
     const session = /^\/api\/v1\/sessions\/([^/]+)$/u.exec(url.pathname);
     if (session !== null && request.method === 'GET') {
-      return new Response((await service.sessionRead(decodePathId(session[1]))).bytes, {
-        headers: { 'content-type': 'application/json; charset=utf-8' },
-      });
+      return new Response(
+        (await service.sessionRead(decodePathId(session[1]))).bytes,
+        {
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        },
+      );
     }
     if (url.pathname === '/api/v1/history' && request.method === 'GET') {
       const view = url.searchParams.get('view') ?? 'session';
       const sessionRef = url.searchParams.get('session') ?? undefined;
       const latest = url.searchParams.get('latest') === 'true';
-      return encodedJson(
-        await service.historyRead({
-          ...(sessionRef === undefined ? {} : { sessionRef }),
-          ...(latest ? { latest: true } : {}),
-          view: view as 'session' | 'canonical' | 'detail',
-        }),
-      );
+      const opened = await service.historyStreamOpen({
+        ...(sessionRef === undefined ? {} : { sessionRef }),
+        ...(latest ? { latest: true } : {}),
+        view: view as 'session' | 'canonical' | 'detail',
+      });
+      let closed = false;
+      const close = async (): Promise<void> => {
+        if (closed) return;
+        closed = true;
+        request.signal.removeEventListener('abort', abort);
+        await service.historyStreamClose(opened.streamId);
+      };
+      const abort = (): void => {
+        void close().catch(() => {});
+      };
+      request.signal.addEventListener('abort', abort, { once: true });
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (closed) {
+            controller.close();
+            return;
+          }
+          try {
+            const chunk = await service.historyStreamRead(opened.streamId);
+            if (closed) {
+              controller.close();
+              return;
+            }
+            if (chunk.bytes.byteLength > 0) controller.enqueue(chunk.bytes);
+            if (chunk.done) {
+              controller.close();
+              await close();
+            }
+          } catch (error) {
+            controller.error(error);
+            await close();
+          }
+        },
+        cancel: close,
+      }, { highWaterMark: 0 });
+      if (request.signal.aborted) await close();
+      return new Response(stream, {
+        headers: {
+          'content-type': view === 'detail'
+            ? 'application/x-ndjson; charset=utf-8'
+            : 'text/plain; charset=utf-8',
+          'x-henji-session-id': opened.sessionId ?? '',
+          'x-henji-history-view': opened.view,
+        },
+      });
     }
     return json({
       error: { code: 'not_found', message: 'API route not found' },

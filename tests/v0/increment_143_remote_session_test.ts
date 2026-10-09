@@ -73,7 +73,7 @@ const snapshot = (
     readonly message?: string;
   },
 ): SessionSnapshot => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   cursor: { coreEpoch, sessionId, revision: 4 },
   session: {
     id: sessionId,
@@ -114,10 +114,11 @@ const snapshot = (
       : {}),
   },
   conversation: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut: 0,
     storeRevision: 0,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: options.message === undefined ? {} : {
       [`message-${sessionId}`]: {
         kind: 'message',
@@ -157,6 +158,7 @@ const resumedSnapshot = snapshot(savedSessionId, {
 
 const coreRead = {
   apiVersion: 1,
+  conversationSchema: 3,
   coreEpoch,
   build,
   workspace: '/tmp/increment-143-remote-workspace',

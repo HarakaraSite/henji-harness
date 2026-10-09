@@ -14,6 +14,7 @@ import type {
 import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type {
   BeginExecutionInput,
+  DataExecutionCompletionControl,
   ExecutionControlEventInput,
   HistoryCaptureResult,
   HistoryExecutionInput,
@@ -21,7 +22,6 @@ import type {
   StoredExecutionDescriptorSummary,
 } from '../history/history_store_contract.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
-import { indexSessionHistory } from '../session/session_history.ts';
 import {
   type SemanticContextCheckpointV1,
   type SessionRecord,
@@ -47,7 +47,7 @@ import type {
   WorkerRuntimeEventMessage,
   WorkerTurnFailedMessage,
 } from '../worker/worker_protocol.ts';
-import type { AgentGenerationContextBasis } from './agent_data_contract.ts';
+import type { AgentGenerationContextBasis, ContextTurnRead } from './agent_data_contract.ts';
 import { ConversationWriter } from './conversation_writer.ts';
 import { type ExecutionDataInput, ExecutionDataJournal } from './execution_data_journal.ts';
 import {
@@ -478,6 +478,10 @@ export class DataSessionOwner {
     return this.authority.sessionId;
   }
 
+  hasRetainedExecution(executionId: string): boolean {
+    return this.#executions.has(executionId);
+  }
+
   descriptor(): DataSessionDescriptor {
     this.#assertOpen();
     const position = this.authority.currentPosition();
@@ -531,9 +535,11 @@ export class DataSessionOwner {
       correlation.baseStateRevision !== admitted.history.baseStateRevision
     ) throw new Error('session generation correlation mismatch');
     return {
-      initialTranscript: this.authority.transcriptSnapshot(),
+      initialTranscript: [],
       nextTurn: this.authority.projection.nextTurn,
       stateRevision: this.authority.projection.stateRevision,
+      canonicalMessageCount: this.authority.projection.canonicalMessageCount,
+      historySource: this.durableCanonicalHistory ? 'canonical' : 'runtime',
       ...(this.authority.checkpointSnapshot() === undefined
         ? {}
         : { checkpoint: this.authority.checkpointSnapshot()! }),
@@ -543,6 +549,22 @@ export class DataSessionOwner {
         ? {}
         : { recalledContext: structuredClone(admitted.input.recalledContext) }),
     };
+  }
+
+  async readContextTurn(
+    correlation: WorkerCorrelation,
+    beforeTurn: number,
+  ): Promise<ContextTurnRead | null> {
+    this.#assertOpen();
+    if (correlation.session !== this.sessionId) {
+      throw new Error('session generation correlation mismatch');
+    }
+    if (beforeTurn === 1) return null;
+    return await this.#store.readContextTurn(
+      this.sessionId,
+      beforeTurn,
+      this.durableCanonicalHistory ? 'canonical' : 'runtime',
+    );
   }
 
   async prepareRecall(id?: string): Promise<{
@@ -692,6 +714,24 @@ export class DataSessionOwner {
     return Promise.resolve(this.descriptor());
   }
 
+  applyExecutionCompletionControl(
+    control: DataExecutionCompletionControl,
+  ): boolean {
+    this.#assertOpen();
+    if (control.sessionId !== this.sessionId) {
+      throw new Error('execution completion control Session mismatch');
+    }
+    if (this.#latestExecutionValue?.executionId !== control.executionId) {
+      return false;
+    }
+    this.#latestExecutionValue = {
+      ...this.#latestExecutionValue,
+      submittedByCommandId: control.submittedByCommandId,
+      processSettlement: control.processSettlement,
+    };
+    return true;
+  }
+
   #acceptExecutionControl(
     state: DataExecutionState,
     input: DataExecutionControlInput,
@@ -767,6 +807,7 @@ export class DataSessionOwner {
     const begin: BeginExecutionInput = {
       ...history,
       sessionMode: this.durableCanonicalHistory ? 'persistent' : 'no_session',
+      runtimeMessageStart: this.authority.projection.canonicalMessageCount,
       ...(initialSession === undefined ? {} : { initialSession }),
     };
     const artifact: DataArtifactState = {};
@@ -1097,8 +1138,7 @@ export class DataSessionOwner {
           this.authority.projection.stateRevision ||
         !validateSemanticContextCheckpoint(message.checkpoint)
       ) return false;
-      const completedTurns = indexSessionHistory(this.authority.transcriptSnapshot())?.turns
-        .length ?? 0;
+      const completedTurns = this.authority.projection.nextTurn - 1;
       if (
         message.checkpoint.coveredThroughTurn < 1 ||
         message.checkpoint.coveredThroughTurn >= completedTurns ||
@@ -1485,12 +1525,18 @@ export class DataSessionOwner {
   #executionView(
     latest: StoredExecutionDescriptorSummary,
   ): ExecutionView {
+    const completionControl = this.#store.readExecutionCompletionControl(
+      latest.executionId,
+    );
     return {
       executionId: latest.executionId,
       sessionId: latest.sessionCorrelation,
       task: latest.task,
       turn: latest.turn,
       createdAt: latest.createdAt,
+      ...(completionControl === null ? {} : {
+        submittedByCommandId: completionControl.submittedByCommandId,
+      }),
       lifecycle: latest.lifecycle,
       outcome: latest.outcome,
       ...(latest.stopReason === undefined ? {} : { stopReason: latest.stopReason }),
@@ -1504,7 +1550,7 @@ export class DataSessionOwner {
       ...(latest.committedRevision === undefined
         ? {}
         : { committedRevision: latest.committedRevision }),
-      processSettlement: 'unknown',
+      processSettlement: completionControl?.processSettlement ?? 'unknown',
       requestCount: latest.requestCount,
       durability: {
         acknowledgement: latest.acknowledgement,
@@ -1524,6 +1570,14 @@ export class DataSessionOwner {
     state.journal.captureStageSnapshot('terminal');
     state.journal.closeStageProbe();
     state.terminal = terminal;
+    // Keep only the newest settled execution for runtime_stop and current control reads.
+    // Older semantic history remains in SQLite and can be queried by its stable locator.
+    for (const [executionId, prior] of this.#executions) {
+      if (executionId !== state.history.executionId && prior.terminal !== undefined) {
+        this.#executions.delete(executionId);
+        this.#writer.releaseExecution(executionId);
+      }
+    }
     state.prepared.clear();
     const {
       contextSnapshot: _contextSnapshot,

@@ -85,7 +85,7 @@ interface AgentTurnOptions extends AgentLoopOptions {
   ) => {
     readonly request: ModelRequest;
     readonly sources: ModelRequestSourceAttribution;
-  };
+  } | Promise<{ readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution }>;
   /** Worker-provided causal source factory used as messages are appended to the transcript. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
   /** Worker-owned ordered hook composition before a model-issued tool call is dispatched. */
@@ -613,7 +613,7 @@ const runAgentTurnInternal = async (
         };
       let projected = request;
       if (projectParentRequestWithSources !== undefined) {
-        const projectedWithSources = projectParentRequestWithSources(
+        const projectedWithSources = await projectParentRequestWithSources(
           request,
           preparedSources,
         );
@@ -622,10 +622,12 @@ const runAgentTurnInternal = async (
       } else if (options.projectParentRequest !== undefined) {
         projected = options.projectParentRequest(request);
       }
+      throwIfCancelled(signal);
       // Projection borrows turn/Registry values. Copy once at the model-request boundary so
       // observers and the model receive nested values independent of every step and owner.
       preparedRequest = snapshot(projected);
     } catch (error) {
+      if (isTurnCancelledError(error) || signal?.aborted === true) return finishCancelled();
       return finishContractFailure(
         `context preparation failure: ${errorText(error)}`,
         {

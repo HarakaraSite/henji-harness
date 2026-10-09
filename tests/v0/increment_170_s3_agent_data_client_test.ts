@@ -5,6 +5,7 @@ import type {
   AgentFailureBarrier,
   AgentGenerationContextBasis,
   AgentProposalBarrier,
+  ContextTurnRead,
 } from '../../v0/agent/data/agent_data_contract.ts';
 import type {
   WorkerCheckpointProposalMessage,
@@ -19,6 +20,7 @@ import type { SemanticContextCheckpointV1 } from '../../v0/agent/session/session
 
 type ProbeResult =
   | Readonly<{ kind: 'basis'; basis: AgentGenerationContextBasis }>
+  | Readonly<{ kind: 'context_turn'; turn: ContextTurnRead | null }>
   | Readonly<{
     kind: 'execution_markers';
     firstSequence: number;
@@ -83,6 +85,8 @@ self.onmessage = async (event) => {
   try {
     const basis = await client.generationContext(input.contextCorrelation);
     self.postMessage({ kind: 'basis', basis });
+    const turn = await client.readContextTurn(input.contextCorrelation, input.beforeTurn);
+    self.postMessage({ kind: 'context_turn', turn });
     await client.ready(input.ready);
     await client.ready(input.updatedReady);
     client.beginExecution(input.executionId, input.executionCorrelation);
@@ -127,14 +131,27 @@ self.onmessage = async (event) => {
   const contextCorrelation = correlation('generation-context');
   const executionCorrelation = correlation('execution-one');
   const failureCorrelation = correlation('execution-two');
-  const initialTranscript = [{
+  const historyMessages = [{
     role: 'user' as const,
     content: { kind: 'text' as const, text: 'loaded directly from Data' },
   }];
+  const historyTurn: ContextTurnRead = {
+    turn: 3,
+    executionId: 'i170-history-execution',
+    messages: historyMessages,
+    messageStart: 0,
+    source: 'canonical',
+    byteLength: historyMessages.reduce(
+      (total, message) => total + new TextEncoder().encode(JSON.stringify(message)).byteLength,
+      0,
+    ),
+  };
   const basis: AgentGenerationContextBasis = {
-    initialTranscript,
+    initialTranscript: [],
     nextTurn: 4,
     stateRevision: 17,
+    canonicalMessageCount: historyMessages.length,
+    historySource: 'canonical',
     checkpoint: checkpointFor(contextCorrelation.session),
     modelSelection: ROOT_DEFAULT_MODEL_SELECTION,
     privateStateFromTurn: 2,
@@ -188,7 +205,10 @@ self.onmessage = async (event) => {
     kind: 'commit_proposal',
     correlation: executionCorrelation,
     transcript: [
-      ...initialTranscript,
+      {
+        role: 'user',
+        content: { kind: 'text', text: 'current proposal task' },
+      },
       {
         role: 'assistant',
         content: { kind: 'text', text: 'full proposal remains on Data port' },
@@ -208,7 +228,10 @@ self.onmessage = async (event) => {
       steps: 1,
       toolCallCount: 0,
       toolResultCount: 0,
-      transcript: initialTranscript,
+      transcript: [{
+        role: 'user',
+        content: { kind: 'text', text: 'failed fixture task' },
+      }],
     },
   };
 
@@ -264,6 +287,14 @@ self.onmessage = async (event) => {
         basis,
       };
       channel.port2.postMessage(response);
+    } else if (message.kind === 'context_turn_read') {
+      const response: AgentDataPortResponse = {
+        kind: 'context_turn_result',
+        requestId: message.requestId,
+        correlation: message.correlation,
+        turn: historyTurn,
+      };
+      channel.port2.postMessage(response);
     } else if (message.kind === 'ready') {
       const response: AgentDataPortResponse = {
         kind: 'ready_acknowledgement',
@@ -297,6 +328,7 @@ self.onmessage = async (event) => {
     worker.postMessage({
       port: channel.port1,
       contextCorrelation,
+      beforeTurn: 4,
       ready,
       updatedReady,
       executionId: 'i170-execution-one',
@@ -317,6 +349,13 @@ self.onmessage = async (event) => {
       throw new Error('Worker returned no context basis');
     }
     deepStrictEqual(basisResult.basis, basis);
+
+    const contextTurnResult = await waitForWorker((message) => message.kind === 'context_turn');
+    strictEqual(contextTurnResult.kind, 'context_turn');
+    if (contextTurnResult.kind !== 'context_turn') {
+      throw new Error('Worker returned no Data history turn');
+    }
+    deepStrictEqual(contextTurnResult.turn, historyTurn);
 
     const executionResult = await waitForWorker((message) => message.kind === 'execution_markers');
     strictEqual(executionResult.kind, 'execution_markers');
@@ -349,9 +388,10 @@ self.onmessage = async (event) => {
     strictEqual(closedResult.rejected, true);
     strictEqual(closedResult.message, 'Agent Data port closed');
 
-    await waitForDataCount(dataMessages, dataCountWaiters, 10);
+    await waitForDataCount(dataMessages, dataCountWaiters, 11);
     const [
       contextRequest,
+      contextTurnRequest,
       readyMessage,
       updatedReadyMessage,
       beginOne,
@@ -363,14 +403,20 @@ self.onmessage = async (event) => {
       failureMessage,
     ] = dataMessages;
     strictEqual(contextRequest?.kind, 'generation_context');
+    deepStrictEqual(contextTurnRequest, {
+      kind: 'context_turn_read',
+      requestId: 2,
+      correlation: contextCorrelation,
+      beforeTurn: 4,
+    });
     deepStrictEqual(readyMessage, {
       kind: 'ready',
-      requestId: 2,
+      requestId: 3,
       message: ready,
     });
     deepStrictEqual(updatedReadyMessage, {
       kind: 'ready',
-      requestId: 3,
+      requestId: 4,
       message: updatedReady,
     });
     deepStrictEqual(beginOne, {
@@ -386,7 +432,7 @@ self.onmessage = async (event) => {
     });
     deepStrictEqual(checkpointMessage, {
       kind: 'checkpoint_proposal',
-      requestId: 4,
+      requestId: 5,
       executionId: 'i170-execution-one',
       sequence: 2,
       message: checkpoint,

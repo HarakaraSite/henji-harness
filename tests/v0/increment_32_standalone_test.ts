@@ -92,7 +92,7 @@ Deno.test('Increment 32 uses the bundled JSON Agent and current build contract',
     assertEquals(manifest.productVersion, packageConfig.version);
     assertEquals(manifest.agentConfigurationSchemaVersion, 1);
     assertEquals(manifest.supportedToolApiContracts, ['henji-tool/v1']);
-    assertEquals(manifest.supportedHookApiContracts, ['henji-hooks/v1']);
+    assertEquals(manifest.supportedHookApiContracts, ['henji-hooks/v2']);
   } finally {
     await Deno.remove(root, { recursive: true });
   }

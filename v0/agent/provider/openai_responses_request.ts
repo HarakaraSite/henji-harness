@@ -97,31 +97,36 @@ export const responsesRequestTools = (
   return functions;
 };
 
+/** Preserve every physical request field when measuring the adapter wire. */
+export const buildResponsesRequest = (
+  request: ModelRequest,
+  modelId: string,
+  config: ResponsesWireConfig,
+  effort = 'auto',
+) => {
+  const tools = responsesRequestTools(request, config.namespaceTools);
+  return {
+    model: modelId,
+    instructions: request.systemInstruction,
+    input: responsesRequestInput(request.transcript, config.stateProvider, modelId),
+    ...(tools === undefined ? {} : { tools }),
+    include: ['reasoning.encrypted_content'],
+    reasoning: { summary: 'auto', ...(effort === 'auto' ? {} : { effort }) },
+    stream: true as const,
+    ...(config.includeStore ? { store: false } : {}),
+  };
+};
+
 export const measureResponsesRequestWire = (
   request: ModelRequest,
   modelId: string,
   config: ResponsesWireConfig,
-): {
-  readonly messagesBytes: number;
-  readonly bodyBytes: number;
-} => {
-  const input = responsesRequestInput(
-    request.transcript,
-    config.stateProvider,
-    modelId,
-  );
-  const tools = responsesRequestTools(request, config.namespaceTools);
-  const body = JSON.stringify({
-    model: modelId,
-    instructions: request.systemInstruction,
-    input,
-    ...(tools === undefined ? {} : { tools }),
-    stream: true,
-    ...(config.includeStore ? { store: false } : {}),
-  });
+  effort = 'auto',
+): { readonly messagesBytes: number; readonly bodyBytes: number } => {
+  const body = buildResponsesRequest(request, modelId, config, effort);
   const encoder = new TextEncoder();
   return {
-    messagesBytes: encoder.encode(JSON.stringify(input)).byteLength,
-    bodyBytes: encoder.encode(body).byteLength,
+    messagesBytes: encoder.encode(JSON.stringify(body.input)).byteLength,
+    bodyBytes: encoder.encode(JSON.stringify(body)).byteLength,
   };
 };

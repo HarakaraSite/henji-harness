@@ -9,6 +9,7 @@ import type {
 } from '../core/contracts.ts';
 import {
   MAX_MESSAGE_BYTES,
+  MAX_REQUEST_BYTES,
   OpenRouterAgentError,
   type OpenRouterAgentProfile,
   type OpenRouterResponseMode,
@@ -258,19 +259,15 @@ export const encodeRequest = (
   return { messages, tools };
 };
 
-/** Stable provider-wire measurement shared by context admission and the adapter itself. */
-export const measureModelRequestWire = (
+/** One request builder for wire admission and physical sending. */
+export const buildModelRequestWire = (
   request: ModelRequest,
   profile: OpenRouterAgentProfile = PRODUCTION_PROFILE,
   responseMode: OpenRouterResponseMode = 'sse',
   providerId = 'openrouter-chat',
-): {
-  readonly messages: readonly unknown[];
-  readonly tools: readonly unknown[];
-  readonly messagesBytes: number;
-  readonly bodyBytes: number;
-} => {
-  const encoded = encodeRequest(request, false, providerId, profile.model);
+  enforceMessageLimit = false,
+) => {
+  const encoded = encodeRequest(request, enforceMessageLimit, providerId, profile.model);
   const body = safeJson({
     model: profile.model,
     messages: encoded.messages,
@@ -285,9 +282,13 @@ export const measureModelRequestWire = (
   });
   if (body === undefined) throw invalidRequestError('provider request is not JSON serializable');
   return {
-    messages: encoded.messages,
-    tools: encoded.tools,
+    ...encoded,
+    body,
     messagesBytes: bytes(JSON.stringify(encoded.messages)),
     bodyBytes: bytes(body),
+    messageLimitBytes: MAX_MESSAGE_BYTES,
+    bodyLimitBytes: MAX_REQUEST_BYTES,
   };
 };
+
+export const measureModelRequestWire = buildModelRequestWire;

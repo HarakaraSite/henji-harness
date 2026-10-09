@@ -48,7 +48,7 @@ const initialEntities: Readonly<Record<string, ConversationEntity>> = {
 };
 
 const snapshot = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   cursor: { coreEpoch: 'remote-test-epoch', sessionId, revision: 4 },
   session: {
     id: sessionId,
@@ -77,10 +77,11 @@ const snapshot = {
     operations: [],
   },
   conversation: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut: 1,
     storeRevision: 1,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: initialEntities,
     order: ['remote-user-1', 'remote-assistant-1'],
   },
@@ -159,6 +160,7 @@ class FakeTerminal implements TerminalPort {
 
 const coreRead = (activeSessionId: string | null) => ({
   apiVersion: 1,
+  conversationSchema: 3,
   coreEpoch: 'remote-test-epoch',
   build,
   workspace: '/tmp/remote-workspace',

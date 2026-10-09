@@ -1,17 +1,23 @@
+import type {
+  ConversationContentChunk,
+  ConversationContentLocator,
+} from '../conversation/model.ts';
 import {
   decodeCatalogReadResult,
   decodeChatGPTAuthResult,
   decodeCommandResult,
   decodeCommandState,
   decodeContextReadResult,
+  decodeConversationContentChunk,
+  decodeConversationSnapshot,
   decodeCoreCommandValue,
   decodeCoreReadView,
   decodeCoreShutdownValue,
   decodeCredentialPresenceReadResult,
   decodeCredentialRegisterResult,
   decodeExecutionReadResult,
+  decodeFollowUpPage,
   decodeFollowUpReadResult,
-  decodeHistoryReadResult,
   decodeRecallValue,
   decodeSelectionChangeValue,
   decodeSessionDeleteValue,
@@ -251,16 +257,75 @@ export class HenjiApiClient {
     );
   }
 
-  async historyRead(input: HistoryReadInput): Promise<HistoryReadResult> {
+  async conversationPageRead(
+    sessionId: string,
+    cursor?: number,
+    direction: 'older' | 'newer' | 'latest' = 'latest',
+  ): Promise<import('./contract.ts').ConversationSnapshot> {
+    const query = new URLSearchParams({ direction });
+    if (cursor !== undefined) query.set('cursor', String(cursor));
+    const value = await jsonOrApiError(
+      await this.fetcher(`${this.baseUrl}/sessions/${encodePath(sessionId)}/conversation?${query}`),
+    );
+    return decodeConversationSnapshot(value);
+  }
+
+  async conversationContentRead(
+    locator: ConversationContentLocator,
+    offset = 0,
+    length = 256 * 1024,
+  ): Promise<ConversationContentChunk> {
+    return decodeConversationContentChunk(
+      await jsonOrApiError(
+        await this.fetcher(`${this.baseUrl}/conversation/content`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ locator, offset, length }),
+        }),
+      ),
+    );
+  }
+
+  async followUpPageRead(
+    sessionId: string,
+    cursor?: import('./contract.ts').FollowUpPageCursor,
+  ): Promise<import('./contract.ts').FollowUpPage> {
+    const query = new URLSearchParams();
+    if (cursor !== undefined) query.set('cursor', JSON.stringify(cursor));
+    return decodeFollowUpPage(
+      await jsonOrApiError(
+        await this.fetcher(`${this.baseUrl}/sessions/${encodePath(sessionId)}/followups?${query}`),
+      ),
+    );
+  }
+
+  async historyStream(input: HistoryReadInput): Promise<{
+    readonly sessionId: string | null;
+    readonly view: HistoryReadInput['view'];
+    readonly stream: ReadableStream<Uint8Array>;
+  }> {
     const query = new URLSearchParams();
     query.set('view', input.view);
     if (input.sessionRef !== undefined) query.set('session', input.sessionRef);
     if (input.latest === true) query.set('latest', 'true');
-    return decodeHistoryReadResult(
-      await jsonOrApiError(
-        await this.fetcher(`${this.baseUrl}/history?${query}`),
-      ),
-    );
+    const response = await this.fetcher(`${this.baseUrl}/history?${query}`);
+    if (!response.ok) await jsonOrApiError(response);
+    if (response.body === null) throw new HenjiApiError(500, 'HTTP history stream is missing');
+    return {
+      sessionId: response.headers.get('x-henji-session-id') || null,
+      view: input.view,
+      stream: response.body,
+    };
+  }
+
+  /** Explicit whole-value convenience; normal history CLI copies historyStream to stdout. */
+  async historyRead(input: HistoryReadInput): Promise<HistoryReadResult> {
+    const result = await this.historyStream(input);
+    return {
+      sessionId: result.sessionId,
+      view: result.view,
+      text: await new Response(result.stream).text(),
+    };
   }
 
   async sessionOpen(input: SessionOpenInput): Promise<SessionOpenResult> {

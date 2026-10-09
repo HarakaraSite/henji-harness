@@ -712,6 +712,7 @@ export const readSseResponse = async (
         modelId,
         reportThinkingDelta,
       );
+      evidence?.recordUsage(object?.usage);
     } catch (error) {
       if (error instanceof OpenRouterAgentError) {
         const parseReason = error.failureFact.parseReason;

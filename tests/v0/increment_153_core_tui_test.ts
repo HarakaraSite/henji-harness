@@ -26,10 +26,11 @@ Deno.test('Increment 153 Core selection and Session selection remain independent
 });
 Deno.test('Increment 153 snapshot Core identity stays visible alongside Session in normal and compact headers', () => {
   const base = sessionSnapshotFixture({
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId: '14600000-0000-4000-8000-000000000001',
     cut: 0,
     storeRevision: 0,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: {},
     order: [],
   });

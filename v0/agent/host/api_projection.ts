@@ -11,7 +11,7 @@ export const projectApplicationControl = (
   const selection = current.selection;
   const startup = current.workerStartup;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cursor: { ...cursor, sessionId: current.sessionId },
     session: {
       id: current.sessionId,

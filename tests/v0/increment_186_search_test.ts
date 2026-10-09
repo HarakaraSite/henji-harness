@@ -181,8 +181,18 @@ Deno.test('increment 186 external search handles rg and grep through WorkerHostS
   const grepConfig = `${base}/config-grep`;
   const cancelConfig = `${base}/config-cancel`;
   await configureSearch(rgConfig);
+  await Deno.writeTextFile(
+    `${rgConfig}/context-budget.json`,
+    JSON.stringify({ defaults: { historyTokens: 524288, inputTokens: 524288 } }),
+  );
   await configureSearch(grepConfig, grepBin);
   await configureSearch(cancelConfig, `${cancelBin}:/usr/bin:/bin`);
+  for (const config of [grepConfig, cancelConfig]) {
+    await Deno.writeTextFile(
+      `${config}/context-budget.json`,
+      JSON.stringify({ defaults: { historyTokens: 524288, inputTokens: 524288 } }),
+    );
+  }
 
   const opened: OpenedWorker[] = [];
   try {

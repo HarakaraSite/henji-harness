@@ -61,6 +61,7 @@ const server = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen() {} }, (re
   if (path === '/api/v1/core') {
     return Response.json({
       apiVersion: 1,
+      conversationSchema: 3,
       coreEpoch: initial.cursor.coreEpoch,
       build: buildManifest(),
       workspace: '/tmp/increment-194-memory',
@@ -104,7 +105,7 @@ const update = (ordinal: number): void => {
     previousRevision: ordinal,
     changes: [],
     conversationDelta: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       kind: 'delta',
       sessionId: initial.session.id,
       cut: ordinal + 1,

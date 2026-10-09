@@ -1,3 +1,5 @@
+import type { ConversationContentChunk } from '../conversation/model.ts';
+import type { ConversationSnapshot } from './contract.ts';
 import type {
   CatalogReadResult,
   ChatGPTAuthResult,
@@ -13,6 +15,7 @@ import type {
   EffectiveRuntimeConfig,
   ExecutionReadResult,
   ExecutionView,
+  FollowUpPage,
   FollowUpReadResult,
   FollowUpRecord,
   HistoryReadResult,
@@ -157,6 +160,19 @@ const isFollowUpRecord = (value: unknown): value is FollowUpRecord =>
   (value.executionId === undefined || isText(value.executionId)) &&
   (value.reason === undefined || isText(value.reason));
 
+const isFollowUpPageCursor = (value: unknown): boolean =>
+  isRecord(value) && isText(value.createdAt) && isText(value.queueId);
+
+export const decodeFollowUpPage = (value: unknown): FollowUpPage => {
+  if (
+    !isRecord(value) || !Array.isArray(value.followUps) ||
+    !value.followUps.every(isFollowUpRecord) ||
+    typeof value.hasMore !== 'boolean' ||
+    (value.nextCursor !== undefined && !isFollowUpPageCursor(value.nextCursor))
+  ) throw new ApiCodecError();
+  return value as unknown as FollowUpPage;
+};
+
 const isPendingView = (value: unknown): value is PendingView =>
   isRecord(value) && value.kind === 'core-owned' &&
   (value.activeTask === undefined || isRecord(value.activeTask) &&
@@ -167,7 +183,11 @@ const isPendingView = (value: unknown): value is PendingView =>
       isText(value.steering.executionId) && isText(value.steering.commandId) &&
       isText(value.steering.text)) &&
   (value.followUp === undefined || isFollowUpRecord(value.followUp)) &&
-  Array.isArray(value.followUps) && value.followUps.every(isFollowUpRecord);
+  Array.isArray(value.followUps) && value.followUps.every(isFollowUpRecord) &&
+  (value.followUpPage === undefined ||
+    isRecord(value.followUpPage) && typeof value.followUpPage.hasMore === 'boolean' &&
+      (value.followUpPage.nextCursor === undefined ||
+        isFollowUpPageCursor(value.followUpPage.nextCursor)));
 
 export const decodeCommandResult = <T>(
   value: unknown,
@@ -427,8 +447,34 @@ export const decodeExecutionReadResult = (
   return value as unknown as ExecutionReadResult;
 };
 
+const isConversationPage = (value: unknown): boolean =>
+  isRecord(value) && ['latest', 'older', 'newer'].includes(String(value.direction)) &&
+  typeof value.hasOlder === 'boolean' && typeof value.hasNewer === 'boolean';
+
+export const decodeConversationSnapshot = (value: unknown): ConversationSnapshot => {
+  if (
+    !isRecord(value) || value.schemaVersion !== 3 || !isText(value.sessionId) ||
+    !isCount(value.cut) || !isCount(value.storeRevision) || !isRecord(value.entities) ||
+    !Array.isArray(value.order) || !value.order.every(isText) || !isConversationPage(value.page)
+  ) {
+    throw new ApiCodecError();
+  }
+  return value as unknown as ConversationSnapshot;
+};
+
+export const decodeConversationContentChunk = (value: unknown): ConversationContentChunk => {
+  if (
+    !isRecord(value) || !isRecord(value.locator) || !isText(value.locator.digest) ||
+    !isText(value.locator.executionId) || !isCount(value.offset) || !isCount(value.nextOffset) ||
+    !isCount(value.totalBytes) || typeof value.done !== 'boolean' || typeof value.text !== 'string'
+  ) {
+    throw new ApiCodecError();
+  }
+  return value as unknown as ConversationContentChunk;
+};
+
 export const decodeSessionSnapshot = (value: unknown): SessionSnapshot => {
-  if (!isRecord(value) || value.schemaVersion !== 2) throw new ApiCodecError();
+  if (!isRecord(value) || value.schemaVersion !== 3) throw new ApiCodecError();
   const cursor = value.cursor;
   const session = value.session;
   const runtime = value.runtime;
@@ -457,9 +503,10 @@ export const decodeSessionSnapshot = (value: unknown): SessionSnapshot => {
     !runtime.operations.every((item) => typeof item === 'string') ||
     (runtime.effectiveConfig !== undefined &&
       !isEffectiveRuntimeConfig(runtime.effectiveConfig)) ||
-    !isRecord(conversation) || conversation.schemaVersion !== 2 ||
+    !isRecord(conversation) || conversation.schemaVersion !== 3 ||
     !isText(conversation.sessionId) || !isCount(conversation.cut) ||
-    !isCount(conversation.storeRevision) || !isRecord(conversation.entities) ||
+    !isCount(conversation.storeRevision) || !isConversationPage(conversation.page) ||
+    !isRecord(conversation.entities) ||
     !Array.isArray(conversation.order) || !conversation.order.every(isText) ||
     !isPendingView(value.pending) ||
     !isRecord(value.credentialAvailability) ||
@@ -499,7 +546,8 @@ const isBuildView = (value: unknown): boolean => {
 
 export const decodeCoreReadView = (value: unknown): CoreReadView => {
   if (
-    !isRecord(value) || value.apiVersion !== 1 || !isText(value.coreEpoch) ||
+    !isRecord(value) || value.apiVersion !== 1 || value.conversationSchema !== 3 ||
+    !isText(value.coreEpoch) ||
     !isBuildView(value.build) || !isText(value.workspace) ||
     (value.activeSessionId !== null && !isText(value.activeSessionId)) ||
     !isRuntimePhase(value.phase) ||
@@ -572,7 +620,9 @@ export const decodeSessionStreamFrame = (
     !isCount(value.cursor.revision) || !isCount(value.previousRevision) ||
     !Array.isArray(value.changes) || !value.changes.every(validChange) ||
     (value.conversationDelta !== undefined && (!isRecord(value.conversationDelta) ||
-      value.conversationDelta.schemaVersion !== 2 || value.conversationDelta.kind !== 'delta' ||
+      value.conversationDelta.schemaVersion !== 3 || value.conversationDelta.kind !== 'delta' ||
+      (value.conversationDelta.page !== undefined &&
+        !isConversationPage(value.conversationDelta.page)) ||
       !isText(value.conversationDelta.sessionId) || !isCount(value.conversationDelta.cut) ||
       !isCount(value.conversationDelta.storeRevision) ||
       !Array.isArray(value.conversationDelta.changes)))

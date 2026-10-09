@@ -189,7 +189,26 @@ Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive c
           throw new Error(`unexpected turn failure: ${outcome.stopReason}`);
         },
       };
-      generation = new WorkerGeneration(composition, sessionId, port);
+      generation = new WorkerGeneration(
+        composition,
+        sessionId,
+        port,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { defaults: { historyTokens: 524288, inputTokens: 524288 } },
+      );
       await generation.runTurn(
         correlation,
         'fetch source',

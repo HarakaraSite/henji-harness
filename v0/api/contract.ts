@@ -1,4 +1,8 @@
-import type { ConversationChange, ConversationEntity } from '../conversation/model.ts';
+import type {
+  ConversationChange,
+  ConversationEntity,
+  ConversationPageMetadata,
+} from '../conversation/model.ts';
 
 /** Shared, data-only state contract used by the in-process TUI and later clients. */
 export type {
@@ -104,11 +108,14 @@ export const CORE_OPERATION_NAMES = [
   'session.read',
   'session.subscribe',
   'history.read',
+  'conversation.page',
+  'conversation.content',
   'task.submit',
   'execution.cancel',
   'execution.steer',
   'followUp.queue',
   'followUp.read',
+  'followUp.page',
   'recall.prepare',
   'recall.clear',
   'context.read',
@@ -269,6 +276,12 @@ export type FollowUpRecord = Readonly<{
   executionId?: string;
   reason?: string;
 }>;
+export type FollowUpPageCursor = Readonly<{ createdAt: string; queueId: string }>;
+export type FollowUpPage = Readonly<{
+  followUps: readonly FollowUpRecord[];
+  hasMore: boolean;
+  nextCursor?: FollowUpPageCursor;
+}>;
 export type PendingView = Readonly<{
   kind: 'core-owned';
   activeTask?: Readonly<
@@ -277,6 +290,7 @@ export type PendingView = Readonly<{
   steering?: Readonly<{ executionId: string; commandId: string; text: string }>;
   followUp?: FollowUpRecord;
   followUps: readonly FollowUpRecord[];
+  followUpPage?: Readonly<{ hasMore: boolean; nextCursor?: FollowUpPageCursor }>;
 }>;
 export type FollowUpReadResult = Readonly<{ followUp: FollowUpRecord }>;
 export type SessionOpenValue = Readonly<{ sessionId: string }>;
@@ -341,6 +355,7 @@ export type ExecutionReadResult = Readonly<{ execution: ExecutionView }>;
 
 export type CoreReadView = Readonly<{
   apiVersion: 1;
+  conversationSchema: 3;
   coreEpoch: string;
   build: import('../agent/runtime/build_manifest.ts').BuildManifestV1;
   workspace: string;
@@ -393,7 +408,7 @@ export type HistoryReadResult = Readonly<{
 
 /** Slice 1 publishes only state that the current Host already owns. */
 export type SessionSnapshot = Readonly<{
-  schemaVersion: 2;
+  schemaVersion: 3;
   cursor: CoreCursor;
   session: Readonly<{
     id: string;
@@ -422,21 +437,23 @@ export type SessionSnapshot = Readonly<{
 }>;
 
 export type ConversationSnapshot = Readonly<{
-  schemaVersion: 2;
+  schemaVersion: 3;
   sessionId: string;
   cut: number;
   storeRevision: number;
   entities: Readonly<Record<string, ConversationEntity>>;
   order: readonly string[];
+  page: ConversationPageMetadata;
 }>;
 
 type ConversationDelta = Readonly<{
-  schemaVersion: 2;
+  schemaVersion: 3;
   kind: 'delta';
   sessionId: string;
   cut: number;
   storeRevision: number;
   changes: readonly ConversationChange[];
+  page?: ConversationPageMetadata;
 }>;
 
 /** Core owns only these small control fields; Data owns conversation payloads. */

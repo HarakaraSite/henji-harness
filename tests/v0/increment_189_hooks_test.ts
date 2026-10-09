@@ -136,7 +136,18 @@ export default async ({ workspace }) => {
       systemInstruction: 'base instruction',
       instructionComponents: [],
       tools: [],
-      transcript: { turns: [] },
+      transcript: {
+        turns: [],
+        nextTurn: 1,
+        messageCount: 0,
+        range: {
+          basis: 'session-canonical',
+          retainedFromTurn: 1,
+          omittedThroughTurn: 0,
+          executionLocators: [],
+          budget: { historyTokens: 0, inputLimit: 0, profile: 'test' },
+        },
+      },
       projectedContext: { retainedTurns: [] },
     };
     const runtime = {

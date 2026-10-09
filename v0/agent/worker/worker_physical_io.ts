@@ -43,10 +43,12 @@ export const createWorkerRequestCounter = (): WorkerRequestCounter => {
 const deferredModel = (
   measureRequestWire: NonNullable<Model['measureRequestWire']>,
   createAdapter: () => Promise<Model>,
+  requestOutputReserve?: number,
 ): Model => {
   let adapter: Promise<Model> | undefined;
   return {
     measureRequestWire,
+    ...(requestOutputReserve === undefined ? {} : { requestOutputReserve }),
     generate: async (request, options) =>
       (await (adapter ??= createAdapter())).generate(request, options),
   };
@@ -97,7 +99,7 @@ export const createProductionPhysicalIo = (
                 : `${chatgpt.provider}@${chatgpt.registrationId ?? 'unselected'}`,
               includeStore: true,
               namespaceTools: true,
-            }),
+            }, resolved.effort),
           async () => {
             const { ChatGPTResponsesModel } = await import('../provider/openai_responses_model.ts');
             return new ChatGPTResponsesModel({
@@ -120,7 +122,7 @@ export const createProductionPhysicalIo = (
             measureResponsesRequestWire(request, resolved.modelId, {
               stateProvider: resolved.provider,
               includeStore: true,
-            }),
+            }, resolved.effort),
           async () => {
             const { OpenAIResponsesModel } = await import('../provider/openai_responses_model.ts');
             return new OpenAIResponsesModel({
@@ -140,7 +142,7 @@ export const createProductionPhysicalIo = (
             measureResponsesRequestWire(request, resolved.modelId, {
               stateProvider: resolved.provider,
               includeStore: false,
-            }),
+            }, resolved.effort),
           async () => {
             const { OpenRouterResponsesModel } = await import(
               '../provider/openai_responses_model.ts'
@@ -168,7 +170,7 @@ export const createProductionPhysicalIo = (
             measureResponsesRequestWire(request, resolved.modelId, {
               stateProvider: resolved.provider,
               includeStore: false,
-            }),
+            }, resolved.effort),
           async () => {
             const { DeclaredResponsesModel } = await import(
               '../provider/openai_responses_model.ts'
@@ -218,6 +220,7 @@ export const createProductionPhysicalIo = (
               ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
             });
           },
+          profile.maxCompletionTokens,
         );
       }
       const profile = openRouterProfileFor(resolved as OpenRouterModelSelection);
@@ -233,6 +236,7 @@ export const createProductionPhysicalIo = (
             timeoutMs: options.providerTimeoutMs,
           });
         },
+        profile.maxCompletionTokens,
       );
     },
     requestProvider: createProviderRequestDispatcher({

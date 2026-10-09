@@ -87,7 +87,7 @@ export const probeHooksPackage = async (packageFolder: string, evidenceDirectory
     `
 import { HOOK_API_CONTRACT, type HookFactory } from '@henji/hooks';
 import { label } from './label.ts';
-if (HOOK_API_CONTRACT !== 'henji-hooks/v1') throw new Error('wrong hook contract');
+if (HOOK_API_CONTRACT !== 'henji-hooks/v2') throw new Error('wrong hook contract');
 const factory: HookFactory = ({ workspace, requestProvider }) => {
   if (!requestProvider) throw new Error('requestProvider seam missing');
   let probeSettlementRequests = false;

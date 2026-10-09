@@ -415,3 +415,18 @@ Deno.test('212 resize seals displayed live text and later output appends only it
   ok(displayed.includes('continued thought'));
   strictEqual(displayed.filter((row) => row === 'thinking>').length, 1);
 });
+
+Deno.test('Increment 218 page eviction releases receipts and same-scope old resync does not reprint', () => {
+  const flow = new ConversationFlow();
+  const located = (index: number): UiLogEntry => ({
+    ...entry(`position-${index}`, `body ${index}`),
+    position: { executionOrder: index, requestOrder: 0, phase: 0, eventOrdinal: 0, itemOrdinal: 0 },
+  });
+  const first = located(0);
+  const second = located(1);
+  ok(flow.drain(state([first]), 80, 4).committed.length > 0);
+  ok(flow.drain(state([second]), 80, 4).committed.length > 0);
+  deepStrictEqual(flow.drain(state([first, second]), 80, 4).committed, []);
+  const receipts = (flow as unknown as { printed: Map<string, unknown> }).printed;
+  strictEqual(receipts.size, 1);
+});

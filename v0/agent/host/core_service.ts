@@ -1,3 +1,8 @@
+import type {
+  ConversationContentChunk,
+  ConversationContentLocator,
+} from '../../conversation/model.ts';
+import type { DataCommandReceipt } from '../data/data_contract.ts';
 import { projectApplicationControl } from './api_projection.ts';
 import { type ApplicationService, createApplicationService } from './application_service.ts';
 import type { ExecutionTrackingChange } from './application_port.ts';
@@ -30,6 +35,8 @@ import type {
   ExecutionCancelInput,
   ExecutionCancelValue,
   ExecutionReadResult,
+  FollowUpPage,
+  FollowUpPageCursor,
   FollowUpQueueInput,
   FollowUpQueueValue,
   FollowUpReadResult,
@@ -119,7 +126,7 @@ type CoreServiceOptions =
 
 export type CoreSessionFrameSink = (
   frame: Uint8Array<ArrayBuffer> | undefined,
-) => void;
+) => void | Promise<void>;
 
 interface CoreSessionSubscription {
   readonly unsubscribe: () => void;
@@ -179,9 +186,36 @@ export interface CoreService {
     input: FollowUpQueueInput,
   ): Promise<CommandResult<FollowUpQueueValue>>;
   followUpRead(sessionId: string, queueId: string): Promise<FollowUpReadResult>;
+  followUpPageRead(
+    sessionId: string,
+    cursor?: FollowUpPageCursor,
+  ): Promise<FollowUpPage>;
   commandRead(commandId: string): Promise<CommandState<CoreCommandValue>>;
   executionRead(executionId: string): Promise<ExecutionReadResult>;
   historyRead(input: HistoryReadInput): Promise<EncodedDataReply>;
+  historyStreamOpen(
+    input: HistoryReadInput,
+  ): Promise<
+    {
+      readonly streamId: string;
+      readonly sessionId: string | null;
+      readonly view: HistoryReadInput['view'];
+    }
+  >;
+  historyStreamRead(
+    streamId: string,
+  ): Promise<{ readonly bytes: Uint8Array<ArrayBuffer>; readonly done: boolean }>;
+  historyStreamClose(streamId: string): Promise<void>;
+  conversationPageRead(
+    sessionId: string,
+    cursor?: number,
+    direction?: 'older' | 'newer' | 'latest',
+  ): Promise<EncodedDataReply>;
+  conversationContentRead(
+    locator: ConversationContentLocator,
+    offset: number,
+    length: number,
+  ): Promise<ConversationContentChunk>;
   subscribeSession(
     sessionId: string,
     sink: CoreSessionFrameSink,
@@ -208,6 +242,7 @@ interface PublishedSessionFrame {
 interface SessionSubscriber {
   readonly receive: (frame: PublishedSessionFrame) => void;
   readonly close: () => void;
+  readonly resync: () => void;
 }
 
 interface SessionConversationWatch {
@@ -218,6 +253,8 @@ interface SessionConversationWatch {
   initial?: DataConversationSnapshot;
   unsubscribe?: () => void;
   readonly pending: DataConversationUpdate[];
+  pendingBytes: number;
+  overflowed: boolean;
 }
 
 interface TrackedCommand {
@@ -347,7 +384,11 @@ export const createCoreService = async (
   let admissionClosed = false;
   let openingSlot = false;
   const commands = new Map<string, TrackedCommand>();
+  const completedCommands = new Map<string, DataCommandReceipt>();
+  let completedCommandBytes = 0;
+  let preflight: Promise<void> = Promise.resolve();
   const executions = new Map<string, TrackedExecution>();
+  const followUpPages = new Map<string, FollowUpPage>();
   const servicesBySession = new Map<string, ApplicationService[]>();
   const liveSubscriptions = new Set<() => void>();
   const credentialRegistrations = new Set<Promise<CredentialRegisterResult>>();
@@ -358,6 +399,46 @@ export const createCoreService = async (
     readonly activeSessionId: string | null;
     readonly operations: readonly CoreOperationName[];
   } | undefined;
+  let sessionEvictions: Promise<void> = Promise.resolve();
+  const trimInactiveSnapshots = (readingSessionId?: string): Promise<void> => {
+    const trim = sessionEvictions.catch(() => {}).then(async () => {
+      const inactive = [...sessionSnapshots.entries()].filter(([sessionId]) =>
+        sessionId !== slot?.snapshot.session.id &&
+        sessionId !== readingSessionId &&
+        (sessionSubscribers.get(sessionId)?.size ?? 0) === 0
+      );
+      const sizes = inactive.map(([sessionId, snapshot]) =>
+        new TextEncoder().encode(
+          JSON.stringify({ snapshot, followUps: followUpPages.get(sessionId) }),
+        ).byteLength
+      );
+      let bytes = sizes.reduce((sum, size) => sum + size, 0);
+      let count = inactive.length;
+      for (
+        let index = 0;
+        index < inactive.length && (count > 32 || bytes > 2 * 1024 * 1024);
+        index++
+      ) {
+        const [sessionId, snapshot] = inactive[index];
+        await data.coreSessionCursorSave(
+          coreEpoch,
+          sessionId,
+          snapshot.cursor.revision,
+        );
+        if (
+          sessionId === slot?.snapshot.session.id ||
+          (sessionSubscribers.get(sessionId)?.size ?? 0) > 0 ||
+          sessionSnapshots.get(sessionId) !== snapshot
+        ) continue;
+        sessionSnapshots.delete(sessionId);
+        followUpPages.delete(sessionId);
+        bytes -= sizes[index];
+        count--;
+      }
+    });
+    sessionEvictions = trim;
+    return trim;
+  };
   const providerById = new Map(
     providerDeclarations.map((
       declaration,
@@ -431,7 +512,8 @@ export const createCoreService = async (
             ...execution,
             submittedByCommandId: tracked.submittedByCommandId,
             processSettlement: tracked.processSettlement === 'running' &&
-                candidate.runtime.active && candidate.runtime.phase === 'settling'
+                candidate.runtime.active &&
+                candidate.runtime.phase === 'settling'
               ? 'settling'
               : tracked.processSettlement,
           },
@@ -455,7 +537,9 @@ export const createCoreService = async (
     if (!same(previous.pending, candidate.pending)) {
       changes.push({ kind: 'pending.replace', pending: candidate.pending });
     }
-    if (!same(previous.credentialAvailability, candidate.credentialAvailability)) {
+    if (
+      !same(previous.credentialAvailability, candidate.credentialAvailability)
+    ) {
       changes.push({
         kind: 'credentialAvailability.replace',
         credentialAvailability: candidate.credentialAvailability,
@@ -505,7 +589,10 @@ export const createCoreService = async (
           position: descriptor.currentPosition,
           selection: apiSelection(descriptor.modelSelection),
         },
-        runtime: { ...previous.runtime, execution: descriptor.latestExecution ?? null },
+        runtime: {
+          ...previous.runtime,
+          execution: descriptor.latestExecution ?? null,
+        },
         context: descriptor.context,
       },
       delta,
@@ -520,7 +607,10 @@ export const createCoreService = async (
   ): void => {
     if (!watch.active || update.cut <= watch.cut) return;
     watch.cut = update.cut;
-    applyDataDescriptor(update.sessionId, update.descriptor, update.bytes, update.cut);
+    if (update.snapshot === true) {
+      applyDataDescriptor(update.sessionId, update.descriptor);
+      for (const subscriber of sessionSubscribers.get(update.sessionId) ?? []) subscriber.resync();
+    } else applyDataDescriptor(update.sessionId, update.descriptor, update.bytes, update.cut);
   };
 
   const startConversationWatch = (
@@ -534,13 +624,24 @@ export const createCoreService = async (
       initializing: true,
       cut: 0,
       pending: [],
+      pendingBytes: 0,
+      overflowed: false,
     };
     conversationWatches.set(sessionId, watch);
     watch.ready = readData(() =>
       data.watchConversation(sessionId, (update) => {
         if (!watch.active) return;
-        if (watch.initializing) watch.pending.push(update);
-        else applyConversationUpdate(watch, update);
+        if (watch.initializing) {
+          watch.pendingBytes += update.bytes.byteLength;
+          if (
+            watch.pendingBytes > 2 * 1024 * 1024 && watch.pending.length > 0
+          ) {
+            watch.pending.length = 0;
+            watch.pendingBytes = update.bytes.byteLength;
+            watch.overflowed = true;
+          }
+          watch.pending.push(update);
+        } else applyConversationUpdate(watch, update);
       })
     ).then((subscription) => {
       if (!watch.active) {
@@ -565,13 +666,10 @@ export const createCoreService = async (
       kind: 'core-owned' as const,
       followUps: [] as readonly FollowUpRecord[],
     };
+    const savedPage = followUpPages.get(sessionId);
     const retained = new Map<string, FollowUpRecord>();
-    for (const owner of servicesBySession.get(sessionId) ?? []) {
-      const view = owner === active ? visible : owner.tasks.pendingView(sessionId);
-      for (const record of view.followUps) retained.set(record.queueId, record);
-      if (owner !== active && view.followUp !== undefined) {
-        retained.set(view.followUp.queueId, view.followUp);
-      }
+    for (const record of savedPage?.followUps ?? []) {
+      if (record.status !== 'queued') retained.set(record.queueId, record);
     }
     return {
       kind: 'core-owned',
@@ -579,6 +677,12 @@ export const createCoreService = async (
       ...(visible.steering === undefined ? {} : { steering: visible.steering }),
       ...(visible.followUp === undefined ? {} : { followUp: visible.followUp }),
       followUps: [...retained.values()],
+      ...(savedPage === undefined ? {} : {
+        followUpPage: {
+          hasMore: savedPage.hasMore,
+          ...(savedPage.nextCursor === undefined ? {} : { nextCursor: savedPage.nextCursor }),
+        },
+      }),
     };
   };
 
@@ -707,7 +811,9 @@ export const createCoreService = async (
   ): Promise<CoreSlot> => {
     if (selection.kind === 'continue') {
       const latest = (await data.sessionsList()).sessions[0];
-      if (latest !== undefined) selection = { kind: 'exact', sessionId: latest.id };
+      if (latest !== undefined) {
+        selection = { kind: 'exact', sessionId: latest.id };
+      }
     }
     const inherited = fromSessionId === undefined ? hostOptions : (slot?.options ?? hostOptions);
     let initialModelSelection = inherited.initialModelSelection;
@@ -722,17 +828,24 @@ export const createCoreService = async (
       (selection.kind === 'new' || selection.kind === 'none')
     ) {
       const declaration = providerById.get(activation.rootProvider);
-      if (declaration === undefined) throw new CoreServiceError(404, 'provider_not_found');
+      if (declaration === undefined) {
+        throw new CoreServiceError(404, 'provider_not_found');
+      }
       initialModelSelection = selectionForDeclaration(
         declaration,
         declaration.defaults.modelId,
-        await modelCatalog.defaultEffort(declaration.providerId, declaration.defaults.modelId),
+        await modelCatalog.defaultEffort(
+          declaration.providerId,
+          declaration.defaults.modelId,
+        ),
       );
     }
     let agentChoice = inherited.agentChoice;
     let agent = inherited.agent;
     if (activation.agent !== undefined || activation.agentFile !== undefined) {
-      if (activation.agent !== undefined && activation.agentFile !== undefined) {
+      if (
+        activation.agent !== undefined && activation.agentFile !== undefined
+      ) {
         throw new CoreServiceError(400, 'invalid_agent_choice');
       }
       agentChoice = activation.agentFile === undefined
@@ -773,12 +886,28 @@ export const createCoreService = async (
       lazyInitialHost: true,
       activation: activationMetadata,
     };
-    const service = await createApplicationService(invocation);
+    const service = await createApplicationService({
+      ...invocation,
+      persistFollowUp: async (record) => {
+        await data.followUpSave(coreEpoch, record.sessionId, record);
+        const page = await data.followUpPageRead(record.sessionId);
+        followUpPages.set(record.sessionId, {
+          ...page,
+          followUps: page.followUps.map((receipt) => receipt.followUp),
+        });
+      },
+      persistTaskCompletion: (control) =>
+        data.saveExecutionCompletionControl({
+          ...control,
+          processSettlement: 'complete',
+        }),
+    });
     const sessionId = service.query.currentSession().sessionId;
     const initial = currentSnapshot(
       service,
       coreEpoch,
-      sessionSnapshots.get(sessionId)?.cursor.revision ?? 0,
+      sessionSnapshots.get(sessionId)?.cursor.revision ??
+        await data.coreSessionCursorRead(coreEpoch, sessionId) ?? 0,
     );
     if (!sessionSnapshots.has(sessionId)) {
       sessionSnapshots.set(sessionId, initial);
@@ -789,7 +918,9 @@ export const createCoreService = async (
       snapshot: initial,
     };
     let descriptorSequence = -1;
-    const acceptDescriptor = (update: { sequence: number; descriptor: DataSessionDescriptor }) => {
+    const acceptDescriptor = (
+      update: { sequence: number; descriptor: DataSessionDescriptor },
+    ) => {
       if (update.sequence <= descriptorSequence) return;
       descriptorSequence = update.sequence;
       applyDataDescriptor(sessionId, update.descriptor);
@@ -837,20 +968,38 @@ export const createCoreService = async (
       previous.unsubscribeObservations?.();
       previous.unsubscribeDescriptor?.();
       await previous.service.close();
+      const owners = servicesBySession.get(previous.snapshot.session.id);
+      if (owners !== undefined) {
+        const remaining = owners.filter((owner) => owner !== previous.service);
+        if (remaining.length === 0) {
+          servicesBySession.delete(previous.snapshot.session.id);
+        } else servicesBySession.set(previous.snapshot.session.id, remaining);
+      }
     }
+    await trimInactiveSnapshots();
     return structuredClone(next.snapshot);
   };
 
   const refreshReadControl = async (sessionId: string): Promise<void> => {
     if (!isSessionId(sessionId)) {
-      throw new CoreServiceError(400, 'invalid_session_id', 'invalid session id');
+      throw new CoreServiceError(
+        400,
+        'invalid_session_id',
+        'invalid session id',
+      );
     }
     if (slot?.snapshot.session.id !== sessionId) {
       const descriptor = await readData(() => data.sessionDescriptor(sessionId));
+      const page = await readData(() => data.followUpPageRead(sessionId));
+      followUpPages.set(sessionId, {
+        ...page,
+        followUps: page.followUps.map((receipt) => receipt.followUp),
+      });
       const candidate = savedControl(
         descriptor,
         coreEpoch,
-        sessionSnapshots.get(sessionId)?.cursor.revision ?? 0,
+        sessionSnapshots.get(sessionId)?.cursor.revision ??
+          await data.coreSessionCursorRead(coreEpoch, sessionId) ?? 0,
         workspace.root,
       );
       publishSnapshot({
@@ -870,6 +1019,7 @@ export const createCoreService = async (
     const conversation = await readData(() => data.conversationSnapshot(sessionId));
     const control = sessionSnapshots.get(sessionId);
     if (control === undefined) throw sessionNotFound();
+    await trimInactiveSnapshots();
     return { bytes: encodedSessionSnapshot(control, conversation.bytes) };
   };
 
@@ -887,6 +1037,40 @@ export const createCoreService = async (
       : { cursor: structuredClone(slot.snapshot.cursor) }),
   });
 
+  const signatureDigest = async (signature: string): Promise<string> => {
+    const digest = new Uint8Array(
+      await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(signature),
+      ),
+    );
+    return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join(
+      '',
+    );
+  };
+  const commandConflict = (): never => {
+    throw new CoreServiceError(
+      409,
+      'command_id_conflict',
+      'commandId was reused',
+    );
+  };
+  const receiptBytes = (receipt: DataCommandReceipt): number =>
+    new TextEncoder().encode(JSON.stringify(receipt)).byteLength;
+  const cacheReceipt = (receipt: DataCommandReceipt): void => {
+    const size = receiptBytes(receipt);
+    if (size > 2 * 1024 * 1024) return;
+    while (
+      completedCommands.size >= 32 ||
+      completedCommandBytes + size > 2 * 1024 * 1024
+    ) {
+      const first = completedCommands.entries().next().value!;
+      completedCommands.delete(first[0]);
+      completedCommandBytes -= receiptBytes(first[1]);
+    }
+    completedCommands.set(receipt.commandId, receipt);
+    completedCommandBytes += size;
+  };
   const registerCommand = <T extends CoreCommandValue>(
     commandId: string,
     signature: string,
@@ -896,36 +1080,90 @@ export const createCoreService = async (
   ): Promise<CommandResult<T>> => {
     const existing = commands.get(commandId);
     if (existing !== undefined) {
-      if (existing.signature !== signature) {
-        throw new CoreServiceError(
-          409,
-          'command_id_conflict',
-          'commandId was reused',
-        );
-      }
+      if (existing.signature !== signature) commandConflict();
       return existing.result.then((value) => structuredClone(value) as CommandResult<T>);
+    }
+    const cached = completedCommands.get(commandId);
+    if (cached !== undefined) {
+      return signatureDigest(signature).then((digest) => {
+        if (cached.signatureDigest !== digest) commandConflict();
+        return structuredClone(cached.result) as CommandResult<T>;
+      });
     }
     if (admissionClosed) {
       return Promise.resolve(rejected(commandId, target, 'unavailable'));
     }
     let resolve!: (value: CommandResult<T>) => void;
-    const result = new Promise<CommandResult<T>>((done) => resolve = done);
+    let reject!: (error: unknown) => void;
+    const result = new Promise<CommandResult<T>>((done, fail) => {
+      resolve = done;
+      reject = fail;
+    });
     const tracked: TrackedCommand = {
       signature,
       state: { kind: 'processing', commandId },
       result,
     };
+    // No await before registration: simultaneous copies join this one Promise.
     commands.set(commandId, tracked);
     onRegistered?.();
-    // Register first; work reserves the slot synchronously before its first await.
-    void work().then((value) => {
-      tracked.state = value;
-      resolve(value);
-    }, () => {
-      const value = rejected<T>(commandId, target, 'failed');
-      tracked.state = value;
-      resolve(value);
+    const predecessor = preflight;
+    let release!: () => void;
+    preflight = new Promise<void>((done) => {
+      release = done;
     });
+    void (async () => {
+      let digest = '';
+      let receipt: DataCommandReceipt | null;
+      let pendingWork: Promise<CommandResult<T>>;
+      try {
+        await predecessor;
+        digest = await signatureDigest(signature);
+        receipt = await data.commandReceiptRead(coreEpoch, commandId);
+        if (receipt !== null) {
+          if (receipt.signatureDigest !== digest) commandConflict();
+          cacheReceipt(receipt);
+          commands.delete(commandId);
+          resolve(receipt.result as CommandResult<T>);
+          return;
+        }
+        // work reserves the live slot synchronously; release FIFO before admission await.
+        pendingWork = work();
+      } catch (error) {
+        if (
+          error instanceof CoreServiceError &&
+          error.code === 'command_id_conflict'
+        ) {
+          commands.delete(commandId);
+          reject(error);
+          return;
+        }
+        pendingWork = Promise.resolve(rejected<T>(commandId, target, 'failed'));
+      } finally {
+        release();
+      }
+      try {
+        const value = await pendingWork.catch(() => rejected<T>(commandId, target, 'failed'));
+        const saved: DataCommandReceipt = {
+          coreEpoch,
+          commandId,
+          operation: (JSON.parse(signature).kind === 'recall'
+            ? JSON.parse(signature).action === 'clear' ? 'recall.clear' : 'recall.prepare'
+            : JSON.parse(signature).kind) as CoreOperationName,
+          signatureDigest: digest,
+          result: value,
+          completedAt: new Date().toISOString(),
+        };
+        await data.commandReceiptSave(saved);
+        cacheReceipt(saved);
+        commands.delete(commandId);
+        resolve(value);
+      } catch (error) {
+        // A completed operation without a durable receipt still owns this ID.
+        // Retain the registered Promise so a retry cannot execute the task again.
+        reject(error);
+      }
+    })();
     return result.then((value) => structuredClone(value));
   };
 
@@ -967,6 +1205,7 @@ export const createCoreService = async (
     coreRead(): CoreReadView {
       return {
         apiVersion: 1,
+        conversationSchema: 3,
         coreEpoch,
         build: buildManifest(),
         workspace: workspace.root,
@@ -998,17 +1237,19 @@ export const createCoreService = async (
       if (input.kind === 'providers') {
         return {
           kind: 'providers',
-          providers: await Promise.all(providerDeclarations.map(async (declaration) => ({
-            provider: declaration.providerId,
-            defaultSelection: {
+          providers: await Promise.all(
+            providerDeclarations.map(async (declaration) => ({
               provider: declaration.providerId,
-              modelId: declaration.defaults.modelId,
-              effort: await modelCatalog.defaultEffort(
-                declaration.providerId,
-                declaration.defaults.modelId,
-              ),
-            },
-          }))),
+              defaultSelection: {
+                provider: declaration.providerId,
+                modelId: declaration.defaults.modelId,
+                effort: await modelCatalog.defaultEffort(
+                  declaration.providerId,
+                  declaration.defaults.modelId,
+                ),
+              },
+            })),
+          ),
         };
       }
       if (input.kind === 'models' || input.kind === 'efforts') {
@@ -1017,19 +1258,27 @@ export const createCoreService = async (
         }
         try {
           if (input.kind === 'models') {
-            return await modelCatalog.models(input.provider, input.sessionId, input.registrationId);
+            return await modelCatalog.models(
+              input.provider,
+              input.sessionId,
+              input.registrationId,
+            );
           }
           const current = slot?.snapshot.session.selection;
           return await modelCatalog.efforts(
             input.provider,
             input.modelId,
-            current?.provider === input.provider && current.modelId === input.modelId &&
+            current?.provider === input.provider &&
+              current.modelId === input.modelId &&
               isReasoningEffort(current.effort)
               ? current.effort
               : undefined,
           );
         } catch (error) {
-          if (error instanceof LiveModelCatalogError && error.authCode !== undefined) {
+          if (
+            error instanceof LiveModelCatalogError &&
+            error.authCode !== undefined
+          ) {
             throw new CoreServiceError(502, error.authCode);
           }
           throw new CoreServiceError(502, 'model_catalog_unavailable');
@@ -1038,14 +1287,23 @@ export const createCoreService = async (
         }
       }
       if (input.kind === 'credentials') {
-        return { kind: 'credentials', profiles: credentialRegistration.targets() };
+        return {
+          kind: 'credentials',
+          profiles: credentialRegistration.targets(),
+        };
       }
       throw new CoreServiceError(400, 'invalid_catalog_kind');
     },
     async modelFavorite(input): Promise<ModelCatalogResult> {
-      if (!providerById.has(input.provider)) throw new CoreServiceError(404, 'provider_not_found');
+      if (!providerById.has(input.provider)) {
+        throw new CoreServiceError(404, 'provider_not_found');
+      }
       try {
-        return await modelCatalog.favorite(input.provider, input.modelId, input.favorite);
+        return await modelCatalog.favorite(
+          input.provider,
+          input.modelId,
+          input.favorite,
+        );
       } catch {
         throw new CoreServiceError(500, 'model_favorite_failed');
       }
@@ -1070,7 +1328,9 @@ export const createCoreService = async (
     },
     chatgptAuth(input: ChatGPTOperation): Promise<ChatGPTAuthResult> {
       if (admissionClosed) {
-        return Promise.reject(new CoreServiceError(503, 'core_stopping', 'Core is stopping'));
+        return Promise.reject(
+          new CoreServiceError(503, 'core_stopping', 'Core is stopping'),
+        );
       }
       const operation = (async (): Promise<ChatGPTAuthResult> => {
         try {
@@ -1094,7 +1354,8 @@ export const createCoreService = async (
           if (input.kind === 'complete' || input.kind === 'select') {
             const active = slot;
             if (active !== undefined) {
-              await active.service.currentSession().refreshCredentialAvailability();
+              await active.service.currentSession()
+                .refreshCredentialAvailability();
               if (slot === active) refreshSlotSnapshot(active);
             }
           }
@@ -1146,7 +1407,8 @@ export const createCoreService = async (
           );
           const active = slot;
           if (active !== undefined) {
-            await active.service.currentSession().refreshCredentialAvailability();
+            await active.service.currentSession()
+              .refreshCredentialAvailability();
             if (slot === active) refreshSlotSnapshot(active);
           }
           return { kind: 'registered', authProfile: input.authProfile, status };
@@ -1266,7 +1528,10 @@ export const createCoreService = async (
         },
       );
     },
-    async sessionDelete(sessionId, input): Promise<CommandResult<SessionDeleteValue>> {
+    async sessionDelete(
+      sessionId,
+      input,
+    ): Promise<CommandResult<SessionDeleteValue>> {
       const target: CommandTarget = { kind: 'session', sessionId };
       return await registerCommand(
         input.commandId,
@@ -1278,7 +1543,9 @@ export const createCoreService = async (
           }
           try {
             await data.deleteSession(sessionId);
-            for (const subscriber of [...(sessionSubscribers.get(sessionId) ?? [])]) {
+            for (
+              const subscriber of [...(sessionSubscribers.get(sessionId) ?? [])]
+            ) {
               subscriber.close();
             }
             stopConversationWatch(sessionId);
@@ -1388,7 +1655,8 @@ export const createCoreService = async (
           }
           const declaration = providerById.get(input.selection.provider);
           if (
-            declaration === undefined || input.selection.modelId.trim().length === 0 ||
+            declaration === undefined ||
+            input.selection.modelId.trim().length === 0 ||
             input.selection.modelId.trim() !== input.selection.modelId ||
             !isReasoningEffort(input.selection.effort)
           ) return rejected(input.commandId, target, 'invalid');
@@ -1406,7 +1674,11 @@ export const createCoreService = async (
             if (result === 'busy' || result === 'unavailable') {
               return rejected(input.commandId, target, result);
             }
-            await modelCatalog.remember(selection.provider, selection.modelId, selection.effort);
+            await modelCatalog.remember(
+              selection.provider,
+              selection.modelId,
+              selection.effort,
+            );
             if (configRoot !== undefined) {
               try {
                 await writeDefaultSelection(configRoot, selection);
@@ -1495,7 +1767,11 @@ export const createCoreService = async (
     },
     async contextRead(sessionId): Promise<EncodedDataReply> {
       if (!isSessionId(sessionId)) {
-        throw new CoreServiceError(400, 'invalid_session_id', 'invalid session id');
+        throw new CoreServiceError(
+          400,
+          'invalid_session_id',
+          'invalid session id',
+        );
       }
       const active = slot?.snapshot.session.id === sessionId ? slot : undefined;
       const pendingRecall = active?.snapshot.context.pendingRecall;
@@ -1541,10 +1817,12 @@ export const createCoreService = async (
             );
           } catch {
             refreshSlotSnapshot(active);
-            const configuration = active.snapshot.runtime.effectiveConfig?.configuration;
+            const configuration = active.snapshot.runtime.effectiveConfig
+              ?.configuration;
             const rejectedConfiguration = typeof configuration === 'object' &&
               configuration !== null && !Array.isArray(configuration) &&
-              (configuration as { readonly [key: string]: unknown }).status === 'rejected';
+              (configuration as { readonly [key: string]: unknown }).status ===
+                'rejected';
             return rejected(
               input.commandId,
               target,
@@ -1585,6 +1863,7 @@ export const createCoreService = async (
             active.service.tasks.activeExecutionId() === executionId;
           if (reserved) {
             const result = active!.service.tasks.cancel(executionId);
+            await active!.service.tasks.flushFollowUps();
             return {
               kind: 'accepted',
               commandId: input.commandId,
@@ -1612,6 +1891,7 @@ export const createCoreService = async (
           const result = active?.snapshot.session.id === sessionId
             ? active.service.tasks.cancel(executionId)
             : 'idle';
+          await active?.service.tasks.flushFollowUps();
           if (active !== undefined) refreshSlotSnapshot(active);
           return {
             kind: 'accepted',
@@ -1750,7 +2030,7 @@ export const createCoreService = async (
               'idle',
             );
           }
-          const accepted = owner.tasks.queueFollowUp(
+          const accepted = await owner.tasks.queueFollowUp(
             input.afterExecutionId,
             input.text,
             input.commandId,
@@ -1774,27 +2054,55 @@ export const createCoreService = async (
         },
       );
     },
-    followUpRead(sessionId, queueId): Promise<FollowUpReadResult> {
-      for (const owner of servicesBySession.get(sessionId) ?? []) {
-        const followUp = owner.tasks.followUpRead(queueId);
-        if (followUp?.sessionId === sessionId) {
-          return Promise.resolve({ followUp });
-        }
-      }
-      return Promise.reject(
-        new CoreServiceError(404, 'follow_up_not_found', 'follow-up not found'),
-      );
+    async followUpPageRead(sessionId, cursor) {
+      const page = await readData(() => data.followUpPageRead(sessionId, cursor));
+      return {
+        ...page,
+        followUps: page.followUps.map((receipt) => receipt.followUp),
+      };
     },
-    commandRead(commandId): Promise<CommandState<CoreCommandValue>> {
-      const command = commands.get(commandId);
-      if (command === undefined) {
-        return Promise.reject(
-          new CoreServiceError(404, 'command_not_found', 'command not found'),
+    async followUpRead(sessionId, queueId): Promise<FollowUpReadResult> {
+      const found = await readData(() => data.followUpRead(queueId));
+      if (found === null || found.sessionId !== sessionId) {
+        throw new CoreServiceError(
+          404,
+          'follow_up_not_found',
+          'follow-up not found',
         );
       }
-      return Promise.resolve(structuredClone(command.state));
+      return { followUp: found.followUp };
+    },
+    async commandRead(commandId): Promise<CommandState<CoreCommandValue>> {
+      const command = commands.get(commandId);
+      if (command !== undefined) return structuredClone(command.state);
+      const cached = completedCommands.get(commandId);
+      const receipt = cached ??
+        await readData(() => data.commandReceiptRead(coreEpoch, commandId));
+      if (receipt === null) {
+        throw new CoreServiceError(
+          404,
+          'command_not_found',
+          'command not found',
+        );
+      }
+      return structuredClone(receipt.result);
     },
     executionRead,
+    async conversationPageRead(sessionId, cursor, direction) {
+      return await readData(() => data.conversationPageRead(sessionId, cursor, direction));
+    },
+    async conversationContentRead(locator, offset, length) {
+      return await readData(() => data.conversationContentRead(locator, offset, length));
+    },
+    async historyStreamOpen(input) {
+      return await readData(() => data.historyStreamOpen(input));
+    },
+    async historyStreamRead(streamId) {
+      return await readData(() => data.historyStreamRead(streamId));
+    },
+    async historyStreamClose(streamId) {
+      await readData(() => data.historyStreamClose(streamId));
+    },
     async historyRead(input: HistoryReadInput): Promise<EncodedDataReply> {
       return await readData(() => data.historyRead(input));
     },
@@ -1806,37 +2114,43 @@ export const createCoreService = async (
         throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
       }
       await refreshReadControl(sessionId);
-      const subscribers = sessionSubscribers.get(sessionId) ?? new Set<SessionSubscriber>();
+      const subscribers = sessionSubscribers.get(sessionId) ??
+        new Set<SessionSubscriber>();
       sessionSubscribers.set(sessionId, subscribers);
       let closed = false;
       let pending: PublishedSessionFrame[] | undefined = [];
       let conversationCut = 0;
+      let bufferedBytes = 0;
+      let needsResync = false;
+      let delivering = false;
+      let initialized = false;
+      const delivery: PublishedSessionFrame[] = [];
       const release = (): void => {
         if (closed) return;
         closed = true;
         pending = undefined;
+        delivery.length = 0;
         subscribers.delete(subscriber);
         liveSubscriptions.delete(closeStream);
         if (subscribers.size === 0) {
           sessionSubscribers.delete(sessionId);
           stopConversationWatch(sessionId);
+          void trimInactiveSnapshots().catch(() => {});
         }
       };
       const closeStream = (): void => {
         if (closed) return;
         try {
-          sink(undefined);
+          void Promise.resolve(sink(undefined)).catch(() => {});
         } finally {
           release();
         }
       };
-      const deliver = (frame: PublishedSessionFrame): void => {
+      const deliver = async (frame: PublishedSessionFrame): Promise<void> => {
         if (closed) return;
         if (frame.conversationCut !== undefined) {
           if (frame.conversationCut <= conversationCut) {
-            // The new subscriber's snapshot already contains this saved update. Keep the
-            // shared public revision without applying its conversation payload twice.
-            sink(encodedSessionUpdate(
+            await sink(encodedSessionUpdate(
               frame.current.cursor,
               frame.previous.cursor.revision,
               frame.changes,
@@ -1845,15 +2159,81 @@ export const createCoreService = async (
           }
           conversationCut = frame.conversationCut;
         }
-        sink(frame.bytes);
+        await sink(frame.bytes);
+      };
+      const resnapshot = async (): Promise<void> => {
+        while (!closed) {
+          needsResync = false;
+          delivery.length = 0;
+          bufferedBytes = 0;
+          const conversation = await readData(() => data.conversationSnapshot(sessionId));
+          if (closed) return;
+          if (needsResync) continue;
+          const after = delivery.find((frame) =>
+            frame.conversationCut !== undefined &&
+            frame.conversationCut > conversation.cut
+          );
+          const control = after?.previous ?? sessionSnapshots.get(sessionId);
+          if (control === undefined) throw sessionNotFound();
+          conversationCut = conversation.cut;
+          while (
+            delivery[0]?.current.cursor.revision <= control.cursor.revision
+          ) {
+            bufferedBytes -= delivery.shift()!.bytes.byteLength;
+          }
+          await sink(encodedSessionSnapshotFrame(control, conversation.bytes));
+          return;
+        }
+      };
+      const pump = async (): Promise<void> => {
+        if (delivering || !initialized || closed) return;
+        delivering = true;
+        try {
+          while (!closed && (needsResync || delivery.length > 0)) {
+            if (needsResync) await resnapshot();
+            else {
+              const frame = delivery.shift()!;
+              bufferedBytes -= frame.bytes.byteLength;
+              await deliver(frame);
+            }
+          }
+        } catch {
+          closeStream();
+        } finally {
+          delivering = false;
+        }
+      };
+      const buffer = (
+        queue: PublishedSessionFrame[],
+        frame: PublishedSessionFrame,
+      ): void => {
+        if (needsResync) return;
+        if (
+          bufferedBytes + frame.bytes.byteLength > 2 * 1024 * 1024 &&
+          queue.length > 0
+        ) {
+          queue.length = 0;
+          bufferedBytes = 0;
+          needsResync = true;
+          return;
+        }
+        queue.push(frame);
+        bufferedBytes += frame.bytes.byteLength;
       };
       const subscriber: SessionSubscriber = {
         receive(frame) {
           if (closed) return;
-          if (pending !== undefined) pending.push(frame);
-          else deliver(frame);
+          buffer(pending ?? delivery, frame);
+          void pump();
         },
         close: closeStream,
+        resync() {
+          needsResync = true;
+          pending?.splice(0);
+          delivery.length = 0;
+          bufferedBytes = 0;
+          void pump();
+        },
       };
       subscribers.add(subscriber);
       liveSubscriptions.add(closeStream);
@@ -1863,7 +2243,7 @@ export const createCoreService = async (
         if (closed || admissionClosed) {
           throw new CoreServiceError(503, 'core_stopping', 'Core is stopping');
         }
-        const conversation = first
+        const conversation = first && !watch.overflowed
           ? watch.initial!
           : await readData(() => data.conversationSnapshot(sessionId));
         if (closed || admissionClosed) {
@@ -1873,21 +2253,43 @@ export const createCoreService = async (
         // and the RPC reply. Existing streams keep receiving their ordinary updates.
         const buffered = pending!;
         const afterSnapshot = buffered.find((frame) =>
-          frame.conversationCut !== undefined && frame.conversationCut > conversation.cut
+          frame.conversationCut !== undefined &&
+          frame.conversationCut > conversation.cut
         );
-        const control = afterSnapshot?.previous ?? sessionSnapshots.get(sessionId);
+        const control = afterSnapshot?.previous ??
+          sessionSnapshots.get(sessionId);
         if (control === undefined) throw sessionNotFound();
         conversationCut = conversation.cut;
-        sink(encodedSessionSnapshotFrame(control, conversation.bytes));
         pending = undefined;
+        bufferedBytes = 0;
         for (const frame of buffered) {
-          if (frame.current.cursor.revision > control.cursor.revision) deliver(frame);
+          if (frame.current.cursor.revision > control.cursor.revision) {
+            delivery.push(frame);
+            bufferedBytes += frame.bytes.byteLength;
+          }
         }
+        // Start the first frame before returning readiness, without waiting for HTTP demand.
+        delivering = true;
+        void Promise.resolve(
+          sink(encodedSessionSnapshotFrame(control, conversation.bytes)),
+        )
+          .then(() => {
+            delivering = false;
+            void pump();
+          }, () => closeStream());
+        initialized = true;
         if (watch.initializing) {
           watch.initial = undefined;
           watch.cut = conversation.cut;
           watch.initializing = false;
-          for (const update of watch.pending.splice(0)) applyConversationUpdate(watch, update);
+          watch.pendingBytes = 0;
+          for (const update of watch.pending.splice(0)) {
+            applyConversationUpdate(watch, update);
+          }
+          if (watch.overflowed) {
+            needsResync = true;
+            void pump();
+          }
         }
         return { unsubscribe: release };
       } catch (error) {
@@ -1899,7 +2301,9 @@ export const createCoreService = async (
       beginShutdown();
       if (closePromise !== undefined) return await closePromise;
       closePromise = (async () => {
-        await Promise.all([...commands.values()].map((command) => command.result));
+        await Promise.allSettled(
+          [...commands.values()].map((command) => command.result),
+        );
         await Promise.allSettled([...credentialRegistrations]);
         await Promise.allSettled([...chatgptOperations]);
         try {
@@ -1912,7 +2316,13 @@ export const createCoreService = async (
             if (slot === active) slot = undefined;
           }
         } finally {
-          for (const sessionId of conversationWatches.keys()) stopConversationWatch(sessionId);
+          for (const sessionId of conversationWatches.keys()) {
+            stopConversationWatch(sessionId);
+          }
+          await sessionEvictions.catch(() => {});
+          servicesBySession.clear();
+          sessionSnapshots.clear();
+          followUpPages.clear();
           await data.close();
         }
       })();
@@ -1920,7 +2330,10 @@ export const createCoreService = async (
     },
   };
 
-  const data = await createDataClient({ stateRoot, workspaceRoot: workspace.root });
+  const data = await createDataClient({
+    stateRoot,
+    workspaceRoot: workspace.root,
+  });
   try {
     if (initialSession !== undefined) await openSlot(initialSession);
     return service;

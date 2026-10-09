@@ -26,6 +26,11 @@ export type ApiWorkerToMain =
     readonly args: readonly unknown[];
     readonly subscriptionId?: number;
   }
+  | {
+    readonly kind: 'session.ack';
+    readonly subscriptionId: number;
+    readonly sequence: number;
+  }
   | { readonly kind: 'unsubscribe'; readonly subscriptionId: number }
   | { readonly kind: 'shutdown.response.returned' }
   | { readonly kind: 'drained' }
@@ -35,9 +40,14 @@ export type ApiWorkerToMain =
 export type MainToApiWorker =
   | { readonly kind: 'start'; readonly options: ApiWorkerStart }
   | { readonly kind: 'reply'; readonly id: number; readonly value: unknown }
-  | { readonly kind: 'reply.error'; readonly id: number; readonly error: CoreServiceErrorData }
+  | {
+    readonly kind: 'reply.error';
+    readonly id: number;
+    readonly error: CoreServiceErrorData;
+  }
   | {
     readonly kind: 'session.frame';
+    readonly sequence: number;
     readonly subscriptionId: number;
     readonly bytes?: Uint8Array<ArrayBuffer>;
   }

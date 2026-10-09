@@ -3,6 +3,7 @@ import type {
   AgentDataPortRequest,
   AgentDataPortResponse,
   AgentGenerationContextBasis,
+  ContextTurnRead,
 } from '../../v0/agent/data/agent_data_contract.ts';
 import type { Message } from '../../v0/agent/core/contracts.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
@@ -26,6 +27,12 @@ const workerUrl = new URL(
   '../../v0/agent/worker/worker_bootstrap.ts',
   import.meta.url,
 );
+
+const persistedMessageBytes = (messages: readonly Message[]): number =>
+  messages.reduce(
+    (total, message) => total + new TextEncoder().encode(JSON.stringify(message)).byteLength,
+    0,
+  );
 
 const correlation = (
   command: string,
@@ -142,7 +149,15 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
       content: { kind: 'text' as const, text: 'Data-owned previous answer' },
     },
   ];
-  let canonicalTranscript: readonly Message[] = dataTranscript;
+  const canonicalTurns: ContextTurnRead[] = [{
+    turn: 1,
+    executionId: 'execution-data-owned-turn-1',
+    messages: dataTranscript,
+    messageStart: 0,
+    source: 'canonical',
+    byteLength: persistedMessageBytes(dataTranscript),
+  }];
+  let canonicalMessageCount = dataTranscript.length;
   let canonicalNextTurn = 2;
   let canonicalStateRevision = 17;
   const recalledContext: RecalledExecutionContext = {
@@ -165,9 +180,11 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
   const generationBasisFor = (
     requestCorrelation: WorkerCorrelation,
   ): AgentGenerationContextBasis => ({
-    initialTranscript: canonicalTranscript,
+    initialTranscript: [],
     nextTurn: canonicalNextTurn,
     stateRevision: canonicalStateRevision,
+    canonicalMessageCount,
+    historySource: 'canonical',
     modelSelection: ROOT_DEFAULT_MODEL_SELECTION,
     privateStateFromTurn: 1,
     ...(requestCorrelation.command === 'accepted-after-cancel' ? { recalledContext } : {}),
@@ -187,6 +204,16 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
         requestId: message.requestId,
         correlation: message.correlation,
         basis: generationBasisFor(message.correlation),
+      };
+      dataChannel.port2.postMessage(response);
+    } else if (message.kind === 'context_turn_read') {
+      const found = [...canonicalTurns].reverse().find((turn) => turn.turn < message.beforeTurn) ??
+        null;
+      const response: AgentDataPortResponse = {
+        kind: 'context_turn_result',
+        requestId: message.requestId,
+        correlation: message.correlation,
+        turn: found,
       };
       dataChannel.port2.postMessage(response);
     } else if (message.kind === 'ready') {
@@ -297,8 +324,17 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
       throw new Error('Agent Data did not receive the full proposal');
     }
     const acceptedProposal = acceptedProposalRequest.message;
+    const historyRead = await waitForData((message) =>
+      message.kind === 'context_turn_read' &&
+      message.beforeTurn === 2 &&
+      sameCorrelation(message.correlation, acceptedTurn)
+    );
+    if (historyRead.kind !== 'context_turn_read') {
+      throw new Error('Worker did not request Data-owned history context');
+    }
+    strictEqual(historyRead.beforeTurn, 2);
     deepStrictEqual(
-      acceptedProposal.transcript.slice(0, dataTranscript.length),
+      canonicalTurns.find((turn) => turn.turn < historyRead.beforeTurn)?.messages,
       dataTranscript,
     );
     strictEqual(acceptedProposal.nextTurn, 3);
@@ -385,7 +421,16 @@ Deno.test('Increment 170 S3 Worker sends generation data through Data while Core
       correlation: acceptedTurn,
       accepted: true,
     });
-    canonicalTranscript = acceptedProposal.transcript;
+    const acceptedMessages = acceptedProposal.transcript;
+    canonicalTurns.push({
+      turn: canonicalNextTurn,
+      executionId: acceptedExecutionId,
+      messages: acceptedMessages,
+      messageStart: canonicalMessageCount,
+      source: 'canonical',
+      byteLength: persistedMessageBytes(acceptedMessages),
+    });
+    canonicalMessageCount += acceptedProposal.transcript.length;
     canonicalNextTurn = acceptedProposal.nextTurn;
     canonicalStateRevision += 1;
     const acceptedTerminalData = await waitForData((message) =>

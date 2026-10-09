@@ -41,7 +41,10 @@ Deno.test('Increment 199 Slice 4 lazily builds conversation views and releases c
     baseStateRevision: 1,
     command: 'i199-s4-headless',
   };
-  const event = (workerSequence: number, text: string): ExecutionEventInput => ({
+  const event = (
+    workerSequence: number,
+    text: string,
+  ): ExecutionEventInput => ({
     executionId,
     direction: 'worker_to_host',
     source: 'worker',
@@ -67,11 +70,11 @@ Deno.test('Increment 199 Slice 4 lazily builds conversation views and releases c
 
   try {
     await store.initialize();
-    const readFacts = store.readSessionConversationFacts.bind(store);
+    const readPageFacts = store.readSessionConversationPageFacts.bind(store);
     let readCount = 0;
-    store.readSessionConversationFacts = (id) => {
+    store.readSessionConversationPageFacts = (...args) => {
       readCount += 1;
-      return readFacts(id);
+      return readPageFacts(...args);
     };
 
     writer.openSession(sessionId);
@@ -95,11 +98,22 @@ Deno.test('Increment 199 Slice 4 lazily builds conversation views and releases c
 
     await writer.beginExecution(execution);
     writer.appendExecutionEvents([event(1, 'The marker is amber.')]);
-    strictEqual(readCount, 0, 'headless admission and save do not replay history');
+    strictEqual(
+      readCount,
+      0,
+      'headless admission and save do not replay history',
+    );
 
     const updates: Uint8Array[] = [];
-    const watch = writer.watchSession(sessionId, (delta) => updates.push(delta.bytes));
-    strictEqual(readCount, 1, 'the first conversation consumer builds one view');
+    const watch = writer.watchSession(
+      sessionId,
+      (delta) => updates.push(delta.bytes),
+    );
+    strictEqual(
+      readCount,
+      1,
+      'the first conversation consumer builds one view',
+    );
     const first = decode(watch.snapshot.bytes);
     strictEqual(first.cut, 2);
     ok(
@@ -114,18 +128,27 @@ Deno.test('Increment 199 Slice 4 lazily builds conversation views and releases c
     strictEqual(decode(updates.at(-1)!).cut, 3);
     ok(
       decode(updates.at(-1)!).changes?.some((change) =>
-        change.kind === 'upsert' && change.entity?.text === 'The marker is cobalt.'
+        change.kind === 'upsert' &&
+        change.entity?.text === 'The marker is cobalt.'
       ),
     );
 
     writer.closeSession(sessionId);
     writer.appendExecutionEvents([event(3, 'The marker is violet.')]);
-    strictEqual(readCount, 1, 'closing a Session leaves its active subscriber attached');
+    strictEqual(
+      readCount,
+      1,
+      'closing a Session leaves its active subscriber attached',
+    );
     strictEqual(decode(updates.at(-1)!).cut, 4);
     watch.unsubscribe();
 
     const closedRead = writer.snapshotSession(sessionId);
-    strictEqual(readCount, 2, 'a closed one-shot read rebuilds from saved facts');
+    strictEqual(
+      readCount,
+      2,
+      'a closed one-shot read rebuilds from saved facts',
+    );
     strictEqual(closedRead.cut, 4);
     ok(
       Object.values(decode(closedRead.bytes).entities).some((entity) =>
@@ -134,7 +157,11 @@ Deno.test('Increment 199 Slice 4 lazily builds conversation views and releases c
       ),
     );
     const repeatedClosedRead = writer.snapshotSession(sessionId);
-    strictEqual(readCount, 3, 'the closed one-shot view was released after its response');
+    strictEqual(
+      readCount,
+      3,
+      'the closed one-shot view was released after its response',
+    );
     strictEqual(repeatedClosedRead.cut, 4);
     deepStrictEqual(repeatedClosedRead.bytes, closedRead.bytes);
   } finally {

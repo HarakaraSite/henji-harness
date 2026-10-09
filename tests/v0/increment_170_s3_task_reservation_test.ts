@@ -67,14 +67,30 @@ class ControlledHost {
   }
 }
 
+const persistedFollowUps = new WeakMap<
+  ApplicationTaskService,
+  Map<string, import('../../v0/api/contract.ts').FollowUpRecord>
+>();
 const makeTasks = (
   host: ControlledHost,
   notifications: ExecutionTrackingChange[][],
-): ApplicationTaskService =>
-  new ApplicationTaskService(
+): ApplicationTaskService => {
+  const records = new Map<string, import('../../v0/api/contract.ts').FollowUpRecord>();
+  const tasks = new ApplicationTaskService(
     () => host as unknown as HostActiveSession,
     (changes = []) => notifications.push([...changes]),
+    undefined,
+    (record) => {
+      records.set(record.queueId, structuredClone(record));
+      return Promise.resolve();
+    },
   );
+  persistedFollowUps.set(tasks, records);
+  return tasks;
+};
+const savedFollowUps = (
+  tasks: ApplicationTaskService,
+) => [...persistedFollowUps.get(tasks)!.values()];
 
 const upsertFor = (
   notifications: readonly (readonly ExecutionTrackingChange[])[],
@@ -127,7 +143,7 @@ Deno.test('Increment 170 S3 publishes task reservation before admission receipt'
     'rejected',
   );
   deepStrictEqual(
-    tasks.queueFollowUp(
+    await tasks.queueFollowUp(
       reservation.executionId,
       'follow up before receipt',
       'command-follow-up',
@@ -187,7 +203,7 @@ Deno.test('Increment 170 S3 cancellation during preparation survives a late admi
   );
   strictEqual(host.steerCalls, 0);
   deepStrictEqual(
-    tasks.queueFollowUp(
+    await tasks.queueFollowUp(
       executionId,
       'follow up after cancel',
       'command-follow-up',
@@ -257,7 +273,7 @@ Deno.test('Increment 170 S3 queued handoff publishes its child reservation befor
   const parentAdmission = await parentSubmission;
 
   strictEqual(
-    tasks.queueFollowUp(parentId, 'queued child', 'command-child').kind,
+    (await tasks.queueFollowUp(parentId, 'queued child', 'command-child')).kind,
     'accepted',
   );
   parentCompletion.resolve(outcome('parent task'));
@@ -276,19 +292,24 @@ Deno.test('Increment 170 S3 queued handoff publishes its child reservation befor
     upsertFor(notifications, childReservation.executionId)?.processSettlement,
     'running',
   );
-  const parentAndChild = notifications.find((changes) =>
+  const parentCompleteIndex = notifications.findIndex((changes) =>
     changes.some((change) =>
       change.kind === 'upsert' && change.executionId === parentId &&
       change.processSettlement === 'complete'
-    ) && changes.some((change) =>
-      change.kind === 'upsert' &&
-      change.executionId === childReservation.executionId &&
-      change.processSettlement === 'running'
+    )
+  );
+  const parentRemoveIndex = notifications.findIndex((changes) =>
+    changes.some((change) => change.kind === 'remove' && change.executionId === parentId)
+  );
+  const childStartIndex = notifications.findIndex((changes) =>
+    changes.some((change) =>
+      change.kind === 'upsert' && change.executionId === childReservation.executionId
     )
   );
   ok(
-    parentAndChild,
-    'parent completion and child reservation share one notification',
+    parentCompleteIndex >= 0 && parentCompleteIndex < parentRemoveIndex &&
+      parentRemoveIndex < childStartIndex,
+    'durable parent completion is published and released before the child reservation',
   );
 
   const childCompletion = deferred<LoopOutcome>();
@@ -301,7 +322,7 @@ Deno.test('Increment 170 S3 queued handoff publishes its child reservation befor
   strictEqual((await parentAdmission.untilIdle).stopReason, 'final');
   strictEqual(tasks.pendingView(host.sessionId).activeTask, undefined);
   strictEqual(
-    tasks.pendingView(host.sessionId).followUps[0]?.status,
+    savedFollowUps(tasks)[0]?.status,
     'started',
   );
 });
@@ -323,7 +344,7 @@ Deno.test('Increment 170 S3 canceled queued admission is discarded without an ex
   const parentAdmission = await parentSubmission;
 
   strictEqual(
-    tasks.queueFollowUp(parentId, 'queued child', 'command-child').kind,
+    (await tasks.queueFollowUp(parentId, 'queued child', 'command-child')).kind,
     'accepted',
   );
   parentCompletion.resolve(outcome('parent task'));
@@ -343,11 +364,11 @@ Deno.test('Increment 170 S3 canceled queued admission is discarded without an ex
     ),
   );
   strictEqual(
-    tasks.pendingView(host.sessionId).followUps[0]?.status,
+    savedFollowUps(tasks)[0]?.status,
     'discarded',
   );
   strictEqual(
-    tasks.pendingView(host.sessionId).followUps[0]?.reason,
+    savedFollowUps(tasks)[0]?.reason,
     'cancelled',
   );
 });
@@ -368,7 +389,7 @@ Deno.test('Increment 170 S3 canceled queued admission retains a late successful 
   });
   const parentAdmission = await parentSubmission;
 
-  const queued = tasks.queueFollowUp(parentId, 'queued child', 'command-child');
+  const queued = await tasks.queueFollowUp(parentId, 'queued child', 'command-child');
   strictEqual(queued.kind, 'accepted');
   if (queued.kind !== 'accepted') throw new Error('follow-up was not queued');
   parentCompletion.resolve(outcome('parent task'));
@@ -386,7 +407,8 @@ Deno.test('Increment 170 S3 canceled queued admission retains a late successful 
   });
   await Promise.resolve();
 
-  const followUp = tasks.followUpRead(queued.queueId);
+  await tasks.flushFollowUps();
+  const followUp = persistedFollowUps.get(tasks)!.get(queued.queueId);
   ok(followUp);
   strictEqual(followUp.status, 'discarded');
   strictEqual(followUp.reason, 'cancelled');
@@ -404,4 +426,42 @@ Deno.test('Increment 170 S3 canceled queued admission retains a late successful 
     transcript: [],
   });
   await parentAdmission.untilIdle;
+});
+
+Deno.test('Increment 218 queued save acknowledgement keeps the handoff slot reserved', async () => {
+  const host = new ControlledHost();
+  const save = deferred<void>();
+  const completion = deferred<LoopOutcome>();
+  const tasks = new ApplicationTaskService(
+    () => host as unknown as HostActiveSession,
+    () => {},
+    undefined,
+    (record) => record.status === 'queued' ? save.promise : Promise.resolve(),
+  );
+  const submitted = tasks.admit('parent', 'parent-command');
+  const parent = host.calls[0];
+  parent.receipt.resolve({ executionId: parent.executionId, completion: completion.promise });
+  const admitted = await submitted;
+  const queued = tasks.queueFollowUp(parent.executionId, 'reserved next', 'queue-command');
+  completion.resolve(outcome('parent'));
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  strictEqual(tasks.isBusy(), true);
+  let rejected = false;
+  try {
+    await tasks.admit('manual interloper', 'manual-command');
+  } catch {
+    rejected = true;
+  }
+  strictEqual(rejected, true);
+  strictEqual(host.calls.length, 1);
+  save.resolve();
+  strictEqual((await queued).kind, 'accepted');
+  const next = await host.waitForCall(1);
+  strictEqual(next.text, 'reserved next');
+  next.receipt.resolve({
+    executionId: next.executionId,
+    completion: Promise.resolve(outcome('reserved next')),
+  });
+  await admitted.untilIdle;
+  strictEqual(tasks.isBusy(), false);
 });

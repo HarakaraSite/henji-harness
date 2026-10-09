@@ -313,7 +313,13 @@ Deno.test('Increment 116 Worker projects private state from the latest provider 
   assert(JSON.stringify(seenRequest).includes('openai two'));
   assert(!JSON.stringify(seenRequest).includes('old router private'));
   assert(!JSON.stringify(seenRequest).includes('foreign private'));
-  assertEquals(committed?.[1], initialTranscript[1]);
+  assert(initialTranscript[1].role === 'assistant');
+  assertEquals(initialTranscript[1].providerState, oldRouterState);
+  assertEquals(committed?.length, 2);
+  assertEquals(committed?.[1], {
+    role: 'assistant',
+    content: { kind: 'text', text: 'router four' },
+  });
 });
 
 Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Session', async () => {

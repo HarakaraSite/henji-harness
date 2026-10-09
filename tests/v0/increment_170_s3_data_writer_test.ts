@@ -98,7 +98,7 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
       (delta) => notifications.push(delta),
     );
     const initialSnapshot = decode(watch.snapshot.bytes);
-    strictEqual(initialSnapshot.schemaVersion, 2);
+    strictEqual(initialSnapshot.schemaVersion, 3);
     strictEqual(initialSnapshot.sessionId, sessionId);
     strictEqual(initialSnapshot.cut, 0);
 
@@ -459,8 +459,8 @@ Deno.test('Increment 170 S3 Data writer commits, cuts, and watches one shared co
     );
     strictEqual(
       rawSessionReads,
-      1,
-      'live writes reuse the one initial raw replay',
+      0,
+      'bounded live writes do not replay unbounded Session history',
     );
     strictEqual(
       watch.snapshot.cut,

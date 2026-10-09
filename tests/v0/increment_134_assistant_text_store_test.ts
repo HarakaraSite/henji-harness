@@ -4,6 +4,7 @@ import {
   type HistoryAssistantTextState,
   type HistorySemanticOccurrenceInput,
 } from '../../v0/agent/history/history_semantic_model.ts';
+import { HISTORY_SCHEMA_VERSION } from '../../v0/agent/history/history_schema.ts';
 import { SqliteHistoryCore } from '../../v0/agent/history/sqlite_history_core.ts';
 
 const executionId = 'execution-text';
@@ -82,7 +83,10 @@ Deno.test('Increment 134 state-only batches retain latest text and position acro
         executionId,
         expectedLatestOrdinal: 0,
         occurrences: [],
-        assistantTextUpdates: [{ kind: 'put', state: textState('x'.repeat(ordinal), ordinal) }],
+        assistantTextUpdates: [{
+          kind: 'put',
+          state: textState('x'.repeat(ordinal), ordinal),
+        }],
         eventCount: ordinal,
       });
     }
@@ -109,10 +113,14 @@ Deno.test('Increment 134 state-only batches retain latest text and position acro
       { ...textState('next request', 22, 2), firstEventOrdinal: 21 },
     ]);
     deepStrictEqual(eventCount(db), 22);
-    deepStrictEqual(db.prepare('PRAGMA user_version').get()!.user_version, 1);
     deepStrictEqual(
-      db.prepare('SELECT schema_version FROM store_metadata').get()!.schema_version,
-      1,
+      db.prepare('PRAGMA user_version').get()!.user_version,
+      HISTORY_SCHEMA_VERSION,
+    );
+    deepStrictEqual(
+      db.prepare('SELECT schema_version FROM store_metadata').get()!
+        .schema_version,
+      HISTORY_SCHEMA_VERSION,
     );
   } finally {
     db.close();
@@ -150,9 +158,12 @@ Deno.test('Increment 134 completion and latest text read from one snapshot', asy
     deepStrictEqual(eventCount(db), 1);
     db.exec('COMMIT');
     deepStrictEqual(store.listAssistantTextStates(executionId, db), []);
-    deepStrictEqual(store.listOccurrences(executionId, db).map((item) => item.payload), [
-      completed.payload,
-    ]);
+    deepStrictEqual(
+      store.listOccurrences(executionId, db).map((item) => item.payload),
+      [
+        completed.payload,
+      ],
+    );
     deepStrictEqual(eventCount(db), 2);
   } finally {
     db.close();
@@ -167,7 +178,9 @@ Deno.test('Increment 134 interrupted completion rolls back text, result and even
   let interrupt = false;
   const store = new SqliteHistoryCore(path, {
     fault: (phase) => {
-      if (interrupt && phase === 'before_commit') throw new Error('completion interrupted');
+      if (interrupt && phase === 'before_commit') {
+        throw new Error('completion interrupted');
+      }
     },
   });
   const db = new DatabaseSync(path, { readOnly: true });

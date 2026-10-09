@@ -52,7 +52,7 @@ export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
     text: '/view',
     command: 'view',
     description: 'View session',
-    usage: '/view ID',
+    usage: '/view [ID]',
     shortcut: 'Enter (Session picker)',
   }),
   Object.freeze({

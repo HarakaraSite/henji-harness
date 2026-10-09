@@ -26,7 +26,7 @@ interface SessionAuthorityOptions {
 
 type ActiveSessionProjection = {
   readonly sessionId: string;
-  transcript: Message[];
+  canonicalMessageCount: number;
   nextTurn: number;
   stateRevision: number;
   checkpoint?: SemanticContextCheckpointV1;
@@ -65,8 +65,7 @@ export class SessionAuthority {
     this.createdAt = state?.createdAt ?? new Date().toISOString();
     this.projection = {
       sessionId: state?.sessionId ?? options.sessionId,
-      // The opened-session read transfers its one canonical transcript to this owner.
-      transcript: state === undefined ? [] : state.transcript as Message[],
+      canonicalMessageCount: state?.messageCount ?? 0,
       nextTurn,
       stateRevision: state?.stateRevision ?? 1,
       modelSelection,
@@ -92,10 +91,6 @@ export class SessionAuthority {
 
   modelSelectionSnapshot(): ModelSelection {
     return structuredClone(this.projection.modelSelection);
-  }
-
-  transcriptSnapshot(): readonly Message[] {
-    return structuredClone(this.projection.transcript);
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
@@ -210,7 +205,7 @@ export class SessionAuthority {
     stateRevision: number,
   ): void {
     // Prepared messages become canonical only after the SQLite adoption transaction commits.
-    this.projection.transcript.push(...messageSuffix);
+    this.projection.canonicalMessageCount += messageSuffix.length;
     this.projection.nextTurn = nextTurn;
     this.projection.stateRevision = stateRevision;
   }
@@ -241,7 +236,7 @@ export class SessionAuthority {
       ...(this.projection.title === null ? {} : { title: this.projection.title }),
       agent: this.configuredAgent,
       committedTurn: this.projection.nextTurn - 1,
-      messageCount: this.projection.transcript.length,
+      messageCount: this.projection.canonicalMessageCount,
       ...(this.projection.checkpoint === undefined ? {} : {
         checkpoint: {
           coveredThroughTurn: this.projection.checkpoint.coveredThroughTurn,
@@ -252,14 +247,13 @@ export class SessionAuthority {
   }
 
   proposalSuffix(proposal: WorkerCommitProposalMessage): readonly Message[] | undefined {
-    const messageCount = this.projection.transcript.length;
     if (
       proposal.nextTurn !== this.projection.nextTurn + 1 ||
-      proposal.transcript.length < messageCount
+      proposal.transcript.length === 0
     ) return undefined;
-    // The canonical prefix was validated when it was opened or committed. New proposals
-    // append exactly one complete turn after that immutable owner state.
-    const suffix = proposal.transcript.slice(messageCount);
+    // The Agent proposal contains only the current complete turn. Earlier canonical messages
+    // remain in SQLite and are selected through the bounded context range contract.
+    const suffix = proposal.transcript;
     const suffixIndex = causalTranscriptIndex(suffix);
     if (
       suffixIndex === undefined || suffixIndex.turns.length !== 1
@@ -270,8 +264,6 @@ export class SessionAuthority {
   }
 
   messageSuffix(transcript: readonly Message[]): readonly Message[] {
-    return structuredClone(
-      transcript.slice(this.projection.transcript.length),
-    ) as Message[];
+    return structuredClone(transcript) as Message[];
   }
 }

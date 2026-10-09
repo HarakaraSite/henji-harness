@@ -107,7 +107,7 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       (delta) => notifications.push(delta),
     ).unsubscribe;
     const initial = decode(snapshot().bytes);
-    strictEqual(initial.schemaVersion, 2);
+    strictEqual(initial.schemaVersion, 3);
     strictEqual(initial.sessionId, sessionId);
     strictEqual(initial.cut, 0);
     strictEqual(Object.keys(initial.entities).length, 0);
@@ -248,7 +248,10 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     const providerState = {
       provider: 'openrouter-chat',
       model: ROOT_DEFAULT_MODEL_SELECTION.modelId,
-      reasoning: { field: 'reasoning_content' as const, text: 'Persist this provider state.' },
+      reasoning: {
+        field: 'reasoning_content' as const,
+        text: 'Persist this provider state.',
+      },
     };
     const transcript = [
       userMessage(task),
@@ -324,15 +327,28 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     const nextGeneration = owner.generationContext(
       correlationFor(sessionId, 2, 'next-turn'),
     );
-    deepStrictEqual(nextGeneration.initialTranscript, transcript);
+    deepStrictEqual(nextGeneration.initialTranscript, []);
     strictEqual(nextGeneration.nextTurn, 2);
     strictEqual(nextGeneration.stateRevision, 2);
     strictEqual(nextGeneration.privateStateFromTurn, 1);
+    const firstRange = await owner.readContextTurn(
+      correlationFor(sessionId, 2, 'next-turn-range'),
+      nextGeneration.nextTurn,
+    );
+    ok(firstRange);
+    strictEqual(firstRange.turn, 1);
+    strictEqual(firstRange.messageStart, 0);
+    strictEqual(firstRange.source, 'canonical');
+    deepStrictEqual(firstRange.messages, transcript);
 
-    // Proposal validation checks one new turn after the already validated owner prefix.
+    // Worker proposals carry one complete new turn; SQLite appends it to the prior prefix.
     const secondTask = 'Append a second canonical task';
     const secondExecutionId = '17000000-0000-4000-8000-000000000175';
-    const secondCorrelation = correlationFor(sessionId, 2, 'second-authorized-commit');
+    const secondCorrelation = correlationFor(
+      sessionId,
+      2,
+      'second-authorized-commit',
+    );
     await owner.admit({
       executionId: secondExecutionId,
       taskId: '17000000-0000-4000-8000-000000000176',
@@ -342,11 +358,11 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       configuration,
       maxSteps: 128,
     });
-    const secondTranscript = [
-      ...transcript,
+    const secondTurn = [
       userMessage(secondTask),
       assistantMessage('The second answer is saved.'),
     ];
+    const secondTranscript = [...transcript, ...secondTurn];
     const secondToken = await owner.prepareProposal({
       proposalId: 'proposal-second-authorized-commit',
       executionId: secondExecutionId,
@@ -354,15 +370,20 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
       message: {
         kind: 'commit_proposal',
         correlation: secondCorrelation,
-        transcript: secondTranscript,
+        transcript: secondTurn,
         nextTurn: 3,
       },
     });
-    const secondCommitted = owner.authorizeCommit(secondToken, { accepted: true });
+    const secondCommitted = owner.authorizeCommit(secondToken, {
+      accepted: true,
+    });
     strictEqual(secondCommitted.canonical, true);
     strictEqual(secondCommitted.stateRevision, 3);
     strictEqual(secondCommitted.nextTurn, 3);
-    deepStrictEqual((await store.readWorker(sessionId)).transcript, secondTranscript);
+    deepStrictEqual(
+      (await store.readWorker(sessionId)).transcript,
+      secondTranscript,
+    );
 
     await owner.close();
     owner = undefined;
@@ -381,9 +402,18 @@ Deno.test('Increment 170 S3 Data Session owner prepares, settles, and restores c
     const restored = reopened.generationContext(
       correlationFor(sessionId, 3, 'reopened-next-turn'),
     );
-    deepStrictEqual(restored.initialTranscript, secondTranscript);
+    deepStrictEqual(restored.initialTranscript, []);
     strictEqual(restored.nextTurn, 3);
     strictEqual(restored.stateRevision, 3);
+    const restoredRange = await reopened.readContextTurn(
+      correlationFor(sessionId, 3, 'reopened-next-turn-range'),
+      restored.nextTurn,
+    );
+    ok(restoredRange);
+    strictEqual(restoredRange.turn, 2);
+    strictEqual(restoredRange.messageStart, 2);
+    strictEqual(restoredRange.source, 'canonical');
+    deepStrictEqual(restoredRange.messages, secondTurn);
     const reopenedSnapshot = decode(
       reopenedWriter!.snapshotSession(sessionId).bytes,
     );

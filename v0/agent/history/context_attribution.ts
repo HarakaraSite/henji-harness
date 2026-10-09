@@ -106,6 +106,8 @@ export interface ContextModelRequestRecord {
   readonly purpose: ContextRequestPurpose;
   readonly modelStep: number;
   readonly modelSelection?: ModelSelection;
+  /** Short estimated admission facts; full request remains semantic evidence. */
+  readonly budget?: Readonly<Record<string, JsonValue>>;
   readonly request?: ModelRequest;
   readonly providerBody?: string;
   readonly sourceCallId?: string;
@@ -139,6 +141,8 @@ export interface ContextModelRequestDelta {
   readonly purpose: ContextRequestPurpose;
   readonly modelStep: number;
   readonly modelSelection?: ModelSelection;
+  /** Short estimated admission facts; full request remains semantic evidence. */
+  readonly budget?: Readonly<Record<string, JsonValue>>;
   readonly sourceCallId?: string;
   readonly baseRevisionDigest?: string;
   readonly revisionDigest: string;

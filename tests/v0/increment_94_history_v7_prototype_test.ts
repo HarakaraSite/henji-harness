@@ -537,7 +537,9 @@ Deno.test('History facade stores context bytes once and request item references 
     try {
       assertEquals(
         Number(
-          (db.prepare('SELECT count(*) AS count FROM contents WHERE content_digest=?')
+          (db.prepare(
+            'SELECT count(*) AS count FROM contents WHERE content_digest=?',
+          )
             .get(contentDigest) as {
               count: number;
             }).count,
@@ -824,7 +826,10 @@ Deno.test('Increment 94 model selection preserves committed turn attribution', a
     } finally {
       await opened.handle.close();
     }
-    assertEquals((await store.readWorker(sessionId)).turnExecutions, original.turnExecutions);
+    assertEquals(
+      (await store.readWorker(sessionId)).turnExecutions,
+      original.turnExecutions,
+    );
     assertEquals(readAttribution(), before);
     assertEquals(
       store.readExecution(executionIds[0]).outcomeJson?.transcript,
@@ -878,7 +883,7 @@ Deno.test('Increment 94 isolated product path settles cancellation as non-canoni
   }
 });
 
-Deno.test('Increment 94 isolated product path commits resumes projects and exports with schema1 only', async () => {
+Deno.test('Increment 94 isolated product path commits resumes projects and exports with schema3 only', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-product-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;

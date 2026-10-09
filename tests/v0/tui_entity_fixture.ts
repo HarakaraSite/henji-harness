@@ -26,7 +26,7 @@ export const tuiSnapshot = (
 ): SessionSnapshot => {
   const sessionId = overrides.session?.id ?? tuiSessionId;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cursor: overrides.cursor ?? { coreEpoch: 'tui-core', sessionId, revision: 1 },
     session: {
       id: sessionId,
@@ -52,7 +52,8 @@ export const tuiSnapshot = (
       ...overrides.runtime,
     },
     conversation: {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      page: { direction: 'latest', hasOlder: false, hasNewer: false },
       sessionId,
       cut: 1,
       storeRevision: 1,

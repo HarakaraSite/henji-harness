@@ -266,6 +266,8 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
       tools: body.tools,
       stream: body.stream,
       store: body.store,
+      include: body.include,
+      reasoning: body.reasoning,
     })).byteLength,
   );
   assertEquals(model.measureRequestWire?.(request), measured);

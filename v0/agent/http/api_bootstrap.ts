@@ -57,7 +57,9 @@ const api: CoreHttpApi = {
   subscribeSession(sessionId, sink, subscriptionId): CoreHttpSubscription {
     subscriptions.set(subscriptionId, sink);
     let active = true;
-    const ready = rpc('subscribeSession', [sessionId], subscriptionId).then(() => {});
+    const ready = rpc('subscribeSession', [sessionId], subscriptionId).then(
+      () => {},
+    );
     return {
       ready,
       unsubscribe() {
@@ -69,11 +71,17 @@ const api: CoreHttpApi = {
     };
   },
   sessionsList: async () =>
-    await rpc('sessionsList') as Awaited<ReturnType<CoreService['sessionsList']>>,
+    await rpc('sessionsList') as Awaited<
+      ReturnType<CoreService['sessionsList']>
+    >,
   sessionRead: async (sessionId) =>
-    await rpc('sessionRead', [sessionId]) as Awaited<ReturnType<CoreService['sessionRead']>>,
+    await rpc('sessionRead', [sessionId]) as Awaited<
+      ReturnType<CoreService['sessionRead']>
+    >,
   sessionOpen: async (input) =>
-    await rpc('sessionOpen', [input]) as Awaited<ReturnType<CoreService['sessionOpen']>>,
+    await rpc('sessionOpen', [input]) as Awaited<
+      ReturnType<CoreService['sessionOpen']>
+    >,
   sessionDelete: async (sessionId, input) =>
     await rpc('sessionDelete', [sessionId, input]) as Awaited<
       ReturnType<CoreService['sessionDelete']>
@@ -87,25 +95,37 @@ const api: CoreHttpApi = {
       ReturnType<CoreService['selectionChange']>
     >,
   catalogRead: async (input) =>
-    await rpc('catalogRead', [input]) as Awaited<ReturnType<CoreService['catalogRead']>>,
+    await rpc('catalogRead', [input]) as Awaited<
+      ReturnType<CoreService['catalogRead']>
+    >,
   modelFavorite: async (input) =>
-    await rpc('modelFavorite', [input]) as Awaited<ReturnType<CoreService['modelFavorite']>>,
+    await rpc('modelFavorite', [input]) as Awaited<
+      ReturnType<CoreService['modelFavorite']>
+    >,
   credentialPresenceRead: async () =>
     await rpc('credentialPresenceRead') as Awaited<
       ReturnType<CoreService['credentialPresenceRead']>
     >,
   chatgptAuth: async (input) =>
-    await rpc('chatgptAuth', [input]) as Awaited<ReturnType<CoreService['chatgptAuth']>>,
+    await rpc('chatgptAuth', [input]) as Awaited<
+      ReturnType<CoreService['chatgptAuth']>
+    >,
   credentialRegister: async (input) =>
     await rpc('credentialRegister', [input]) as Awaited<
       ReturnType<CoreService['credentialRegister']>
     >,
   recall: async (sessionId, input) =>
-    await rpc('recall', [sessionId, input]) as Awaited<ReturnType<CoreService['recall']>>,
+    await rpc('recall', [sessionId, input]) as Awaited<
+      ReturnType<CoreService['recall']>
+    >,
   contextRead: async (sessionId) =>
-    await rpc('contextRead', [sessionId]) as Awaited<ReturnType<CoreService['contextRead']>>,
+    await rpc('contextRead', [sessionId]) as Awaited<
+      ReturnType<CoreService['contextRead']>
+    >,
   taskSubmit: async (sessionId, input) =>
-    await rpc('taskSubmit', [sessionId, input]) as Awaited<ReturnType<CoreService['taskSubmit']>>,
+    await rpc('taskSubmit', [sessionId, input]) as Awaited<
+      ReturnType<CoreService['taskSubmit']>
+    >,
   executionCancel: async (sessionId, executionId, input) =>
     await rpc('executionCancel', [sessionId, executionId, input]) as Awaited<
       ReturnType<CoreService['executionCancel']>
@@ -118,16 +138,49 @@ const api: CoreHttpApi = {
     await rpc('followUpQueue', [sessionId, input]) as Awaited<
       ReturnType<CoreService['followUpQueue']>
     >,
+  followUpPageRead: async (sessionId, cursor) =>
+    await rpc('followUpPageRead', [sessionId, cursor]) as Awaited<
+      ReturnType<CoreService['followUpPageRead']>
+    >,
   followUpRead: async (sessionId, queueId) =>
     await rpc('followUpRead', [sessionId, queueId]) as Awaited<
       ReturnType<CoreService['followUpRead']>
     >,
   commandRead: async (commandId) =>
-    await rpc('commandRead', [commandId]) as Awaited<ReturnType<CoreService['commandRead']>>,
+    await rpc('commandRead', [commandId]) as Awaited<
+      ReturnType<CoreService['commandRead']>
+    >,
   executionRead: async (executionId) =>
-    await rpc('executionRead', [executionId]) as Awaited<ReturnType<CoreService['executionRead']>>,
+    await rpc('executionRead', [executionId]) as Awaited<
+      ReturnType<CoreService['executionRead']>
+    >,
+  conversationPageRead: async (sessionId, cursor, direction) =>
+    await rpc('conversationPageRead', [
+      sessionId,
+      cursor,
+      direction,
+    ]) as Awaited<
+      ReturnType<CoreService['conversationPageRead']>
+    >,
+  conversationContentRead: async (locator, offset, length) =>
+    await rpc('conversationContentRead', [locator, offset, length]) as Awaited<
+      ReturnType<CoreService['conversationContentRead']>
+    >,
+  historyStreamOpen: async (input) =>
+    await rpc('historyStreamOpen', [input]) as Awaited<
+      ReturnType<CoreService['historyStreamOpen']>
+    >,
+  historyStreamRead: async (streamId) =>
+    await rpc('historyStreamRead', [streamId]) as Awaited<
+      ReturnType<CoreService['historyStreamRead']>
+    >,
+  historyStreamClose: async (streamId) => {
+    await rpc('historyStreamClose', [streamId]);
+  },
   historyRead: async (input) =>
-    await rpc('historyRead', [input]) as Awaited<ReturnType<CoreService['historyRead']>>,
+    await rpc('historyRead', [input]) as Awaited<
+      ReturnType<CoreService['historyRead']>
+    >,
 };
 
 const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
@@ -142,7 +195,11 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
         },
       });
       server = Deno.serve(
-        { hostname: message.options.hostname, port: message.options.port, onListen() {} },
+        {
+          hostname: message.options.hostname,
+          port: message.options.port,
+          onListen() {},
+        },
         (request) => {
           const operation = handler(request);
           activeHandlers.add(operation);
@@ -157,7 +214,10 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
       void runningServer.finished.then(
         () => {
           if (!stoppingListener) {
-            post({ kind: 'listener.failed', error: 'API HTTP listener finished unexpectedly' });
+            post({
+              kind: 'listener.failed',
+              error: 'API HTTP listener finished unexpectedly',
+            });
           }
         },
         (error) => {
@@ -187,7 +247,11 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
     pending.delete(message.id);
     if (message.kind === 'reply.error') {
       waiter?.reject(
-        new CoreServiceError(message.error.status, message.error.code, message.error.message),
+        new CoreServiceError(
+          message.error.status,
+          message.error.code,
+          message.error.message,
+        ),
       );
     } else {
       waiter?.resolve(message.value);
@@ -195,7 +259,16 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
     return;
   }
   if (message.kind === 'session.frame') {
-    subscriptions.get(message.subscriptionId)?.(message.bytes);
+    void Promise.resolve(
+      subscriptions.get(message.subscriptionId)?.(message.bytes),
+    )
+      .finally(() =>
+        post({
+          kind: 'session.ack',
+          subscriptionId: message.subscriptionId,
+          sequence: message.sequence,
+        })
+      );
     return;
   }
   if (message.kind === 'shutdown.accepted') {
@@ -206,7 +279,9 @@ const onMessage = (event: MessageEvent<MainToApiWorker>): void => {
     admissionClosed = true;
     drainPromise ??= (async () => {
       // Every RPC belongs to a handler, including the awaited subscription.ready.
-      while (activeHandlers.size > 0) await Promise.allSettled([...activeHandlers]);
+      while (activeHandlers.size > 0) {
+        await Promise.allSettled([...activeHandlers]);
+      }
       post({ kind: 'drained' });
     })();
     return;

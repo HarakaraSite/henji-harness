@@ -155,7 +155,20 @@ interface EvidenceFinalize {
   readonly diagnosticId?: string;
 }
 
+export interface ProviderTokenUsageFact {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+  readonly estimatedInputTokens?: number;
+  readonly inputEstimateDifference?: number;
+}
+
 export type ProviderEvidenceObservation =
+  | {
+    readonly kind: 'request_usage';
+    readonly requestOrdinal: number;
+    readonly usage: ProviderTokenUsageFact;
+  }
   | {
     readonly kind: 'request_start';
     readonly request: ProviderEvidenceRequest;
@@ -461,6 +474,18 @@ export const validateProviderEvidenceObservation = (
       Number.isInteger(response.status) && response.status >= 100 &&
       response.status <= 599;
   }
+  if (value.kind === 'request_usage') {
+    return hasExactKeys(value, ['kind', 'requestOrdinal', 'usage']) &&
+      validPositiveInteger(value.requestOrdinal) &&
+      hasExactKeys(value.usage, [], [
+        'inputTokens',
+        'outputTokens',
+        'totalTokens',
+        'estimatedInputTokens',
+        'inputEstimateDifference',
+      ]) &&
+      Object.values(value.usage).every((item) => typeof item === 'number' && Number.isFinite(item));
+  }
   if (value.kind === 'parser_transition') {
     return hasExactKeys(value, ['kind', 'requestOrdinal', 'transition']) &&
       validPositiveInteger(value.requestOrdinal) &&
@@ -525,6 +550,7 @@ export class ProviderEvidenceRecorder {
   private readonly runtimeEvents: ProviderEvidenceRuntimeEvent[] = [];
   private finalized?: EvidenceFinalize;
   private contextRequestOrdinal?: number;
+  private estimatedInputTokens?: number;
 
   constructor(
     readonly evidenceId: string = crypto.randomUUID().toLowerCase(),
@@ -588,6 +614,37 @@ export class ProviderEvidenceRecorder {
       kind: 'response_start',
       requestOrdinal: record.request.ordinal,
       response: { status: response.status },
+    });
+  }
+
+  setInputTokenEstimate(tokens: number | undefined): void {
+    this.estimatedInputTokens = tokens;
+  }
+
+  /** Only observed numeric usage counters are retained; the response body is not collected. */
+  recordUsage(value: unknown): void {
+    const record = this.activeRequest;
+    if (record === undefined || !isRecord(value)) return;
+    const number = (value: unknown): number | undefined =>
+      typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    const input = number(value.input_tokens ?? value.prompt_tokens);
+    const output = number(value.output_tokens ?? value.completion_tokens);
+    const total = number(value.total_tokens);
+    if (input === undefined && output === undefined && total === undefined) return;
+    this.observationSink?.({
+      kind: 'request_usage',
+      requestOrdinal: record.request.ordinal,
+      usage: {
+        ...(input === undefined ? {} : { inputTokens: input }),
+        ...(output === undefined ? {} : { outputTokens: output }),
+        ...(total === undefined ? {} : { totalTokens: total }),
+        ...(this.estimatedInputTokens === undefined
+          ? {}
+          : { estimatedInputTokens: this.estimatedInputTokens }),
+        ...(input === undefined || this.estimatedInputTokens === undefined ? {} : {
+          inputEstimateDifference: input - this.estimatedInputTokens,
+        }),
+      },
     });
   }
 

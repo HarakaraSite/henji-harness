@@ -253,6 +253,7 @@
 | [215](increment-215.md) | CoreからData保存実装への不要な実行時依存を除く | 通常 | — |
 | [216](increment-216.md) | 選択したCLIコマンドの入口を読み込む | 通常 | — |
 | [217](increment-217.md) | 選択protocolに応じたprovider adapterの読み込み | 通常 | — |
+| [218](increment-218.md) | 保存履歴を正本にし、context・表示・registryの保持範囲を限定する | 通常 | [入力指示書](increment-218-input.md) |
 
 ## 合同検証・配置等の記録
 

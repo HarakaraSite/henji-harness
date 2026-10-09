@@ -147,17 +147,18 @@ const snapshot = (options: {
     entities[row.id] = row;
   }
   const conversation: ConversationSnapshot = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut: options.conversationCut ?? 1,
     storeRevision: options.conversationCut ?? 1,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities,
     order: Object.values(entities).sort((left, right) =>
       compareConversationPositions(left.position, right.position) || left.id.localeCompare(right.id)
     ).map((entity) => entity.id),
   };
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cursor: {
       coreEpoch,
       sessionId,
@@ -200,6 +201,7 @@ const snapshot = (options: {
 
 const coreRead = {
   apiVersion: 1,
+  conversationSchema: 3,
   coreEpoch,
   build,
   workspace: '/tmp/increment-141-workspace',

@@ -1,4 +1,6 @@
 import {
+  type ConversationContentLocator,
+  type ConversationContentReference,
   type ConversationEntity,
   type ConversationExecutionMetadata,
   type ConversationObservation,
@@ -52,6 +54,7 @@ export interface ConversationNormalizer {
     callId: string;
     name: string;
     arguments: ConversationValue;
+    details?: readonly ConversationContentLocator[];
   }>;
   readonly executionOrders: Map<string, number>;
 }
@@ -85,17 +88,30 @@ const thinkingEntityId = (
 ): string => `thinking/${encoded(conversationRequestIdentity(key))}/${kind}`;
 const requestStepIdentity = (executionId: string, modelStep: number): string =>
   JSON.stringify([executionId, modelStep]);
-const requestIndexIdentity = (key: ConversationRequestKey, callIndex: number): string =>
-  JSON.stringify([conversationRequestIdentity(key), callIndex]);
-const requestCallIdentity = (key: ConversationRequestKey, callId: string): string =>
-  JSON.stringify([conversationRequestIdentity(key), callId]);
-const logicalCallIdentity = (key: ConversationRequestKey, callId: string): string =>
-  JSON.stringify([key.executionId, key.lane ?? null, key.modelStep, callId]);
+const requestIndexIdentity = (
+  key: ConversationRequestKey,
+  callIndex: number,
+): string => JSON.stringify([conversationRequestIdentity(key), callIndex]);
+const requestCallIdentity = (
+  key: ConversationRequestKey,
+  callId: string,
+): string => JSON.stringify([conversationRequestIdentity(key), callId]);
+const logicalCallIdentity = (
+  key: ConversationRequestKey,
+  callId: string,
+): string => JSON.stringify([key.executionId, key.lane ?? null, key.modelStep, callId]);
 const requestLogicalIndexIdentity = (
   key: ConversationRequestKey,
   callId: string,
   callIndex: number,
-): string => JSON.stringify([key.executionId, key.lane ?? null, key.modelStep, callId, callIndex]);
+): string =>
+  JSON.stringify([
+    key.executionId,
+    key.lane ?? null,
+    key.modelStep,
+    callId,
+    callIndex,
+  ]);
 
 const position = (
   executionOrder: number,
@@ -111,6 +127,14 @@ const position = (
   itemOrdinal,
 });
 
+const detailsForEntity = (
+  entityId: string,
+  details: readonly ConversationContentReference[] | undefined,
+): readonly ConversationContentLocator[] | undefined =>
+  details === undefined || details.length === 0
+    ? undefined
+    : details.map((detail) => ({ ...detail, entityId }));
+
 const executionOrder = (
   normalizer: ConversationNormalizer,
   executionId: string,
@@ -121,7 +145,8 @@ const compatible = (
   reference: ConversationRequestReference,
 ): boolean =>
   (reference.lane === undefined || prior.lane === reference.lane) &&
-  (reference.requestOrdinal === undefined || prior.requestOrdinal === reference.requestOrdinal);
+  (reference.requestOrdinal === undefined ||
+    prior.requestOrdinal === reference.requestOrdinal);
 
 const resolveRequest = (
   normalizer: ConversationNormalizer,
@@ -130,7 +155,9 @@ const resolveRequest = (
   inheritMissingAttribution = true,
 ): ConversationRequestKey => {
   const prior = inheritMissingAttribution
-    ? normalizer.latestRequestByStep.get(requestStepIdentity(executionId, reference.modelStep))
+    ? normalizer.latestRequestByStep.get(
+      requestStepIdentity(executionId, reference.modelStep),
+    )
     : undefined;
   const inherited = prior !== undefined && compatible(prior, reference) ? prior : undefined;
   return {
@@ -139,9 +166,9 @@ const resolveRequest = (
       ? {}
       : { lane: reference.lane ?? inherited!.lane },
     modelStep: reference.modelStep,
-    ...(reference.requestOrdinal ?? inherited?.requestOrdinal) === undefined
-      ? {}
-      : { requestOrdinal: reference.requestOrdinal ?? inherited!.requestOrdinal },
+    ...(reference.requestOrdinal ?? inherited?.requestOrdinal) === undefined ? {} : {
+      requestOrdinal: reference.requestOrdinal ?? inherited!.requestOrdinal,
+    },
   };
 };
 
@@ -149,7 +176,9 @@ const requestOrder = (
   normalizer: ConversationNormalizer,
   key: ConversationRequestKey,
   eventOrdinal: number,
-): number => normalizer.requestStartOrdinals.get(conversationRequestIdentity(key)) ?? eventOrdinal;
+): number =>
+  normalizer.requestStartOrdinals.get(conversationRequestIdentity(key)) ??
+    eventOrdinal;
 
 const normalizedRequest = (
   normalizer: ConversationNormalizer,
@@ -157,7 +186,12 @@ const normalizedRequest = (
   reference: ConversationRequestReference,
   inheritMissingAttribution = true,
 ): ConversationRequestKey => {
-  return resolveRequest(normalizer, executionId, reference, inheritMissingAttribution);
+  return resolveRequest(
+    normalizer,
+    executionId,
+    reference,
+    inheritMissingAttribution,
+  );
 };
 
 const removeLast = (values: string[] | undefined, value: string): void => {
@@ -173,9 +207,15 @@ const resolveTool = (
   callIndex?: number,
 ): string | undefined =>
   callIndex === undefined
-    ? normalizer.openToolsByRequestCall.get(requestCallIdentity(request, callId))?.at(-1) ??
-      normalizer.openToolsByLogicalCall.get(logicalCallIdentity(request, callId))?.at(-1)
-    : normalizer.openToolsByRequestIndex.get(requestIndexIdentity(request, callIndex))?.at(-1) ??
+    ? normalizer.openToolsByRequestCall.get(
+      requestCallIdentity(request, callId),
+    )?.at(-1) ??
+      normalizer.openToolsByLogicalCall.get(
+        logicalCallIdentity(request, callId),
+      )?.at(-1)
+    : normalizer.openToolsByRequestIndex.get(
+      requestIndexIdentity(request, callIndex),
+    )?.at(-1) ??
       normalizer.openToolsByLogicalIndex.get(
         requestLogicalIndexIdentity(request, callId, callIndex),
       )?.at(-1);
@@ -248,6 +288,7 @@ const assistantMessage = (
   complete: boolean,
   pos: ConversationPosition,
   semanticOccurrenceId?: string,
+  details?: readonly ConversationContentReference[],
 ): ConversationFact => ({
   kind: 'upsert',
   entity: {
@@ -262,6 +303,9 @@ const assistantMessage = (
     complete,
     requestKey: key,
     ...(semanticOccurrenceId === undefined ? {} : { semanticOccurrenceId }),
+    ...(detailsForEntity(assistantEntityId(key), details) === undefined ? {} : {
+      details: detailsForEntity(assistantEntityId(key), details),
+    }),
   },
 });
 
@@ -271,7 +315,10 @@ const normalizeConversationObservation = (
   observation: ConversationObservation,
 ): readonly ConversationFact[] => {
   if (observation.kind === 'execution') {
-    normalizer.executionOrders.set(observation.execution.executionId, observation.executionOrder);
+    normalizer.executionOrders.set(
+      observation.execution.executionId,
+      observation.executionOrder,
+    );
     const pos = position(observation.executionOrder, -1, -2, -1, -1);
     return [
       {
@@ -297,6 +344,17 @@ const normalizeConversationObservation = (
           role: 'user',
           text: observation.execution.task,
           complete: true,
+          ...(detailsForEntity(
+              taskMessageId(observation.execution.executionId),
+              observation.taskDetails,
+            ) === undefined
+            ? {}
+            : {
+              details: detailsForEntity(
+                taskMessageId(observation.execution.executionId),
+                observation.taskDetails,
+              ),
+            }),
         },
       },
     ];
@@ -322,7 +380,11 @@ const normalizeConversationObservation = (
   }
 
   if (observation.kind === 'request_start') {
-    const key = resolveRequest(normalizer, observation.executionId, observation.request);
+    const key = resolveRequest(
+      normalizer,
+      observation.executionId,
+      observation.request,
+    );
     const identity = conversationRequestIdentity(key);
     normalizer.requestStartOrdinals.set(identity, observation.eventOrdinal);
     normalizer.latestRequestByStep.set(
@@ -373,6 +435,7 @@ const normalizeConversationObservation = (
         1,
       ),
       observation.semanticOccurrenceId,
+      observation.details,
     )];
   }
 
@@ -400,10 +463,14 @@ const normalizeConversationObservation = (
             1,
           ),
           observation.semanticOccurrenceId,
+          observation.details,
         ),
     ];
     if (observation.semanticOccurrenceId !== undefined) {
-      for (const [declarationIndex, call] of (observation.declaredCalls ?? []).entries()) {
+      for (
+        const [declarationIndex, call] of (observation.declaredCalls ?? [])
+          .entries()
+      ) {
         const id = `tool/declared/${encoded(observation.semanticOccurrenceId)}/${declarationIndex}`;
         const declaration = {
           id,
@@ -416,22 +483,40 @@ const normalizeConversationObservation = (
         const declarations = normalizer.declaredToolsByRequestIndex.get(requestIndex) ?? [];
         declarations.push(declaration);
         normalizer.declaredToolsByRequestIndex.set(requestIndex, declarations);
-        const logicalIndex = requestLogicalIndexIdentity(key, call.callId, declarationIndex);
+        const logicalIndex = requestLogicalIndexIdentity(
+          key,
+          call.callId,
+          declarationIndex,
+        );
         const declarationsByLogicalIndex = normalizer.declaredToolsByLogicalIndex.get(
           logicalIndex,
         ) ?? [];
         declarationsByLogicalIndex.push(declaration);
-        normalizer.declaredToolsByLogicalIndex.set(logicalIndex, declarationsByLogicalIndex);
+        normalizer.declaredToolsByLogicalIndex.set(
+          logicalIndex,
+          declarationsByLogicalIndex,
+        );
         const requestCall = requestCallIdentity(key, call.callId);
         const declarationsByCall = normalizer.declaredToolsByRequestCall.get(requestCall) ?? [];
         declarationsByCall.push(declaration);
-        normalizer.declaredToolsByRequestCall.set(requestCall, declarationsByCall);
+        normalizer.declaredToolsByRequestCall.set(
+          requestCall,
+          declarationsByCall,
+        );
         const logicalCall = logicalCallIdentity(key, call.callId);
         const declarationsByLogicalCall = normalizer.declaredToolsByLogicalCall.get(logicalCall) ??
           [];
         declarationsByLogicalCall.push(declaration);
-        normalizer.declaredToolsByLogicalCall.set(logicalCall, declarationsByLogicalCall);
-        const callPosition = messagePosition(normalizer, key, observation.eventOrdinal, 2);
+        normalizer.declaredToolsByLogicalCall.set(
+          logicalCall,
+          declarationsByLogicalCall,
+        );
+        const callPosition = messagePosition(
+          normalizer,
+          key,
+          observation.eventOrdinal,
+          2,
+        );
         const position = {
           executionOrder: callPosition.executionOrder,
           requestOrder: callPosition.requestOrder,
@@ -446,6 +531,7 @@ const normalizeConversationObservation = (
           callId: call.callId,
           name: call.name,
           arguments: call.arguments,
+          details: detailsForEntity(id, call.details),
         });
         facts.push({
           kind: 'upsert',
@@ -464,6 +550,9 @@ const normalizeConversationObservation = (
             callId: call.callId,
             name: call.name,
             arguments: call.arguments,
+            ...(detailsForEntity(id, call.details) === undefined ? {} : {
+              details: detailsForEntity(id, call.details),
+            }),
           },
         });
       }
@@ -472,7 +561,11 @@ const normalizeConversationObservation = (
   }
 
   if (observation.kind === 'thinking') {
-    const key = normalizedRequest(normalizer, observation.executionId, observation.request);
+    const key = normalizedRequest(
+      normalizer,
+      observation.executionId,
+      observation.request,
+    );
     return [{
       kind: 'upsert',
       entity: {
@@ -486,6 +579,17 @@ const normalizeConversationObservation = (
         position: messagePosition(normalizer, key, observation.eventOrdinal, 0),
         text: observation.text,
         complete: observation.complete,
+        ...(detailsForEntity(
+            thinkingEntityId(key, observation.thinkingKind),
+            observation.details,
+          ) === undefined
+          ? {}
+          : {
+            details: detailsForEntity(
+              thinkingEntityId(key, observation.thinkingKind),
+              observation.details,
+            ),
+          }),
       },
     }];
   }
@@ -502,16 +606,24 @@ const normalizeConversationObservation = (
       : requestIndexIdentity(key, observation.callIndex);
     const logicalIndex = observation.callIndex === undefined
       ? undefined
-      : requestLogicalIndexIdentity(key, observation.callId, observation.callIndex);
+      : requestLogicalIndexIdentity(
+        key,
+        observation.callId,
+        observation.callIndex,
+      );
     const requestCall = requestCallIdentity(key, observation.callId);
     const logicalCall = logicalCallIdentity(key, observation.callId);
     const declaration = observation.callIndex === undefined
       ? takeDeclaration(normalizer.declaredToolsByRequestCall, requestCall) ??
         takeDeclaration(normalizer.declaredToolsByLogicalCall, logicalCall)
-      : takeDeclaration(normalizer.declaredToolsByRequestIndex, requestIndex!) ??
+      : takeDeclaration(
+        normalizer.declaredToolsByRequestIndex,
+        requestIndex!,
+      ) ??
         takeDeclaration(normalizer.declaredToolsByLogicalIndex, logicalIndex!);
     if (declaration !== undefined) removeDeclaredTool(normalizer, declaration);
-    const id = declaration?.id ?? `tool/${encoded(observation.semanticOccurrenceId)}`;
+    const id = declaration?.id ??
+      `tool/${encoded(observation.semanticOccurrenceId)}`;
     const callIndex = observation.callIndex ?? declaration?.declarationIndex;
     const origin = normalizer.toolOriginsById.get(id) ?? {
       requestKey: key,
@@ -520,10 +632,16 @@ const normalizeConversationObservation = (
       callId: observation.callId,
       name: observation.name,
       arguments: observation.arguments,
+      ...(observation.details === undefined ? {} : {
+        details: detailsForEntity(id, observation.details),
+      }),
     };
     normalizer.toolOriginsById.set(id, origin);
     if (origin.callIndex !== undefined) {
-      const indexIdentity = requestIndexIdentity(origin.requestKey, origin.callIndex);
+      const indexIdentity = requestIndexIdentity(
+        origin.requestKey,
+        origin.callIndex,
+      );
       const openByRequest = normalizer.openToolsByRequestIndex.get(indexIdentity) ?? [];
       openByRequest.push(id);
       normalizer.openToolsByRequestIndex.set(indexIdentity, openByRequest);
@@ -534,13 +652,22 @@ const normalizeConversationObservation = (
       );
       const openByLogicalIndex = normalizer.openToolsByLogicalIndex.get(logicalIndexIdentity) ?? [];
       openByLogicalIndex.push(id);
-      normalizer.openToolsByLogicalIndex.set(logicalIndexIdentity, openByLogicalIndex);
+      normalizer.openToolsByLogicalIndex.set(
+        logicalIndexIdentity,
+        openByLogicalIndex,
+      );
     }
-    const originRequestCall = requestCallIdentity(origin.requestKey, origin.callId);
+    const originRequestCall = requestCallIdentity(
+      origin.requestKey,
+      origin.callId,
+    );
     const openByCall = normalizer.openToolsByRequestCall.get(originRequestCall) ?? [];
     openByCall.push(id);
     normalizer.openToolsByRequestCall.set(originRequestCall, openByCall);
-    const originLogicalCall = logicalCallIdentity(origin.requestKey, origin.callId);
+    const originLogicalCall = logicalCallIdentity(
+      origin.requestKey,
+      origin.callId,
+    );
     const openByLogicalCall = normalizer.openToolsByLogicalCall.get(originLogicalCall) ?? [];
     openByLogicalCall.push(id);
     normalizer.openToolsByLogicalCall.set(originLogicalCall, openByLogicalCall);
@@ -564,6 +691,7 @@ const normalizeConversationObservation = (
         callId: origin.callId,
         name: origin.name,
         arguments: origin.arguments,
+        ...(origin.details === undefined ? {} : { details: origin.details }),
       },
     }];
   }
@@ -605,6 +733,7 @@ const normalizeConversationObservation = (
         name: origin.name,
         arguments: origin.arguments,
         progress: observation.text,
+        ...(origin.details === undefined ? {} : { details: origin.details }),
       },
     }];
   }
@@ -630,6 +759,9 @@ const normalizeConversationObservation = (
       callId: observation.result.callId,
       name: observation.result.name,
       arguments: null,
+      ...(observation.details === undefined ? {} : {
+        details: detailsForEntity(id, observation.details),
+      }),
     };
     if (origin.callIndex !== undefined) {
       removeLast(
@@ -640,7 +772,11 @@ const normalizeConversationObservation = (
       );
       removeLast(
         normalizer.openToolsByLogicalIndex.get(
-          requestLogicalIndexIdentity(origin.requestKey, origin.callId, origin.callIndex),
+          requestLogicalIndexIdentity(
+            origin.requestKey,
+            origin.callId,
+            origin.callIndex,
+          ),
         ),
         id,
       );
@@ -679,6 +815,16 @@ const normalizeConversationObservation = (
             terminal: observation.result.terminal,
           }),
         },
+        ...((origin.details === undefined || origin.details.length === 0) &&
+            (observation.details === undefined ||
+              observation.details.length === 0)
+          ? {}
+          : {
+            details: [
+              ...(origin.details ?? []),
+              ...(detailsForEntity(id, observation.details) ?? []),
+            ],
+          }),
       },
     }];
   }
@@ -692,9 +838,25 @@ const normalizeConversationObservation = (
         id: `steering/${encoded(observation.executionId)}/${observation.eventOrdinal}`,
         executionId: observation.executionId,
         version: observation.eventOrdinal,
-        position: position(order, observation.eventOrdinal, 0, observation.eventOrdinal),
+        position: position(
+          order,
+          observation.eventOrdinal,
+          0,
+          observation.eventOrdinal,
+        ),
         status: observation.status,
         text: observation.text,
+        ...(detailsForEntity(
+            `steering/${encoded(observation.executionId)}/${observation.eventOrdinal}`,
+            observation.details,
+          ) === undefined
+          ? {}
+          : {
+            details: detailsForEntity(
+              `steering/${encoded(observation.executionId)}/${observation.eventOrdinal}`,
+              observation.details,
+            ),
+          }),
       },
     }];
   }
@@ -709,11 +871,27 @@ const normalizeConversationObservation = (
         executionId: observation.executionId,
         turn: observation.turn,
         version: observation.eventOrdinal,
-        position: position(order, observation.eventOrdinal, 0, observation.eventOrdinal),
+        position: position(
+          order,
+          observation.eventOrdinal,
+          0,
+          observation.eventOrdinal,
+        ),
         role: 'user',
         text: observation.text,
         complete: true,
         semanticOccurrenceId: observation.semanticOccurrenceId,
+        ...(detailsForEntity(
+            `message/applied/${encoded(observation.semanticOccurrenceId)}`,
+            observation.details,
+          ) === undefined
+          ? {}
+          : {
+            details: detailsForEntity(
+              `message/applied/${encoded(observation.semanticOccurrenceId)}`,
+              observation.details,
+            ),
+          }),
       },
     }];
   }
@@ -726,10 +904,15 @@ const withToolRelations = (
   state: ConversationState,
   entity: ConversationEntity,
 ): ConversationEntity => {
-  if (entity.kind !== 'message' || entity.role !== 'assistant' || entity.requestKey === undefined) {
+  if (
+    entity.kind !== 'message' || entity.role !== 'assistant' ||
+    entity.requestKey === undefined
+  ) {
     return entity;
   }
-  const ids = state.toolsByRequest.get(conversationRequestIdentity(entity.requestKey));
+  const ids = state.toolsByRequest.get(
+    conversationRequestIdentity(entity.requestKey),
+  );
   return ids === undefined || ids.length === 0 ? entity : { ...entity, toolIds: [...ids] };
 };
 
@@ -740,13 +923,18 @@ const applyFact = (
   if (fact.kind === 'remove') {
     if (!state.entities.delete(fact.id)) return [];
     state.order.delete(fact.id);
-    return [{ kind: 'remove', id: fact.id }, { kind: 'order', action: 'remove', id: fact.id }];
+    return [{ kind: 'remove', id: fact.id }, {
+      kind: 'order',
+      action: 'remove',
+      id: fact.id,
+    }];
   }
   if (fact.kind === 'settle_execution') {
     const id = executionEntityId(fact.executionId);
     const current = state.entities.get(id);
     if (
-      current === undefined || current.kind !== 'execution' || fact.eventOrdinal < current.version
+      current === undefined || current.kind !== 'execution' ||
+      fact.eventOrdinal < current.version
     ) {
       return [];
     }
@@ -765,7 +953,11 @@ const applyFact = (
         ? {}
         : { committedRevision: fact.committedRevision }),
     };
-    const entity: ConversationEntity = { ...current, execution, version: fact.eventOrdinal };
+    const entity: ConversationEntity = {
+      ...current,
+      execution,
+      version: fact.eventOrdinal,
+    };
     state.entities.set(id, entity);
     return [{ kind: 'upsert', entity }];
   }
@@ -810,7 +1002,10 @@ const applyFact = (
           ...assistant,
           toolIds: hasEntityId ? toolIds : [...toolIds, entity.id],
           ...(entity.semanticOccurrenceId === undefined || hasOccurrenceId ? {} : {
-            toolOccurrenceIds: [...toolOccurrenceIds, entity.semanticOccurrenceId],
+            toolOccurrenceIds: [
+              ...toolOccurrenceIds,
+              entity.semanticOccurrenceId,
+            ],
           }),
         };
         state.entities.set(assistantId, nextAssistant);
@@ -822,11 +1017,21 @@ const applyFact = (
   const isNew = current === undefined;
   state.entities.set(entity.id, entity);
   if (isNew) state.order.set(entity.id, entity.position);
-  const changes: import('./model.ts').ConversationChange[] = [{ kind: 'upsert', entity }];
+  const changes: import('./model.ts').ConversationChange[] = [{
+    kind: 'upsert',
+    entity,
+  }];
   if (isNew) {
-    changes.push({ kind: 'order', action: 'insert', id: entity.id, position: entity.position });
+    changes.push({
+      kind: 'order',
+      action: 'insert',
+      id: entity.id,
+      position: entity.position,
+    });
   }
-  if (relatedAssistant !== undefined) changes.push({ kind: 'upsert', entity: relatedAssistant });
+  if (relatedAssistant !== undefined) {
+    changes.push({ kind: 'upsert', entity: relatedAssistant });
+  }
   return changes;
 };
 
@@ -836,7 +1041,9 @@ export const applyObservation = (
   observation: ConversationObservation,
 ): readonly import('./model.ts').ConversationChange[] => {
   const changes: import('./model.ts').ConversationChange[] = [];
-  for (const fact of normalizeConversationObservation(normalizer, observation)) {
+  for (
+    const fact of normalizeConversationObservation(normalizer, observation)
+  ) {
     changes.push(...applyFact(state, fact));
   }
   return changes;

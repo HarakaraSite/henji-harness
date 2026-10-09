@@ -27,18 +27,22 @@ const makeAdmission = (
   ...overrides,
 });
 
-const seedSession = (db: DatabaseSync, sessionId: string, revision: number): void => {
+const seedSession = (
+  db: DatabaseSync,
+  sessionId: string,
+  revision: number,
+): void => {
   db.prepare(`
     INSERT INTO sessions(
       session_id, workspace_root, agent_choice_json, created_at, updated_at, title,
       state_revision, next_turn, active_model_json, message_count,
-      model_change_count, turn_count, checkpoint_json
+      model_change_count, turn_count, private_state_from_turn, checkpoint_json
     ) VALUES(?, '/workspace', '{}', '2026-10-04T00:00:00.000Z',
-      '2026-10-04T00:00:00.000Z', NULL, ?, 1, '{}', 0, 0, 0, NULL)
+      '2026-10-04T00:00:00.000Z', NULL, ?, 1, '{}', 0, 0, 0, 1, NULL)
   `).run(sessionId, revision);
 };
 
-Deno.test('Increment 181 core stores full admission and clean schema v1', () => {
+Deno.test('Increment 181 core stores full admission and clean schema v3', () => {
   const directory = Deno.makeTempDirSync({ prefix: 'increment-181-history-' });
   const databasePath = `${directory}/history.sqlite3`;
   const core = new SqliteHistoryCore(databasePath);
@@ -86,7 +90,9 @@ Deno.test('Increment 181 core stores full admission and clean schema v1', () => 
       kind: 'execution_admitted',
       payload: { configurationId: 'configuration-main' },
     };
-    const appendedControl = core.appendControlEvents('execution-main', [controlEvent]);
+    const appendedControl = core.appendControlEvents('execution-main', [
+      controlEvent,
+    ]);
     assert.equal(appendedControl[0].ordinal, 1);
     assert.deepEqual(core.listControlEvents('execution-main'), appendedControl);
 
@@ -127,7 +133,9 @@ Deno.test('Increment 181 core stores full admission and clean schema v1', () => 
     try {
       assert.equal(
         Number(
-          (inspectDb.prepare('PRAGMA user_version').get() as { user_version: number })
+          (inspectDb.prepare('PRAGMA user_version').get() as {
+            user_version: number;
+          })
             .user_version,
         ),
         HISTORY_SCHEMA_VERSION,
@@ -177,7 +185,10 @@ Deno.test('Increment 181 core stores full admission and clean schema v1', () => 
         FROM executions WHERE execution_id=?
       `).get('execution-detached') as Record<string, string | number | null>;
       assert.equal(detached.canonical_session_id, null);
-      assert.equal(detached.session_correlation, 'session-correlation-detached');
+      assert.equal(
+        detached.session_correlation,
+        'session-correlation-detached',
+      );
       assert.equal(detached.base_revision, 23);
       assert.equal(detached.base_message_count, 9);
       assert.equal(
@@ -193,7 +204,10 @@ Deno.test('Increment 181 core stores full admission and clean schema v1', () => 
         'cancelled',
       );
       assert.equal(
-        Number(inspectDb.prepare('SELECT count(*) AS count FROM sessions').get()?.count),
+        Number(
+          inspectDb.prepare('SELECT count(*) AS count FROM sessions').get()
+            ?.count,
+        ),
         1,
       );
     } finally {
@@ -202,12 +216,18 @@ Deno.test('Increment 181 core stores full admission and clean schema v1', () => 
 
     assert.deepEqual(core.tableNames(), [
       'assistant_text_states',
+      'command_receipts',
       'configurations',
       'contents',
       'conversation_messages',
+      'core_session_cursors',
+      'data_session_read_cursors',
       'diagnostics',
       'execution_contexts',
+      'execution_control_facts',
+      'execution_display_positions',
       'executions',
+      'follow_up_receipts',
       'messages',
       'recall_relations',
       'semantic_records',
@@ -241,9 +261,13 @@ Deno.test('Increment 181 core reads semantic content, resolves relations, and re
       executionId: 'execution-semantic',
       sessionId: 'session-correlation-semantic',
       baseRevision: 0,
-      admission: makeAdmission('execution-semantic', 'session-correlation-semantic', {
-        canonicalSessionId: 'session-semantic',
-      }),
+      admission: makeAdmission(
+        'execution-semantic',
+        'session-correlation-semantic',
+        {
+          canonicalSessionId: 'session-semantic',
+        },
+      ),
     });
 
     core.appendBatch({
@@ -255,10 +279,16 @@ Deno.test('Increment 181 core reads semantic content, resolves relations, and re
         kind: 'tool_call',
         observedAt: '2026-10-04T00:00:01.000Z',
         payload: { name: 'read', arguments: { path: 'README.md' } },
-        relations: [{ relation: 'result', targetOccurrenceId: 'tool-result-1' }],
+        relations: [{
+          relation: 'result',
+          targetOccurrenceId: 'tool-result-1',
+        }],
       }],
     });
-    assert.equal(core.readExecution('execution-semantic').unresolvedMandatoryCount, 1);
+    assert.equal(
+      core.readExecution('execution-semantic').unresolvedMandatoryCount,
+      1,
+    );
 
     const partialEvent: StoredExecutionEvent = {
       executionId: 'execution-semantic',
@@ -303,7 +333,10 @@ Deno.test('Increment 181 core reads semantic content, resolves relations, and re
       name: 'read',
       arguments: { path: 'README.md' },
     });
-    assert.equal(core.readExecution('execution-semantic').unresolvedMandatoryCount, 0);
+    assert.equal(
+      core.readExecution('execution-semantic').unresolvedMandatoryCount,
+      0,
+    );
     assert.equal(
       core.readExecution('execution-semantic').terminalOccurrenceId,
       'tool-result-1',
@@ -329,7 +362,9 @@ Deno.test('Increment 181 core reads semantic content, resolves relations, and re
       event: partialEvent,
     }]);
 
-    const messageBytes = new TextEncoder().encode('The project entry point is mod.ts.');
+    const messageBytes = new TextEncoder().encode(
+      'The project entry point is mod.ts.',
+    );
     const messageDb = new DatabaseSync(databasePath);
     try {
       messageDb.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE');
@@ -363,7 +398,10 @@ Deno.test('Increment 181 core reads semantic content, resolves relations, and re
     const readOnly = new SqliteHistoryCore(databasePath, { readOnly: true });
     try {
       assert.equal(readOnly.listOccurrences('execution-semantic').length, 2);
-      assert.equal(readOnly.readExecution('execution-semantic').adoption, 'canonical');
+      assert.equal(
+        readOnly.readExecution('execution-semantic').adoption,
+        'canonical',
+      );
     } finally {
       readOnly.close();
     }

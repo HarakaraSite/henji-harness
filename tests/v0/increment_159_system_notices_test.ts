@@ -169,7 +169,14 @@ Deno.test('Increment 159 local, queue and steering notices remain keyed by recei
   const notices = new RemoteSystemNotices();
   const initial = tuiSnapshot({ 'task-a': task }, ['task-a']);
   const first = apply(projector, notices, tuiClientState(initial));
-  notices.retain(initial.session.id, 'command-one', 'REJECTED · draft kept · busy', 'REJECTED');
+  notices.retain(
+    initial.session.id,
+    'command-one',
+    'REJECTED · draft kept · busy',
+    'REJECTED',
+    undefined,
+    true,
+  );
   notices.refresh(initial.session.id, first.store);
   const local = rows(first.store);
   strictEqual(local.at(-1)?.text, 'REJECTED · draft kept · busy');
@@ -312,4 +319,22 @@ Deno.test('Increment 159 normal system text is purple dim and failure color stop
   ok(visibleText.includes('system> RESERVED · next task'));
   ok(visibleText.includes('FAILED · provider response invalid · try /recall'));
   renderer.close();
+});
+
+Deno.test('Increment 218 resolved anchorless local notices remain finite without a Core update', () => {
+  const projector = new SnapshotConversationProjector();
+  const notices = new RemoteSystemNotices();
+  const snapshot = tuiSnapshot({}, []);
+  const current = apply(projector, notices, tuiClientState(snapshot));
+  for (let index = 0; index < 100; index++) {
+    notices.retain(
+      snapshot.session.id,
+      `view-${index}`,
+      `REJECTED missing Session ${index}`,
+      'REJECTED',
+    );
+    notices.refresh(snapshot.session.id, current.store);
+  }
+  strictEqual(rows(current.store).length, 32);
+  strictEqual(rows(current.store).at(-1)?.text, 'REJECTED missing Session 99');
 });

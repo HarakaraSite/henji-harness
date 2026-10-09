@@ -81,10 +81,16 @@ export const mapConversationEntity = (
     ...(callId === undefined ? {} : { callId }),
     ...(entity.kind === 'tool' ? { toolName: entity.name } : {}),
     executionId: entity.executionId,
+    position: entity.position,
   };
-  if (previous !== undefined && sameDisplayedEntry(previous, candidate)) return previous;
+  if (previous !== undefined && sameDisplayedEntry(previous, candidate)) {
+    return previous;
+  }
   if (previous !== undefined) {
-    return freezeUiLogEntry({ ...candidate, revision: previous.revision + 1 }, previous);
+    return freezeUiLogEntry(
+      { ...candidate, revision: previous.revision + 1 },
+      previous,
+    );
   }
   return freezeUiLogEntry(candidate);
 };
@@ -185,14 +191,21 @@ export class KeyedConversationStore {
       if (notice.anchor === undefined || nextIds.has(notice.anchor)) continue;
       const boundary = previous.indexOf(notice.anchor);
       let anchor: string | undefined;
-      for (let index = Math.min(boundary - 1, previous.length - 1); index >= 0; index -= 1) {
+      for (
+        let index = Math.min(boundary - 1, previous.length - 1);
+        index >= 0;
+        index -= 1
+      ) {
         const candidate = previous[index];
         if (candidate !== undefined && nextIds.has(candidate)) {
           anchor = candidate;
           break;
         }
       }
-      this.notices.set(id, { ...notice, ...(anchor === undefined ? {} : { anchor }) });
+      this.notices.set(id, {
+        ...notice,
+        ...(anchor === undefined ? {} : { anchor }),
+      });
     }
     this.rebuildDisplayOrder();
   }
@@ -240,8 +253,12 @@ export class KeyedConversationStore {
 
   /** Full notice replacement is reserved for a newly reset session projection. */
   replaceNotices(placements: readonly KeyedNoticePlacement[]): void {
-    const next = new Map(placements.map((placement) => [placement.entry.id, placement] as const));
-    for (const id of this.notices.keys()) if (!next.has(id)) this.rows.delete(id);
+    const next = new Map(
+      placements.map((placement) => [placement.entry.id, placement] as const),
+    );
+    for (const id of this.notices.keys()) {
+      if (!next.has(id)) this.rows.delete(id);
+    }
     this.notices.clear();
     this.noticeOrdinalById.clear();
     this.nextNoticeOrdinal = 0;
@@ -254,7 +271,9 @@ export class KeyedConversationStore {
   }
 
   removeNotice(id: string): KeyedNoticeUpdate {
-    if (!this.notices.has(id)) return { changed: false, structureChanged: false };
+    if (!this.notices.has(id)) {
+      return { changed: false, structureChanged: false };
+    }
     this.notices.delete(id);
     this.noticeOrdinalById.delete(id);
     this.rows.delete(id);
@@ -290,14 +309,17 @@ export class KeyedConversationStore {
       const id = this.semanticOrder[index];
       if (id !== undefined) this.semanticIndexById.set(id, index);
       const entry = this.rows.get(id);
-      if (entry?.executionId !== undefined) this.lastByExecution.set(entry.executionId, id);
+      if (entry?.executionId !== undefined) {
+        this.lastByExecution.set(entry.executionId, id);
+      }
     }
   }
 
   private resolvedAnchor(placement: KeyedNoticePlacement): string | undefined {
     const anchor = placement.afterExecutionId === undefined
       ? placement.anchor
-      : this.lastByExecution.get(placement.afterExecutionId) ?? placement.anchor;
+      : this.lastByExecution.get(placement.afterExecutionId) ??
+        placement.anchor;
     return anchor !== undefined && this.semanticIndexById.has(anchor) ? anchor : undefined;
   }
 
@@ -325,8 +347,12 @@ export class KeyedConversationStore {
       const currentId = this.displayOrder[index];
       if (currentId === undefined) break;
       const currentPlacement = this.notices.get(currentId);
-      if (currentPlacement === undefined || this.resolvedAnchor(currentPlacement) !== anchor) break;
-      const currentOrdinal = this.noticeOrdinalById.get(currentId) ?? Number.MAX_SAFE_INTEGER;
+      if (
+        currentPlacement === undefined ||
+        this.resolvedAnchor(currentPlacement) !== anchor
+      ) break;
+      const currentOrdinal = this.noticeOrdinalById.get(currentId) ??
+        Number.MAX_SAFE_INTEGER;
       if (currentOrdinal > ordinal) break;
       index += 1;
     }
@@ -334,7 +360,11 @@ export class KeyedConversationStore {
   }
 
   private reindexFrom(start: number): void {
-    for (let index = Math.max(0, start); index < this.displayOrder.length; index += 1) {
+    for (
+      let index = Math.max(0, start);
+      index < this.displayOrder.length;
+      index += 1
+    ) {
       const id = this.displayOrder[index];
       if (id !== undefined) this.indexById.set(id, index);
     }

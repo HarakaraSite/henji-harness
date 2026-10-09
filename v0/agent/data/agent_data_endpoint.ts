@@ -4,6 +4,7 @@ import type {
   AgentDataPortResponse,
   AgentGenerationContextBasis,
   AgentPostSettlementHookUpdate,
+  ContextTurnRead,
 } from './agent_data_contract.ts';
 import type { ExecutionDataInput } from './execution_data_journal.ts';
 import type {
@@ -49,6 +50,10 @@ export class AgentDataEndpoint {
       readonly generationContext: (
         correlation: WorkerCorrelation,
       ) => AgentGenerationContextBasis;
+      readonly readContextTurn: (
+        correlation: WorkerCorrelation,
+        beforeTurn: number,
+      ) => Promise<ContextTurnRead | null>;
       readonly beginExecution?: (
         executionId: string,
         correlation: WorkerCorrelation,
@@ -108,6 +113,19 @@ export class AgentDataEndpoint {
         requestId: request.requestId,
         correlation: request.correlation,
         basis: this.input.generationContext(request.correlation),
+      });
+      return;
+    }
+    if (request.kind === 'context_turn_read') {
+      const turn = await this.input.readContextTurn(
+        request.correlation,
+        request.beforeTurn,
+      );
+      this.reply({
+        kind: 'context_turn_result',
+        requestId: request.requestId,
+        correlation: request.correlation,
+        turn,
       });
       return;
     }

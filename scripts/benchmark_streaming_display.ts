@@ -102,7 +102,7 @@ const projectEntities = (
 ): void => {
   const sessionId = 'benchmark-session';
   const snapshot: SessionSnapshot = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cursor: { coreEpoch: 'benchmark', sessionId, revision: 1 },
     session: {
       id: sessionId,
@@ -142,12 +142,13 @@ const projectEntities = (
       operations: [],
     },
     conversation: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       sessionId,
       cut: 1,
       storeRevision: 1,
       entities,
       order,
+      page: { direction: 'latest', hasOlder: false, hasNewer: false },
     },
     pending: { kind: 'core-owned', followUps: [] },
     credentialAvailability: { status: 'unknown' },

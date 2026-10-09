@@ -26,7 +26,7 @@ const build = {
 };
 
 const snapshot = (revision: number): SessionSnapshot => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   cursor: { coreEpoch, sessionId, revision },
   session: {
     id: sessionId,
@@ -51,10 +51,11 @@ const snapshot = (revision: number): SessionSnapshot => ({
     operations: ['task.submit'],
   },
   conversation: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId,
     cut: 0,
     storeRevision: 0,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: {},
     order: [],
   },
@@ -143,6 +144,7 @@ Deno.test('Increment 211 remote arrows move editor lines and do not recall submi
       if (request.method === 'GET' && url.pathname === '/api/v1/core') {
         return Response.json({
           apiVersion: 1,
+          conversationSchema: 3,
           coreEpoch,
           build,
           workspace: '/tmp/increment-211-workspace',

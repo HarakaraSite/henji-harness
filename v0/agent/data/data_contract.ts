@@ -6,6 +6,18 @@ import type {
   HistoryReadInput,
   SessionsListResult,
 } from '../../api/contract.ts';
+import type {
+  DataCommandReceipt,
+  DataExecutionCompletionControl,
+  DataFollowUpCursor,
+  DataFollowUpPage,
+  DataFollowUpReceipt,
+} from '../history/history_store_contract.ts';
+import type {
+  ConversationContentChunk,
+  ConversationContentLocator,
+  ConversationPageMetadata,
+} from '../../conversation/model.ts';
 import type { AgentConfigurationChoice } from '../configuration/configuration_resolver.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { LiveModelCatalogFact } from '../provider/live_model_catalog.ts';
@@ -39,10 +51,28 @@ export type {
   DataSessionPersistence,
   DataSessionTerminalResult,
 } from './session_data_owner.ts';
+export type {
+  DataCommandReceipt,
+  DataExecutionCompletionControl,
+  DataFollowUpCursor,
+  DataFollowUpPage,
+  DataFollowUpReceipt,
+} from '../history/history_store_contract.ts';
 
 export interface EncodedDataReply {
   readonly bytes: Uint8Array<ArrayBuffer>;
 }
+
+export type DataHistoryStreamOpenResult = Readonly<{
+  streamId: string;
+  sessionId: string | null;
+  view: HistoryReadInput['view'];
+}>;
+
+export type DataHistoryStreamChunk = Readonly<{
+  bytes: Uint8Array<ArrayBuffer>;
+  done: boolean;
+}>;
 
 export interface DataConversationSnapshot {
   readonly sessionId: string;
@@ -53,6 +83,10 @@ export interface DataConversationSnapshot {
 
 export interface DataConversationUpdate extends DataConversationSnapshot {
   readonly descriptor: DataSessionDescriptor;
+  /** Per-watch port order; each update is released after the receiver ACKs it. */
+  readonly deliverySequence: number;
+  /** The bytes contain a complete finite snapshot rather than a delta. */
+  readonly snapshot?: true;
 }
 
 /** Descriptor-only revision, independent of the conversation save cut. */
@@ -63,7 +97,7 @@ export interface DataSessionDescriptorUpdate {
 
 export type DataConversationDeltaListener = (
   update: DataConversationUpdate,
-) => void;
+) => void | Promise<void>;
 export type DataSessionDescriptorListener = (
   update: DataSessionDescriptorUpdate,
 ) => void;
@@ -127,12 +161,32 @@ export type DataSettleChildExecutionRequest = Readonly<{
 
 export interface DataService {
   historyRead(input: HistoryReadInput): Promise<EncodedDataReply>;
+  historyStreamOpen(input: HistoryReadInput): Promise<DataHistoryStreamOpenResult>;
+  historyStreamRead(streamId: string): Promise<DataHistoryStreamChunk>;
+  historyStreamClose(streamId: string): Promise<void>;
   contextRead(
     sessionId: string,
     pendingRecall?: ContextView['pendingRecall'],
     activeSession?: boolean,
   ): Promise<EncodedDataReply>;
   executionRead(executionId: string): Promise<ExecutionReadResult>;
+  commandReceiptRead(
+    coreEpoch: string,
+    commandId: string,
+  ): Promise<DataCommandReceipt | null>;
+  commandReceiptSave(receipt: DataCommandReceipt): Promise<void>;
+  coreSessionCursorRead(
+    coreEpoch: string,
+    sessionId: string,
+  ): Promise<number | null>;
+  coreSessionCursorSave(
+    coreEpoch: string,
+    sessionId: string,
+    revision: number,
+  ): Promise<void>;
+  saveExecutionCompletionControl(
+    control: DataExecutionCompletionControl,
+  ): Promise<void>;
 
   openSession(input: DataSessionOpenInput): Promise<DataSessionDescriptor>;
   closeSession(sessionId: string): Promise<void>;
@@ -140,6 +194,26 @@ export interface DataService {
   sessionsList(): Promise<SessionsListResult>;
   deleteSession(sessionId: string): Promise<void>;
   conversationSnapshot(sessionId: string): Promise<DataConversationSnapshot>;
+  conversationPageRead(
+    sessionId: string,
+    cursor?: number,
+    direction?: ConversationPageMetadata['direction'],
+  ): Promise<EncodedDataReply>;
+  conversationContentRead(
+    locator: ConversationContentLocator,
+    offset: number,
+    length: number,
+  ): Promise<ConversationContentChunk>;
+  followUpSave(
+    coreEpoch: string,
+    sessionId: string,
+    followUp: import('../../api/contract.ts').FollowUpRecord,
+  ): Promise<void>;
+  followUpRead(queueId: string): Promise<DataFollowUpReceipt | null>;
+  followUpPageRead(
+    sessionId: string,
+    cursor?: DataFollowUpCursor,
+  ): Promise<DataFollowUpPage>;
   watchConversation(
     sessionId: string,
     listener: DataConversationDeltaListener,
@@ -259,6 +333,9 @@ export type DataWorkerRequest =
     }
   >
   | Readonly<{ id: number; kind: 'history_read'; input: HistoryReadInput }>
+  | Readonly<{ id: number; kind: 'history_stream_open'; input: HistoryReadInput }>
+  | Readonly<{ id: number; kind: 'history_stream_read'; streamId: string }>
+  | Readonly<{ id: number; kind: 'history_stream_close'; streamId: string }>
   | Readonly<{
     id: number;
     kind: 'context_read';
@@ -267,16 +344,85 @@ export type DataWorkerRequest =
     activeSession: boolean;
   }>
   | Readonly<{ id: number; kind: 'execution_read'; executionId: string }>
+  | Readonly<{
+    id: number;
+    kind: 'command_receipt_read';
+    coreEpoch: string;
+    commandId: string;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'command_receipt_save';
+    receipt: DataCommandReceipt;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'core_session_cursor_read';
+    coreEpoch: string;
+    sessionId: string;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'core_session_cursor_save';
+    coreEpoch: string;
+    sessionId: string;
+    revision: number;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'execution_completion_control_save';
+    control: DataExecutionCompletionControl;
+  }>
   | Readonly<{ id: number; kind: 'session_open'; input: DataSessionOpenInput }>
   | Readonly<{ id: number; kind: 'session_close'; sessionId: string }>
   | Readonly<{ id: number; kind: 'session_descriptor'; sessionId: string }>
   | Readonly<{ id: number; kind: 'sessions_list' }>
   | Readonly<{ id: number; kind: 'session_delete'; sessionId: string }>
   | Readonly<{ id: number; kind: 'conversation_snapshot'; sessionId: string }>
+  | Readonly<{
+    id: number;
+    kind: 'conversation_delta_ack';
+    sessionId: string;
+    deliverySequence: number;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'conversation_page_read';
+    sessionId: string;
+    cursor?: number;
+    direction: ConversationPageMetadata['direction'];
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'conversation_content_read';
+    locator: ConversationContentLocator;
+    offset: number;
+    length: number;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'follow_up_save';
+    receipt: DataFollowUpReceipt;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'follow_up_read';
+    queueId: string;
+  }>
+  | Readonly<{
+    id: number;
+    kind: 'follow_up_page_read';
+    sessionId: string;
+    cursor?: DataFollowUpCursor;
+  }>
   | Readonly<{ id: number; kind: 'watch_conversation'; sessionId: string }>
   | Readonly<{ id: number; kind: 'unwatch_conversation'; sessionId: string }>
-  | Readonly<{ id: number; kind: 'watch_session_descriptor'; sessionId: string }>
-  | Readonly<{ id: number; kind: 'unwatch_session_descriptor'; sessionId: string }>
+  | Readonly<
+    { id: number; kind: 'watch_session_descriptor'; sessionId: string }
+  >
+  | Readonly<
+    { id: number; kind: 'unwatch_session_descriptor'; sessionId: string }
+  >
   | Readonly<
     {
       id: number;
@@ -407,7 +553,14 @@ export type DataWorkerResponse =
   | Readonly<{
     id: number;
     kind: 'error';
-    error: Readonly<{ status: number; code: string; message: string; details?: FailureDetails }>;
+    error: Readonly<
+      {
+        status: number;
+        code: string;
+        message: string;
+        details?: FailureDetails;
+      }
+    >;
   }>
   | Readonly<{
     kind: 'conversation_delta';

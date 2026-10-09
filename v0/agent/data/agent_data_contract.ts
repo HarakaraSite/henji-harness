@@ -17,11 +17,25 @@ export interface AgentGenerationContextBasis {
   readonly initialTranscript: readonly Message[];
   readonly nextTurn: number;
   readonly stateRevision: number;
+  readonly canonicalMessageCount: number;
+  readonly historySource: 'canonical' | 'runtime';
   readonly checkpoint?: SemanticContextCheckpointV1;
   readonly modelSelection: ModelSelection;
   readonly privateStateFromTurn: number;
   /** Recall admitted for this execution, kept off the Core control channel. */
   readonly recalledContext?: RecalledExecutionContext;
+}
+
+/** One canonical or runtime-adopted turn loaded from a bounded history range. */
+export interface ContextTurnRead {
+  readonly turn: number;
+  readonly executionId: string;
+  readonly messages: readonly Message[];
+  /** Zero-based global start position in the selected history source. */
+  readonly messageStart: number;
+  readonly source: 'canonical' | 'runtime';
+  /** Sum of persisted message payload bytes read from SQLite for this turn. */
+  readonly byteLength: number;
 }
 
 export interface AgentProposalBarrier {
@@ -58,6 +72,10 @@ export interface AgentDataPortClient {
   generationContext(
     correlation: WorkerCorrelation,
   ): Promise<AgentGenerationContextBasis>;
+  readContextTurn(
+    correlation: WorkerCorrelation,
+    beforeTurn: number,
+  ): Promise<ContextTurnRead | null>;
   ready(message: WorkerReadyMessage): Promise<void>;
   beginExecution(
     executionId: string,
@@ -79,6 +97,12 @@ export type AgentDataPortRequest =
     kind: 'generation_context';
     requestId: number;
     correlation: WorkerCorrelation;
+  }>
+  | Readonly<{
+    kind: 'context_turn_read';
+    requestId: number;
+    correlation: WorkerCorrelation;
+    beforeTurn: number;
   }>
   | Readonly<{
     kind: 'ready';
@@ -139,6 +163,12 @@ export type AgentDataPortResponse =
     requestId: number;
     correlation: WorkerCorrelation;
     basis: AgentGenerationContextBasis;
+  }>
+  | Readonly<{
+    kind: 'context_turn_result';
+    requestId: number;
+    correlation: WorkerCorrelation;
+    turn: ContextTurnRead | null;
   }>
   | Readonly<{
     kind: 'checkpoint_acknowledgement';

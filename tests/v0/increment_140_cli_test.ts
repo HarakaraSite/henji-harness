@@ -12,7 +12,13 @@ Deno.test('Increment 140 history CLI resolves target and view through the connec
       view: url.searchParams.get('view'),
       latest: url.searchParams.get('latest'),
     });
-    return Response.json({ sessionId, view: 'canonical', text });
+    return new Response(text, {
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'x-henji-session-id': sessionId,
+        'x-henji-history-view': 'canonical',
+      },
+    });
   });
   try {
     const output = await new Deno.Command(Deno.execPath(), {

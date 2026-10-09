@@ -9,7 +9,26 @@ import {
   type UiState,
 } from './state.ts';
 
+const comparePosition = (
+  left: NonNullable<UiLogEntry['position']>,
+  right: NonNullable<UiLogEntry['position']>,
+): number => {
+  for (
+    const key of [
+      'executionOrder',
+      'requestOrder',
+      'phase',
+      'eventOrdinal',
+      'itemOrdinal',
+    ] as const
+  ) {
+    if (left[key] !== right[key]) return left[key] - right[key];
+  }
+  return 0;
+};
+
 interface PrintedEntry {
+  position?: UiLogEntry['position'];
   text: string;
   label: string;
   offset: number;
@@ -135,6 +154,7 @@ export const conversationRows = (
 export class ConversationFlow {
   private printed = new Map<string, PrintedEntry>();
   private headerPrinted = false;
+  private frontier: UiLogEntry['position'];
   private liveEntry: UiLogEntry | undefined;
   private readonly rendered = new Map<
     string,
@@ -148,6 +168,7 @@ export class ConversationFlow {
 
   reset(): void {
     this.printed.clear();
+    this.frontier = undefined;
     this.headerPrinted = false;
     this.rendered.clear();
     this.liveEntry = undefined;
@@ -179,6 +200,22 @@ export class ConversationFlow {
     width: number,
     capacity: number,
   ): { committed: LayoutRow[]; live: LayoutRow[] } {
+    const present = new Set<string>();
+    for (let i = 0; i < uiConversationCount(state); i++) {
+      present.add(uiConversationEntryAt(state, i)!.id);
+    }
+    for (const [id, receipt] of this.printed) {
+      if (present.has(id) || id === this.liveEntry?.id) continue;
+      if (
+        receipt.position !== undefined &&
+        (this.frontier === undefined ||
+          comparePosition(receipt.position, this.frontier) > 0)
+      ) {
+        this.frontier = receipt.position;
+      }
+      this.printed.delete(id);
+      this.rendered.delete(id);
+    }
     const committed: LayoutRow[] = [];
     // The header records the opening state. Metadata updates stay in the Session;
     // opening it in a new display scope prints its latest state once.
@@ -221,6 +258,11 @@ export class ConversationFlow {
       if (output) awaiting.delete(entry.turn!);
       previous = entry;
       let receipt = this.printed.get(entry.id);
+      if (
+        receipt === undefined && entry.position !== undefined &&
+        this.frontier !== undefined &&
+        comparePosition(entry.position, this.frontier) <= 0
+      ) continue;
       // Keep the first visible tool state. Reopening the Session prints its saved result.
       if (entry.kind === 'tool' && receipt !== undefined) continue;
       const body = entry.kind === 'assistant' || entry.kind === 'thinking';
@@ -243,6 +285,7 @@ export class ConversationFlow {
         } else receipt = undefined;
       }
       receipt ??= {
+        position: entry.position,
         text: entry.text,
         label: entry.label,
         offset: 0,
@@ -272,7 +315,8 @@ export class ConversationFlow {
       const rendered = cached.value;
       let start = 0;
       if (receipt.labelPrinted) {
-        const cursor = receipt.width === width && !labelChanged && receipt.cursor !== undefined
+        const cursor = receipt.width === width && !labelChanged &&
+            receipt.cursor !== undefined
           ? receipt.cursor
           : rendered.body.seek(receipt.offset - receipt.base, width);
         start = cursor === undefined

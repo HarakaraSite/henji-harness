@@ -41,10 +41,11 @@ const conversationFixture = (
   });
   for (const observation of observations) applyObservation(state, normalizer, observation);
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     sessionId,
     cut: 0,
     storeRevision: 0,
+    page: { direction: 'latest' as const, hasOlder: false, hasNewer: false },
     entities: Object.fromEntries(state.entities),
     order: orderedConversationEntities(state).map((entity) => entity.id),
   };
