@@ -9,13 +9,16 @@
   別アプリの`henji`との衝突を避けるため、利用者がCLI実行名`hjh`を採用した。
   compile/package/install・CLI案内・通常利用手順を更新し、focused確認と隔離standalone
   Core/TUI操作まで検証済み。設定・履歴・公開API名は維持。実provider 0。
-  `dist/hjh`をbuild済み、証跡は`.tools/increment-220-hjh/`。
-  常用配置・旧binary削除・commit/pushは未実施。もう一方のアプリは変更対象外。
+  改名を`59dcdd71`へcommitし、先行する218・219等も含めてorigin/mainへpush済み。 同clean
+  sourceから`dist/hjh`と常用`hjh`へ配置し、配置binaryの隔離Core/TUI確認まで完了。
+  [配置記録](../docs/operations/native-0.11.0-deployment.md#increment-220のhjh常用配置--2026-10-09)と
+  `.tools/increment-220-deployment/`を参照する。既存`henji`は保持。もう一方のアプリは変更対象外。
 - [Increment 219](../docs/increments/increment-219.md)を参照する。利用者が5分周期Core
   trimの実装と「約6分×2ターン＋短い確認会話」の隔離計測を選択した。
   local実装・一回の隔離計測・全照合済み。実provider 0、CPU時間とpage faultも記録済み。
   [5分周期測定報告書](../docs/research/increment-219-five-minute-memory-2026-10-09.md)を参照する。
-  利用者指示で実装・test・測定記録を`e38aa074`へcommit済み。完了判断、常用配置、pushは未実施。
+  利用者指示で実装・test・測定記録を`e38aa074`へcommit済み。完了判断は未実施。
+  常用配置とpushは220の`hjh`配置に含めて実施済み。
   続く全体俯瞰reviewで採用したP1（catalog通信待ちが正常停止を阻害）はlocal修正・検証・
   限定re-review済み、利用者指示でcommit済み。詳細は219末尾、証跡は
   `.tools/increment-219-catalog-shutdown-fix/`。
@@ -45,30 +48,32 @@
   続く指示で、長い1ターンの実行中にCoreから周期trimする隔離スパイクを完了した。
   結果と未確認範囲は218第11.20節と
   [実行中trimスパイク](../docs/research/increment-218-active-trim-spike-2026-10-09.md)を参照する。
-  追加測定の文書は219の実装と合わせてcommit済み。実DBコピー/切替、常用配置、pushは未実施。
+  追加測定の文書は219の実装と合わせてcommit済み。実DBコピー/切替は未実施。
+  常用配置とpushは220の`hjh`配置に含めて実施済み。
 - 利用者判断により217までの既存incrementを一律完了とした。209〜217の冒頭へ完了状態を追記し、
   208以前の2026-10-07完了記録は保持した。各作業時点の実施・未実施記録は現在の残作業として扱わない。
   要件・結果は各increment、文書への入口は[索引](../docs/increments/README.md)を参照する。
 - [Increment 217](../docs/increments/increment-217.md)に、214〜217適用後のcompiled
   Core/TUIメモリ観測と
   利用者指示による常用配置の結果を追記した。詳細な条件・結果・未確認範囲は217を参照する。
-- 常用binaryはHenji 0.11.0、clean source `6315beed`、build `199c3937…`。
-  `dist/henji`と常用binaryへ配置し、配置binaryの隔離Worker/TUI確認を完了した。
+- 常用binaryは`hjh` 0.11.0、clean source `59dcdd71`、build `10c9d4a0…`。
+  `dist/hjh`と常用binaryへ配置し、配置binaryの隔離Core/TUI確認を完了した。
   既存の稼働Core/TUIは再起動していない。新しいCore/TUI起動から適用する。
   退避先と検証結果は[配置記録](../docs/operations/native-0.11.0-deployment.md)を参照する。
 - 217までの実装sourceは`6315beed`までorigin/mainへpush済み。217の完了・メモリ観測・配置記録と、
   通常利用メモのA37・A38（searchの`!`除外とmode命名）はcommit済み。
-  218の実装・test・結果と219の5分周期trim・追加測定記録を加え、origin/mainより6commit先。pushは未実施。
+  218の実装・test・結果、219の5分周期trim・追加測定記録と採用P1修正、220の改名まで
+  origin/mainへpush済み。
   別件の通常利用メモS4（`/reload`）更新と商品集計結果`191-result.json`も、利用者指示でcommit済み。
   未追跡の生成キャッシュ`scripts/diagnostics/__pycache__/`は保全し、commit対象外。
 
 ## 次の一手
 
-- 220のlocal実装・検証結果は記録済み。常用配置・commit/pushは利用者指示に従う。
+- 220のlocal実装・検証・commit/push・常用配置は実施済み。追加作業は利用者指示に従う。
   architectureの現行CLI表記更新案は220末尾に保持し、別途承認してから反映する。
 - 218のlocalhost確認・全体review指摘対応・実provider基本e2e・20turnメモリ同時計測と、
   最新commitのlocalhost 200turn再測定・1/200turnのAgent終了前後・native
-  allocator/stack測定は記録済み。 218の受入判断/実DB操作/配置/pushは利用者指示に従う。基本e2eは
+  allocator/stack測定は記録済み。218の受入判断/実DB操作は利用者指示に従う。基本e2eは
   `.tools/increment-218-basic-e2e/`、20turn同時計測は `.tools/increment-218-real-memory/`。
   200turn再測定は `.tools/increment-218-local-memory-200-20261009/`。Agent終了比較は
   `.tools/increment-218-agent-release-memory-20261009/`。 native allocator測定は
@@ -76,7 +81,7 @@
   `.tools/increment-218-active-trim-spike-20261009/`。
   5分周期trimの実装と検証は219へ採用済み。Worker運用変更は未採用。
   219の実装・測定記録は`e38aa074`へcommit済み。後続の全体review採用P1修正も利用者指示でcommit済み。
-  完了判断、常用配置、push、追加最適化は利用者指示に従う。
+  完了判断と追加最適化は利用者指示に従う。常用配置とpushは220に含めて実施済み。
   219のarchitecture/roadmap反映案は219文書末尾に保持し、別途承認してから反映する。
   実負荷はread一回＋19会話。旧準備案の毎turn read/15＋再開5とは区別し、追加runは行っていない。
   217以前に未完了作業はない。architecture/roadmapは218第12節の案を別途承認してから反映する。
@@ -101,6 +106,7 @@
 ## 承認境界
 
 - 217までの完了判断と最新binaryの常用配置は利用者の明示指示により実施済み。
+- 220のcommit/push/配置は利用者の明示指示により実施済み。218・219の変更も`hjh`へ配置済み。
 - 後続の実装、commit/push、追加build/配置、公開/release、実データ操作は利用者指示に従う。
 - 218の実providerは利用者がOpenCode Go / DeepSeek V4.1 Flash・約20turnを承認済み。
   続く「最小限の実プロバイダを使って基本e2e」の許可により、同routeで4turnを実施した。

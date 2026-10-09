@@ -165,3 +165,35 @@ build記録は`.tools/memory-after-217/compile-after.log`／`builds.json`。
 
 既存の稼働Core/TUIは停止・再起動していない。新しいCore/TUI起動から反映する。
 今回の完了・観測・配置記録のcommit/pushは未実施。JSR追加公開・releaseも実施していない。
+
+## Increment 220のhjh常用配置 — 2026-10-09
+
+利用者の「コミットプッシュ配置して」により、[Increment 220](../increments/increment-220.md)の
+CLI改名を`59dcdd714639e70cf28ea978b8d7c8877ecb3796`へcommitし、origin/mainへpushした。
+先行する218の保持量最適化・219の5分周期trim・catalog停止修正と記録も同時にpushされた。 同clean
+sourceから公式`hjh:compile`でbuildしたartifactを、`dist/hjh`と
+`/home/agent/.local/bin/hjh`へatomic配置した。
+
+- version: `hjh 0.11.0`、sourceDirty: `false`
+- source: `59dcdd714639e70cf28ea978b8d7c8877ecb3796`
+- build ID: `10c9d4a0c6de145dad8e8ff08f2d28c84db74b153a572a2774ce4be1e8cd15a0`
+- runtime SHA-256: `2aac9eea2e91eb16393da0851407f7f6f3a987033f1a21dd36a92a19a52626d5`
+- binary SHA-256: `e8e152d401bc46258a8bd10bb25c663d6395fa3442176ea92b20a817f548cf54`
+- Deno: `2.9.7`、target: `x86_64-unknown-linux-gnu`
+
+配置前のdirtyな`dist/hjh`は`.tools/increment-220-deployment/hjh.dist.previous`へ保持した。
+常用`hjh`は今回新規配置。旧`dist/henji`と`/home/agent/.local/bin/henji`は変更せず、配置前後の
+SHA-256一致で保全を確認した。既存の設定・DB・credential・外部tool/hookは変更していない。
+
+配置先の`/home/agent/.local/bin/hjh`自体を、隔離HOME/XDG・workspaceと外部DenoのないPATHで
+tmux起動した。version/help/error、storage root、Core自己起動・一覧・status、TUI ready、
+`/help`表示・Esc復帰・Ctrl-D detach、detach後のCore存続、`core stop`と解放を確認した。 Coreのbuild
+ID/source/cleanは配置binaryと一致した。実provider requestは0、会話は投入していない。 focused
+test等は220の実装時に成功済みで、full gateは繰り返していない。
+
+配置証跡（git管理外）は`.tools/increment-220-deployment/`の`compile.log`、`deployment.json`、
+`version.txt`、`runtime-diagnostics.json`、`core-status.json`、`tui-ready.txt`、`tui-help.txt`、
+`verification.json`、`deploy.py`、`verify-installed.py`を参照する。
+
+現在のPATHで`hjh`が常用配置先へ解決されることを確認済み。既存の稼働Core/TUIは停止・再起動せず、
+新規に`hjh`で起動するCore/TUIから反映する。JSR追加公開・releaseは実施していない。

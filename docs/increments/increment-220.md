@@ -66,6 +66,23 @@ git管理外証跡は`.tools/increment-220-hjh/`に保持する。`build.log`、
 `version.txt`、`runtime-diagnostics.json`、`core-status.json`、`tui-ready.txt`、`tui-help.txt`と
 `verification.json`を参照する。
 
+## commit・push・常用配置（2026-10-09）
+
+利用者の「コミットプッシュ配置して」により、変更を`59dcdd71`へcommitし、先行する未pushの
+218・219等も含めてorigin/mainへpushした。そのclean sourceから公式`hjh:compile`で再buildし、
+`dist/hjh`と常用`hjh`へ同じartifactをatomic配置した。build/sourceDirty=falseと配置先の
+SHA-256一致を確認済み。旧`dist/hjh`はgit管理外へ退避し、既存`henji`はbyte一致で保持した。
+
+配置した常用binary自体を隔離HOME/XDG・workspace・外部DenoのないPATHから起動し、
+version/help/error、従来のstorage root、Core自己起動・一覧・status、tmux TUIのready・
+`/help`・Esc復帰・Ctrl-D detachとCore存続、Core停止と解放を確認した。実provider requestは0。
+既存の稼働Core/TUIは再起動せず、新規に`hjh`で起動するCore/TUIから適用する。
+設定・DB・credential・外部tool/hookは変更していない。
+
+build
+identityと退避先・証跡は[配置記録](../operations/native-0.11.0-deployment.md#increment-220のhjh常用配置--2026-10-09)
+と`.tools/increment-220-deployment/`を参照する。配置記録も続けてcommit/pushする。
+
 ## 正本文書への反映案
 
 architectureの現行操作・process図にある`henji`／`henji run`表記を`hjh`／`hjh run`へ変更する案を
