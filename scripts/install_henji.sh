@@ -14,7 +14,7 @@ while (($#)); do
     --replace-hooks) replace_hooks=true; shift ;;
     --help)
       printf '%s\n' 'Usage: install.sh [--bin-dir DIR] [--config-root DIR] [--replace-tools] [--replace-hooks]' \
-        'Installs the binary, registers search, git_inspect, web_search and web_fetch, and installs runtime-start-time.' \
+        'Installs the binary, registers ls, find, grep, wc, git_inspect, web_search and web_fetch, and installs runtime-start-time.' \
         'Existing external folders are retained; the corresponding --replace option copies packaged files over them.'
       exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
@@ -34,7 +34,7 @@ staged_binary=$(mktemp "$binary_dir/.hjh-install-XXXXXXXX")
 cp -- "$package_root/hjh" "$staged_binary"
 chmod 755 -- "$staged_binary"
 mv -f -- "$staged_binary" "$installed_binary"
-for name in search git_inspect web_search web_fetch; do
+for name in ls find grep wc git_inspect web_search web_fetch; do
   target=$config_root/tools/$name
   if [[ ! -d $target ]] || $replace_tools; then
     mkdir -p -- "$target"

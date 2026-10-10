@@ -47,14 +47,14 @@ const configureInspection = async (
     name: 'inspection-test',
     revision: 'test',
     instruction: '',
-    tools: ['git_inspect', 'search'],
+    tools: ['git_inspect', 'ls'],
     agents: [],
   });
   await writeJson(`${configRoot}/tools.json`, {
     schemaVersion: 1,
     tools: {
       git_inspect: 'tools/git_inspect',
-      search: 'tools/search',
+      ls: 'tools/ls',
     },
   });
   await copyDirectory(
@@ -62,8 +62,8 @@ const configureInspection = async (
     `${configRoot}/tools/git_inspect`,
   );
   await copyDirectory(
-    new URL('../../external-tools/search/', import.meta.url).pathname,
-    `${configRoot}/tools/search`,
+    new URL('../../external-tools/ls/', import.meta.url).pathname,
+    `${configRoot}/tools/ls`,
   );
   if (gitPath !== TEST_PATH) {
     const settingsFile = `${configRoot}/tools/git_inspect/settings.ts`;
@@ -181,7 +181,7 @@ const makeRepository = async (workspaceRoot: string, home: string): Promise<void
   await git(workspaceRoot, home, ['add', 'new.txt']);
 };
 
-Deno.test('increment 201 git_inspect and search entries inspect a workspace read-only', async () => {
+Deno.test('increment 201 git_inspect and ls inspect a workspace read-only', async () => {
   const base = await Deno.makeTempDir({ prefix: 'henji-i201-inspect-' });
   const workspaceRoot = `${base}/workspace`;
   const configRoot = `${base}/config`;
@@ -265,58 +265,28 @@ Deno.test('increment 201 git_inspect and search entries inspect a workspace read
       ok(text.includes(expected), `${JSON.stringify(args)} -> ${text}`);
     }
 
-    // entries mode lists metadata for files and directories.
-    const entries = await callTool(worker.session, 'search', {
-      mode: 'entries',
-      limit: 100,
-    });
+    const entries = await callTool(worker.session, 'ls', {});
     const byPath = new Map(
-      (entries.records as Array<Record<string, unknown>>).map((record) => [
-        String(record.path),
+      (entries.entries as Array<Record<string, unknown>>).map((
         record,
-      ]),
+      ) => [String(record.path), record]),
     );
     strictEqual(byPath.get('docs')?.type, 'directory');
     strictEqual(byPath.get('new.txt')?.type, 'file');
-    strictEqual(byPath.get('new.txt')?.bytes, 10);
-    ok(typeof byPath.get('new.txt')?.modifiedAt === 'string');
     strictEqual(byPath.has('docs/readme.md'), false);
-
-    const deeper = await callTool(worker.session, 'search', {
-      mode: 'entries',
-      depth: 2,
-      limit: 100,
-    });
-    const deeperPaths = (deeper.records as Array<Record<string, unknown>>).map((record) =>
-      String(record.path)
+    const deeper = await callTool(worker.session, 'ls', { tree: true, depth: 2 });
+    const docs = (deeper.entries as Array<Record<string, unknown>>).find((entry) =>
+      entry.path === 'docs'
     );
-    ok(deeperPaths.includes('docs/readme.md'), deeperPaths.join(','));
-
-    const filtered = await callTool(worker.session, 'search', {
-      mode: 'entries',
-      glob: '*.txt',
-      limit: 100,
-    });
-    const filteredPaths = (filtered.records as Array<Record<string, unknown>>).map((record) =>
-      String(record.path)
+    ok(
+      (docs?.children as Array<Record<string, unknown>>).some((entry) =>
+        entry.path === 'docs/readme.md'
+      ),
     );
-    ok(filteredPaths.includes('note.txt'), filteredPaths.join(','));
-    ok(!filteredPaths.includes('docs'), filteredPaths.join(','));
-
-    const paged = await callTool(worker.session, 'search', { mode: 'entries', limit: 1 });
-    strictEqual(paged.hasMore, true);
-    strictEqual(paged.nextOffset, 1);
-
-    const fileScope = await callToolText(worker.session, 'search', {
-      mode: 'entries',
-      path: 'note.txt',
-    });
-    ok(fileScope.includes('path must name a directory'), fileScope);
-    const depthRejected = await callToolText(worker.session, 'search', {
-      mode: 'paths',
-      depth: 2,
-    });
-    ok(depthRejected.includes('depth is only supported'), depthRejected);
+    const limited = await callTool(worker.session, 'ls', { limit: 1 });
+    strictEqual((limited.omitted as Record<string, unknown>).limit, true);
+    const fileScope = await callToolText(worker.session, 'ls', { path: 'note.txt' });
+    ok(fileScope.includes('directory'), fileScope);
   } finally {
     await worker.close();
   }

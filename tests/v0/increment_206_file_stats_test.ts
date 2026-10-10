@@ -38,7 +38,7 @@ Deno.test('increment 206 file stats and selection guidelines reach the productio
     });
     const call = async (args: Record<string, unknown>): Promise<Record<string, unknown>> => {
       const outcome = await session!.submit(
-        `bash-tool-call:${JSON.stringify({ name: 'search', arguments: args })}`,
+        `bash-tool-call:${JSON.stringify({ name: 'wc', arguments: args })}`,
       );
       ok(outcome.ok, JSON.stringify(outcome));
       return JSON.parse(outcome.finalText!);
@@ -55,29 +55,31 @@ Deno.test('increment 206 file stats and selection guidelines reach the productio
         .split(/\s+/).slice(0, 3).map(Number);
       const record = { path, lines, words, bytes };
       expected.push(record);
-      const result = await call({ mode: 'stats', path });
+      const result = await call({ files: [path] });
       strictEqual(result.total, 1);
       deepStrictEqual(result.records, [record]);
     }
-    const first = await call({ mode: 'stats', glob: '*.txt', limit: 2 });
+    const first = await call({ files: [...contents.keys()], limit: 2 });
     strictEqual(first.total, 4);
     deepStrictEqual(first.records, expected.slice(0, 2));
     strictEqual(first.hasMore, true);
     strictEqual(first.nextOffset, 2);
-    const second = await call({ mode: 'stats', glob: '*.txt', limit: 2, offset: first.nextOffset });
+    const second = await call({ files: [...contents.keys()], limit: 2, offset: first.nextOffset });
     deepStrictEqual(second.records, expected.slice(2));
     strictEqual(second.hasMore, false);
     strictEqual(second.nextOffset, null);
-    const scoped = await call({ mode: 'stats', path: 'nested', glob: '*.txt' });
+    const scoped = await call({ files: ['nested/unicode.txt'] });
     strictEqual(scoped.total, 1);
     deepStrictEqual(scoped.records, [expected[1]]);
 
     const readback = await session.submit('return active tool guidelines');
     ok(readback.ok);
     const instruction = readback.finalText ?? '';
-    ok(instruction.includes('Use search instead of bash ls, find, grep, rg, or wc'));
-    ok(instruction.includes('stats for file line, word, and byte counts'));
-    ok(instruction.includes('Read total from paths for the number of files'));
+    ok(instruction.includes('Use ls instead of bash ls'));
+    ok(instruction.includes('Current find backend: find'));
+    ok(instruction.includes('tool description (rg)'));
+    ok(instruction.includes('wc'));
+    ok(!instruction.includes('Use search instead'));
     ok(
       instruction.includes(
         'Use git_inspect for supported workspace Git status, diff, log, and show',

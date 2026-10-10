@@ -1,63 +1,58 @@
 # Henji package and external tools
 
-The package contains the `hjh` executable, four editable tool folders, and an editable runtime hook:
+The package contains the `hjh` executable, seven editable tool folders, and an editable runtime
+hook:
 
-- `search`: workspace directory listings (`ls`), recursive file lists (`find`, `rg --files`), text
-  search (`grep`, `rg`), occurrence counts, and per-file line/word/byte counts (`wc`), using rg or
-  grep for text search where needed.
-- `git_inspect`: read-only git inspection of the workspace repository (`status`, `diff`, `log`,
-  `show`) with fixed flags and paged output; it never writes to the repository, index, or worktree.
-- `web_search`: Exa search, using the Henji credential-resolving request API.
+- `ls`: direct directory entries or a nested JSON tree.
+- `find`: filename/path discovery using installed fd, or GNU find when fd is absent.
+- `grep`: content search using installed rg, or GNU grep when rg is absent.
+- `wc`: streamed line, word, and raw byte counts for explicit files.
+- `git_inspect`: read-only workspace Git status, diff, log, and show.
+- `web_search`: Exa search through the Henji credential-resolving request API.
 - `web_fetch`: HTTP text retrieval and original-byte downloads.
-- `runtime-start-time`: adds the Worker start time, timezone, and UTC offset to shared Agent
-  context.
+- `runtime-start-time` hook: Worker start time, timezone, and UTC offset in shared Agent context.
 
-These implementations are external TypeScript source, not embedded in the executable. Tools import
-the executable's `@henji/tool` API and hooks import its `@henji/hooks` API. Deno does not need to be
-installed separately on the target machine. Local content search needs rg or grep on PATH; it
-prefers rg. `git_inspect` needs git on its configured PATH and reports a distinct error when git or
-the repository is unavailable.
+Tool schemas, descriptions, factories, and executors are editable external TypeScript source,
+importing `@henji/tool`; hooks import `@henji/hooks`. Deno need not be separately installed. Native
+fd/rg are neither bundled nor downloaded: each Worker selects installed commands from the tool
+settings PATH, then retains that backend and executable. Startup tool descriptions and result JSON
+identify it. `git_inspect` requires git on its configured PATH.
 
-Choose `search` mode by operation:
+| Tool | Example                                                      | Result and bounds                                                                                            |
+| ---- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| ls   | `{"path":"src","tree":true,"depth":3}`                       | `entries` with name/path/type/children; count limit defaults to 100 across the tree                          |
+| find | `{"path":"src","pattern":"*.ts"}`                            | Native glob paths in `records`; stops after 100 allowed matches by default                                   |
+| grep | `{"pattern":"TODO","glob":["*.ts","!vendor/**"],"limit":20}` | Matching lines with separately marked context; exact full-scope `total` even when return records are limited |
+| wc   | `{"files":["README.md","src/main.ts"]}`                      | Per-file records plus complete `totals` and returned-page `pageTotals`                                       |
 
-| Operation                                                       | Mode / result         |
-| --------------------------------------------------------------- | --------------------- |
-| Direct directory children, type, size, modification time (`ls`) | `entries`             |
-| Recursive file paths (`find`, `rg --files`) and file count      | `paths`, `total`      |
-| Files containing a pattern (`rg -l`) and matching file count    | `files`, `total`      |
-| Matching lines (`grep`, `rg`)                                   | `content`             |
-| Pattern occurrences                                             | `count`, `matchCount` |
-| Per-file line, word, and byte counts (`wc`)                     | `stats`               |
+`ls` defaults to direct children. Tree mode defaults to depth 3 with the selected directory at
+depth 0. Empty directories have `children:[]`; `childrenOmitted` and `omitted` distinguish
+depth/count/byte omissions from an empty directory. Explicit directory aliases are allowed; child
+symlink directories are listed without recursive traversal.
 
-Use `search` with `mode: "stats"` and a file path, or a directory path plus optional `glob`. It
-returns paged `records` containing `path`, `lines`, `words`, and `bytes`; `total` is the number of
-selected files. No pattern is required. For example:
+`find` uses native fd `--glob` or GNU find `-name`/`-path`, without a compatibility matcher.
+Patterns without `/` match basenames at any depth. `type` defaults to any; file/directory selection
+is available. `includeIgnored` defaults to false. fd honors native ignore rules, including
+`.gitignore`; GNU find reports `ignoreApplied:false`. Native fd exclusion globs use `exclude`; GNU
+find returns an error when that unsupported option is requested. Stopped searches have
+`searchCompleted:false`, a `truncationReason`, and no exact `total`. Increase limit or narrow the
+query if needed.
 
-```json
-{ "mode": "stats", "path": "README.md" }
-```
+`grep` defaults to regex, case-sensitive, matching lines, context 0, and return limit 100. Set
+`patternKind:"literal"`, `caseSensitive:false`, `output:"files"`, or `context` when appropriate. rg
+`glob` is an ordered array of native `-g` patterns including `!` exclusions. Hidden files are
+included, while ignore rules apply unless `includeIgnored:true`. GNU grep uses extended regex and
+native positive filename selection; `!` exclusions are errors and `ignoreApplied` is false. Backend
+syntax and result differences are accepted and identified; native syntax errors are tool errors and
+zero matches are normal results. Return limits and the 1 MiB JSON budget never stop the full grep
+scan: `total` counts matching lines or unique matching files, excluding context records.
 
-```json
-{ "mode": "stats", "path": "src", "glob": "*.ts", "limit": 20 }
-```
-
-Files are streamed without a shell process. Lines count LF newline bytes, so a trailing partial line
-is not counted, matching `wc -l`. Words are nonempty UTF-8 sequences separated by Unicode
-`White_Space`, independent of locale; malformed UTF-8 uses replacement characters. This defines word
-counts explicitly rather than reproducing every locale-specific GNU `wc` rule. Bytes count all bytes
-read. Unlike content search, stats also includes database and binary files. The existing file
-traversal, glob, and paging rules apply.
-
-Use `search` with `mode: "count"` for the total number of occurrences as `matchCount`. It uses the
-same path, glob, pattern, literal/regex and case options, and covers the full selected scope.
-`content` returns matching lines: its `total` is a line count, not an occurrence count. Offset and
-limit apply to record modes; they do not affect count. Regex syntax follows the selected backend; rg
-counts zero-width regex matches, while grep counts non-empty matches.
-
-Use `search` with `mode: "entries"` for a directory listing that includes directories as well as
-files: each record has `path`, `type` (`file`, `directory`, `symlink`, or `other`), `bytes` for
-files, and `modifiedAt`. `depth` (default 1) selects how many directory levels below `path` are
-listed, and `glob` filters the listed paths; symlinked directories are reported but not followed.
+`wc` requires `files` as an array, including for one file; it does not expand directories. Files are
+streamed. Lines count LF bytes, words are runs separated by Unicode White_Space, and bytes count raw
+bytes. `offset` defaults to 0 and `limit` to 100 for per-file records. `totals` always covers the
+whole files array, even if pagination or the 1 MiB result budget omits records; `pageTotals` covers
+returned records. All four tools retain the common file access policy (default allow `/`, common
+deny). The new-execution `search` tool is removed; saved historical search previews remain readable.
 
 Use `git_inspect` with `op: "status" | "diff" | "log" | "show"`. `paths` limits the operation to
 workspace-relative paths, `rev` accepts `HEAD`, `HEAD~N`, or a commit hash, and `staged`/`stat`/
@@ -78,7 +73,7 @@ After extracting the archive, run:
 By default this installs the executable under `$HOME/.local/bin`, tool folders under
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/tools`, and the hook under
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/hooks/runtime-start-time`. The installer registers
-the four tools in `tools.json` and creates `hooks.json` with `runtime-start-time` as the shared
+the seven tools in `tools.json` and creates `hooks.json` with `runtime-start-time` as the shared
 default. The default and generic Agent configurations declare the tools. For a named Agent with an
 explicit `tools` array, add the tool names you want to use.
 
@@ -131,8 +126,8 @@ Authorization headers remain in Henji's request dispatcher and are not passed to
 To register a tool manually, select its folder and declare it in the Agent's `tools` array:
 
 ```sh
-hjh tool activate --name search --folder /path/to/tools/search
-hjh tool inspect --name search
+hjh tool activate --name find --folder /path/to/tools/find
+hjh tool inspect --name find
 ```
 
 The repository source lives under `external-tools/`. Build the executable with the official build

@@ -78,7 +78,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
     assertEquals(agent.name, 'reviewer');
     assert(agent.instruction.includes('You are a reviewer.'));
     assert(agent.instruction.includes('Do not edit the workspace.'));
-    assertEquals(agent.tools, ['git_inspect', 'read', 'search', 'skill']);
+    assertEquals(agent.tools, ['git_inspect', 'read', 'ls', 'find', 'grep', 'wc', 'skill']);
     assertEquals(agent.agents, []);
 
     const physicalIo = createProviderFreePhysicalIo();
@@ -99,16 +99,16 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
         identity: createAgentResourceIdentity('tool:skill'),
         materialize: () => createSkillTool(skillCatalog),
       },
-      {
-        identity: createAgentResourceIdentity('tool:search'),
+      ...['ls', 'find', 'grep', 'wc'].map((name) => ({
+        identity: createAgentResourceIdentity(`tool:${name}`),
         materialize: () => ({
-          name: 'search',
+          name,
           fileAccess: 'read' as const,
-          description: 'Search workspace paths and contents.',
-          inputSchema: { type: 'object' },
+          description: `${name} inspection`,
+          inputSchema: { type: 'object' as const },
           execute: () => '{}',
         }),
-      },
+      })),
       {
         identity: createAgentResourceIdentity('tool:git_inspect'),
         materialize: () => ({
@@ -128,7 +128,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
       asyncAgentNames: agent.agents,
     }, { roleInstruction: agent.instruction }));
     assert(composition.systemInstruction?.includes(agent.instruction));
-    for (const name of ['git_inspect', 'read', 'search', 'skill']) {
+    for (const name of ['git_inspect', 'read', 'ls', 'find', 'grep', 'wc', 'skill']) {
       assert(composition.registry.definitions().some((tool) => tool.name === name));
       assert(composition.manifest.resources.includes(`tool:${name}`));
     }
@@ -144,7 +144,7 @@ Deno.test('Increment 127 named reviewer JSON retains its role and investigation 
   }
 });
 
-Deno.test('Increment 127 reviewer Worker composes read and search guidance without bash', async () => {
+Deno.test('Increment 127 reviewer Worker composes read and dedicated inspection guidance without bash', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i127-reviewer-instruction-' });
   try {
     await writeReviewerConfiguration(`${root}/config`);
@@ -163,7 +163,10 @@ Deno.test('Increment 127 reviewer Worker composes read and search guidance witho
     const instruction = result.outcome.finalText ?? '';
     assert(instruction.includes('no general shell is available'));
     assert(instruction.includes('- read: For file inspection,'));
-    assert(instruction.includes('- search: Use search instead of bash ls, find, grep, rg, or wc'));
+    for (const name of ['ls', 'find', 'grep', 'wc']) assert(instruction.includes(`- ${name}:`));
+    assert(instruction.includes('Current find backend: find'));
+    assert(instruction.includes('tool description (rg)'));
+    assert(!instruction.includes('- search:'));
     assert(!instruction.includes('- bash:'));
     assert(!instruction.includes('- bash_output:'));
   } finally {

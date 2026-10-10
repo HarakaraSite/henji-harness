@@ -1,0 +1,6 @@
+{
+  "name": "wc",
+  "revision": "1",
+  "apiContract": "henji-tool/v1",
+  "entry": "index.ts"
+}

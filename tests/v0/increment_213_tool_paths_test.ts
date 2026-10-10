@@ -28,6 +28,9 @@ Deno.test('213 common path settings resolve current roots, share deny, and repla
       home: root,
     });
     deepStrictEqual(settings.forTool('read').allowedPaths, ['/']);
+    for (const name of ['ls', 'find', 'grep', 'wc']) {
+      deepStrictEqual(settings.forTool(name).allowedPaths, ['/']);
+    }
     deepStrictEqual(settings.forTool('run_typescript').allowedPaths, [configRoot]);
     deepStrictEqual(settings.forTool('write').allowedPaths, [workspaceRoot, '/tmp']);
     for (
@@ -36,7 +39,10 @@ Deno.test('213 common path settings resolve current roots, share deny, and repla
         'write',
         'edit',
         'run_typescript',
-        'search',
+        'ls',
+        'find',
+        'grep',
+        'wc',
         'git_inspect',
         'web_fetch',
       ]

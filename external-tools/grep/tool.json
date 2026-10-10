@@ -1,6 +1,6 @@
 {
-  "name": "search",
-  "revision": "local-5",
+  "name": "grep",
+  "revision": "local-1",
   "apiContract": "henji-tool/v1",
   "entry": "index.ts"
 }

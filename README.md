@@ -42,12 +42,15 @@ deno task --config deno.v0.json hjh:package
 # Run install.sh in the package directory printed by the command above.
 ```
 
-The package includes editable `search`, `git_inspect`, `web_search`, and `web_fetch` tool folders
-and the `runtime-start-time` hook. Run its `install.sh` to install the binary, register the tools,
-and enable the default hook. Local search prefers rg and uses grep when rg is unavailable, and
-`git_inspect` inspects the workspace repository read-only. Existing external source edits are
-retained unless the corresponding `--replace-tools` or `--replace-hooks` option is specified. See
-the [package instructions](external-tools/README.md) for installation options.
+The package includes editable `ls`, `find`, `grep`, `wc`, `git_inspect`, `web_search`, and
+`web_fetch` tool folders and the `runtime-start-time` hook. Run its `install.sh` to install the
+binary, register the tools, and enable the default hook. Name discovery prefers installed fd and
+falls back to GNU find; content search prefers installed rg and falls back to GNU grep. These
+commands are not bundled or downloaded. The selected backend is included in startup tool
+descriptions and result JSON, and `git_inspect` inspects the workspace repository read-only.
+Existing external source edits are retained unless the corresponding `--replace-tools` or
+`--replace-hooks` option is specified. See the [package instructions](external-tools/README.md) for
+installation options.
 
 Use `hjh --help` and `hjh COMMAND --help` to see the available commands and options.
 
@@ -354,9 +357,9 @@ export default marker;
 ```
 
 Import `ToolFactory` or `ToolFactoryInput` from `jsr:@henji/harness@0.11.0`. The standalone binary
-bundles its default Agent and core tools. `search`, `git_inspect`, `web_search`, and `web_fetch` are
-supplied as editable folders in the package and registered by its installer. Named Agent and tool
-files are selected from the config directory.
+bundles its default Agent and core tools. `ls`, `find`, `grep`, `wc`, `git_inspect`, `web_search`,
+and `web_fetch` are supplied as editable folders in the package and registered by its installer.
+Named Agent and tool files are selected from the config directory.
 
 ## Links
 

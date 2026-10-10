@@ -123,7 +123,7 @@ export const activateRepositoryExternalToolBindings = async (
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) throw error;
   }
-  for (const name of ['search', 'git_inspect', 'web_search', 'web_fetch']) {
+  for (const name of ['ls', 'find', 'grep', 'wc', 'git_inspect', 'web_search', 'web_fetch']) {
     const folder = decodeURIComponent(
       new URL(`../../../external-tools/${name}`, import.meta.url).pathname,
     );

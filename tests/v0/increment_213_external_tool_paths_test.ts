@@ -1,13 +1,9 @@
 import { ok, strictEqual } from 'node:assert';
-import {
-  createToolPathPolicy,
-  type ProcessExecutor,
-  type ToolFactoryInput,
-  type Workspace,
-} from '@henji/tool';
+import { createToolPathPolicy, type ToolFactoryInput, type Workspace } from '@henji/tool';
 import { createDataClient } from '../../v0/agent/data/client.ts';
 import { WorkerHostSession } from '../../v0/agent/worker/worker_host_session.ts';
-import searchFactory from '../../external-tools/search/index.ts';
+import lsFactory from '../../external-tools/ls/index.ts';
+import wcFactory from '../../external-tools/wc/index.ts';
 import { createWebFetchTool } from './helpers/external_web_tools.ts';
 
 const decoder = new TextDecoder();
@@ -41,21 +37,24 @@ const configureExternalTools = async (
     name: 'increment-213-external-paths',
     revision: 'test',
     instruction: '',
-    tools: ['git_inspect', 'search'],
+    tools: ['git_inspect', 'ls', 'find', 'grep', 'wc'],
     agents: [],
   });
   await writeJson(`${configRoot}/tools.json`, {
     schemaVersion: 1,
     tools: {
       git_inspect: 'tools/git_inspect',
-      search: 'tools/search',
+      ls: 'tools/ls',
+      find: 'tools/find',
+      grep: 'tools/grep',
+      wc: 'tools/wc',
     },
   });
   await writeJson(`${configRoot}/tool-paths.json`, {
     schemaVersion: 1,
     deny: [deniedPath],
   });
-  for (const name of ['git_inspect', 'search']) {
+  for (const name of ['git_inspect', 'ls', 'find', 'grep', 'wc']) {
     const source = decodeURIComponent(
       new URL(`../../external-tools/${name}/`, import.meta.url).pathname,
     );
@@ -165,7 +164,7 @@ const makeRepository = async (workspaceRoot: string, home: string): Promise<void
   await Deno.writeTextFile(`${workspaceRoot}/visible.txt`, 'VISIBLE_TOKEN changed\n');
 };
 
-Deno.test('increment 213 external search and git_inspect omit common-denied files', async () => {
+Deno.test('increment 213 external inspection tools and git_inspect omit common-denied files', async () => {
   const base = await Deno.makeTempDir({ prefix: 'henji-i213-external-paths-' });
   const workspaceRoot = `${base}/workspace`;
   const configRoot = `${base}/config`;
@@ -183,17 +182,15 @@ Deno.test('increment 213 external search and git_inspect omit common-denied file
 
   const worker = await openWorker(workspaceRoot, configRoot, `${base}/state`);
   try {
-    const configEntries = await callTool(worker.session, 'search', {
-      mode: 'entries',
+    const configEntries = await callTool(worker.session, 'ls', {
       path: configRoot,
     });
-    const configEntryPaths = (configEntries.records as Array<Record<string, unknown>>).map(
+    const configEntryPaths = (configEntries.entries as Array<Record<string, unknown>>).map(
       (record) => String(record.path),
     );
     ok(configEntryPaths.includes('../config/catalog-note.txt'), configEntryPaths.join(','));
     ok(!configEntryPaths.includes('../config/credential-alias'), configEntryPaths.join(','));
-    const configContent = await callTool(worker.session, 'search', {
-      mode: 'content',
+    const configContent = await callTool(worker.session, 'grep', {
       path: configRoot,
       pattern: 'CATALOG_TOKEN',
     });
@@ -202,8 +199,7 @@ Deno.test('increment 213 external search and git_inspect omit common-denied file
     strictEqual(configRecords[0]?.path, '../config/catalog-note.txt');
     ok(String(configRecords[0]?.text).includes('config contents'));
 
-    const content = await callTool(worker.session, 'search', {
-      mode: 'content',
+    const content = await callTool(worker.session, 'grep', {
       pattern: 'TOKEN',
       path: '.',
       limit: 100,
@@ -214,29 +210,23 @@ Deno.test('increment 213 external search and git_inspect omit common-denied file
     ok(String(contentRecords[0]?.text).includes('VISIBLE_TOKEN'));
     ok(!JSON.stringify(content).includes('PRIVATE_TOKEN'));
 
-    const entries = await callTool(worker.session, 'search', {
-      mode: 'entries',
+    const entries = await callTool(worker.session, 'ls', {
       path: '.',
+      tree: true,
       depth: 2,
       limit: 100,
     });
-    const entryPaths = (entries.records as Array<Record<string, unknown>>).map((record) =>
+    const entryPaths = (entries.entries as Array<Record<string, unknown>>).map((record) =>
       String(record.path)
     );
     ok(!entryPaths.includes('private'), entryPaths.join(','));
     ok(!entryPaths.includes('private/denied.txt'), entryPaths.join(','));
 
-    const stats = await callTool(worker.session, 'search', {
-      mode: 'stats',
-      path: '.',
-      limit: 100,
-    });
-    const statPaths = (stats.records as Array<Record<string, unknown>>).map((record) =>
-      String(record.path)
-    );
-    ok(statPaths.includes('visible.txt'), statPaths.join(','));
-    ok(!statPaths.includes('private/denied.txt'), statPaths.join(','));
-
+    const found = await callTool(worker.session, 'find', { pattern: '*.txt' });
+    ok((found.records as string[]).includes('visible.txt'));
+    ok(!(found.records as string[]).includes('private/denied.txt'));
+    const stats = await callTool(worker.session, 'wc', { files: ['visible.txt'] });
+    strictEqual((stats.records as Array<Record<string, unknown>>)[0]?.path, 'visible.txt');
     const status = await callTool(worker.session, 'git_inspect', { op: 'status' });
     ok(String(status.text).includes('visible.txt'), String(status.text));
     ok(!String(status.text).includes('private/denied.txt'), String(status.text));
@@ -437,8 +427,8 @@ Deno.test('increment 213 web_fetch save_to follows common deny and tool allow pa
   }
 });
 
-Deno.test('increment 213 search expands allowed home paths and preserves workspace symlink names', async () => {
-  const base = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-i213-search-home-' });
+Deno.test('increment 213 ls and wc expand allowed home paths and preserves workspace symlink names', async () => {
+  const base = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-i213-inspection-home-' });
   const workspaceRoot = `${base}/workspace`;
   const homeRoot = `${base}/home`;
   await Deno.mkdir(`${workspaceRoot}/real`, { recursive: true });
@@ -460,35 +450,27 @@ Deno.test('increment 213 search expands allowed home paths and preserves workspa
     [],
     home,
   );
-  const processExecutor = {
-    start: () => {
-      throw new Error('process executor should not be used for stats or entries');
-    },
-  } as unknown as ProcessExecutor;
-  const tool = await searchFactory({
-    workspace,
-    pathPolicy,
-    processExecutor,
-  } as unknown as ToolFactoryInput);
-  const search = async (mode: string, path: string): Promise<Record<string, unknown>> => {
-    const result = await tool.execute({ mode, path });
-    if (typeof result !== 'string') throw new Error('search returned a non-text result');
-    return JSON.parse(result) as Record<string, unknown>;
-  };
+  const input = { workspace, pathPolicy } as unknown as ToolFactoryInput;
+  const listing = await lsFactory(input);
+  const stats = await wcFactory(input);
+  const stat = async (path: string): Promise<Record<string, unknown>> =>
+    JSON.parse(String(await stats.execute({ files: [path] })));
+  const list = async (path: string): Promise<Record<string, unknown>> =>
+    JSON.parse(String(await listing.execute({ path })));
 
   try {
-    const homeStats = await search('stats', '~/README.md');
+    const homeStats = await stat('~/README.md');
     const homeStat = (homeStats.records as Array<Record<string, unknown>>)[0];
     ok(String(homeStat?.path).endsWith('/home/README.md'), String(homeStat?.path));
     strictEqual(homeStat?.bytes, 'home document\n'.length);
 
-    const homeEntries = await search('entries', '~/docs');
-    const homeEntry = (homeEntries.records as Array<Record<string, unknown>>).find((record) =>
+    const homeEntries = await list('~/docs');
+    const homeEntry = (homeEntries.entries as Array<Record<string, unknown>>).find((record) =>
       String(record.path).endsWith('/home/docs/article.md')
     );
-    ok(homeEntry, JSON.stringify(homeEntries.records));
+    ok(homeEntry, JSON.stringify(homeEntries.entries));
 
-    const symlinkStats = await search('stats', 'alias.md');
+    const symlinkStats = await stat('alias.md');
     const symlinkRecord = (symlinkStats.records as Array<Record<string, unknown>>)[0];
     strictEqual(symlinkRecord?.path, 'alias.md');
   } finally {

@@ -732,3 +732,16 @@ Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () 
   assertEquals(slashCommandCandidates(' /help'), []);
   assertEquals(slashCommandCandidates('ordinary task'), []);
 });
+
+Deno.test('four inspection tools expose their separate task arguments in previews', () => {
+  const cases = [
+    ['ls', { path: 'src', tree: true, depth: 2 }, ['tree', 'src', 'depth=2']],
+    ['find', { pattern: '*.ts', path: 'src', limit: 5 }, ['*.ts', 'src', 'limit=5']],
+    ['grep', { pattern: 'TODO', glob: ['*.ts', '!vendor/**'] }, ['TODO', '!vendor/**']],
+    ['wc', { files: ['README.md', 'src/main.ts'] }, ['README.md', 'src/main.ts']],
+  ] as const;
+  for (const [name, argumentsValue, expected] of cases) {
+    const text = toolCallText(name, argumentsValue);
+    for (const part of expected) assert(text.includes(part), text);
+  }
+});

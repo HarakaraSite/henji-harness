@@ -612,7 +612,10 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
         'edit',
         'read',
         'run_typescript',
-        'search',
+        'ls',
+        'find',
+        'grep',
+        'wc',
         'web_search',
         'write',
       ]
@@ -621,15 +624,14 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
     }
     for (
       const preferredOverBash of [
-        '- bash: Prefer the dedicated tools over bash when they apply: read for file inspection, write and edit for workspace file changes, search for path and content lookup, and run_typescript for aggregation, transformations, and other scripted work on data.',
-        '- write: Prefer write over shell redirection or heredocs in bash when creating or replacing a workspace file.',
-        '- edit: Prefer edit over sed, awk, or perl in bash for targeted changes to an existing workspace file.',
-        '- search: Use search instead of bash ls, find, grep, rg, or wc for supported workspace listing, discovery, text search, and file counts. Use entries for direct directory children and metadata; paths for recursive file lists; files for matching file paths; content for matching lines; count for pattern occurrences; stats for file line, word, and byte counts.',
+        '- bash: Prefer the dedicated tools over bash when they apply: read for file inspection, write and edit for workspace file changes, ls for directory listings and trees, find for name/path discovery, grep for content lookup, wc for file statistics, and run_typescript for aggregation, transformations, and other scripted work on data.',
+        '- write: Prefer write over shell redirection or heredocs in bash when creating or replacing a file in its allowed paths.',
+        '- edit: Prefer edit over sed, awk, or perl in bash for targeted changes to an existing file in its allowed paths.',
         '- git_inspect: Use git_inspect for supported workspace Git status, diff, log, and show operations; do not run these operations through bash. Use op:"diff" for git diff, add staged:true for git diff --cached, or stat:true for git diff --stat. Use paths to scope a diff and offset/limit to page it without shell filters.',
         '- run_typescript: For JSON/JSONL/CSV aggregation, transformations and small calculations, execute code with run_typescript rather than bash',
       ]
     ) {
-      assert(guidelines.some((line) => line.startsWith(preferredOverBash)));
+      assert(guidelines.some((line) => line.startsWith(preferredOverBash)), preferredOverBash);
     }
     for (
       const outputHandling of [

@@ -223,7 +223,10 @@ export const loadToolPathsConfiguration = async (
     write: writable,
     edit: writable,
     run_typescript: writable,
-    search: ['/'],
+    ls: ['/'],
+    find: ['/'],
+    grep: ['/'],
+    wc: ['/'],
     git_inspect: [options.workspaceRoot],
     web_fetch: [options.workspaceRoot, '/tmp'],
   };

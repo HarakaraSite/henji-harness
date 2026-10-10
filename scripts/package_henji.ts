@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOOK_API_CONTRACT } from '../v0/agent/hook_api.ts';
 
-const toolNames = ['search', 'git_inspect', 'web_search', 'web_fetch'] as const;
+const toolNames = ['ls', 'find', 'grep', 'wc', 'git_inspect', 'web_search', 'web_fetch'] as const;
 const hookNames = ['runtime-start-time'] as const;
 const repository = fileURLToPath(new URL('../', import.meta.url));
 

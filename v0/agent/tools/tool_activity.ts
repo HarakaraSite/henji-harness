@@ -194,6 +194,35 @@ export const toolActivityPreview = (name: string, args: unknown): string => {
     case 'search':
       preview = searchPreview(args);
       break;
+    case 'ls':
+      preview = [
+        args.tree === true ? 'tree' : '',
+        firstLine(args.path) ?? '.',
+        typeof args.depth === 'number' && Number.isSafeInteger(args.depth) && args.depth >= 0
+          ? `depth=${args.depth}`
+          : '',
+      ]
+        .filter(Boolean).join(' ');
+      break;
+    case 'find':
+    case 'grep': {
+      const pattern = firstLine(args.pattern);
+      const globs = Array.isArray(args.glob)
+        ? args.glob.filter((g) => typeof g === 'string').join(',')
+        : undefined;
+      preview = [
+        pattern === undefined ? '' : quotedElement(pattern, SEARCH_PATTERN_BYTES),
+        globs ? `glob=${quotedElement(globs, SEARCH_GLOB_BYTES)}` : '',
+        boundedElement(firstLine(args.path) ?? '.', SEARCH_PATH_BYTES),
+        positiveSafeInteger(args.limit) ? `limit=${args.limit}` : '',
+      ].filter(Boolean).join(' ');
+      break;
+    }
+    case 'wc':
+      preview = Array.isArray(args.files)
+        ? args.files.filter((p) => typeof p === 'string').join(', ')
+        : undefined;
+      break;
     case 'run_typescript':
       preview = runTypescriptPreview(args.code);
       break;

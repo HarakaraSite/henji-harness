@@ -3,8 +3,11 @@
 再開時の入口。現在地・次の一手・正本へのpointer・承認境界だけを保持する。
 計画・結果・完了履歴は担当正本を参照する。
 
-## 現在地（2026-10-09）
+## 現在地（2026-10-10）
 
+- [Increment 223](../docs/increments/increment-223.md)のlocal実装・tool別test/review・search廃止・instruction確認・4
+  tool e2eを完了した。 実providerは1turn・2 model
+  request。結果・証拠・制約は223第11節。並列tool完了表示は利用者指示で現状維持（223第11.4節）。
 - [Increment 222](../docs/increments/increment-222.md)の表示上限十倍化（2,048→20,480 bytes）は
   利用者指示でlocal実装・focused確認・隔離compiled Core/TUI確認を完了した。
   検証済みcandidateを後続の「配置して　配置後の確認は省略」で常用配置した。
@@ -22,7 +25,8 @@
   詳細は[ホーム起動復旧記録](../docs/operations/native-0.11.0-deployment.md#ホームworkspaceの旧履歴db削除と起動復旧--2026-10-09)。
   source/binary変更はない。この復旧記録も今回のcommit対象とした。
 - 通常利用メモ`docs/experience/normal-use-inbox.md`の会話中の追記も今回のcommit対象とした。
-  表示の本格対応S38、入力見積もりのフッター表示S39、cache usage取得・分析A29、searchの比較を保持する。
+  表示の本格対応S38、入力見積もりのフッター表示S39、cache
+  usage取得・分析A29、searchの比較を保持する。
   記載だけでは採用・実装を意味しない。別途作成された`docs/plans/search-tool-revision.md`は今回の対象外。
   未追跡`scripts/diagnostics/__pycache__/`は既存の生成物として保持し、commit対象外。
 - [Increment 220](../docs/increments/increment-220.md)に直前の実装・配置結果を保持する。
@@ -96,6 +100,10 @@
 
 ## 次の一手
 
+- 223の追加作業は利用者指示に従う。local実装・確認は完了。実provider確認も終了した。
+  後続指示でcommit・常用配置を承認済み。次はclean sourceのbuildと4
+  tool登録・案内の切替、隔離配置確認。
+  push、構想・architecture・roadmap反映は別途承認。完了表示は現状維持。
 - 222のlocal変更は検証・常用配置済みで今回のcommit/push対象。追加作業は利用者指示に従う。新上限も超える本文の表示省略は
   暫定対応の残制約で、完全な修正はS38の採用判断を待つ。
 - 221は利用者判断で完了。結果は第11.12〜11.13節。追加作業は利用者指示に従う。
@@ -137,6 +145,15 @@
 
 ## 承認境界
 
+- A37・A38が次の対象であり、分割方針、grepの`!`を含むrg相当、`.gitignore`尊重を利用者が示した。
+  対象4 toolの全て外部定義と、参照実装を踏まえた機能絞り込みも利用者指示である。 ls独立による4
+  tool構成とlsのJSON treeを利用者が指定した。
+  現行searchと同じ検索範囲、search廃止、接続変更を含む計画修正も利用者指示である。 native
+  backendの意味を許容し、起動時説明と実行を同じbackendで揃える方針、rg/fd同梱・自動取得なしも確定。
+  schema細部は223の契約内で実装側が決める。後続指示でlocal実装・toolごとのtest/review・search削除・instruction挿入確認・4
+  tool e2eと最小限の実provider利用を承認済み。
+  後続の「コミットして配置」でcommit・常用配置と必要なtool登録・案内の切替を承認した。
+  push、構想・architecture・roadmap変更は含めない。
 - 222の表示上限十倍化は利用者指示で実装・確認済み。後続の「配置して　配置後の確認は省略」で
   常用配置を実施し、配置後確認は省略した。後続指示に合わせcommit/push対象とした。既存Core/TUIは再起動していない。
 - 221の計画作成・通常/批判的review・指摘反映・中断記録と再開時の限定再確認は利用者指示で実施済み。
