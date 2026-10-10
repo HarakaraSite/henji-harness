@@ -518,7 +518,7 @@ mutable bandへ入れないことと整合する。tool処理・保存の失敗�
 利用者はこの表示を既知の問題と認識し、「このままでいい」と現状維持を指示した。追加修正は行わず、通常利用メモへ加えたB13は未解決候補から外した。
 
 localの4 tool実装、test/review、search削除、instruction挿入、4 tool e2eは完了。
-実config更新・常用配置・commit/pushは今回の承認範囲に含めず、実施していない。
+実装・e2e時点では実config更新・常用配置・commit/pushは未実施だった。後続のcommit・配置指示は第12節。
 構想・architecture・roadmap正本は未変更。反映案は第7節に保持し、別途明示承認を得る。
 
 ## 12. コミット・常用配置（2026-10-10）
@@ -526,11 +526,24 @@ localの4 tool実装、test/review、search削除、instruction挿入、4 tool e
 利用者の「このままでいい　コミットして配置」により、今回のlocal変更のcommitと常用配置を承認した。
 並列toolの完了表示は現状維持。push、構想・architecture・roadmap正本の変更はこの依頼に含めない。
 
-commit済みsourceからcandidateをbuildし、E2E済みbinaryとembedded runtime
-digestが一致することを確認して `dist/hjh`と常用`hjh`へ配置する。4 tool
-folderを常用configへコピーし、旧search登録を外して4名へ切り替える。 reviewerとuser scope
-instructionの旧search案内も4 toolへ更新する。既存tool sourceと設定は退避し、
-無関係の設定・履歴・credentialは変更しない。配置後は隔離XDGでinstalled binaryと外部toolの起動・
-instruction・4
-tool呼出しをlocalhostで確認する。実providerを追加利用せず、既存の稼働Core/TUIは再起動しない。
-結果は本節と`.tools/increment-223-deployment/`へ記録する。
+実装を`c3a1e3a9`へcommitし、そのclean sourceからcandidateをbuildした。 E2E済みbinaryとembedded
+runtime SHA-256が一致し、4外部toolのfile hashも実provider e2eのassetと一致した。
+`dist/hjh`と常用`hjh`へatomicに配置し、両方のbinary hashを照合した。
+
+- build ID: `348f17150051f9f43a7c5dba6e6fbc7645a4721afd83c33ad2728b450a479170`
+- embedded runtime SHA-256: `07019cde231b9470833f0a02c913db9dbbea9d11cc4eea586c156134081ff86b`
+- binary SHA-256: `f291aae0719bbf3a46a02e41d0e240554006dfcda38ab78c8a2181a5859a9d6a`
+- build sourceDirty: `false`
+
+4 tool folderを常用configへ配置・登録し、旧searchの登録を解除した。reviewer設定とuser scope
+instructionの旧6mode案内も4 toolへ更新した。旧search sourceは削除せず保持し、旧binaryと関連設定は
+`.tools/increment-223-deployment/`へ退避した。無関係のtool・設定・履歴・credentialは変更していない。
+
+配置後はinstalled binaryと常用環境からコピーした4 tool source・user instructionを隔離XDGで起動した。
+localhostの4 tool同時呼出し、startup tool説明のbackendとsystem instruction挿入、結果保存、 compiled
+Core/TUI・保存Session再表示の確認に成功した。配置時の実provider追加利用は0。
+既存の稼働Core/TUIは再起動していない。新しいCore起動から新binary・tool設定を使う。
+
+配置・退避・照合の証拠は`.tools/increment-223-deployment/deployment.json`、
+配置後確認は`.tools/increment-223-deployment/localhost-20261010T090742/report.json`とsemantic
+readback/TUI capture。 並列toolのlive完了記号は利用者が選んだ現状を保持した。

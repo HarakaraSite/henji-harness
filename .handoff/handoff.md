@@ -8,6 +8,8 @@
 - [Increment 223](../docs/increments/increment-223.md)のlocal実装・tool別test/review・search廃止・instruction確認・4
   tool e2eを完了した。 実providerは1turn・2 model
   request。結果・証拠・制約は223第11節。並列tool完了表示は利用者指示で現状維持（223第11.4節）。
+  後続指示で実装を`c3a1e3a9`へcommitし、4外部toolとclean
+  buildの常用配置・隔離配置後確認を完了した（223第12節）。
 - [Increment 222](../docs/increments/increment-222.md)の表示上限十倍化（2,048→20,480 bytes）は
   利用者指示でlocal実装・focused確認・隔離compiled Core/TUI確認を完了した。
   検証済みcandidateを後続の「配置して　配置後の確認は省略」で常用配置した。
@@ -86,11 +88,10 @@
 - [Increment 217](../docs/increments/increment-217.md)に、214〜217適用後のcompiled
   Core/TUIメモリ観測と
   利用者指示による常用配置の結果を追記した。詳細な条件・結果・未確認範囲は217を参照する。
-- 常用binaryは`hjh` 0.11.0、build入力`b085bcf5`＋222のlocal source変更、build `b3ac4ac1…`。
-  `dist/hjh`と常用binaryへ配置した。隔離Core/TUI確認は配置前candidateで完了し、配置後確認は
-  利用者の明示指示で省略した。
-  既存の稼働Core/TUIは再起動していない。新しいCore/TUI起動から適用する。
-  退避先と検証結果は[配置記録](../docs/operations/native-0.11.0-deployment.md)を参照する。
+- 常用binaryは`hjh` 0.11.0、source `c3a1e3a9`、clean build `348f1715…`。
+  `dist/hjh`と常用binaryへ配置し、ls/find/grep/wcの登録・reviewer・user scope案内も切り替えた。
+  配置後の隔離localhost確認を完了。既存の稼働Core/TUIは再起動せず、新しいCore起動から適用する。
+  退避先と検証結果は[223第12節](../docs/increments/increment-223.md#12-コミット常用配置2026-10-10)と配置記録を参照する。
 - 217までの実装sourceは`6315beed`までorigin/mainへpush済み。217の完了・メモリ観測・配置記録と、
   通常利用メモのA37・A38（searchの`!`除外とmode命名）はcommit済み。
   218の実装・test・結果、219の5分周期trim・追加測定記録と採用P1修正、220の改名まで

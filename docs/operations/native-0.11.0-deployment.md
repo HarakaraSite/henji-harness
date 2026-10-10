@@ -310,7 +310,8 @@ detach後のCore存続と`core stop`による正常停止、停止後のquick_ch
 - source: `b085bcf5ed63bbbfc32a691012e4ec04e7e3bb7f`＋222のlocal source変更、sourceDirty: `true`
 - build ID: `b3ac4ac19c7cdad177a651a7181c330e98c45c72bac952fb8ed38d9d5893f119`
 - runtime SHA-256: `801d9c8c9cab3708f80cef57272ba53273e860e2837b765b07d23fbcdccefca4`
-- 配置前candidateのbinary SHA-256: `2afead8b8a851c290672e3def41802c3ad8702694ce4bfdfe7010eed6a9c30eb`
+- 配置前candidateのbinary SHA-256:
+  `2afead8b8a851c290672e3def41802c3ad8702694ce4bfdfe7010eed6a9c30eb`
 - 旧binary退避先: `.tools/increment-222-deployment/hjh.dist.previous`と`hjh.local.previous`
 
 配置前candidateのfocused test・type/format/lintと隔離compiled Core/TUI確認は222へ記録済み。
@@ -318,3 +319,28 @@ detach後のCore存続と`core stop`による正常停止、停止後のquick_ch
 既存Core/TUIは再起動せず、新しいCore/TUI起動から適用する。追加provider callは0。
 実config・履歴DBは変更せず、配置時点ではcommit/pushを実施していない。
 配置操作の記録は`.tools/increment-222-deployment/deployment.json`。
+
+## Increment 223の4外部tool配置 — 2026-10-10
+
+利用者の「コミットして配置」により、[Increment 223](../increments/increment-223.md#12-コミット常用配置2026-10-10)を
+`c3a1e3a9`へcommitし、clean sourceからbuildしたcandidateを`dist/hjh`と常用`hjh`へatomic配置した。
+E2E済みcandidateとのembedded runtime digestと4外部toolのhash一致、配置先のbinary hashを確認した。
+
+- build ID: `348f17150051f9f43a7c5dba6e6fbc7645a4721afd83c33ad2728b450a479170`
+- sourceDirty: `false`
+- embedded runtime SHA-256: `07019cde231b9470833f0a02c913db9dbbea9d11cc4eea586c156134081ff86b`
+- binary SHA-256: `f291aae0719bbf3a46a02e41d0e240554006dfcda38ab78c8a2181a5859a9d6a`
+
+常用configのtool登録をsearchからls/find/grep/wcへ切り替え、4 folder、reviewer設定とuser scope
+instructionを更新した。 旧search
+sourceは保持し、旧binary・設定・sourceを`.tools/increment-223-deployment/`へ退避した。
+web_search/web_fetch/git_inspectの登録と無関係の設定・履歴・credentialは変更していない。
+
+installed binaryと配置したtool source・user instructionを隔離XDG/localhostで起動し、4 toolの呼出し、
+起動時backend説明とinstruction、semantic保存、tmux上のcompiled
+Core/TUI・保存Session再表示を確認した。
+配置後確認は`localhost-20261010T090742`のreportとreadback。実providerの追加利用は0。
+既存Core/TUIは再起動せず、新しいCore起動から適用する。live並列tool完了表示は利用者指示で現状維持。
+
+証拠: `.tools/increment-223-deployment/deployment.json`、
+`.tools/increment-223-deployment/localhost-20261010T090742/report.json`。詳細は223第12節。
